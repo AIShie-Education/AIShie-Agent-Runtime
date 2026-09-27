@@ -395,11 +395,26 @@ func TestRunServesAndStops(t *testing.T) {
 	if a := w.fc.Answers(conv.ID)[0]; !strings.HasPrefix(a.Body, "Answer: When is HW1 due?") {
 		t.Errorf("the answer: %q", a.Body)
 	}
-	code, metrics := get("/metrics")
-	for _, want := range []string{"go_goroutines", "process_cpu_seconds_total", `answers_total{outcome="posted"} 1`, "inbox_polls_total{"} {
-		if code != http.StatusOK || !strings.Contains(metrics, want) {
-			t.Errorf("/metrics lacks %s", want)
+	// The answer is counted once Core's reply is back, which may be just
+	// after the fake Core shows it: wait for the count.
+	wants := []string{"go_goroutines", "process_cpu_seconds_total", `answers_total{outcome="posted"} 1`, "inbox_polls_total{"}
+	deadline = time.Now().Add(10 * time.Second)
+	for {
+		code, metrics := get("/metrics")
+		var missing []string
+		for _, want := range wants {
+			if code != http.StatusOK || !strings.Contains(metrics, want) {
+				missing = append(missing, want)
+			}
 		}
+		if len(missing) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Errorf("/metrics lacks %s", strings.Join(missing, ", "))
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 
 	if err := cmd.Process.Signal(syscall.SIGHUP); err != nil {
