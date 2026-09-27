@@ -29,7 +29,7 @@ func theBinary(t *testing.T, w *world) {
 	snapshot := filepath.Join(root, "internal", "core", "testdata", "catalogue.json")
 	out := w.runBinary(t, bin, nil, "catalogue", "--core", w.api.base, "--check", snapshot)
 	if !strings.HasPrefix(out, worker.SnapshotCatalogueHash+" ") || !strings.Contains(out, "the same as "+snapshot) {
-		t.Errorf("catalogue --check printed:\n%s\nwant the snapshot's hash %s, and that it is the same", out, worker.SnapshotCatalogueHash)
+		t.Errorf("catalogue --check printed:\n%s\nwant the snapshot's hash %s, and that it is the same", redact.String(out), worker.SnapshotCatalogueHash)
 	}
 
 	m := newModel(t, fakellm.DefaultResponder)
@@ -43,7 +43,7 @@ func theBinary(t *testing.T, w *world) {
 		"every agent connects",
 	} {
 		if !strings.Contains(out, want) {
-			t.Errorf("check --live does not say %q; it printed:\n%s", want, out)
+			t.Errorf("check --live does not say %q; it printed:\n%s", want, redact.String(out))
 		}
 	}
 	if len(m.Requests()) != 1 {

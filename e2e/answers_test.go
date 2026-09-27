@@ -35,6 +35,16 @@ func answerKey(conv, msg string, attempt int) string {
 	return fmt.Sprintf("answer:%s:%s:%d", conv, msg, attempt)
 }
 
+// attemptState says where an attempt stands, for a failure message: its
+// state, error and reason, and the action and message it made; never its
+// bytes.
+func attemptState(at *store.Attempt) string {
+	if at == nil {
+		return "missing"
+	}
+	return fmt.Sprintf("%s (error %q, reason %q, action %q, message %q)", at.State, at.ErrorCode, at.Reason, at.ActionID, at.PostedMessageID)
+}
+
 // question is the newest user turn of a model request: the question the
 // runtime asks the model to answer. Messages the opener wrote one after
 // another come as one turn, the newest last.
@@ -297,7 +307,7 @@ func movedOn(t *testing.T, w *world) {
 		t.Errorf("the first answer sent again under answer:{x}:{m1}:1: %s; want the moved_on refusal replayed", r)
 	}
 	if at := rt.attempt("yuki-helper", answerKey(conv, m1, 1)); at == nil || at.State != store.AttemptFailed {
-		t.Errorf("the runtime recorded the first attempt as %+v; want it failed", at)
+		t.Errorf("the runtime recorded the first attempt as %s; want it failed", attemptState(at))
 	}
 }
 
@@ -377,7 +387,7 @@ func duplicates(t *testing.T, w *world) {
 		case at.State == store.AttemptError && at.ErrorCode == "idempotency_conflict":
 			conflicted++
 		default:
-			t.Errorf("worker w%d recorded its attempt as %s (%s)", i+1, at.State, at.ErrorCode)
+			t.Errorf("worker w%d recorded its attempt as %s", i+1, attemptState(at))
 		}
 	}
 	if executed != 1 || conflicted != 1 {
@@ -446,7 +456,7 @@ func denied(t *testing.T, w *world) {
 		t.Error("the answer came without an inbox poll")
 	}
 	if at := rt.attempt("tutor", answerKey(conv, m1, 2)); at == nil || at.State != store.AttemptExecuted || at.PostedMessageID != answer.ID {
-		t.Errorf("the second attempt is recorded as %+v; want it executed, making %s", at, answer.ID)
+		t.Errorf("the second attempt is recorded as %s; want it executed, making %s", attemptState(at), answer.ID)
 	}
 	rt.settle("tutor", 3)
 	if n := len(w.answers(t, w.yuki, conv, w.tutor.member)); n != 1 {
@@ -504,7 +514,7 @@ func proposals(t *testing.T, w *world) {
 		return at != nil && at.State == store.AttemptProposed && at.ActionID == again
 	})
 	if at := rt.attempt("tutor", key1); at == nil || at.State != store.AttemptRejected || at.Reason != reason {
-		t.Errorf("the first attempt is recorded as %+v; want it rejected, with Mori's reason", at)
+		t.Errorf("the first attempt is recorded as %s; want it rejected, with Mori's reason", attemptState(at))
 	}
 	var first, withReason int
 	for _, req := range m.Requests() {

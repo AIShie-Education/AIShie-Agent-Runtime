@@ -36,9 +36,11 @@ var scenarios = []scenario{
 func TestRuntimeAgainstCore(t *testing.T) {
 	api, root := liveCore(t)
 	worlds := make([]*world, len(scenarios))
+	built := time.Now()
 	for i, sc := range scenarios {
 		worlds[i] = newWorld(t, api, root, sc.name)
 	}
+	t.Logf("built %d worlds in Core in %s", len(worlds), time.Since(built).Round(time.Millisecond))
 	t.Run("scenarios", func(t *testing.T) {
 		for i, sc := range scenarios {
 			t.Run(sc.name, func(t *testing.T) {
