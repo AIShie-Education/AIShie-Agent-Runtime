@@ -167,7 +167,7 @@ func TestWriteAheadResendsWhatACrashLeft(t *testing.T) {
 		t.Fatal(err)
 	}
 	model := scripted.New()
-	w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": model}, workerOpts{store: st})
+	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": model}, workerOpts{store: st})
 	got := w.waitAnswers(conv, 1)
 	if got[0].Body != "Written before the crash." || got[0].IdempotencyKey != key {
 		t.Errorf("answer %+v", got[0])
@@ -178,6 +178,17 @@ func TestWriteAheadResendsWhatACrashLeft(t *testing.T) {
 	eventually(t, "the attempt settled", func() bool {
 		at, err := st.Attempt(context.Background(), "yuki-helper", key)
 		return err == nil && at.State == store.AttemptExecuted
+	})
+	// The claim the crash cut short left no row in the ledger: the resend
+	// does, and the answer counts against the day's quotas.
+	eventually(t, "the answer's row in the ledger", func() bool { return len(wk.st.outcomes(conv)) == 1 })
+	_, recs := wk.st.ledger()
+	if r := recs[0]; r.Outcome != store.OutcomePosted || !r.Billable || r.Key != key || r.MessageID != msg {
+		t.Errorf("the ledger's row %+v", r)
+	}
+	eventually(t, "memory noting the answer", func() bool {
+		notes, _ := st.Notes(context.Background(), "yuki-helper", own.seat.ID, conv, 10)
+		return len(notes) == 1 && notes[0].Kind == store.NoteAnswered && notes[0].MessageID == got[0].ID
 	})
 }
 

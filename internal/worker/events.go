@@ -447,7 +447,7 @@ func (s *Seat) recover(ctx context.Context) {
 }
 
 // resendAtStart sends one attempt left sending again, as a claim would,
-// under the conversation's lease.
+// under the conversation's lease, and records its end in the ledger.
 func (s *Seat) resendAtStart(ctx context.Context, at store.Attempt) {
 	if !s.a.sched.reserve(at.ConversationID) {
 		return
@@ -484,4 +484,14 @@ func (s *Seat) resendAtStart(ctx context.Context, at store.Attempt) {
 	case NextStopAgent:
 		s.a.stop(core.ErrUnauthenticated)
 	}
+	// The claim that wrote it ended without a ledger row that says what
+	// became of it: this is that row. Who asked is not known here.
+	r := passResult{msg: at.MessageID, no: at.No, key: at.Key, kind: at.Kind, outcome: d.Outcome, postAt: s.a.now(), postedID: messageID(env)}
+	switch {
+	case at.Tool == toolAnswer && d.Next == NextDone:
+		r.posted, r.outcome = true, postedOutcome(at.Kind)
+	case d.Next == NextProposed:
+		r.posted = true
+	}
+	c.record(r)
 }
