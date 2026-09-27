@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -177,4 +178,71 @@ func TestWriteAheadResendsWhatACrashLeft(t *testing.T) {
 		at, err := st.Attempt(context.Background(), "yuki-helper", key)
 		return err == nil && at.State == store.AttemptExecuted
 	})
+}
+
+// leaseSwitch is a store whose agent leases can be made to belong to
+// someone else.
+type leaseSwitch struct {
+	store.Store
+	taken atomic.Bool
+}
+
+func (s *leaseSwitch) AcquireLease(ctx context.Context, name, holder string, ttl time.Duration) (bool, error) {
+	if s.taken.Load() && strings.HasPrefix(name, "agent:") {
+		return false, nil
+	}
+	return s.Store.AcquireLease(ctx, name, holder, ttl)
+}
+
+// TestLeaseLostStopsTheAgentAtOnce: when a renewal of the agent's lease
+// fails, the agent stops at once and calls Core no more; when the lease is
+// had again, it starts again and answers.
+func TestLeaseLostStopsTheAgentAtOnce(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("yuki-helper", 0)
+	st := &leaseSwitch{Store: memstore.New()}
+	model := scripted.New(scripted.Reply("Back with the lease."))
+	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": model}, workerOpts{store: st})
+	eventually(t, "the inbox polled", func() bool { return len(w.calls(own.actor.ID, "conversation_inbox")) > 0 })
+
+	st.taken.Store(true)
+	eventually(t, "the agent stopped", func() bool {
+		s := wk.sup.Status()
+		return len(s) == 1 && !s[0].Running && !s[0].Leased
+	})
+	n := len(w.calls(own.actor.ID, ""))
+	time.Sleep(200 * time.Millisecond) // ten lease ticks, many inbox intervals
+	if more := len(w.calls(own.actor.ID, "")) - n; more != 0 {
+		t.Errorf("%d calls to Core after the lease was lost", more)
+	}
+
+	st.taken.Store(false)
+	conv, _ := w.ask(0, own, "Are you back?")
+	w.waitAnswers(conv, 1)
+}
+
+// TestConversationLeasedElsewhereIsLeft: a conversation whose lease another
+// worker holds is left alone, with no model call, until the lease is free.
+func TestConversationLeasedElsewhereIsLeft(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("yuki-helper", 0)
+	st := memstore.New()
+	conv, msg := w.ask(0, own, "Who has this one?")
+	if ok, err := st.AcquireLease(context.Background(), "conv:yuki-helper:"+conv, "another-worker", time.Minute); err != nil || !ok {
+		t.Fatalf("lease: %v %v", ok, err)
+	}
+	model := scripted.New(scripted.Reply("Mine now."))
+	w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": model}, workerOpts{store: st})
+	eventually(t, "the inbox polled a few times", func() bool { return len(w.calls(own.actor.ID, "conversation_inbox")) > 3 })
+	if n := len(model.Requests()); n != 0 {
+		t.Fatalf("the model was called %d times for a conversation leased elsewhere", n)
+	}
+	if n := len(w.calls(own.actor.ID, "conversation_messages")); n != 0 {
+		t.Errorf("the conversation was read %d times", n)
+	}
+	w.ok(st.ReleaseLease(context.Background(), "conv:yuki-helper:"+conv, "another-worker"))
+	got := w.waitAnswers(conv, 1)
+	if got[0].IdempotencyKey != core.AnswerKey(conv, msg, 1) {
+		t.Errorf("answer %+v", got[0])
+	}
 }

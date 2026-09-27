@@ -321,3 +321,29 @@ func TestEventReadAgainAfterAStoreFailure(t *testing.T) {
 	}
 	w.waitAnswers(conv, 1)
 }
+
+// TestAttemptsExhaustedSkip: with on_attempts_exhausted skip, a question
+// whose attempts are spent is held back until the next UTC day, and the
+// conversation is not closed.
+func TestAttemptsExhaustedSkip(t *testing.T) {
+	w := newWorld(t)
+	model := scripted.New(scripted.Reply("The one try."))
+	tu, wk := confirmedTutor(t, w, model, map[string]any{"answer": map[string]any{"max_attempts": 1, "on_attempts_exhausted": "skip"}})
+	conv, msg := w.ask(0, tu, "Only one try?")
+	p := w.waitProposal(core.AnswerKey(conv, msg, 1))
+	w.ok(w.fc.Reject(p.ActionID, "No."))
+	eventually(t, "the question skipped", func() bool {
+		o := wk.st.outcomes(conv)
+		return len(o) > 0 && o[len(o)-1] == store.OutcomeSkipped
+	})
+	eventually(t, "the conversation held back", func() bool {
+		st := wk.sup.Status()
+		return len(st) == 1 && len(st[0].Seats) == 1 && st[0].Seats[0].HeldBack == 1
+	})
+	if n := len(w.calls(tu.actor.ID, toolClose)); n != 0 {
+		t.Errorf("conversation_close was called %d times", n)
+	}
+	if n := len(model.Requests()); n != 1 {
+		t.Errorf("the model was called %d times", n)
+	}
+}
