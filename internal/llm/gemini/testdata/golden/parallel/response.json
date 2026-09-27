@@ -1,0 +1,37 @@
+{
+  "model": "gemini-2.5-flash",
+  "parts": [
+    {
+      "args": {},
+      "id": "call_1",
+      "maker": "gemini|https://generativelanguage.googleapis.com|gemini-2.5-flash",
+      "name": "assignment_list",
+      "opaque": {
+        "thoughtSignature": "c2lnLXBhcmFsbGVsLTI="
+      },
+      "type": "tool_call"
+    },
+    {
+      "args": {},
+      "id": "call_2",
+      "name": "course_get",
+      "type": "tool_call"
+    }
+  ],
+  "raw_stop": "STOP",
+  "request_id": "resp-parallel",
+  "stop": "tool_calls",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 120,
+    "output": 18,
+    "raw": {
+      "candidatesTokenCount": 18,
+      "promptTokenCount": 120,
+      "totalTokenCount": 138
+    },
+    "reasoning": 0
+  }
+}

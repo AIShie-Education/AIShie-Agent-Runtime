@@ -1,0 +1,19 @@
+{
+  "model": "gemini-2.5-flash",
+  "parts": [],
+  "raw_stop": "promptFeedback:PROHIBITED_CONTENT",
+  "request_id": "resp-blocked",
+  "stop": "content_filter",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 17,
+    "output": 0,
+    "raw": {
+      "promptTokenCount": 17,
+      "totalTokenCount": 17
+    },
+    "reasoning": 0
+  }
+}

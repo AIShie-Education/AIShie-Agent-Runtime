@@ -1,0 +1,33 @@
+{
+  "model": "gemini-2.5-flash",
+  "parts": [
+    {
+      "args": {
+        "assignment_id": "0192f3c1-0000-7000-8000-0000000000a3"
+      },
+      "id": "fc-grade-2",
+      "maker": "gemini|https://generativelanguage.googleapis.com|gemini-2.5-flash",
+      "name": "grade_list",
+      "opaque": {
+        "id": "fc-grade-2"
+      },
+      "type": "tool_call"
+    }
+  ],
+  "raw_stop": "STOP",
+  "request_id": "resp-id",
+  "stop": "tool_calls",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 120,
+    "output": 18,
+    "raw": {
+      "candidatesTokenCount": 18,
+      "promptTokenCount": 120,
+      "totalTokenCount": 138
+    },
+    "reasoning": 0
+  }
+}

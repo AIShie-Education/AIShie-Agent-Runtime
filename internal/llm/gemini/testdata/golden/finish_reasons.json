@@ -1,0 +1,180 @@
+[
+  {
+    "finish_reason": "STOP",
+    "parts": [
+      "text"
+    ],
+    "raw_stop": "STOP",
+    "stop": "end"
+  },
+  {
+    "finish_reason": "MAX_TOKENS",
+    "parts": [
+      "text"
+    ],
+    "raw_stop": "MAX_TOKENS",
+    "stop": "max_tokens"
+  },
+  {
+    "finish_reason": "SAFETY",
+    "parts": [
+      "text"
+    ],
+    "raw_stop": "SAFETY",
+    "stop": "content_filter"
+  },
+  {
+    "finish_reason": "RECITATION",
+    "parts": [
+      "text"
+    ],
+    "raw_stop": "RECITATION",
+    "stop": "content_filter"
+  },
+  {
+    "finish_reason": "LANGUAGE",
+    "parts": [
+      "text"
+    ],
+    "raw_stop": "LANGUAGE",
+    "stop": "content_filter"
+  },
+  {
+    "finish_reason": "BLOCKLIST",
+    "parts": [
+      "text"
+    ],
+    "raw_stop": "BLOCKLIST",
+    "stop": "content_filter"
+  },
+  {
+    "finish_reason": "PROHIBITED_CONTENT",
+    "parts": [
+      "text"
+    ],
+    "raw_stop": "PROHIBITED_CONTENT",
+    "stop": "content_filter"
+  },
+  {
+    "finish_reason": "SPII",
+    "parts": [
+      "text"
+    ],
+    "raw_stop": "SPII",
+    "stop": "content_filter"
+  },
+  {
+    "finish_reason": "IMAGE_SAFETY",
+    "parts": [
+      "text"
+    ],
+    "raw_stop": "IMAGE_SAFETY",
+    "stop": "content_filter"
+  },
+  {
+    "finish_reason": "IMAGE_PROHIBITED_CONTENT",
+    "parts": [
+      "text"
+    ],
+    "raw_stop": "IMAGE_PROHIBITED_CONTENT",
+    "stop": "content_filter"
+  },
+  {
+    "finish_reason": "IMAGE_RECITATION",
+    "parts": [
+      "text"
+    ],
+    "raw_stop": "IMAGE_RECITATION",
+    "stop": "content_filter"
+  },
+  {
+    "finish_reason": "MALFORMED_FUNCTION_CALL",
+    "parts": [],
+    "raw_stop": "MALFORMED_FUNCTION_CALL",
+    "stop": "tool_error"
+  },
+  {
+    "finish_reason": "UNEXPECTED_TOOL_CALL",
+    "parts": [],
+    "raw_stop": "UNEXPECTED_TOOL_CALL",
+    "stop": "tool_error"
+  },
+  {
+    "finish_reason": "TOO_MANY_TOOL_CALLS",
+    "parts": [],
+    "raw_stop": "TOO_MANY_TOOL_CALLS",
+    "stop": "tool_error"
+  },
+  {
+    "finish_reason": "MISSING_THOUGHT_SIGNATURE",
+    "parts": [],
+    "raw_stop": "MISSING_THOUGHT_SIGNATURE",
+    "stop": "error"
+  },
+  {
+    "finish_reason": "MALFORMED_RESPONSE",
+    "parts": [],
+    "raw_stop": "MALFORMED_RESPONSE",
+    "stop": "error"
+  },
+  {
+    "finish_reason": "OTHER",
+    "parts": [
+      "text"
+    ],
+    "raw_stop": "OTHER",
+    "stop": "error"
+  },
+  {
+    "finish_reason": "IMAGE_OTHER",
+    "parts": [],
+    "raw_stop": "IMAGE_OTHER",
+    "stop": "error"
+  },
+  {
+    "finish_reason": "NO_IMAGE",
+    "parts": [],
+    "raw_stop": "NO_IMAGE",
+    "stop": "error"
+  },
+  {
+    "finish_reason": "FINISH_REASON_UNSPECIFIED",
+    "parts": [
+      "text"
+    ],
+    "raw_stop": "FINISH_REASON_UNSPECIFIED",
+    "stop": "error"
+  },
+  {
+    "finish_reason": "",
+    "parts": [
+      "text"
+    ],
+    "raw_stop": "",
+    "stop": "error"
+  },
+  {
+    "finish_reason": "A_REASON_FROM_THE_FUTURE",
+    "parts": [
+      "text"
+    ],
+    "raw_stop": "A_REASON_FROM_THE_FUTURE",
+    "stop": "error"
+  },
+  {
+    "finish_reason": "STOP",
+    "parts": [
+      "tool_call"
+    ],
+    "raw_stop": "STOP",
+    "stop": "tool_calls"
+  },
+  {
+    "finish_reason": "MAX_TOKENS",
+    "parts": [
+      "tool_call"
+    ],
+    "raw_stop": "MAX_TOKENS",
+    "stop": "tool_calls"
+  }
+]

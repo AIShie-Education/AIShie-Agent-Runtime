@@ -1,0 +1,31 @@
+{
+  "body": {
+    "contents": [
+      {
+        "parts": [
+          {
+            "text": "Explain recursion briefly."
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "generationConfig": {
+      "maxOutputTokens": 27576,
+      "temperature": 0.3,
+      "thinkingConfig": {
+        "includeThoughts": false,
+        "thinkingBudget": 24576
+      },
+      "topP": 0.9
+    },
+    "systemInstruction": {
+      "parts": [
+        {
+          "text": "You are the CS101 tutor. Answer from the course material only."
+        }
+      ]
+    }
+  },
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+}

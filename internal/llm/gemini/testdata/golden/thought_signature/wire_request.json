@@ -1,0 +1,147 @@
+{
+  "body": {
+    "contents": [
+      {
+        "parts": [
+          {
+            "text": "What did I get on HW3, and why?"
+          }
+        ],
+        "role": "user"
+      },
+      {
+        "parts": [
+          {
+            "text": "Let me look that up.",
+            "thoughtSignature": "c2lnLXRleHQ="
+          },
+          {
+            "functionCall": {
+              "args": {
+                "assignment_id": "0192f3c1-0000-7000-8000-0000000000a3"
+              },
+              "name": "grade_list"
+            },
+            "thoughtSignature": "c2lnLWNhbGw="
+          },
+          {
+            "text": "",
+            "thoughtSignature": "c2lnLWVtcHR5"
+          }
+        ],
+        "role": "model"
+      },
+      {
+        "parts": [
+          {
+            "functionResponse": {
+              "name": "grade_list",
+              "response": {
+                "output": {
+                  "result": {
+                    "grades": [
+                      {
+                        "points": "6.5"
+                      }
+                    ]
+                  },
+                  "status": "executed"
+                }
+              }
+            }
+          }
+        ],
+        "role": "user"
+      },
+      {
+        "parts": [
+          {
+            "text": "Now the rubric."
+          },
+          {
+            "functionCall": {
+              "args": {},
+              "name": "assignment_list"
+            }
+          }
+        ],
+        "role": "model"
+      },
+      {
+        "parts": [
+          {
+            "functionResponse": {
+              "name": "assignment_list",
+              "response": {
+                "output": {
+                  "result": {
+                    "assignments": []
+                  },
+                  "status": "executed"
+                }
+              }
+            }
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "generationConfig": {
+      "maxOutputTokens": 26076
+    },
+    "systemInstruction": {
+      "parts": [
+        {
+          "text": "You are the CS101 tutor. Answer from the course material only."
+        }
+      ]
+    },
+    "toolConfig": {
+      "functionCallingConfig": {
+        "mode": "AUTO"
+      }
+    },
+    "tools": [
+      {
+        "functionDeclarations": [
+          {
+            "description": "Lists the course's assignments.",
+            "name": "assignment_list",
+            "parametersJsonSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "limit": {
+                  "description": "How many to list (optional; omit or null)",
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            }
+          },
+          {
+            "description": "Lists the grades for an assignment.",
+            "name": "grade_list",
+            "parametersJsonSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "assignment_id": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "assignment_id"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "description": "Gets the course.",
+            "name": "course_get"
+          }
+        ]
+      }
+    ]
+  },
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+}

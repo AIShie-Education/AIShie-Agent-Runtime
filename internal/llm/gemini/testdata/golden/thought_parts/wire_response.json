@@ -1,0 +1,36 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "**Reading the feedback**\nThe grader noted failing edge-case tests.",
+            "thought": true,
+            "thoughtSignature": "dGhvdWdodC0y"
+          },
+          {
+            "codeExecutionResult": {
+              "outcome": "OUTCOME_OK",
+              "output": "0.65\n"
+            },
+            "thoughtSignature": "Y29kZS0x"
+          },
+          {
+            "text": "You lost 3.5 marks because the edge-case tests failed."
+          }
+        ]
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 300,
+    "candidatesTokenCount": 14,
+    "thoughtsTokenCount": 96,
+    "totalTokenCount": 410
+  },
+  "modelVersion": "gemini-2.5-flash",
+  "responseId": "resp-thought"
+}

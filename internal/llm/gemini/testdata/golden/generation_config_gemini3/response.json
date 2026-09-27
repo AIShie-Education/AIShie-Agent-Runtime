@@ -1,0 +1,29 @@
+{
+  "model": "gemini-3.1-pro-preview",
+  "parts": [
+    {
+      "maker": "gemini|https://generativelanguage.googleapis.com|gemini-3.1-pro-preview",
+      "opaque": {
+        "thoughtSignature": "c2lnLWczLXRleHQ="
+      },
+      "text": "A function that calls itself on a smaller problem.",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "STOP",
+  "request_id": "resp-gen3",
+  "stop": "end",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 120,
+    "output": 18,
+    "raw": {
+      "candidatesTokenCount": 18,
+      "promptTokenCount": 120,
+      "totalTokenCount": 138
+    },
+    "reasoning": 0
+  }
+}

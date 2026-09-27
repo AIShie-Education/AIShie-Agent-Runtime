@@ -1,0 +1,23 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "A function that calls itself on a smaller problem."
+          }
+        ]
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 120,
+    "candidatesTokenCount": 18,
+    "totalTokenCount": 138
+  },
+  "modelVersion": "gemini-2.5-flash",
+  "responseId": "resp-gen"
+}

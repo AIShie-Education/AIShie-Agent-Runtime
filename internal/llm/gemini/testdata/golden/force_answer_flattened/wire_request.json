@@ -1,0 +1,41 @@
+{
+  "body": {
+    "contents": [
+      {
+        "parts": [
+          {
+            "text": "When is HW3 due?"
+          }
+        ],
+        "role": "user"
+      },
+      {
+        "parts": [
+          {
+            "text": "[called assignment_list with {}]"
+          }
+        ],
+        "role": "model"
+      },
+      {
+        "parts": [
+          {
+            "text": "[result of assignment_list]\n{\"status\":\"executed\",\"result\":{\"assignments\":[{\"id\":\"0192f3c1-0000-7000-8000-0000000000a3\",\"title\":\"HW3\",\"due_at\":\"2026-10-02T17:00:00Z\"}]}}"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "generationConfig": {
+      "maxOutputTokens": 26076
+    },
+    "systemInstruction": {
+      "parts": [
+        {
+          "text": "You are the CS101 tutor. Answer from the course material only."
+        }
+      ]
+    }
+  },
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+}
