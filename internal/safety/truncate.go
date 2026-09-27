@@ -81,7 +81,7 @@ func lastSentenceEnd(s string, limit int) int {
 			}
 			j += n
 		}
-		if j <= limit && j < len(s) && isSpace(s[j]) {
+		if j <= limit && j < len(s) && isHTMLSpace(s[j]) {
 			return j
 		}
 	}

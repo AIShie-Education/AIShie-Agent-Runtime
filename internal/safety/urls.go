@@ -1,85 +1,84 @@
 package safety
 
 import (
-	"html"
-	"net/url"
 	"strings"
+	"unicode/utf8"
 )
 
 // dataRun is how many characters of [A-Za-z0-9+/=_-] in a row make a path
 // segment, host label or address look like data spelled out (design §7).
 const dataRun = 32
 
-// carriesContext reports whether a link to raw could take data somewhere:
-// raw as written, and as a browser would read it once Markdown's escapes
-// and HTML's entities are undone and the tabs and newlines it drops are
-// gone. Either reading carrying context is enough.
-func carriesContext(raw string) bool {
-	return carries(raw, false) || carries(normalizeURL(raw), true)
-}
+// maxURLBytes is the longest URL judged on its merits: nothing a student
+// needs is as long, and length is room for data.
+const maxURLBytes = 2048
 
-// normalizeURL is raw as a browser would follow it.
-func normalizeURL(raw string) string {
-	s := html.UnescapeString(unescapeMarkdown(raw))
-	s = strings.Map(func(r rune) rune {
-		if r == '\t' || r == '\n' || r == '\r' {
-			return -1
-		}
-		return r
-	}, s)
-	return strings.TrimFunc(s, func(r rune) bool { return r <= ' ' })
-}
+// safeURLChars are the characters besides letters and digits that
+// markdown-it's normalizeLink leaves as they are (mdurl's encode). It
+// percent-encodes every other one, and every character that is not ASCII
+// but in a host, which it turns into punycode.
+const safeURLChars = ";/?:@&=+$,-_.!~*'()#"
 
-// unescapeMarkdown removes the backslashes that escape ASCII punctuation.
-func unescapeMarkdown(s string) string {
-	if !strings.Contains(s, `\`) {
-		return s
-	}
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\\' && i+1 < len(s) && isASCIIPunct(s[i+1]) {
-			i++
-		}
-		b.WriteByte(s[i])
-	}
-	return b.String()
-}
-
-func carries(s string, normalized bool) bool {
-	// A query, a fragment, percent-encoding: context, wherever they are.
-	if strings.ContainsAny(s, "?#%") {
+// carries reports whether a link to u could take data to whoever owns it
+// (design §7). u is the URL as markdown-it reads it: a destination with its
+// escapes and entities undone, or a URL as written in the text. It is
+// judged as the href markdown-it's normalizeLink makes of it, which
+// percent-encodes every character that is not ASCII and those of "<>[\]^`{|}
+// and the space, and turns a host that is not ASCII into punycode. It
+// carries data when that href would have a query or a fragment, any
+// percent-encoding, user information, a scheme other than http, https or
+// mailto, a host label (in punycode) or path segment with dataRun
+// characters of data, or, for mailto, an address part that does; or when
+// it is longer than maxURLBytes.
+func carries(u string) bool {
+	if len(u) > maxURLBytes {
 		return true
 	}
-	// A backslash left once escapes are undone is a '/' to a browser, and
-	// can move the host: never a link that carries nothing.
-	if normalized && strings.Contains(s, `\`) {
-		return true
-	}
-	scheme, rest, ok := splitScheme(s)
+	scheme, rest, ok := splitScheme(u)
 	if !ok {
-		if strings.HasPrefix(s, "//") {
-			return webCarries("https:" + s)
+		if strings.HasPrefix(u, "//") && !strings.HasPrefix(u, "///") {
+			return webCarries(u[2:])
 		}
-		return pathCarries(s)
+		return unsafe(u, false) || pathCarries(u)
 	}
 	switch strings.ToLower(scheme) {
 	case "http", "https":
-		return webCarries(s)
+		if strings.HasPrefix(rest, "//") && !strings.HasPrefix(rest, "///") {
+			return webCarries(rest[2:])
+		}
+		// Without "//" the renderer encodes it all as a path, which a
+		// browser then reads as a host: it is judged as both.
+		return unsafe(rest, false) || webCarries(strings.TrimLeft(rest, "/"))
 	case "mailto":
 		return mailtoCarries(rest)
 	}
 	return true
 }
 
-// splitScheme splits a URL's scheme from the rest, if it has one: letters,
-// digits, '+', '.' and '-', beginning with a letter, before a ':' that
-// comes before any '/'.
+// unsafe reports whether s holds '?', '#', '%', or a character markdown-it
+// would percent-encode; with host, characters that are not ASCII are let
+// through, since a host is put into punycode instead.
+func unsafe(s string, host bool) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= utf8.RuneSelf && host {
+			continue
+		}
+		if c == '?' || c == '#' || c == '%' || !isAlnum(c) && strings.IndexByte(safeURLChars, c) < 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// splitScheme splits a URL's scheme from the rest, if it has one: a letter,
+// then letters, digits, '+', '.' and '-', before a ':'.
 func splitScheme(s string) (scheme, rest string, ok bool) {
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		switch {
-		case isAlpha(c):
-		case i > 0 && (c >= '0' && c <= '9' || c == '+' || c == '.' || c == '-'):
+		case isASCIIAlpha(c):
+		case i > 0 && (isDigit(c) || c == '+' || c == '.' || c == '-'):
 		case c == ':' && i > 0:
 			return s[:i], s[i+1:], true
 		default:
@@ -89,19 +88,32 @@ func splitScheme(s string) (scheme, rest string, ok bool) {
 	return "", s, false
 }
 
-// webCarries judges an http or https URL: user information, an opaque
-// form (http:host), or a path segment or host label that spells out data.
+// webCarries judges what follows "//": an authority, which ends at the next
+// '/', '?', '#' or '\', then the rest.
 func webCarries(s string) bool {
-	u, err := url.Parse(s)
-	if err != nil || u.Opaque != "" || u.User != nil {
+	auth, tail := s, ""
+	if i := strings.IndexAny(s, "/?#\\"); i >= 0 {
+		auth, tail = s[:i], s[i:]
+	}
+	if strings.Contains(auth, "@") || unsafe(tail, false) {
 		return true
 	}
-	for _, label := range strings.Split(u.Hostname(), ".") {
+	host := auth
+	if strings.HasPrefix(host, "[") {
+		// An IPv6 address, which the renderer leaves as it is.
+		if j := strings.IndexByte(host, ']'); j > 0 && strings.Trim(host[1:j], "0123456789abcdefABCDEF:.") == "" {
+			host = host[j+1:]
+		}
+	}
+	if unsafe(host, true) {
+		return true
+	}
+	for _, label := range strings.FieldsFunc(punycodeHost(host), func(r rune) bool { return r == '.' || r == ':' }) {
 		if longestDataRun(label) >= dataRun {
 			return true
 		}
 	}
-	return pathCarries(u.Path)
+	return pathCarries(tail)
 }
 
 func pathCarries(p string) bool {
@@ -113,10 +125,23 @@ func pathCarries(p string) bool {
 	return false
 }
 
-// mailtoCarries judges a mailto: URL's addresses, whose parts may spell
-// out data as a path does.
-func mailtoCarries(addrs string) bool {
-	for _, part := range strings.FieldsFunc(addrs, func(r rune) bool { return r == ',' || r == '@' || r == '.' || r == ';' }) {
+// mailtoCarries judges a mailto: URL: its domain may be in punycode, and
+// no part of an address may spell out data.
+func mailtoCarries(rest string) bool {
+	addr, tail := rest, ""
+	if i := strings.IndexAny(rest, "/?#"); i >= 0 {
+		addr, tail = rest[:i], rest[i:]
+	}
+	name, host := addr, ""
+	if at := strings.LastIndexByte(addr, '@'); at >= 0 {
+		name, host = addr[:at], addr[at+1:]
+	}
+	if unsafe(name, false) || unsafe(host, true) || unsafe(tail, false) {
+		return true
+	}
+	for _, part := range strings.FieldsFunc(name+"@"+punycodeHost(host)+tail, func(r rune) bool {
+		return r == ',' || r == '@' || r == '.' || r == ';' || r == '/'
+	}) {
 		if longestDataRun(part) >= dataRun {
 			return true
 		}

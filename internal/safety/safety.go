@@ -8,12 +8,13 @@
 // take it to whoever owns the URL. So every link and image whose URL carries
 // context is stripped, and one that carries nothing stays as written.
 //
-// The renderer is Markdown with GitHub's extensions (bare URLs become links)
-// or something close to it. Where renderers differ, Body takes the reading
-// in which more is a link: stripping a link that would not have been one
-// costs a little text, and missing one that would have been costs the data.
-// Only code is left alone, since nothing in it is clickable, and only where
-// every renderer agrees that it is code.
+// Answers are shown by AIShiteru-Frontend (src/utils/markdown.ts):
+// markdown-it 15 with html off, linkify on (linkify-it 6.1.0 and its
+// defaults) and TeX through KaTeX with trust off. Body reads Markdown
+// exactly as that renderer does, with a port of its parsing rules
+// (mdblock.go, mdinline.go, linkify.go), so that it strips every link the
+// renderer would make and leaves code, TeX and everything else as it was.
+// A change to that renderer or its options must be matched here.
 package safety
 
 import (
@@ -54,23 +55,23 @@ type Report struct {
 // Body returns text made safe to post and cut to at most maxChars
 // characters, with a report of what was done.
 //
-// Every link and image whose URL carries context is stripped: one with a
-// query string, a fragment, user information, a scheme other than http,
-// https and mailto (data:, javascript:, file:, …), any percent-encoding, a
-// path segment or host label holding 32 or more characters of
-// [A-Za-z0-9+/=_-] (data spelled out), or, for mailto, an address that
-// does. HTML entities, backslash escapes and the tabs and newlines browsers
-// drop are undone before a URL is judged, so that none of them hides
-// anything. A link keeps its text ([text](url) becomes text); an image
-// becomes its alt text, or ImageRemoved without one; a bare URL or an
-// autolink <url> becomes LinkRemoved; a reference definition ([x]: url) is
-// removed and its uses become plain text; an HTML <a href> becomes its
-// text, an <img> its alt, and any other tag with such a URL goes. Inline
-// code spans and fenced and indented code blocks are left untouched: they
-// are not clickable. That holds only where every renderer agrees they are
-// code: a span on one line with no '|' (a table cell's boundary), a block
-// not cut short by the list item or HTML block it is in (see classify).
-// Elsewhere what looks like code is stripped like text.
+// Every link and image the renderer would make whose URL carries context
+// is stripped: one whose href would have a query string, a fragment, user
+// information, a scheme other than http, https and mailto (data:,
+// javascript:, file:, …), any percent-encoding (the renderer encodes
+// spaces, characters that are not ASCII and some punctuation), a path
+// segment or host label holding 32 or more characters of [A-Za-z0-9+/=_-]
+// (data spelled out), or, for mailto, an address that does (see carries).
+// The URL is judged as the renderer reads it: escapes and entities undone
+// in a destination, as written in a bare URL. A link keeps its text
+// ([text](url) becomes text); an image becomes its alt text, or
+// ImageRemoved without one; a bare URL, an email address or an autolink
+// <url> becomes LinkRemoved; a reference definition ([x]: url) is removed
+// and its uses become plain text; an HTML <a href> becomes its text, an
+// <img> its alt, and any other tag with such a URL goes. A link the
+// renderer refuses only for its scheme (javascript: and the like) is
+// stripped too. Code spans, fenced and indented code blocks and TeX are
+// left untouched: nothing in them is clickable.
 //
 // Line endings become \n. A body longer than maxChars (at most, and by
 // default, CoreMaxChars) is cut at its last paragraph break, else its last
@@ -83,17 +84,19 @@ func Body(text string, maxChars int) (string, Report) {
 	}
 	var rep Report
 	s := strings.ToValidUTF8(text, "\uFFFD")
+	// markdown-it's normalize rule: its line endings, and no NUL.
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	s = strings.ReplaceAll(s, "\r", "\n")
+	s = strings.ReplaceAll(s, "\x00", "\uFFFD")
 	// Twice what Core takes is more than any answer that can be posted;
 	// reading no more bounds the work a hostile body can cause.
 	capped := false
 	if utf8.RuneCountInString(s) > maxInputChars {
 		s, capped = s[:runeOffset(s, maxInputChars)], true
 	}
-	s = trim(strip(s, &rep))
+	s = clean(s, &rep)
 	if capped && s != "" && utf8.RuneCountInString(s) < maxChars {
-		s += Ellipsis
+		s = clean(s+Ellipsis, &rep)
 		rep.Truncated = true
 	}
 	// Cutting can open a code span or fence it closed, exposing what was
@@ -106,7 +109,7 @@ func Body(text string, maxChars int) (string, Report) {
 			s = ""
 			break
 		}
-		s = trim(strip(cut(s, limit), &rep))
+		s = clean(cut(s, limit), &rep)
 	}
 	rep.Empty = s == ""
 	return s, rep
@@ -132,13 +135,31 @@ func strip(s string, rep *Report) string {
 	return ""
 }
 
-// trim removes trailing white space and leading blank lines. The first
-// line with text keeps its indentation, which may make it code.
+// clean strips s and trims it until neither changes it. Trimming can
+// change how the renderer reads what is left (a U+3000 at the end of a
+// table's delimiter row keeps it from being one; trimmed, the row makes a
+// table whose cells cut a code span open), so what is trimmed is read
+// again.
+func clean(s string, rep *Report) string {
+	for range maxPasses {
+		t := trim(strip(s, rep))
+		if t == s {
+			return t
+		}
+		s = t
+	}
+	return ""
+}
+
+// trim removes trailing white space and the blank lines (spaces and tabs
+// only, as the renderer reads them) at the start. The first line with text
+// keeps its indentation, which may make it code. A body of white space
+// alone is empty: Core refuses it.
 func trim(s string) string {
 	s = strings.TrimRightFunc(s, unicode.IsSpace)
 	for {
 		nl := strings.IndexByte(s, '\n')
-		if nl < 0 || strings.TrimSpace(s[:nl]) != "" {
+		if nl < 0 || strings.Trim(s[:nl], " \t") != "" {
 			break
 		}
 		s = s[nl+1:]
@@ -147,43 +168,4 @@ func trim(s string) string {
 		return ""
 	}
 	return s
-}
-
-// pass strips s once: it finds the code, removes the reference definitions
-// that carry context, and rewrites each paragraph's inline links.
-func pass(s string, rep *Report) string {
-	lines := splitLines(s)
-	classify(lines)
-	defs := collectDefinitions(lines, rep)
-	var b strings.Builder
-	b.Grow(len(s))
-	for i := 0; i < len(lines); {
-		l := lines[i]
-		switch {
-		case l.drop:
-			i++
-		case l.code || isBlank(l.text):
-			b.WriteString(l.text)
-			if l.nl {
-				b.WriteByte('\n')
-			}
-			i++
-		default:
-			// A paragraph: the text lines up to a blank line or code,
-			// without the definitions removed from among them.
-			var para []string
-			nl := false
-			for ; i < len(lines) && !lines[i].code && !isBlank(lines[i].text); i++ {
-				if !lines[i].drop {
-					para = append(para, lines[i].text)
-					nl = lines[i].nl
-				}
-			}
-			b.WriteString(inline(strings.Join(para, "\n"), defs, rep))
-			if nl {
-				b.WriteByte('\n')
-			}
-		}
-	}
-	return b.String()
 }

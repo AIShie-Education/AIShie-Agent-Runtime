@@ -15,7 +15,7 @@ Steps:
 1. Replace `sum(xs) / len(xs)` with `statistics.median(xs)`.
 2. Re-run the tests:
 
-       pytest -k median  # indented inside the list: text, not code
+       pytest -k median  # four columns past the item's text: code in the list item
 
 3. Check the rubric at <https://lms.example.edu/courses/cs101/rubric>.
 

@@ -7,12 +7,8 @@ import (
 	"unicode/utf8"
 )
 
-// fragments build bodies with no code in them, so that nothing of SECRET,
-// which appears only in URLs, may be left once Body is done, whatever the
-// fragments make together. Code, which Body leaves alone, needs backticks,
-// a fence or four spaces at the start of a line, and none can form here.
-// Neither can a backslash escape, which may leave a URL as harmless text
-// (\[t](javascript:x) is no link); the table tests cover escapes.
+// fragments build bodies of links, near-links and the Markdown around them.
+// Links carry the word SECRET; so does text that is no link.
 var fragments = []string{
 	"[t](https://e.example/?SECRET)", "[t](https://e.example/#SECRET)", "[t](javascript:SECRET)",
 	"[t](<https://e.example/a b?SECRET>)", "[t](//e.example/?SECRET \"title\")", "[t](https://SECRET@e.example/)",
@@ -20,12 +16,42 @@ var fragments = []string{
 	"[r]: https://e.example/?SECRET", "[r]:", "https://e.example/?SECRET", "\"https://e.example/#SECRET\"",
 	"<https://e.example/?SECRET>", "<a href='https://e.example/?SECRET'>", "</a>", "<img src=\"https://e.example/?SECRET\" alt=x>",
 	"www.e.example/?SECRET", "//e.example/?SECRET", "e.example/?SECRET", "https://e.example/&#63;SECRET",
-	"[t](https://e.example/\\?SECRET)", "[t](https&#58;//e.example/?SECRET)",
-	"[", "]", "(", ")", "!", "*", "_", "|", "\"", "'", ">", "text", "学习", "👩‍💻", "&amp;",
-	"\n", "\n\n", "\n> ", "\n- ", "\n1. ", "\n# ", "\n| ", "[docs](https://docs.python.org/)", "https://docs.python.org/3/",
+	"[t](https://e.example/\\?SECRET)", "[t](https&#58;//e.example/?SECRET)", "x?SECRET@e.example", "SECRET@日本.jp",
+	"[", "]", "(", ")", "!", "*", "_", "|", "\"", "'", ">", "text", "学习", "👩‍💻", "&amp;", "$", "$$", "`", "```", "~~",
+	"\n", "\n\n", "\n> ", "\n- ", "\n1. ", "\n# ", "\n| ", "\n|---|\n", "\n    ", "\n```\n",
+	"[docs](https://docs.python.org/)", "https://docs.python.org/3/",
 }
 
-func TestNothingOfASecretSurvives(t *testing.T) {
+// linksIn lists every URL the renderer would make a link or image of in s,
+// as Body reads s, and more (see linkifyCandidates).
+func linksIn(s string) []string {
+	doc := parseBlocks(s)
+	var urls []string
+	for _, d := range doc.defs {
+		urls = append(urls, d.dest)
+	}
+	for _, t := range doc.inlines {
+		res := parseInline(t.s, doc.refs)
+		for _, f := range res.found {
+			urls = append(urls, f.url)
+		}
+		if !linkifyTest(t.s) {
+			continue
+		}
+		for _, p := range joinPieces(res.pieces) {
+			if !p.inLink {
+				linkifyCandidates(t.s[p.start:p.end], func(_, _ int, url string) { urls = append(urls, url) })
+			}
+		}
+	}
+	return urls
+}
+
+// What Body returns holds no link that carries data, whatever the
+// fragments make together, and is its own result. (That Body reads
+// Markdown as the frontend's renderer does is held by the recorded cases
+// of TestRenderer.)
+func TestNothingCarryingSurvives(t *testing.T) {
 	rng := rand.New(rand.NewPCG(1, 2))
 	for n := range 5000 {
 		var b strings.Builder
@@ -41,8 +67,10 @@ func TestNothingOfASecretSurvives(t *testing.T) {
 			limit = 20 + rng.IntN(200)
 		}
 		out, _ := Body(in, limit)
-		if strings.Contains(out, "SECRET") {
-			t.Fatalf("a secret survived\n in: %q\nout: %q", in, out)
+		for _, u := range linksIn(out) {
+			if carries(u) && !deadScheme(u) {
+				t.Fatalf("a link carrying data survived: %q\n in: %q\nout: %q", u, in, out)
+			}
 		}
 		if limit > 0 && utf8.RuneCountInString(out) > limit {
 			t.Fatalf("over the limit: %q", out)
@@ -52,6 +80,10 @@ func TestNothingOfASecretSurvives(t *testing.T) {
 		}
 	}
 }
+
+// deadScheme reports a URL the renderer refuses to link to, which Body
+// strips all the same where it can find one, but which is no link.
+func deadScheme(u string) bool { return !validateLink(u) }
 
 func FuzzBody(f *testing.F) {
 	for _, s := range fragments {
@@ -76,6 +108,11 @@ func FuzzBody(f *testing.F) {
 		}
 		if again, _ := Body(out, limit); again != out {
 			t.Fatalf("not idempotent: %q then %q", out, again)
+		}
+		for _, u := range linksIn(out) {
+			if carries(u) && !deadScheme(u) {
+				t.Fatalf("a link carrying data survived: %q in %q", u, out)
+			}
 		}
 	})
 }
