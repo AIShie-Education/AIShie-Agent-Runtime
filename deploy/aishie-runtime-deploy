@@ -1,0 +1,242 @@
+#!/bin/sh
+# Deploys an image of the AIShie Agent Runtime to this server: the first
+# start, an upgrade and a rollback alike. Run as root, by hand or by the
+# Deploy workflow over SSH (docs/deploying.md):
+#
+#   aishie-runtime-deploy ghcr.io/aishiteru-lms/aishie-agent-runtime:0.2.0
+#
+# In order: check the agents' configuration with the new image, back up the
+# runtime's database, `migrate up` with the new image, replace the container,
+# and wait until /healthz reports the new version and commit. It stops at the
+# first step that fails. Up to replacing the container, the version that was
+# running goes on running. If the new version never reports healthy, the
+# version before is started again.
+#
+# The runtime's database is its own, never Core's: this script backs up the
+# one DATABASE_URL in the env file names, on this server's PostgreSQL, and
+# refuses one that is Core's.
+#
+# The paths below are the ones deploy/setup-server.sh creates. The variables
+# that override them are for deploy/aishie-runtime-deploy_test.sh.
+set -eu
+# The lock, the log and the backups are root's alone.
+umask 077
+
+ENV_FILE=${AISHIE_RUNTIME_ENV_FILE:-/etc/aishie-runtime/runtime.env}
+CONFIG_DIR=${AISHIE_RUNTIME_CONFIG_DIR:-/etc/aishie-runtime/agents}
+SECRETS_DIR=${AISHIE_RUNTIME_SECRETS_DIR:-/etc/aishie-runtime/secrets}
+BACKUP_DIR=${AISHIE_RUNTIME_BACKUP_DIR:-/var/backups/aishie-runtime}
+LOG_FILE=${AISHIE_RUNTIME_LOG_FILE:-/var/log/aishie-runtime-deploy.log}
+LOCK_FILE=${AISHIE_RUNTIME_LOCK_FILE:-/run/aishie-runtime-deploy.lock}
+HEALTH_TRIES=${AISHIE_RUNTIME_HEALTH_TRIES:-30}
+# Core's env file, as Core's setup-server.sh writes it: its database is never
+# the runtime's.
+CORE_ENV_FILE=${AISHIE_RUNTIME_CORE_ENV_FILE:-/etc/aishiteru/aishiteru.env}
+REPO=ghcr.io/aishiteru-lms/aishie-agent-runtime
+NAME=aishie-runtime
+KEEP_BACKUPS=10
+# The image's nonroot user (distroless), whatever the image says.
+USER_ID=65532:65532
+
+die() { echo "aishie-runtime-deploy: $*" >&2; exit 1; }
+
+IMG=${1:-}
+# The image comes from the command line, or from SSH_ORIGINAL_COMMAND when
+# the Deploy workflow calls: this image's repository, by tag or by digest,
+# and nothing that is not part of such a name.
+case $IMG in
+  "$REPO":* | "$REPO"@sha256:*) ;;
+  *) echo "usage: aishie-runtime-deploy $REPO:TAG (or @sha256:DIGEST)" >&2; exit 2 ;;
+esac
+case $IMG in *[!A-Za-z0-9._:@/-]*) echo "aishie-runtime-deploy: not an image name: $IMG" >&2; exit 2 ;; esac
+[ -r "$ENV_FILE" ] || die "$ENV_FILE is missing: see deploy/setup-server.sh"
+[ -d "$CONFIG_DIR" ] || die "$CONFIG_DIR, the agents' configuration, is missing: see deploy/setup-server.sh"
+[ -d "$SECRETS_DIR" ] || die "$SECRETS_DIR, the agents' secrets, is missing: see deploy/setup-server.sh"
+
+# setting NAME: its last value in the env file, as Docker reads it.
+setting() { sed -n "s/^$1=//p" "$ENV_FILE" | tail -n 1; }
+
+# parse_db URL: sets db, dbhost and dbport from a postgres:// URL; db is
+# empty when there is none to read. A host left out is the local socket.
+parse_db() {
+  db='' dbhost='' dbport=''
+  case $1 in postgres://* | postgresql://*) ;; *) return 0 ;; esac
+  rest=${1#*://}
+  rest=${rest%%\?*}
+  case $rest in */*) ;; *) return 0 ;; esac
+  db=${rest##*/}
+  hostport=${rest%%/*}
+  hostport=${hostport##*@}
+  case $hostport in
+    *\]:*) dbport=${hostport##*\]:} dbhost=${hostport%:*} ;;
+    *\]) dbhost=$hostport ;;
+    *:*) dbport=${hostport##*:} dbhost=${hostport%:*} ;;
+    *) dbhost=$hostport ;;
+  esac
+  dbhost=${dbhost:-local} dbport=${dbport:-5432}
+}
+
+# The database to back up is DATABASE_URL's, on this server's PostgreSQL.
+# Core's (its env file's, or aishiteru where there is none) is refused: the
+# runtime's migrations would go into it.
+parse_db "$(setting DATABASE_URL)"
+core_db=aishiteru
+if [ -r "$CORE_ENV_FILE" ]; then
+  parse_db "$(sed -n 's/^DATABASE_URL=//p' "$CORE_ENV_FILE" | tail -n 1)"
+  core_db=${db:-aishiteru}
+  parse_db "$(setting DATABASE_URL)"
+fi
+case $db in '' | -* | *[!A-Za-z0-9_-]*) die "cannot read a plain database name from DATABASE_URL in $ENV_FILE: the runtime keeps its state in a database of its own" ;; esac
+case $db in
+  "$core_db") die "DATABASE_URL in $ENV_FILE names $db, which is Core's database: the runtime has one of its own (deploy/setup-server.sh)" ;;
+esac
+case $dbport in *[!0-9]*) die "cannot read the port of DATABASE_URL in $ENV_FILE" ;; esac
+case $dbhost in
+  local | 127.0.0.1 | localhost | '[::1]') ;;
+  *) die "DATABASE_URL's database is on $dbhost, not on this server: this script backs up only a database on this server's PostgreSQL (docs/deploying.md)" ;;
+esac
+
+# One deploy at a time on this server, by hand or from GitHub. /run, unlike
+# /run/lock, is root's: nobody else can hold the lock. Core's deploys have a
+# lock of their own.
+exec 9>"$LOCK_FILE"
+flock -w 600 9 || die "another deploy has held the lock for 10 minutes"
+
+# Where /healthz answers: HTTP_ADDR from the env file, on this machine.
+addr=$(setting HTTP_ADDR)
+case $addr in
+  '') addr=127.0.0.1:9090 ;;
+  :*) addr=127.0.0.1$addr ;;
+  0.0.0.0:*) addr=127.0.0.1:${addr#0.0.0.0:} ;;
+  '[::]':*) addr="[::1]:${addr#'[::]':}" ;;
+esac
+
+# How long Docker lets the runtime stop: on SIGTERM it finishes the answers
+# in flight for up to SHUTDOWN_GRACE (a Go duration, 15s by default), then
+# releases its leases and exits. Docker gives it that and 15 seconds more
+# before it kills it. A duration it cannot read counts as the default: the
+# runtime refuses it anyway, and says so in its log.
+stop_timeout=$(printf '%s\n' "$(setting SHUTDOWN_GRACE)" | awk '
+  {
+    s = $0; t = 0
+    if (s == "") s = "15s"
+    if (s !~ /^([0-9]+(\.[0-9]+)?(h|ms|m|s|us|ns))+$/) s = "15s"
+    while (s != "") {
+      match(s, /^[0-9]+(\.[0-9]+)?/); n = substr(s, 1, RLENGTH) + 0; s = substr(s, RLENGTH + 1)
+      if (s ~ /^ms/) { t += n / 1000; s = substr(s, 3) }
+      else if (s ~ /^(us|ns)/) { s = substr(s, 3) }
+      else if (s ~ /^h/) { t += n * 3600; s = substr(s, 2) }
+      else if (s ~ /^m/) { t += n * 60; s = substr(s, 2) }
+      else { t += n; s = substr(s, 2) }
+    }
+    i = int(t); if (i < t) i++
+    print i + 15
+  }')
+
+# Every container of the runtime, one-off or not, sees the same things: the
+# env file, the agents' configuration at /config and their secrets at
+# /secrets, both read-only, as the nonroot user, on the host's network (the
+# runtime listens on 127.0.0.1, and reaches the database there).
+#
+# A one-off command with the new image. Without --sig-proxy=false, a Ctrl-C
+# or a dropped SSH session would be passed on to it and stop a migration half
+# way; this way the migration finishes, and only this script stops.
+run() {
+  docker run --rm --sig-proxy=false --network host --user "$USER_ID" --env-file "$ENV_FILE" \
+    -v "$CONFIG_DIR":/config:ro -e CONFIG=/config -v "$SECRETS_DIR":/secrets:ro -e SECRETS_DIR=/secrets \
+    "$IMG" "$@"
+}
+start() {
+  docker run -d --name "$NAME" --restart unless-stopped --stop-timeout "$stop_timeout" \
+    --log-opt max-size=20m --log-opt max-file=5 \
+    --network host --user "$USER_ID" --env-file "$ENV_FILE" \
+    -v "$CONFIG_DIR":/config:ro -e CONFIG=/config -v "$SECRETS_DIR":/secrets:ro -e SECRETS_DIR=/secrets \
+    "$1" >/dev/null
+}
+# stop: the running container, given the longer of its own stop timeout and
+# the one above, so that answers in flight finish.
+stop() {
+  t=$(docker inspect -f '{{.Config.StopTimeout}}' "$NAME" 2>/dev/null || true)
+  case $t in '' | *[!0-9]*) t=0 ;; esac
+  [ "$t" -gt "$stop_timeout" ] || t=$stop_timeout
+  docker stop -t "$t" "$NAME" >/dev/null || true
+  docker rm -f "$NAME" >/dev/null
+}
+# version_of IMAGE: its `version` line, aishie-runtime v0.2.0 (abc1234, 2026-09-25T04:10:07Z).
+version_of() { docker run --rm "$1" version 2>/dev/null || true; }
+# The word before " (", and the first word inside the parentheses.
+version_in() { v=${1%% (*}; echo "${v##* }"; }
+commit_of() { printf '%s\n' "$1" | sed -n 's/^[^(]*(\([^,]*\),.*/\1/p'; }
+# healthz_says VERSION COMMIT: whether /healthz answers status "ok" with them.
+healthz_says() {
+  body=$(curl -fsS --max-time 5 "http://$addr/healthz" 2>/dev/null | tr -d ' \t\r\n') || true
+  case $body in *'"status":"ok"'*) ;; *) return 1 ;; esac
+  case $body in *"\"version\":\"$1\""*) ;; *) return 1 ;; esac
+  case $body in *"\"commit\":\"$2\""*) ;; *) return 1 ;; esac
+}
+# healthy VERSION COMMIT: whether it does within the tries.
+healthy() {
+  i=0
+  until healthz_says "$1" "$2"; do
+    i=$((i + 1))
+    [ "$i" -lt "$HEALTH_TRIES" ] || return 1
+    sleep 2
+  done
+}
+
+docker pull "$IMG" || die "could not pull $IMG (is this server logged in to ghcr.io with a token that can read it?)"
+
+want=$(version_of "$IMG")
+ver=$(version_in "$want")
+commit=$(commit_of "$want")
+if [ -z "$ver" ] || [ -z "$commit" ]; then die "cannot read the version of $IMG: $want"; fi
+
+# The configuration is on this server, not in the image: a new version that
+# cannot read it would not start, and neither might the version before.
+out=$(run check 2>&1) || {
+  printf '%s\n' "$out" >&2
+  die "the agents' configuration in $CONFIG_DIR does not pass \`aishie-runtime check\` with $IMG (above); nothing was changed"
+}
+echo "configuration checked: $CONFIG_DIR"
+
+backup=$BACKUP_DIR/deploy-$(date -u +%Y%m%d-%H%M%S).dump
+# Under another name until it is whole: a dump cut short is not a backup.
+runuser -u postgres -- pg_dump -p "$dbport" -Fc -f "$backup.part" "$db" ||
+  { rm -f "$backup.part"; die "the backup of the database $db failed; nothing was changed"; }
+mv "$backup.part" "$backup"
+echo "database $db backed up: $backup"
+# Keep the newest deploy backups; the nightly ones (daily-N) are apart.
+# shellcheck disable=SC2012 # the names are this script's own: no spaces
+ls -1t "$BACKUP_DIR"/deploy-*.dump 2>/dev/null | tail -n +$((KEEP_BACKUPS + 1)) | while read -r old; do rm -f -- "$old"; done
+
+run migrate up || die "migrate up failed; the version that was running is still running (docs/deploying.md, A migration failed)"
+
+prev=$(docker inspect -f '{{.Config.Image}}' "$NAME" 2>/dev/null || true)
+prev_id=$(docker inspect -f '{{.Image}}' "$NAME" 2>/dev/null || true)
+echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) ${prev:-none} -> $IMG" >> "$LOG_FILE"
+if [ -n "$prev" ]; then stop; fi
+start "$IMG"
+
+if ! healthy "$ver" "$commit"; then
+  echo "aishie-runtime-deploy: $want did not report healthy within $((HEALTH_TRIES * 2)) seconds. Its last log lines:" >&2
+  docker logs --tail 30 "$NAME" >&2 2>&1 || true
+  # The schema is one the version before works with (CONTRIBUTING.md,
+  # Migrations), so it can take over again: if it is another image, not the
+  # same one by another name, and with the env file and configuration as they
+  # are now.
+  if [ -n "$prev" ] && [ "$prev_id" != "$(docker image inspect -f '{{.Id}}' "$IMG" 2>/dev/null || true)" ]; then
+    stop
+    start "$prev"
+    echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $IMG -> $prev (not healthy: rolled back)" >> "$LOG_FILE"
+    back=$(version_of "$prev")
+    healthy "$(version_in "$back")" "$(commit_of "$back")" ||
+      die "started $prev again, but it did not report healthy either: most likely the env file or the configuration (docker logs $NAME)"
+    die "rolled back: $prev is running again"
+  fi
+  die "the version before was ${prev:-none}: see docs/deploying.md, The new version did not report healthy"
+fi
+echo "deployed: $want (before: ${prev:-none})"
+
+# The images of this project that no container uses, the one before included:
+# a rollback pulls its image again. Core's images carry another source.
+docker image prune -af --filter "label=org.opencontainers.image.source=https://github.com/AIShiteru-LMS/AIShie-Agent-Runtime" >/dev/null 2>&1 || true

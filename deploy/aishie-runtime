@@ -1,0 +1,22 @@
+#!/bin/sh
+# Runs a one-off aishie-runtime command with the image that is running, and
+# what the running container sees: the env file, the agents' configuration
+# and their secrets. For example:
+#
+#   aishie-runtime check              the configuration, as the next deploy will check it
+#   aishie-runtime check --live       and each agent's connection to Core and its model
+#   aishie-runtime migrate version
+#
+# Before the first deploy there is no image running: name one.
+#
+#   AISHIE_RUNTIME_IMAGE=ghcr.io/aishiteru-lms/aishie-agent-runtime:sha-<commit> aishie-runtime check
+set -eu
+ENV_FILE=${AISHIE_RUNTIME_ENV_FILE:-/etc/aishie-runtime/runtime.env}
+CONFIG_DIR=${AISHIE_RUNTIME_CONFIG_DIR:-/etc/aishie-runtime/agents}
+SECRETS_DIR=${AISHIE_RUNTIME_SECRETS_DIR:-/etc/aishie-runtime/secrets}
+img=${AISHIE_RUNTIME_IMAGE:-}
+[ -n "$img" ] || img=$(docker inspect -f '{{.Config.Image}}' aishie-runtime 2>/dev/null) ||
+  { echo "aishie-runtime: no container named aishie-runtime: deploy one with aishie-runtime-deploy, or name an image in AISHIE_RUNTIME_IMAGE" >&2; exit 1; }
+exec docker run --rm -i --network host --user 65532:65532 --env-file "$ENV_FILE" \
+  -v "$CONFIG_DIR":/config:ro -e CONFIG=/config -v "$SECRETS_DIR":/secrets:ro -e SECRETS_DIR=/secrets \
+  "$img" "$@"

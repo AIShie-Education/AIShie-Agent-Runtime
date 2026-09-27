@@ -1,0 +1,259 @@
+name: Release
+
+# The only place anything is built for release, and it runs on version tags
+# only:
+#
+#   git tag -s v0.1.0 -m "v0.1.0" && git push origin v0.1.0
+#
+# It checks the tagged commit again, then publishes binaries on the release
+# page and a multi-architecture image in GHCR. A tag with a hyphen
+# (v0.1.0-rc.1) is a pre-release: it gets its own version tags on the image,
+# leaves :latest alone, and is deployed to staging through deploy.yml. A
+# stable release is not deployed by itself: production is deployed by running
+# the Deploy workflow by hand, from the tag, and the run's summary says how.
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+# Each run block is bash with -o pipefail: a pipeline fails when any command
+# in it does, not only when its last one does.
+defaults:
+  run:
+    shell: bash
+
+env:
+  IMAGE: ghcr.io/aishiteru-lms/aishie-agent-runtime
+  GOLANGCI_LINT_VERSION: v2.13.2
+  GORELEASER_VERSION: v2.18.2
+  # Makes the store's Postgres tests fail, rather than skip, if the database
+  # is missing.
+  CI: "true"
+
+jobs:
+  # A green run from last week proves nothing about this commit on today's
+  # runners, so everything CI checks is checked again, on the tagged commit:
+  # the store's tests on Postgres, and the end to end against the Core pinned
+  # in .github/core-image, as ci.yml's jobs run them.
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: read # Core's image, which is private
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+      # scripts/ci-core.sh creates it for Core, and Core alone uses it.
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/aishiteru_e2e?sslmode=disable
+    outputs:
+      prev: ${{ steps.release.outputs.prev }}
+      migrations: ${{ steps.release.outputs.migrations }}
+      commit: ${{ steps.release.outputs.commit }}
+      date: ${{ steps.release.outputs.date }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: The tag must be on main
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "::error::$GITHUB_REF_NAME does not point at a commit on main"; exit 1; }
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL "https://raw.githubusercontent.com/golangci/golangci-lint/${GOLANGCI_LINT_VERSION}/install.sh" \
+            | sh -s -- -b "$(go env GOPATH)/bin" "${GOLANGCI_LINT_VERSION}"
+      # The package is private: this works once an organization owner has let
+      # this repository read it (CONTRIBUTING.md, One-time settings).
+      - name: Log in to GHCR
+        env:
+          TOKEN: ${{ github.token }}
+        run: printf '%s\n' "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - run: make ci
+      - run: make vuln
+      # The tag compared with and the migrations new since (for a stable
+      # tag, since the last stable one), and one commit and date for the
+      # binaries and the image both.
+      - id: release
+        name: What this release is
+        run: |
+          {
+            scripts/release-notes.sh "$GITHUB_REF_NAME" "$GITHUB_SHA"
+            echo "commit=$(git rev-parse --short HEAD)"
+            echo "date=$(TZ=UTC git show -s --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ HEAD)"
+          } | tee -a "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: e2e-${{ github.ref_name }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/aishiteru-ci-core/core.log
+            ${{ runner.temp }}/aishiteru-ci-core/e2e.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  binaries:
+    needs: verify
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write      # create the release
+      id-token: write      # sign the provenance
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the changelog is the commits since the last tag
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Release notes footer
+        env:
+          MIGRATIONS: ${{ needs.verify.outputs.migrations }}
+          PREV: ${{ needs.verify.outputs.prev }}
+        run: |
+          footer="$RUNNER_TEMP/footer.md"
+          if [ -n "$MIGRATIONS" ]; then
+            {
+              echo "## Migrations in this release"
+              echo
+              echo "Run \`aishie-runtime migrate up\` before starting this version${PREV:+ (new since $PREV)}; \`aishie-runtime-deploy\` does:"
+              echo
+              for m in $MIGRATIONS; do echo "- \`$m\`"; done
+            } > "$footer"
+          else
+            echo "No changes to the store's schema in this release${PREV:+ since $PREV}." > "$footer"
+          fi
+          # The changelog starts where the migration list does: at the tag it
+          # is compared with or, when there is none, at the first commit. Left
+          # to itself, GoReleaser would start the first stable release at the
+          # pre-release before it.
+          since=${PREV:-$(git rev-list --max-parents=0 HEAD | tail -1)}
+          echo "GORELEASER_PREVIOUS_TAG=$since" >> "$GITHUB_ENV"
+      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          version: ${{ env.GORELEASER_VERSION }}
+          args: release --clean --release-footer ${{ runner.temp }}/footer.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The tag that was pushed. GoReleaser otherwise takes the highest of
+          # the tags on the commit, and git ranks v1.0.0-rc.2 above v1.0.0: a
+          # stable release tagged on its release candidate's commit would be
+          # built and released as the candidate.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
+          SHORT_COMMIT: ${{ needs.verify.outputs.commit }}
+          COMMIT_DATE: ${{ needs.verify.outputs.date }}
+      # Artifact attestations need GitHub Enterprise Cloud on a private
+      # repository, and would fail the run after the release is published. Set
+      # the variable ATTESTATIONS to "true" where they are available.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: ${{ !github.event.repository.private || vars.ATTESTATIONS == 'true' }}
+        with:
+          subject-checksums: dist/checksums.txt
+
+  image:
+    needs: verify
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write      # push to GHCR
+      id-token: write
+      attestations: write
+    outputs:
+      image: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          # 1.2.3 and 1.2 always; latest only for a release that is not a
+          # pre-release, which is what "auto" means here.
+          flavor: latest=auto
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          # Among them org.opencontainers.image.source, this repository, by
+          # which aishie-runtime-deploy prunes the server's old images.
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+            COMMIT=${{ needs.verify.outputs.commit }}
+            DATE=${{ needs.verify.outputs.date }}
+          provenance: mode=max
+          sbom: true
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: ${{ !github.event.repository.private || vars.ATTESTATIONS == 'true' }}
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+  # A pre-release goes to staging by itself.
+  staging:
+    needs: [verify, binaries, image]
+    if: contains(github.ref_name, '-')
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: staging
+      image: ${{ needs.image.outputs.image }}
+      migrations: ${{ needs.verify.outputs.migrations }}
+      since: ${{ needs.verify.outputs.prev }}
+    secrets: inherit # the deploy target's credentials: see deploy.yml
+
+  # A stable release goes to production only when somebody runs Deploy for it.
+  production:
+    needs: [binaries, image]
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: How to deploy it
+        env:
+          IMAGE_REF: ${{ needs.image.outputs.image }}
+        run: |
+          {
+            echo "## $GITHUB_REF_NAME is released"
+            echo
+            echo "To deploy it to production: Actions → Deploy → Run workflow, with"
+            echo
+            echo "- Use workflow from: tag \`$GITHUB_REF_NAME\`"
+            echo "- environment: \`production\`"
+            echo "- image: \`$IMAGE:${GITHUB_REF_NAME#v}\`"
+            echo
+            echo "This run built it as \`$IMAGE_REF\`; Deploy shows the digest it resolves to before it goes on."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
