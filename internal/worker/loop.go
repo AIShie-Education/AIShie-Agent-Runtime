@@ -344,7 +344,7 @@ func (l *loop) account(resp *llm.Response, err error, took time.Duration) {
 	var cost int64
 	var version string
 	if resp != nil {
-		if price, ok := a.s.o.Prices.Lookup(ad.Provider(), ad.Model(), a.now()); ok {
+		if price, ok := a.s.priceTable().Lookup(ad.Provider(), ad.Model(), a.now()); ok {
 			cost, version = price.Cost(resp.Usage), price.Version
 		}
 	}

@@ -14,6 +14,7 @@ import (
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/redact"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolschema"
@@ -36,6 +37,7 @@ type Supervisor struct {
 
 	kick    chan struct{}
 	running atomic.Bool
+	prices  atomic.Pointer[pricing.Table]
 
 	mu      sync.Mutex
 	cfg     *config.Config
@@ -84,8 +86,16 @@ func NewSupervisor(o Options) (*Supervisor, error) {
 		kick: make(chan struct{}, 1), runners: map[string]*runner{}, paused: map[string]bool{},
 		cats: map[string]*core.Catalogue{}, pending: o.Config,
 	}
+	s.prices.Store(o.Prices)
 	return s, nil
 }
+
+// SetPrices replaces the price table the next model calls are costed by;
+// nil leaves their costs unknown.
+func (s *Supervisor) SetPrices(t *pricing.Table) { s.prices.Store(t) }
+
+// priceTable is the price table in force.
+func (s *Supervisor) priceTable() *pricing.Table { return s.prices.Load() }
 
 // Reload replaces the configuration: agents added, removed, paused or
 // changed are started, stopped or restarted, and the runtime's settings
