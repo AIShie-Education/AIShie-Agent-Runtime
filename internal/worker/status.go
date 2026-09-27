@@ -34,8 +34,10 @@ type SeatStatus struct {
 	CourseID   string `json:"course_id"`
 	CourseCode string `json:"course_code"`
 	// AnswersCourse is true for a course tutor.
-	AnswersCourse bool   `json:"answers_course"`
-	Level         string `json:"level"`
+	AnswersCourse bool `json:"answers_course"`
+	// Answering is whether the seat answers now: it runs, and is not held.
+	Answering bool   `json:"answering"`
+	Level     string `json:"level"`
 	// Held is whether its inbox is not polled, and HeldWhy why.
 	Held    bool   `json:"held"`
 	HeldWhy string `json:"held_why,omitempty"`
@@ -106,7 +108,8 @@ func (s *Seat) status() SeatStatus {
 	defer s.mu.Unlock()
 	st := SeatStatus{
 		MemberID: s.id, CourseID: s.course, CourseCode: s.m.Code, AnswersCourse: s.m.AnswersCourse,
-		Level: s.m.Level("conversation_answer"), Held: s.hold != nil, Hot: now.Before(s.hotUntil), Tools: tools,
+		Answering: s.hold == nil, Level: s.m.Level("conversation_answer"), Held: s.hold != nil, Hot: now.Before(s.hotUntil),
+		Tools: tools,
 	}
 	if s.hold != nil {
 		st.HeldWhy = s.hold.why
