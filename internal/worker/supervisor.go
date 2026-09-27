@@ -47,6 +47,9 @@ type Supervisor struct {
 	paused map[string]bool
 	// cats are Core's catalogues, fetched once per base URL.
 	cats map[string]*catEntry
+	// actors are the Core actors this worker's agents run as, by base URL
+	// and actor id, and the agent that runs as each.
+	actors map[string]string
 }
 
 // runner is one configured agent that is not paused, and the instance of
@@ -84,7 +87,7 @@ func NewSupervisor(o Options) (*Supervisor, error) {
 		o: o, log: o.Log.With("worker", o.WorkerID), coreHTTP: coreClient(o.HTTPClient),
 		files: toolset.NewHTTPFetcher(o.HTTPClient), schemas: toolschema.NewCache(),
 		kick: make(chan struct{}, 1), runners: map[string]*runner{}, paused: map[string]bool{},
-		cats: map[string]*catEntry{}, pending: o.Config,
+		cats: map[string]*catEntry{}, actors: map[string]string{}, pending: o.Config,
 	}
 	s.prices.Store(o.Prices)
 	return s, nil
@@ -497,6 +500,31 @@ func (s *Supervisor) updateGauge() {
 	s.mu.Unlock()
 	for _, st := range states {
 		s.o.Metrics.AgentStates.WithLabelValues(st).Set(float64(counts[st]))
+	}
+}
+
+// claimActor records that agent id runs as the Core actor actorID at
+// baseURL, and returns ""; or, when another of this worker's agents runs
+// as that actor already (two agents configured with one token), that
+// agent's id, and records nothing.
+func (s *Supervisor) claimActor(baseURL, actorID, id string) string {
+	key := baseURL + "\x00" + actorID
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if other, ok := s.actors[key]; ok && other != id {
+		return other
+	}
+	s.actors[key] = id
+	return ""
+}
+
+// releaseActor undoes claimActor, when id holds the actor.
+func (s *Supervisor) releaseActor(baseURL, actorID, id string) {
+	key := baseURL + "\x00" + actorID
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.actors[key] == id {
+		delete(s.actors, key)
 	}
 }
 
