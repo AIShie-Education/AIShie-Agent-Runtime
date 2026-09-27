@@ -243,11 +243,13 @@ func (s *Supervisor) apply(ctx context.Context) {
 		holds := c.r.holds
 		c.r.holds = false
 		s.mu.Unlock()
-		if holds {
-			s.releaseLease(c.r.id)
-		}
+		// The state is written before the lease goes, so that a worker
+		// taking the agent up reads a handover, not a lapse.
 		if c.why != "" && holds {
 			s.writeState(ctx, c.r.id, store.AgentStopped, c.why)
+		}
+		if holds {
+			s.releaseLease(c.r.id)
 		}
 		s.o.Metrics.Forget(c.r.id)
 	}
@@ -433,9 +435,10 @@ func (s *Supervisor) shutdown() {
 			if !holds {
 				return
 			}
+			// Written before the lease goes: see apply.
+			s.writeState(context.Background(), r.id, store.AgentStopped, "the worker stopped")
 			s.releaseLease(r.id)
 			s.o.Metrics.Forget(r.id)
-			s.writeState(context.Background(), r.id, store.AgentStopped, "the worker stopped")
 		})
 	}
 	wg.Wait()

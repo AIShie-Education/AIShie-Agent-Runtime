@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -244,5 +245,50 @@ func TestConversationLeasedElsewhereIsLeft(t *testing.T) {
 	got := w.waitAnswers(conv, 1)
 	if got[0].IdempotencyKey != core.AnswerKey(conv, msg, 1) {
 		t.Errorf("answer %+v", got[0])
+	}
+}
+
+// releaseWatch is a store that notes the agent's state each time an agent
+// lease is released.
+type releaseWatch struct {
+	store.Store
+	mu     sync.Mutex
+	states []string
+}
+
+func (s *releaseWatch) ReleaseLease(ctx context.Context, name, holder string) error {
+	if strings.HasPrefix(name, "agent:") {
+		sts, _ := s.AgentStates(ctx)
+		for _, st := range sts {
+			if "agent:"+st.AgentID == name {
+				s.mu.Lock()
+				s.states = append(s.states, st.State)
+				s.mu.Unlock()
+			}
+		}
+	}
+	return s.Store.ReleaseLease(ctx, name, holder)
+}
+
+// TestHandoverIsNotATakeover: a worker that stops, or stops running an
+// agent removed from its configuration, records the agent stopped before
+// it lets the lease go, so that a worker taking the agent up at once reads
+// a handover and counts no takeover.
+func TestHandoverIsNotATakeover(t *testing.T) {
+	w := newWorld(t)
+	w.ownAgent("yuki-helper", 0)
+	w.tutor("cs101-tutor")
+	st := &releaseWatch{Store: memstore.New()}
+	cfg := w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil), w.agentDoc("cs101-tutor", "m1", nil, nil))
+	wk := w.start(cfg, models{"m1": scripted.New()}, workerOpts{store: st})
+	wk.waitState("yuki-helper", store.AgentRunning)
+	wk.waitState("cs101-tutor", store.AgentRunning)
+	wk.sup.Reload(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)))
+	wk.waitState("cs101-tutor", store.AgentStopped)
+	wk.stop()
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if len(st.states) != 2 || st.states[0] != store.AgentStopped || st.states[1] != store.AgentStopped {
+		t.Errorf("the agents' states when their leases went: %v", st.states)
 	}
 }
