@@ -1,0 +1,19 @@
+{
+  "model": "openai/gpt-4.1",
+  "parts": null,
+  "raw_stop": "error/server_error",
+  "request_id": "gen-e",
+  "stop": "error",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 40,
+    "output": 0,
+    "raw": {
+      "completion_tokens": 0,
+      "prompt_tokens": 40
+    },
+    "reasoning": 0
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "model": "deepseek-reasoner",
+  "parts": [
+    {
+      "maker": "openai_chat|https://api.deepseek.com|deepseek-reasoner",
+      "opaque": {
+        "reasoning_content": "The grade list says 7 of 10."
+      },
+      "text": "The grade list says 7 of 10.",
+      "type": "reasoning"
+    },
+    {
+      "text": "You scored 7/10 on HW3.",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "stop",
+  "request_id": "a1b2",
+  "stop": "end",
+  "usage": {
+    "cache_read": 256,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 300,
+    "output": 50,
+    "raw": {
+      "completion_tokens": 50,
+      "completion_tokens_details": {
+        "reasoning_tokens": 30
+      },
+      "prompt_cache_hit_tokens": 256,
+      "prompt_cache_miss_tokens": 44,
+      "prompt_tokens": 300,
+      "total_tokens": 350
+    },
+    "reasoning": 30
+  }
+}

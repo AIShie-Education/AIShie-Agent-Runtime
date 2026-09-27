@@ -1,0 +1,34 @@
+{
+  "model": "kimi-k2-thinking",
+  "parts": [
+    {
+      "maker": "openai_chat|https://api.moonshot.ai/v1|kimi-k2-thinking",
+      "opaque": {
+        "reasoning_content": "The list has one grade."
+      },
+      "text": "The list has one grade.",
+      "type": "reasoning"
+    },
+    {
+      "text": "7 of 10.",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "stop",
+  "request_id": "cmpl-k1",
+  "stop": "end",
+  "usage": {
+    "cache_read": 384,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 400,
+    "output": 30,
+    "raw": {
+      "cached_tokens": 384,
+      "completion_tokens": 30,
+      "prompt_tokens": 400,
+      "total_tokens": 430
+    },
+    "reasoning": 0
+  }
+}

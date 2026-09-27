@@ -1,0 +1,20 @@
+{
+  "model": "llama3.2",
+  "parts": [
+    {
+      "text": "You lost 3 marks on question 2, as the rubric says.",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "stop",
+  "request_id": "u3",
+  "stop": "end",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": true,
+    "input": 28,
+    "output": 13,
+    "reasoning": 0
+  }
+}

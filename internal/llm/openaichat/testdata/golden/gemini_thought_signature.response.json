@@ -1,0 +1,37 @@
+{
+  "model": "gemini-2.5-flash",
+  "parts": [
+    {
+      "args": {
+        "assignment_id": "hw3"
+      },
+      "id": "function-call-2",
+      "maker": "openai_chat|https://generativelanguage.googleapis.com/v1beta/openai|gemini-2.5-flash",
+      "name": "assignment_get",
+      "opaque": {
+        "extra_content": {
+          "google": {
+            "thought_signature": "CiQBVKhc7B=="
+          }
+        }
+      },
+      "type": "tool_call"
+    }
+  ],
+  "raw_stop": "tool_calls",
+  "request_id": "g-2",
+  "stop": "tool_calls",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 210,
+    "output": 25,
+    "raw": {
+      "completion_tokens": 25,
+      "prompt_tokens": 210,
+      "total_tokens": 235
+    },
+    "reasoning": 0
+  }
+}

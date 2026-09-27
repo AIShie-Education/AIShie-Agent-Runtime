@@ -1,0 +1,27 @@
+{
+  "model": "deepseek-chat",
+  "parts": [
+    {
+      "text": "Done.",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "stop",
+  "request_id": "u2",
+  "stop": "end",
+  "usage": {
+    "cache_read": 896,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 1000,
+    "output": 20,
+    "raw": {
+      "completion_tokens": 20,
+      "prompt_cache_hit_tokens": 896,
+      "prompt_cache_miss_tokens": 104,
+      "prompt_tokens": 1000,
+      "total_tokens": 1020
+    },
+    "reasoning": 0
+  }
+}

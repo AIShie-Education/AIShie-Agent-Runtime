@@ -1,0 +1,28 @@
+{
+  "model": "llama3.2",
+  "parts": [
+    {
+      "args": {
+        "assignment_id": "hw3"
+      },
+      "id": "call_1",
+      "name": "grade_list",
+      "type": "tool_call"
+    }
+  ],
+  "raw_stop": "function_call",
+  "request_id": "fc",
+  "stop": "tool_calls",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 40,
+    "output": 12,
+    "raw": {
+      "completion_tokens": 12,
+      "prompt_tokens": 40
+    },
+    "reasoning": 0
+  }
+}

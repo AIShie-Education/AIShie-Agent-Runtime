@@ -1,0 +1,25 @@
+{
+  "model": "local-model",
+  "parts": [
+    {
+      "text": "Done.",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "stop",
+  "request_id": "u5",
+  "stop": "end",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 41,
+    "output": 7,
+    "raw": {
+      "completion_tokens": "7",
+      "prompt_tokens": 41.0,
+      "prompt_tokens_details": null
+    },
+    "reasoning": 0
+  }
+}

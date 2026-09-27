@@ -1,0 +1,40 @@
+{
+  "model": "qwen3-max",
+  "parts": [
+    {
+      "args": {
+        "assignment_id": "hw3"
+      },
+      "id": "call_q1",
+      "name": "grade_list",
+      "type": "tool_call"
+    },
+    {
+      "args": {
+        "assignment_id": "hw3"
+      },
+      "id": "call_q2",
+      "name": "assignment_get",
+      "type": "tool_call"
+    }
+  ],
+  "raw_stop": "tool_calls",
+  "request_id": "chatcmpl-q1",
+  "stop": "tool_calls",
+  "usage": {
+    "cache_read": 256,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 330,
+    "output": 44,
+    "raw": {
+      "completion_tokens": 44,
+      "prompt_tokens": 330,
+      "prompt_tokens_details": {
+        "cached_tokens": 256
+      },
+      "total_tokens": 374
+    },
+    "reasoning": 0
+  }
+}
