@@ -1,0 +1,45 @@
+POST /mcp
+Accept: application/json, text/event-stream
+Authorization: Bearer <the agent's token>
+Content-Type: application/json
+Mcp-Protocol-Version: 2025-11-25
+User-Agent: aishie-runtime/test
+
+{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{},"clientInfo":{"name":"aishie-runtime","version":"test"},"protocolVersion":"2025-11-25"}}
+
+POST /mcp
+Accept: application/json, text/event-stream
+Authorization: Bearer <the agent's token>
+Content-Type: application/json
+Mcp-Protocol-Version: 2025-11-25
+User-Agent: aishie-runtime/test
+
+{"jsonrpc":"2.0","method":"notifications/initialized"}
+
+POST /mcp
+Accept: application/json, text/event-stream
+Authorization: Bearer <the agent's token>
+Content-Type: application/json
+Mcp-Protocol-Version: 2025-11-25
+User-Agent: aishie-runtime/test
+
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"me_get","arguments":{}}}
+
+POST /mcp
+Accept: application/json, text/event-stream
+Authorization: Bearer <the agent's token>
+Content-Type: application/json
+Mcp-Protocol-Version: 2025-11-25
+User-Agent: aishie-runtime/test
+
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"me_get","arguments":{}}}
+
+POST /mcp
+Accept: application/json, text/event-stream
+Authorization: Bearer <the agent's token>
+Content-Type: application/json
+Mcp-Protocol-Version: 2025-11-25
+User-Agent: aishie-runtime/test
+
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"conversation_inbox","arguments":{"course_id":"c1","limit":20}}}
+
