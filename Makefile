@@ -66,6 +66,12 @@ lint: fmt-check tidy-check actionlint ## gofmt, go mod tidy, the workflows, go v
 	golangci-lint run
 	@if command -v shellcheck >/dev/null; then shellcheck scripts/*.sh; else echo "shellcheck is not installed: scripts/ not checked"; fi
 
+.PHONY: script-test
+script-test: ## the tests of scripts/ and deploy/, and shellcheck over deploy/ where it is installed
+	scripts/release-notes_test.sh
+	deploy/aishie-runtime-deploy_test.sh
+	@if command -v shellcheck >/dev/null; then shellcheck -s sh deploy/aishie-runtime-deploy deploy/aishie-runtime deploy/setup-server.sh && shellcheck deploy/aishie-runtime-deploy_test.sh; else echo "shellcheck is not installed: deploy/ not checked"; fi
+
 .PHONY: vuln
 vuln: ## known vulnerabilities in dependencies
 	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
@@ -75,7 +81,7 @@ docker: ## build the image locally; never pushes
 	docker build --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --build-arg DATE=$(DATE) -t aishie-runtime:dev .
 
 .PHONY: ci
-ci: lint test e2e ## everything CI runs, except docker and vuln
+ci: lint script-test test e2e ## everything CI runs, except docker and vuln
 
 .PHONY: clean
 clean: ## remove build output
