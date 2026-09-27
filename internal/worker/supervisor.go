@@ -284,7 +284,7 @@ func (s *Supervisor) leaseTick(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		ok, err := s.o.Store.AcquireLease(ctx, leaseName(r.id), s.o.WorkerID, s.o.Timing.LeaseTTL)
+		ok, err := s.acquire(ctx, r.id)
 		s.mu.Lock()
 		held := r.holds
 		running := r.agent != nil
@@ -317,9 +317,21 @@ func (s *Supervisor) leaseTick(ctx context.Context) {
 
 func leaseName(agentID string) string { return "agent:" + agentID }
 
+// acquire takes or renews the agent's lease. A store that does not answer
+// within storeTimeout, or a third of the lease's life if that is less, has
+// failed to renew it: the agent is stopped rather than run on while its
+// lease may be lapsing, and the ticks of the other agents are not held up.
+func (s *Supervisor) acquire(ctx context.Context, id string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, min(storeTimeout, s.o.Timing.LeaseTTL/3))
+	defer cancel()
+	return s.o.Store.AcquireLease(ctx, leaseName(id), s.o.WorkerID, s.o.Timing.LeaseTTL)
+}
+
 // checkTakeover counts a takeover when the agent's last recorded state
 // names another worker that did not stop it on purpose: its lease lapsed.
 func (s *Supervisor) checkTakeover(ctx context.Context, id string) {
+	ctx, cancel := context.WithTimeout(ctx, storeTimeout)
+	defer cancel()
 	states, err := s.o.Store.AgentStates(ctx)
 	if err != nil {
 		return

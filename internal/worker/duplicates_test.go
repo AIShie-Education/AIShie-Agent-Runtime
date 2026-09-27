@@ -292,3 +292,39 @@ func TestHandoverIsNotATakeover(t *testing.T) {
 		t.Errorf("the agents' states when their leases went: %v", st.states)
 	}
 }
+
+// hangingLeases is a store whose agent leases, once hung, are never
+// answered until the caller gives up.
+type hangingLeases struct {
+	store.Store
+	hung atomic.Bool
+}
+
+func (s *hangingLeases) AcquireLease(ctx context.Context, name, holder string, ttl time.Duration) (bool, error) {
+	if s.hung.Load() && strings.HasPrefix(name, "agent:") {
+		<-ctx.Done()
+		return false, ctx.Err()
+	}
+	return s.Store.AcquireLease(ctx, name, holder, ttl)
+}
+
+// TestLeaseRenewalThatHangsStopsTheAgent: a store that stops answering
+// the renewal of an agent's lease has failed to renew it; the agent stops
+// well within the lease's life, not when the store answers.
+func TestLeaseRenewalThatHangsStopsTheAgent(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("yuki-helper", 0)
+	st := &hangingLeases{Store: memstore.New()}
+	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": scripted.New()}, workerOpts{store: st})
+	eventually(t, "the inbox polled", func() bool { return len(w.calls(own.actor.ID, "conversation_inbox")) > 0 })
+	st.hung.Store(true)
+	hungAt := time.Now()
+	eventually(t, "the agent stopped", func() bool {
+		s := wk.sup.Status()
+		return len(s) == 1 && !s[0].Running
+	})
+	// The harness's lease lasts 1 s: a renewal waits a third of it.
+	if took := time.Since(hungAt); took > time.Second {
+		t.Errorf("the agent stopped %s after the store hung", took)
+	}
+}
