@@ -1,0 +1,48 @@
+{
+  "model": "deepseek-chat",
+  "parts": [
+    {
+      "args": {},
+      "args_error": "{\"assignment_id\": \"0192",
+      "id": "call_00_abc",
+      "name": "grade_list",
+      "type": "tool_call"
+    },
+    {
+      "args": {
+        "assignment_id": "0192f3c1-0000-7000-8000-000000000003"
+      },
+      "id": "call_01_def",
+      "name": "assignment_get",
+      "type": "tool_call"
+    },
+    {
+      "args": {},
+      "args_error": "[\"not\", \"an\", \"object\"]",
+      "id": "call_02_ghi",
+      "name": "document_list",
+      "type": "tool_call"
+    },
+    {
+      "args": {},
+      "id": "call_4",
+      "name": "course_get",
+      "type": "tool_call"
+    }
+  ],
+  "raw_stop": "tool_use",
+  "request_id": "msg_deepseek_0001",
+  "stop": "tool_calls",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 700,
+    "output": 20,
+    "raw": {
+      "input_tokens": 700,
+      "output_tokens": 20
+    },
+    "reasoning": 0
+  }
+}

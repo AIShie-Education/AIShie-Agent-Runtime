@@ -1,0 +1,42 @@
+{
+  "max_tokens": 4096,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "Why did I lose marks on HW3?",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "text": "Let me check.\n[called grade_list with {\"assignment_id\":\"0192f3c1-0000-7000-8000-000000000003\"}]\n[called assignment_get with {\"assignment_id\":\"0192f3c1-0000-7000-8000-000000000003\"}]",
+          "type": "text"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "text": "[result of grade_list]\n{\"status\":\"executed\",\"result\":{\"grades\":[{\"points\":\"7.5\",\"max\":\"10\"}]}}\n[result of assignment_get]\n{\"status\":\"executed\",\"result\":{\"assignment\":{\"title\":\"HW3\",\"rubric\":\"…\"}}}",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-sonnet-4-5",
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "You are CS101's tutor.",
+      "type": "text"
+    }
+  ]
+}

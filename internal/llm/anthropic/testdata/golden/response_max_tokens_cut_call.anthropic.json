@@ -1,0 +1,14 @@
+{
+  "id": "msg_01Cut0ffCut0ff",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet-4-5-20250929",
+  "content": [
+    {"type": "text", "text": "Let me check both questions."},
+    {"type": "tool_use", "id": "toolu_01D36t63tz63ot644502ot6", "name": "assignment_get", "input": {"assignment_id": "0192f3c1-0000-7000-8000-000000000003"}},
+    {"type": "tool_use", "id": "toolu_01E45u54ua54pu553491pu5", "name": "grade_list", "input": {"assignment_id": "0192f3c1-0000"}}
+  ],
+  "stop_reason": "max_tokens",
+  "stop_sequence": null,
+  "usage": {"input_tokens": 1402, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 64}
+}

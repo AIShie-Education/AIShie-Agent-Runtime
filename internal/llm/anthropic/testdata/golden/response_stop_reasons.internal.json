@@ -1,0 +1,224 @@
+{
+  "": {
+    "model": "claude-sonnet-4-5",
+    "parts": [
+      {
+        "text": "Partial answer",
+        "type": "text"
+      }
+    ],
+    "raw_stop": "",
+    "request_id": "req_011CSHoEeqs5C35K2UUqR7Fy",
+    "stop": "error",
+    "usage": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 10,
+      "output": 2,
+      "raw": {
+        "input_tokens": 10,
+        "output_tokens": 2
+      },
+      "reasoning": 0
+    }
+  },
+  "a_reason_from_the_future": {
+    "model": "claude-sonnet-4-5",
+    "parts": [
+      {
+        "text": "Partial answer",
+        "type": "text"
+      }
+    ],
+    "raw_stop": "a_reason_from_the_future",
+    "request_id": "req_011CSHoEeqs5C35K2UUqR7Fy",
+    "stop": "error",
+    "usage": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 10,
+      "output": 2,
+      "raw": {
+        "input_tokens": 10,
+        "output_tokens": 2
+      },
+      "reasoning": 0
+    }
+  },
+  "end_turn": {
+    "model": "claude-sonnet-4-5",
+    "parts": [
+      {
+        "text": "Partial answer",
+        "type": "text"
+      }
+    ],
+    "raw_stop": "end_turn",
+    "request_id": "req_011CSHoEeqs5C35K2UUqR7Fy",
+    "stop": "end",
+    "usage": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 10,
+      "output": 2,
+      "raw": {
+        "input_tokens": 10,
+        "output_tokens": 2
+      },
+      "reasoning": 0
+    }
+  },
+  "max_tokens": {
+    "model": "claude-sonnet-4-5",
+    "parts": [
+      {
+        "text": "Partial answer",
+        "type": "text"
+      }
+    ],
+    "raw_stop": "max_tokens",
+    "request_id": "req_011CSHoEeqs5C35K2UUqR7Fy",
+    "stop": "max_tokens",
+    "usage": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 10,
+      "output": 2,
+      "raw": {
+        "input_tokens": 10,
+        "output_tokens": 2
+      },
+      "reasoning": 0
+    }
+  },
+  "model_context_window_exceeded": {
+    "model": "claude-sonnet-4-5",
+    "parts": [
+      {
+        "text": "Partial answer",
+        "type": "text"
+      }
+    ],
+    "raw_stop": "model_context_window_exceeded",
+    "request_id": "req_011CSHoEeqs5C35K2UUqR7Fy",
+    "stop": "context_overflow",
+    "usage": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 10,
+      "output": 2,
+      "raw": {
+        "input_tokens": 10,
+        "output_tokens": 2
+      },
+      "reasoning": 0
+    }
+  },
+  "pause_turn": {
+    "model": "claude-sonnet-4-5",
+    "parts": [
+      {
+        "text": "Partial answer",
+        "type": "text"
+      }
+    ],
+    "raw_stop": "pause_turn",
+    "request_id": "req_011CSHoEeqs5C35K2UUqR7Fy",
+    "stop": "error",
+    "usage": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 10,
+      "output": 2,
+      "raw": {
+        "input_tokens": 10,
+        "output_tokens": 2
+      },
+      "reasoning": 0
+    }
+  },
+  "refusal": {
+    "model": "claude-sonnet-4-5",
+    "parts": [
+      {
+        "text": "Partial answer",
+        "type": "text"
+      }
+    ],
+    "raw_stop": "refusal",
+    "request_id": "req_011CSHoEeqs5C35K2UUqR7Fy",
+    "stop": "refusal",
+    "usage": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 10,
+      "output": 2,
+      "raw": {
+        "input_tokens": 10,
+        "output_tokens": 2
+      },
+      "reasoning": 0
+    }
+  },
+  "stop_sequence": {
+    "model": "claude-sonnet-4-5",
+    "parts": [
+      {
+        "text": "Partial answer",
+        "type": "text"
+      }
+    ],
+    "raw_stop": "stop_sequence",
+    "request_id": "req_011CSHoEeqs5C35K2UUqR7Fy",
+    "stop": "end",
+    "usage": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 10,
+      "output": 2,
+      "raw": {
+        "input_tokens": 10,
+        "output_tokens": 2
+      },
+      "reasoning": 0
+    }
+  },
+  "tool_use": {
+    "model": "claude-sonnet-4-5",
+    "parts": [
+      {
+        "text": "Checking.",
+        "type": "text"
+      },
+      {
+        "args": {},
+        "id": "toolu_01",
+        "name": "grade_list",
+        "type": "tool_call"
+      }
+    ],
+    "raw_stop": "tool_use",
+    "request_id": "req_011CSHoEeqs5C35K2UUqR7Fy",
+    "stop": "tool_calls",
+    "usage": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 10,
+      "output": 2,
+      "raw": {
+        "input_tokens": 10,
+        "output_tokens": 2
+      },
+      "reasoning": 0
+    }
+  }
+}

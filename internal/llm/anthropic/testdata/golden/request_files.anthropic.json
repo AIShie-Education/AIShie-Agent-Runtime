@@ -1,0 +1,100 @@
+{
+  "max_tokens": 4096,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "Why did I lose marks on HW3?",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_01",
+          "input": {
+            "document_id": "0192f3c1-0000-7000-8000-000000000009"
+          },
+          "name": "document_get",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "{\"status\":\"executed\",\"result\":{\"document\":{\"title\":\"HW3 feedback\"}}}",
+          "tool_use_id": "toolu_01",
+          "type": "tool_result"
+        },
+        {
+          "source": {
+            "data": "JVBERi0xLjcgZmVlZGJhY2s=",
+            "media_type": "application/pdf",
+            "type": "base64"
+          },
+          "title": "feedback.pdf",
+          "type": "document"
+        },
+        {
+          "source": {
+            "data": "iVBORw0KGgo=",
+            "media_type": "image/png",
+            "type": "base64"
+          },
+          "type": "image"
+        },
+        {
+          "text": "[file \"notes.md\"]\n# Notes\nQuestion 2 lost 2.5 marks.",
+          "type": "text"
+        },
+        {
+          "text": "[The file \"rubric.docx\" (application/vnd.openxmlformats-officedocument.wordprocessingml.document, 4 bytes) cannot be shown to this model.]",
+          "type": "text"
+        },
+        {
+          "text": "The graph is the one from the lecture.",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-sonnet-4-5",
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "You are CS101's tutor.",
+      "type": "text"
+    }
+  ],
+  "tool_choice": {
+    "type": "auto"
+  },
+  "tools": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "description": "Read one document.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "document_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id"
+        ],
+        "type": "object"
+      },
+      "name": "document_get"
+    }
+  ]
+}
