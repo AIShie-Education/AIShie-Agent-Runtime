@@ -1,5 +1,3 @@
-//go:build core_catalogue
-
 package toolset
 
 import (

@@ -134,7 +134,11 @@ with backoff inside the wall clock, then the fallback model if there is one.
 `toolset.Build(catalogue, seat perms, tools config, dialect)` is §4's
 formula: the tool's gate is allowed by the seat's perms, it is in `allow`,
 not in `deny`, not in the built-in deny list (§6.1), and a read. Unknown
-gates offer nothing. The model sees each tool through `toolschema`: bound
+gates offer nothing. Beside §6.1's list, `event_list` and `action_list_mine`
+are never offered, though §4 gives them gates: the runtime reads them
+itself, and `action_list_mine` returns the answers the agent wrote in other
+people's conversations, which a worker answering one conversation must not
+see. `deny` entries ending in `*` cover every tool they begin. The model sees each tool through `toolschema`: bound
 arguments removed (`course_id`, `idempotency_key`), the common transform,
 the adapter's dialect; cached per catalogue hash and dialect.
 

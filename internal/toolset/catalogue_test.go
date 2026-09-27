@@ -68,9 +68,9 @@ func TestBuild(t *testing.T) {
 			want: []string{"course_get"},
 		},
 		{
-			name: "allow narrows, and names gated reads beyond the default", perms: tutorPerms,
+			name: "allow narrows, and never offers the feeds the runtime reads itself", perms: tutorPerms,
 			cfg:  config.Tools{Mode: "derived", Allow: []string{"course_get", "event_list", "action_list_mine", "grade_list", "course_get"}},
-			want: []string{"action_list_mine", "course_get", "event_list"},
+			want: []string{"course_get"},
 		},
 		{
 			name: "writes, the built-in deny list and ungated tools are never offered, even allowed",
@@ -237,10 +237,10 @@ func TestCheck(t *testing.T) {
 			c.Tools["document_get"] = ct
 		}, "recursive"},
 		{"a gated tool's schema that does not compile", func(c *Catalogue) {
-			ct := c.Tools["event_list"]
+			ct := c.Tools["assignment_list"]
 			ct.InputSchema = json.RawMessage(`{"type":"object","properties":{"s":{"type":"string","pattern":"("}}}`)
-			c.Tools["event_list"] = ct
-		}, "event_list"},
+			c.Tools["assignment_list"] = ct
+		}, "assignment_list"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -274,13 +274,13 @@ func TestBuiltinDenied(t *testing.T) {
 	denied := []string{"agent_create", "agent_issue_token", "credential_list", "actor_get", "member_add",
 		"member_add_delegate", "action_decide", "action_review", "action_withdraw", "conversation_answer",
 		"conversation_messages", "conversation_inbox", "preset_create", "course_create", "course_update",
-		"term_list", "department_list", "document_upload_url"}
+		"term_list", "department_list", "document_upload_url", "action_list_mine", "event_list"}
 	for _, name := range denied {
 		if !BuiltinDenied(name) {
 			t.Errorf("%s is not denied", name)
 		}
 	}
-	for _, name := range []string{"course_get", "document_get", "action_list_mine", "action_get", "event_list", "courses_get", "agentx"} {
+	for _, name := range []string{"course_get", "document_get", "action_get", "courses_get", "agentx"} {
 		if BuiltinDenied(name) {
 			t.Errorf("%s is denied", name)
 		}

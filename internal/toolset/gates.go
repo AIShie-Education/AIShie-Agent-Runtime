@@ -44,21 +44,20 @@ func (g Gate) Allowed(perms map[string]string) bool {
 // Gates are the permission gates of the read tools a model may be offered,
 // kept by hand because GET /v1/tools does not name them (§4, §10 item 2).
 // CheckCatalogue holds them to the catalogue whenever its hash changes. A
-// tool with no gate here is never offered.
+// tool with no gate here is never offered: event_list and action_list_mine,
+// which §4 gates on document_read, are left out with BuiltinDeny's reason.
 var Gates = map[string]Gate{
-	"course_get":       {Any: []string{"document_read"}},
-	"assignment_list":  {Any: []string{"document_read"}},
-	"assignment_get":   {Any: []string{"document_read"}},
-	"event_list":       {Any: []string{"document_read"}},
-	"action_list_mine": {Any: []string{"document_read"}},
-	"document_list":    {Any: []string{"document_read", "rubric_read"}},
-	"document_get":     {Any: []string{"document_read", "rubric_read", "submission_read", "grade_read"}},
-	"submission_list":  {Any: []string{"submission_read"}},
-	"submission_get":   {Any: []string{"submission_read"}},
-	"grade_list":       {Any: []string{"grade_read"}},
-	"grade_get":        {Any: []string{"grade_read"}},
-	"component_tree":   {Any: []string{"grade_read"}},
-	"gradebook_get":    {Any: []string{"grade_read"}},
+	"course_get":      {Any: []string{"document_read"}},
+	"assignment_list": {Any: []string{"document_read"}},
+	"assignment_get":  {Any: []string{"document_read"}},
+	"document_list":   {Any: []string{"document_read", "rubric_read"}},
+	"document_get":    {Any: []string{"document_read", "rubric_read", "submission_read", "grade_read"}},
+	"submission_list": {Any: []string{"submission_read"}},
+	"submission_get":  {Any: []string{"submission_read"}},
+	"grade_list":      {Any: []string{"grade_read"}},
+	"grade_get":       {Any: []string{"grade_read"}},
+	"component_tree":  {Any: []string{"grade_read"}},
+	"gradebook_get":   {Any: []string{"grade_read"}},
 }
 
 // DefaultAllow is the allowlist when an agent's configuration names none:
@@ -71,9 +70,14 @@ var DefaultAllow = []string{
 // BuiltinDeny is never offered to a model in M1 and M2, whatever the
 // configuration says (§6.1): a name ending in * covers every tool it
 // begins. Every write is denied besides, by the catalogue's kind.
+//
+// Beside the handout's list, event_list and action_list_mine: the runtime
+// calls them itself, and action_list_mine returns the agent's own actions,
+// the answers it wrote in other people's conversations among them, which a
+// tutor answering one conversation must never read (§6.1).
 var BuiltinDeny = []string{
 	"agent_*", "credential_*", "actor_*", "member_*",
-	"action_decide", "action_review", "action_withdraw",
+	"action_decide", "action_review", "action_withdraw", "action_list_mine", "event_list",
 	"conversation_*", "preset_*", "course_create", "course_update",
 	"term_*", "department_*", "document_upload_url",
 }
