@@ -209,7 +209,9 @@ func (l *loop) spent(partial string) loopEnd {
 	return loopEnd{body: l.c.eff.Prompt.OnBudgetText, kind: kindBudget}
 }
 
-// spentOn names the budget spent, or "".
+// spentOn names the budget spent, or "". The output tokens count as spent
+// once what is left cannot hold a whole turn: the last turn is forced then,
+// within what is left, so that the cap holds and the model still writes.
 func (l *loop) spentOn() string {
 	switch {
 	case !l.c.a.now().Before(l.deadline):
@@ -218,7 +220,7 @@ func (l *loop) spentOn() string {
 		return "tool_calls"
 	case l.stats.In >= l.b.InputTokens:
 		return "input_tokens"
-	case l.stats.Out >= l.b.OutputTokens:
+	case l.stats.Turns > 0 && l.outLeft() < int64(l.cap):
 		return "output_tokens"
 	}
 	return ""
