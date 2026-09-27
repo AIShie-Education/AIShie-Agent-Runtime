@@ -161,19 +161,26 @@ func errorFields(body []byte) (code, message string) {
 		if json.Unmarshal(v.Error, &s) == nil {
 			return "", s
 		}
+		// status is a string for Gemini (RESOURCE_EXHAUSTED) and a number
+		// for Azure OpenAI (400), so it and code are read either way.
 		var e struct {
 			Code    json.RawMessage `json:"code"`
 			Type    string          `json:"type"`
-			Status  string          `json:"status"`
+			Status  json.RawMessage `json:"status"`
 			Message string          `json:"message"`
 		}
 		if json.Unmarshal(v.Error, &e) == nil {
 			code = rawString(e.Code)
+			// Gemini's code is the HTTP status again, and its status the
+			// name that says something (RESOURCE_EXHAUSTED).
+			if status := rawString(e.Status); status != "" && (code == "" || isNumber(e.Code)) && !isNumber(e.Status) {
+				code = status
+			}
 			if code == "" {
 				code = e.Type
 			}
 			if code == "" {
-				code = e.Status
+				code = rawString(e.Status)
 			}
 			return code, e.Message
 		}
@@ -183,6 +190,11 @@ func errorFields(body []byte) (code, message string) {
 		code = v.Type
 	}
 	return code, v.Message
+}
+
+func isNumber(raw json.RawMessage) bool {
+	var n json.Number
+	return len(raw) > 0 && raw[0] != '"' && json.Unmarshal(raw, &n) == nil
 }
 
 func rawString(raw json.RawMessage) string {
