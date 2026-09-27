@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -40,11 +41,24 @@ const clientName = "aishie-runtime"
 // defaultHTTPClient follows no redirect: Core never answers a call with
 // one, and one followed would make the call somewhere else.
 func defaultHTTPClient() *http.Client {
-	return &http.Client{
-		Timeout:       DefaultTimeout,
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-	}
+	return &http.Client{Timeout: DefaultTimeout, CheckRedirect: stopAtRedirect}
 }
+
+// withoutRedirects is c, or the default client when c is nil, made to
+// follow no redirect: a copy, sharing c's transport, jar and timeout. A
+// client that followed one would send the call again elsewhere, a write's
+// body and the token with it (Go keeps Authorization on a redirect to the
+// same host), before the answer could be refused.
+func withoutRedirects(c *http.Client) *http.Client {
+	if c == nil {
+		return defaultHTTPClient()
+	}
+	cp := *c
+	cp.CheckRedirect = stopAtRedirect
+	return &cp
+}
+
+func stopAtRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 
 // redirected reports whether the answer is a redirect, or came from
 // somewhere other than where the request went (a client that follows
@@ -156,7 +170,7 @@ func retryAfterHeader(v string, now time.Time) time.Duration {
 		return 0
 	}
 	if n, err := strconv.ParseFloat(v, 64); err == nil {
-		if n <= 0 {
+		if n <= 0 || math.IsNaN(n) {
 			return 0
 		}
 		return seconds(n)
@@ -186,11 +200,21 @@ func serverError(status int, body []byte, token string) *TransientError {
 // said is the start of what a server said, on one line, fit for an error:
 // never the token, never much of it.
 func said(body []byte, token string) string {
-	s := strings.TrimSpace(string(body))
+	s := strings.TrimSpace(string(body[:min(len(body), maxQuoted)]))
 	if s == "" {
 		return "no body"
 	}
-	return redact(clip(s, 200), token)
+	return quote(s, token, 200)
+}
+
+// maxQuoted is as much of what a server said as is looked at for an
+// error: far more than is kept, so that what is kept was redacted whole.
+const maxQuoted = 64 << 10
+
+// quote is s fit for an error: redacted, then cut to n bytes on one line.
+// Redacted first, so that a cut never leaves part of a token to be seen.
+func quote(s, token string, n int) string {
+	return clip(redact(s[:min(len(s), maxQuoted)], token), n)
 }
 
 // clip cuts s to at most n bytes, on a rune boundary, on one line.

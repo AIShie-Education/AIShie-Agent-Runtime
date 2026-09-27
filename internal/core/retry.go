@@ -17,7 +17,9 @@ type RetryOptions struct {
 	// Max is the ceiling backoff doubles up to; 60 s when 0.
 	Max time.Duration
 	// OnRateLimited is told of every 429, with Core's Retry-After, when it
-	// comes: the agent's pollers slow down for a while (§7.2).
+	// comes and before the wait: the agent's pollers slow down for a while
+	// (§7.2). It is called from the goroutine making the call, so from many
+	// at once when the Retrying is shared.
 	OnRateLimited func(retryAfter time.Duration)
 	// Sleep waits d or until ctx ends, returning ctx's error then; a timer
 	// when nil. For tests.

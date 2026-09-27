@@ -1,6 +1,6 @@
 POST /mcp
 Accept: application/json, text/event-stream
-Authorization: Bearer ais_TestTokenThatMustNotLeak_0123
+Authorization: Bearer <the agent's token>
 Content-Type: application/json
 Mcp-Protocol-Version: 2025-11-25
 User-Agent: aishie-runtime/test
@@ -9,7 +9,7 @@ User-Agent: aishie-runtime/test
 
 POST /mcp
 Accept: application/json, text/event-stream
-Authorization: Bearer ais_TestTokenThatMustNotLeak_0123
+Authorization: Bearer <the agent's token>
 Content-Type: application/json
 Mcp-Protocol-Version: 2025-11-25
 User-Agent: aishie-runtime/test
@@ -18,7 +18,7 @@ User-Agent: aishie-runtime/test
 
 POST /mcp
 Accept: application/json, text/event-stream
-Authorization: Bearer ais_TestTokenThatMustNotLeak_0123
+Authorization: Bearer <the agent's token>
 Content-Type: application/json
 Mcp-Protocol-Version: 2025-11-25
 User-Agent: aishie-runtime/test
@@ -27,7 +27,7 @@ User-Agent: aishie-runtime/test
 
 POST /mcp
 Accept: application/json, text/event-stream
-Authorization: Bearer ais_TestTokenThatMustNotLeak_0123
+Authorization: Bearer <the agent's token>
 Content-Type: application/json
 Mcp-Protocol-Version: 2025-11-25
 User-Agent: aishie-runtime/test
@@ -36,7 +36,7 @@ User-Agent: aishie-runtime/test
 
 POST /mcp
 Accept: application/json, text/event-stream
-Authorization: Bearer ais_TestTokenThatMustNotLeak_0123
+Authorization: Bearer <the agent's token>
 Content-Type: application/json
 Mcp-Protocol-Version: 2025-11-25
 User-Agent: aishie-runtime/test

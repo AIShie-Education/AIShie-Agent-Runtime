@@ -106,20 +106,17 @@ func mcpName(name string) string { return strings.ReplaceAll(name, ".", "_") }
 const maxCatalogueBytes = 16 << 20
 
 // FetchCatalogue reads GET /v1/tools from Core at baseURL. It needs no
-// token. A network error or a 5xx is a *TransientError, as from a Caller.
+// token, and follows no redirect: the catalogue is the configured Core's. A
+// network error or a 5xx is a *TransientError, as from a Caller.
 func FetchCatalogue(ctx context.Context, client *http.Client, baseURL string) (*Catalogue, error) {
-	if client == nil {
-		client = defaultHTTPClient()
-	}
-	// baseURL is the configured Core's (core.base_url), never anything a
-	// request or an answer supplied.
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(baseURL, "/")+"/v1/tools", nil) //nolint:gosec // G704: see above
+	client = withoutRedirects(client)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(baseURL, "/")+"/v1/tools", nil)
 	if err != nil {
 		return nil, fmt.Errorf("core: GET /v1/tools: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", userAgent(clientName, defaultVersion()))
-	resp, err := client.Do(req) //nolint:gosec // G704: the configured Core, as above
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("core: GET /v1/tools: %w", sendError(ctx, err, ""))
 	}

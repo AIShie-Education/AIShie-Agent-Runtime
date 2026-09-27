@@ -7,11 +7,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,20 +31,46 @@ type liveREST struct {
 }
 
 // call makes one request and fails the test unless Core answers want. It
-// returns the body's result.
+// returns the body's result. A 429 is waited out, under a Core started with
+// a small limit.
 func (c *liveREST) call(want int, method, path, token string, body any) map[string]any {
 	c.t.Helper()
 	c.n++
-	var rd io.Reader
+	var b []byte
 	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
+		var err error
+		if b, err = json.Marshal(body); err != nil {
 			c.t.Fatal(err)
 		}
-		rd = bytes.NewReader(b)
 	}
+	key := fmt.Sprintf("%s-%d", c.run, c.n)
+	for range 20 {
+		status, raw, retryAfter := c.send(method, path, token, key, b)
+		if status == http.StatusTooManyRequests {
+			time.Sleep(retryAfter)
+			continue
+		}
+		if status != want {
+			c.t.Fatalf("%s %s: HTTP %d, want %d: %s", method, path, status, want, redact(string(raw), token))
+		}
+		var out struct {
+			Result map[string]any `json:"result"`
+		}
+		_ = json.Unmarshal(raw, &out)
+		return out.Result
+	}
+	c.t.Fatalf("%s %s: refused as too many calls twenty times", method, path)
+	return nil
+}
+
+func (c *liveREST) send(method, path, token, key string, body []byte) (status int, raw []byte, retryAfter time.Duration) {
+	c.t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	var rd io.Reader
+	if body != nil {
+		rd = bytes.NewReader(body)
+	}
 	req, err := http.NewRequestWithContext(ctx, method, c.base+path, rd)
 	if err != nil {
 		c.t.Fatal(err)
@@ -49,22 +78,27 @@ func (c *liveREST) call(want int, method, path, token string, body any) map[stri
 	req.Header.Set("Authorization", "Bearer "+token)
 	if method == http.MethodPost {
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Idempotency-Key", c.run+"-"+string(rune('a'+c.n%26))+"-"+time.Now().Format("150405.000000"))
+		req.Header.Set("Idempotency-Key", key)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		c.t.Fatalf("%s %s: %v", method, path, err)
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != want {
-		c.t.Fatalf("%s %s: HTTP %d, want %d: %s", method, path, resp.StatusCode, want, redact(string(raw), token))
+	raw, _ = io.ReadAll(resp.Body)
+	return resp.StatusCode, raw, retryAfterHeader(resp.Header.Get("Retry-After"), time.Now())
+}
+
+// liveCore is the Core under test, or a skip when there is none.
+func liveCore(t *testing.T) (base, root, run string) {
+	t.Helper()
+	base, root = strings.TrimRight(os.Getenv("E2E_CORE_URL"), "/"), os.Getenv("E2E_ROOT_TOKEN")
+	if base == "" || root == "" {
+		t.Skip("E2E_CORE_URL and E2E_ROOT_TOKEN are not set: no Core to test against")
 	}
-	var out struct {
-		Result map[string]any `json:"result"`
-	}
-	_ = json.Unmarshal(raw, &out)
-	return out.Result
+	suffix := make([]byte, 4)
+	_, _ = rand.Read(suffix)
+	return base, root, hex.EncodeToString(suffix)
 }
 
 func str(t *testing.T, m map[string]any, key string) string {
@@ -99,16 +133,12 @@ func show(e *Envelope) string {
 // question, and the calls a runtime makes, over MCP and over REST, which
 // must give the same envelopes. It runs only against a throwaway Core
 // (scripts/ci-core.sh start), named by E2E_CORE_URL and E2E_ROOT_TOKEN.
+// The calls go through Retrying, which leaves every envelope as it came, so
+// that a Core started with a small limit is waited out.
 func TestLiveContract(t *testing.T) {
-	base, root := strings.TrimRight(os.Getenv("E2E_CORE_URL"), "/"), os.Getenv("E2E_ROOT_TOKEN")
-	if base == "" || root == "" {
-		t.Skip("E2E_CORE_URL and E2E_ROOT_TOKEN are not set: no Core to test against")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	base, root, run := liveCore(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	suffix := make([]byte, 4)
-	_, _ = rand.Read(suffix)
-	run := hex.EncodeToString(suffix)
 	rest := &liveREST{t: t, base: base, run: "live-" + run}
 
 	// Root makes an admin; the admin registers Sato (an instructor) and Yuki
@@ -146,14 +176,26 @@ func TestLiveContract(t *testing.T) {
 	}
 	mcp := NewMCPCaller(MCPOptions{BaseURL: base, Token: tutor})
 	rst := NewRESTCaller(RESTOptions{BaseURL: base, Token: tutor, Catalogue: cat})
+	var tooMany atomic.Int32
+	retry := RetryOptions{OnRateLimited: func(time.Duration) { tooMany.Add(1) }}
+	mcpR, rstR := NewRetrying(mcp, retry), NewRetrying(rst, retry)
+	defer func() { t.Logf("Core refused %d calls as too many, and Retrying waited each out", tooMany.Load()) }()
 
-	if err := mcp.Initialize(ctx); err != nil {
+	// The first call initializes, through Retrying.
+	if _, err := mcpR.Call(ctx, "me_get", nil); err != nil {
 		t.Fatal(err)
 	}
 	if mcp.Protocol() != DefaultProtocol || !strings.Contains(mcp.Instructions(), "me_memberships") {
 		t.Fatalf("protocol %q, instructions %.80q", mcp.Protocol(), mcp.Instructions())
 	}
-	listed, err := mcp.ListTools(ctx)
+	var listed []MCPTool
+	for {
+		var rl *RateLimitedError
+		if listed, err = mcp.ListTools(ctx); !errors.As(err, &rl) {
+			break
+		}
+		time.Sleep(rl.RetryAfter)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,11 +215,11 @@ func TestLiveContract(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		a, err := mcp.Call(ctx, tool, raw)
+		a, err := mcpR.Call(ctx, tool, raw)
 		if err != nil {
 			t.Fatalf("%s over MCP: %v", tool, err)
 		}
-		b, err := rst.Call(ctx, tool, raw)
+		b, err := rstR.Call(ctx, tool, raw)
 		if err != nil {
 			t.Fatalf("%s over REST: %v", tool, err)
 		}
@@ -231,7 +273,7 @@ func TestLiveContract(t *testing.T) {
 		return b
 	}
 	first := answerArgs(1, "An essay with a thesis.")
-	posted, err := mcp.Call(ctx, "conversation_answer", first)
+	posted, err := mcpR.Call(ctx, "conversation_answer", first)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +284,7 @@ func TestLiveContract(t *testing.T) {
 		posted.Decode(&result) != nil || result.MessageID == "" {
 		t.Fatalf("the answer: %s", show(posted))
 	}
-	for _, c := range []Caller{mcp, rst} {
+	for _, c := range []Caller{mcpR, rstR} {
 		again, err := c.Call(ctx, "conversation_answer", first)
 		if err != nil {
 			t.Fatal(err)
@@ -258,11 +300,11 @@ func TestLiveContract(t *testing.T) {
 		t.Fatalf("idempotency_conflict: %s", show(conflict))
 	}
 
-	second, err := mcp.Call(ctx, "conversation_answer", answerArgs(2, "A second answer."))
+	second, err := mcpR.Call(ctx, "conversation_answer", answerArgs(2, "A second answer."))
 	if err != nil {
 		t.Fatal(err)
 	}
-	third, err := rst.Call(ctx, "conversation_answer", answerArgs(3, "A third answer."))
+	third, err := rstR.Call(ctx, "conversation_answer", answerArgs(3, "A third answer."))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -300,8 +342,22 @@ func TestLiveContract(t *testing.T) {
 			t.Errorf("%s %v: %s", c.tool, c.args, show(e))
 		}
 	}
-	if e := both("conversation_inbox", map[string]any{"course_id": course, "limit": "5"}); e.Status != StatusError || e.Code() != CodeInvalidArgument {
-		t.Errorf("a limit given as text: %s", show(e))
+	// Arguments Core refuses, refused alike, word for word: those the route
+	// cannot carry exactly go to the generic route, and a path parameter is
+	// escaped into one segment.
+	for _, c := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"conversation_inbox", map[string]any{"course_id": course, "limit": "5"}},
+		{"conversation_list", map[string]any{"course_id": course, "after": 5}},
+		{"conversation_get", map[string]any{"course_id": "a/b c", "conversation_id": conv}},
+		{"document_get", map[string]any{"course_id": course, "document_id": ".."}},
+		{"conversation_messages", map[string]any{"course_id": course, "conversation_id": conv, "limit": nil}},
+	} {
+		if e := both(c.tool, c.args); e.Status != StatusError || e.Code() != CodeInvalidArgument {
+			t.Errorf("%s %v: %s", c.tool, c.args, show(e))
+		}
 	}
 
 	// 401: a token that was never issued, then the tutor's own, revoked.
@@ -323,7 +379,7 @@ func TestLiveContract(t *testing.T) {
 		t.Fatalf("the tutor's credentials: %s %v", raw, err)
 	}
 	rest.call(200, "POST", "/v1/me/agents/"+tutorID+"/credentials/"+creds.Credentials[0].ID+"/revoke", sato, map[string]any{})
-	for _, c := range []Caller{mcp, rst, NewRetrying(rst, RetryOptions{})} {
+	for _, c := range []Caller{mcp, rst, mcpR, rstR} {
 		_, err := c.Call(ctx, "me_get", nil)
 		if !errors.Is(err, ErrUnauthenticated) {
 			t.Fatalf("%T with a revoked token: %v", c, err)
@@ -331,5 +387,75 @@ func TestLiveContract(t *testing.T) {
 		if strings.Contains(err.Error(), tutor) {
 			t.Fatal("the error carries the token")
 		}
+	}
+}
+
+// TestLiveRateLimited spends an actor's allowance until Core refuses a call
+// with a real 429, over each transport, and then sees Retrying wait one
+// out: told of it, asleep for Retry-After, and the call made. It needs a
+// Core started with a limit, whose calls a minute CORE_RATE_LIMIT_PER_MINUTE
+// names, as scripts/ci-core.sh takes it (with RATE_LIMIT_BURST, if set,
+// passed on to Core).
+func TestLiveRateLimited(t *testing.T) {
+	base, root, run := liveCore(t)
+	perMinute, _ := strconv.Atoi(os.Getenv("CORE_RATE_LIMIT_PER_MINUTE"))
+	if perMinute <= 0 {
+		t.Skip("CORE_RATE_LIMIT_PER_MINUTE does not name the limit Core was started with")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	rest := &liveREST{t: t, base: base, run: "limited-" + run}
+	// An actor of its own: nobody else spends its allowance, and it spends
+	// nobody else's.
+	id := str(t, rest.call(200, "POST", "/v1/actors", root, map[string]any{"kind": "human", "display_name": "Busy " + run}), "actor_id")
+	token := str(t, rest.call(200, "POST", "/v1/actors/"+id+"/tokens", root, map[string]any{"label": "live"}), "token")
+	cat, err := FetchCatalogue(ctx, nil, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const most = 20000 // calls, far past any burst a test Core is given
+	for _, tc := range []struct {
+		name string
+		c    Caller
+	}{
+		{"MCP", NewMCPCaller(MCPOptions{BaseURL: base, Token: token})},
+		{"REST", NewRESTCaller(RESTOptions{BaseURL: base, Token: token, Catalogue: cat})},
+	} {
+		var rl *RateLimitedError
+		for n := 0; !errors.As(err, &rl); n++ {
+			if n == most {
+				t.Fatalf("%s: no 429 in %d calls", tc.name, most)
+			}
+			var env *Envelope
+			if env, err = tc.c.Call(ctx, "me_get", nil); err == nil && !env.OK() {
+				t.Fatalf("%s: %s", tc.name, show(env))
+			} else if err != nil && !errors.As(err, &rl) {
+				t.Fatalf("%s: %v", tc.name, err)
+			}
+		}
+		if rl.RetryAfter < time.Second || rl.RetryAfter > time.Minute {
+			t.Fatalf("%s: Retry-After %s", tc.name, rl.RetryAfter)
+		}
+		noSecret(t, err)
+		err = nil
+
+		// Through Retrying, calls go on until one meets a 429 of its own,
+		// which it waits out: every call comes back executed.
+		var told []time.Duration
+		r := NewRetrying(tc.c, RetryOptions{OnRateLimited: func(d time.Duration) { told = append(told, d) }})
+		for n := 0; len(told) == 0; n++ {
+			if n == most {
+				t.Fatalf("%s: no 429 through Retrying in %d calls", tc.name, most)
+			}
+			start := time.Now()
+			env, err := r.Call(ctx, "me_get", nil)
+			if err != nil || !env.OK() {
+				t.Fatalf("%s through Retrying: %v %v", tc.name, env, err)
+			}
+			if len(told) > 0 && time.Since(start) < told[0] {
+				t.Fatalf("%s: Retrying came back after %s, before Retry-After %s", tc.name, time.Since(start), told[0])
+			}
+		}
+		t.Logf("%s: a 429 with Retry-After %s; Retrying was told %v and waited it out", tc.name, rl.RetryAfter, told)
 	}
 }

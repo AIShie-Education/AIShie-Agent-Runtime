@@ -240,6 +240,11 @@ func TestFetchCatalogue(t *testing.T) {
 	if _, err := FetchCatalogue(ctx, srv.Client(), srv.URL); err == nil || errors.As(err, &te) {
 		t.Fatalf("404: %v", err)
 	}
+	moved := httptest.NewServer(http.RedirectHandler(srv.URL+"/v1/tools", http.StatusFound))
+	defer moved.Close()
+	if _, err := FetchCatalogue(ctx, moved.Client(), moved.URL); err == nil || !strings.Contains(err.Error(), "HTTP 302") {
+		t.Fatalf("a redirect is not followed: %v", err)
+	}
 	srv.Close()
 	if _, err := FetchCatalogue(ctx, nil, srv.URL); !errors.As(err, &te) {
 		t.Fatalf("nothing listening: %v", err)

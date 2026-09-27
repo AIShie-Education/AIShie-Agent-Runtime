@@ -237,12 +237,19 @@ func (b *Bucket) schedule() {
 	if b.timer != nil || b.perMinute <= 0 {
 		return
 	}
-	need := 1 - b.tokens
-	d := time.Duration(math.Ceil(need / b.perMinute * float64(time.Minute)))
+	// At a rate so slow that the wait would not fit a Duration, the timer
+	// comes back within maxWake and sets another.
+	d := maxWake
+	if wait := math.Ceil((1 - b.tokens) / b.perMinute * float64(time.Minute)); wait < float64(maxWake) {
+		d = time.Duration(wait)
+	}
 	b.gen++
 	gen := b.gen
 	b.timer = b.clock.AfterFunc(max(d, 1), func() { b.wake(gen) })
 }
+
+// maxWake is the longest a timer is set for.
+const maxWake = time.Hour
 
 func (b *Bucket) stopTimer() {
 	if b.timer != nil {

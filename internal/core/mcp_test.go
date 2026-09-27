@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -75,7 +76,16 @@ func TestMCPHandshake(t *testing.T) {
 		sort.Strings(keys)
 		fmt.Fprintf(&wire, "POST /mcp\n")
 		for _, k := range keys {
-			fmt.Fprintf(&wire, "%s: %s\n", k, strings.Join(r.Header.Values(k), ", "))
+			v := strings.Join(r.Header.Values(k), ", ")
+			// The token is checked here and kept out of the golden file,
+			// which holds nothing shaped like a token.
+			if k == "Authorization" {
+				if v != "Bearer "+testToken {
+					t.Errorf("request %d: Authorization %q", i, v)
+				}
+				v = "Bearer <the agent's token>"
+			}
+			fmt.Fprintf(&wire, "%s: %s\n", k, v)
 		}
 		fmt.Fprintf(&wire, "\n%s\n\n", r.Body)
 	}
@@ -246,6 +256,13 @@ func TestMCPAnswers(t *testing.T) {
 		{"SSE JSON-RPC error", sse(`data: {"jsonrpc":"2.0","id":$ID,"error":{"code":-32602,"message":"bad params"}}` + "\n\n"),
 			protocol(-32602, "bad params")},
 		{"SSE ends without the answer", sse(`data: {"jsonrpc":"2.0","id":999,"result":{}}` + "\n\n"), transient(200)},
+		{"SSE: a request of the server's under the same id is passed over", sse(
+			`data: {"jsonrpc":"2.0","id":$ID,"method":"ping"}`+"\n\n",
+			`data: {"jsonrpc":"2.0","id":$ID,"result":`+mustJSON(toolResult(executed))+"}\n\n",
+		), envelope(StatusExecuted, "", "")},
+		{"a request of the server's instead of an answer", func(w http.ResponseWriter, id json.RawMessage) {
+			writeJSON(w, http.StatusOK, map[string]any{"jsonrpc": "2.0", "id": id, "method": "ping"})
+		}, protocol(0, "a request of the server's")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFakeMCP(t)
@@ -549,20 +566,47 @@ func TestMCPSendsArgumentsAsWritten(t *testing.T) {
 	}
 }
 
+// A redirect is never followed, even by a client that would follow one: the
+// request would go again, token and all, somewhere else.
 func TestMCPFollowsNoRedirect(t *testing.T) {
+	var elsewhere atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/mcp" {
 			http.Redirect(w, r, "/elsewhere", http.StatusTemporaryRedirect)
 			return
 		}
+		elsewhere.Add(1)
 		writeResult(w, json.RawMessage(`1`), map[string]any{"protocolVersion": DefaultProtocol})
 	}))
 	defer srv.Close()
-	for name, client := range map[string]*http.Client{"the default client": nil, "a client that follows": srv.Client()} {
+	follows := srv.Client()
+	for name, client := range map[string]*http.Client{"the default client": nil, "a client that follows": follows} {
 		c := NewMCPCaller(MCPOptions{BaseURL: srv.URL, Token: testToken, HTTPClient: client})
 		var pe *ProtocolError
 		if _, err := c.Call(context.Background(), "me_get", nil); !errors.As(err, &pe) || !strings.Contains(pe.Message, "redirected") {
 			t.Errorf("%s: got %v", name, err)
 		}
+	}
+	if n := elsewhere.Load(); n != 0 {
+		t.Errorf("the redirect was followed %d times", n)
+	}
+	if follows.CheckRedirect != nil {
+		t.Error("the caller's own client was changed")
+	}
+}
+
+// What a server says goes into an error redacted before it is cut, so
+// that no part of a token is left at the cut, whatever the token's shape.
+func TestMCPErrorsKeepNoPartOfAToken(t *testing.T) {
+	const token = "SecretTokenOfNoKnownShape0123456789"
+	f := newFakeMCP(t)
+	f.intercept = func(w http.ResponseWriter, _ *http.Request, _ rpcSeen) bool {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, strings.Repeat("x", 190)+" "+token+" and more")
+		return true
+	}
+	_, err := NewMCPCaller(MCPOptions{BaseURL: f.URL, Token: token}).Call(context.Background(), "me_get", nil)
+	if err == nil || strings.Contains(err.Error(), token[:6]) {
+		t.Fatalf("got %v", err)
 	}
 }

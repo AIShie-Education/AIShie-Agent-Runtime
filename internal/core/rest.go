@@ -22,7 +22,8 @@ type RESTOptions struct {
 	// Token is the agent's token. It goes in the Authorization header and
 	// nowhere else.
 	Token string
-	// HTTPClient carries the requests; one with DefaultTimeout when nil.
+	// HTTPClient carries the requests; one with DefaultTimeout when nil. A
+	// copy of it is used that follows no redirect.
 	HTTPClient *http.Client
 	// Catalogue maps MCP tool names to REST routes. Required.
 	Catalogue *Catalogue
@@ -55,10 +56,7 @@ type RESTCaller struct {
 
 // NewRESTCaller returns a caller for one agent.
 func NewRESTCaller(o RESTOptions) *RESTCaller {
-	c := &RESTCaller{base: strings.TrimRight(o.BaseURL, "/"), token: o.Token, client: o.HTTPClient, cat: o.Catalogue, max: o.MaxResponseBytes}
-	if c.client == nil {
-		c.client = defaultHTTPClient()
-	}
+	c := &RESTCaller{base: strings.TrimRight(o.BaseURL, "/"), token: o.Token, client: withoutRedirects(o.HTTPClient), cat: o.Catalogue, max: o.MaxResponseBytes}
 	if c.max <= 0 {
 		c.max = DefaultMaxResponseBytes
 	}
@@ -116,8 +114,10 @@ func buildRequest(t CatalogueTool, args json.RawMessage) (restRequest, error) {
 		if i := indexOf(fields, idempotencyKeyArg); i >= 0 {
 			var key string
 			if json.Unmarshal(fields[i].raw, &key) == nil {
-				if !validHeaderValue(key) {
-					return restRequest{}, &ProtocolError{Message: t.MCPName + ": the idempotency key cannot be sent in a header"}
+				// A header's value loses its leading and trailing blanks on
+				// the way: Core would be given another key than MCP gives it.
+				if !validHeaderValue(key) || strings.Trim(key, " \t") != key {
+					return restRequest{}, &ProtocolError{Message: t.MCPName + ": the idempotency key cannot be sent in a header as it is"}
 				}
 				r.key = key
 				fields = slices.Delete(fields, i, i+1)
@@ -410,10 +410,16 @@ func (c *RESTCaller) answer(resp *http.Response) (*Envelope, error) {
 	if err != nil {
 		return nil, err
 	}
+	status := resp.StatusCode
 	if env, ok := decodeEnvelope(body); ok {
+		// On a 5xx, a body with a status is Core's only as a write's
+		// recorded outcome, which names its action; anything else is
+		// something in front of Core, and the call may be sent again.
+		if status >= 500 && env.ActionID == "" {
+			return nil, serverError(status, body, c.token)
+		}
 		return env, nil
 	}
-	status := resp.StatusCode
 	var only struct {
 		Error *Error `json:"error"`
 	}

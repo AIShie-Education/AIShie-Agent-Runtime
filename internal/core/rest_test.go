@@ -114,7 +114,10 @@ func TestRESTRequests(t *testing.T) {
 func TestRESTRefusesArgumentsItCannotSend(t *testing.T) {
 	cat := testCatalogue(t)
 	answer, _ := cat.Tool("conversation_answer")
-	for _, args := range []string{`[1]`, `"x"`, `{"a":1,"a":2}`, `{"a":1} {}`, `{"a":`, `{"idempotency_key":"a\nb"}`} {
+	for _, args := range []string{`[1]`, `"x"`, `{"a":1,"a":2}`, `{"a":1} {}`, `{"a":`, `{"idempotency_key":"a\nb"}`,
+		// A header's value comes to Core without its leading and trailing
+		// blanks: another key than the one given.
+		`{"idempotency_key":" answer:x:m:1"}`, `{"idempotency_key":"answer:x:m:1\t"}`} {
 		_, err := buildRequest(answer, json.RawMessage(args))
 		var pe *ProtocolError
 		if !errors.As(err, &pe) {
@@ -258,6 +261,7 @@ func TestRESTAnswers(t *testing.T) {
 		{"404 not_found", body(404, `{"error":{"code":"not_found","message":"no such conversation"}}`), envelope(StatusError, CodeNotFound, "")},
 		{"500 internal, as MCP gives it", body(500, `{"error":{"code":"internal","message":"something went wrong on our side"}}`), envelope(StatusError, CodeInternal, "")},
 		{"500 with a recorded outcome", body(500, `{"status":"failed","action_id":"a1","error":{"code":"odd","message":"?"}}`), envelope(StatusFailed, "odd", "")},
+		{"503 with a status but no action: not Core's", body(503, `{"status":"error","message":"upstream unavailable"}`), transient(503)},
 		{"401", func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="aishiteru"`)
 			body(401, `{"error":{"code":"unauthenticated","message":"the credential is missing or not valid"}}`)(w, nil)
@@ -353,14 +357,23 @@ func TestRESTFollowsNoRedirect(t *testing.T) {
 		}
 		writeJSON(w, 200, map[string]any{"status": "executed", "result": map[string]any{}})
 	})
-	for name, client := range map[string]*http.Client{"the default client": nil, "a client that follows": srv.Client()} {
+	follows := srv.Client()
+	for name, client := range map[string]*http.Client{"the default client": nil, "a client that follows": follows} {
 		c := NewRESTCaller(RESTOptions{BaseURL: srv.URL, Token: testToken, Catalogue: cat, HTTPClient: client})
 		var pe *ProtocolError
 		if _, err := c.Call(context.Background(), "me_get", nil); !errors.As(err, &pe) || !strings.Contains(pe.Message, "redirected") {
 			t.Errorf("%s: got %v", name, err)
 		}
 	}
-	if n := len(seen()); n != 3 {
-		t.Errorf("%d requests: want /v1/me twice, and the redirect followed once by the client that follows", n)
+	for _, r := range seen() {
+		if r.Path != "/v1/me" {
+			t.Errorf("the redirect was followed to %s", r.Path)
+		}
+	}
+	if n := len(seen()); n != 2 {
+		t.Errorf("%d requests, want /v1/me twice", n)
+	}
+	if follows.CheckRedirect != nil {
+		t.Error("the caller's own client was changed")
 	}
 }

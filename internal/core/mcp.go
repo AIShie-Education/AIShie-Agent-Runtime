@@ -30,7 +30,8 @@ type MCPOptions struct {
 	Token string
 	// Protocol is the pinned MCP revision; DefaultProtocol when empty.
 	Protocol string
-	// HTTPClient carries the requests; one with DefaultTimeout when nil.
+	// HTTPClient carries the requests; one with DefaultTimeout when nil. A
+	// copy of it is used that follows no redirect.
 	HTTPClient *http.Client
 	// ClientName and ClientVersion are the clientInfo sent with initialize;
 	// aishie-runtime and the build's version when empty.
@@ -77,7 +78,7 @@ func NewMCPCaller(o MCPOptions) *MCPCaller {
 		endpoint: strings.TrimRight(o.BaseURL, "/") + "/mcp",
 		token:    o.Token,
 		protocol: o.Protocol,
-		client:   o.HTTPClient,
+		client:   withoutRedirects(o.HTTPClient),
 		name:     o.ClientName,
 		version:  o.ClientVersion,
 		max:      o.MaxResponseBytes,
@@ -85,9 +86,6 @@ func NewMCPCaller(o MCPOptions) *MCPCaller {
 	}
 	if c.protocol == "" {
 		c.protocol = DefaultProtocol
-	}
-	if c.client == nil {
-		c.client = defaultHTTPClient()
 	}
 	if c.name == "" {
 		c.name = clientName
@@ -146,7 +144,7 @@ func (c *MCPCaller) Initialize(ctx context.Context) error {
 	}
 	if res.ProtocolVersion != c.protocol {
 		return &ProtocolError{Message: fmt.Sprintf("Core answered initialize with MCP revision %q; the runtime pins %q",
-			clip(res.ProtocolVersion, 40), c.protocol)}
+			quote(res.ProtocolVersion, c.token, 40), c.protocol)}
 	}
 	if err := c.notify(ctx, "notifications/initialized"); err != nil {
 		return err
@@ -246,9 +244,12 @@ type rpcRequest struct {
 	Params  any    `json:"params,omitempty"`
 }
 
+// rpcResponse is an answer; a message with a method is the server's own
+// request or notification instead.
 type rpcResponse struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id"`
+	Method  string          `json:"method"`
 	Result  json.RawMessage `json:"result"`
 	Error   *rpcError       `json:"error"`
 }
@@ -377,13 +378,16 @@ func (c *MCPCaller) match(body []byte, id int64, whole bool) (json.RawMessage, e
 		if whole && errors.Is(err, io.ErrUnexpectedEOF) {
 			return nil, &TransientError{Status: http.StatusOK, Err: errors.New("the answer was cut short")}
 		}
-		return nil, &ProtocolError{Message: "the answer is not JSON-RPC: " + redact(clip(err.Error(), 200), c.token)}
+		return nil, &ProtocolError{Message: "the answer is not JSON-RPC: " + quote(err.Error(), c.token, 200)}
+	}
+	if m.Method != "" {
+		return nil, &ProtocolError{Message: "the answer is a request of the server's, not an answer: " + quote(m.Method, c.token, 64)}
 	}
 	if m.Error != nil {
 		return nil, c.rpcError(m.Error, 0)
 	}
 	if !sameID(m.ID, id) {
-		return nil, &ProtocolError{Message: fmt.Sprintf("the answer is to request %s, not %d", clip(string(m.ID), 40), id)}
+		return nil, &ProtocolError{Message: fmt.Sprintf("the answer is to request %s, not %d", quote(string(m.ID), c.token, 40), id)}
 	}
 	if len(m.Result) == 0 || bytes.Equal(m.Result, []byte("null")) {
 		return nil, &ProtocolError{Message: "the answer has neither a result nor an error"}
@@ -392,7 +396,7 @@ func (c *MCPCaller) match(body []byte, id int64, whole bool) (json.RawMessage, e
 }
 
 func (c *MCPCaller) rpcError(e *rpcError, status int) *ProtocolError {
-	msg := redact(clip(e.Message, 400), c.token)
+	msg := quote(e.Message, c.token, 400)
 	if status != 0 {
 		msg = fmt.Sprintf("HTTP %d: %s", status, msg)
 	}
@@ -423,7 +427,9 @@ func (c *MCPCaller) stream(resp *http.Response, id int64) (json.RawMessage, erro
 		}
 		msg := strings.TrimSuffix(data.String(), "\n")
 		var m rpcResponse
-		if json.Unmarshal([]byte(msg), &m) != nil {
+		// A request of the server's own may carry an id equal to this
+		// request's: ids are each side's own. It is passed over.
+		if json.Unmarshal([]byte(msg), &m) != nil || m.Method != "" {
 			return nil, false, nil
 		}
 		// An error with a null id is to a request the server could not
