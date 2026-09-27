@@ -40,7 +40,11 @@ type Seat struct {
 	primary  *model
 	fallback *model
 	tools    map[toolschema.Dialect]*toolset.Set
-	base     string
+	// custom is the system_ref file's text, when the agent names one; else
+	// the built-in prompt for the seat's kind is used, as it stands at each
+	// answer. appended is the course's prompt_append_ref text. Both are
+	// set before the seat starts, and never changed.
+	custom   *string
 	appended string
 
 	hotUntil   time.Time
@@ -82,11 +86,12 @@ func newSeat(ctx context.Context, a *Agent, m core.Membership, eff *config.Effec
 	if s.primary, s.fallback, err = a.models(ctx, eff.Model); err != nil {
 		return nil, err
 	}
-	s.base = prompt.Builtin(m.AnswersCourse)
 	if ref := eff.Prompt.SystemRef; ref != "" {
-		if s.base, err = readPrompt(a.cfg.Path(ref)); err != nil {
+		text, err := readPrompt(a.cfg.Path(ref))
+		if err != nil {
 			return nil, fmt.Errorf("prompt.system_ref: %w", err)
 		}
+		s.custom = &text
 	}
 	if ref := eff.PromptAppendRef; ref != "" {
 		if s.appended, err = readPrompt(a.cfg.Path(ref)); err != nil {
@@ -155,6 +160,17 @@ func (s *Seat) update(m core.Membership, eff *config.Effective) {
 		s.log.Info("seat hold lifted: me_memberships shows the seat changed")
 		poke(s.wakeInbox)
 	}
+}
+
+// basePrompt is the agent's prompt for the seat as it stands: the
+// system_ref file's, else the built-in one for a course tutor or for a
+// person's own agent, as answers_course says now (it turns false when the
+// tutor's principal no longer manages the course's members).
+func (s *Seat) basePrompt(m core.Membership) string {
+	if s.custom != nil {
+		return *s.custom
+	}
+	return prompt.Builtin(m.AnswersCourse)
 }
 
 // membership is the seat as last read.

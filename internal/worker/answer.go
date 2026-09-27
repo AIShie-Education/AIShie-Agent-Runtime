@@ -280,7 +280,7 @@ func (c *claim) system(ctx context.Context, read *core.Messages, shorter bool) (
 	}
 	m := c.s.membership()
 	text, hash := prompt.System(prompt.Input{
-		Base: c.s.base, Append: c.s.appended,
+		Base: c.s.basePrompt(m), Append: c.s.appended,
 		Seat: prompt.Seat{
 			AgentName: c.a.name(), Course: prompt.CourseName(m), AnswersCourse: m.AnswersCourse,
 			AskerName: read.Conversation.Opener.DisplayName, AnswerLevel: read.Conversation.Respondent.AnswerLevel,

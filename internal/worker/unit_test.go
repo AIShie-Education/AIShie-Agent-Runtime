@@ -253,3 +253,21 @@ func TestRetractionReadTwice(t *testing.T) {
 		t.Errorf("memory after the retraction read twice: %+v, %v", notes, err)
 	}
 }
+
+// TestBasePromptFollowsTheSeat: the built-in prompt is the one for the
+// seat's kind as me_memberships last showed it, and a system_ref file's
+// text replaces it whatever the kind.
+func TestBasePromptFollowsTheSeat(t *testing.T) {
+	s := &Seat{}
+	if got := s.basePrompt(core.Membership{AnswersCourse: true}); got != prompt.Builtin(true) {
+		t.Error("a course tutor's seat is not given the tutor's prompt")
+	}
+	if got := s.basePrompt(core.Membership{AnswersCourse: false}); got != prompt.Builtin(false) {
+		t.Error("a seat that answers only its principal is given the tutor's prompt")
+	}
+	custom := "You are {{agent}}."
+	s.custom = &custom
+	if got := s.basePrompt(core.Membership{AnswersCourse: true}); got != custom {
+		t.Errorf("system_ref's prompt replaced by %q", got)
+	}
+}
