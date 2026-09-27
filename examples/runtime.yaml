@@ -1,0 +1,34 @@
+# The runtime's own settings: one `runtime:` document in all.
+#
+# Load these examples together:
+#   CONFIG=examples/runtime.yaml,examples/agents aishie-runtime check
+# (examples/ itself also holds the price table, which is not configuration.)
+runtime:
+  # The price table, relative to this file (package pricing). PRICES, when
+  # set, is used instead.
+  prices_ref: prices.example.yaml
+
+  # Daily quotas across a tenant's agents on the school's key (§5.2, §5.3).
+  # An agent on the school's key names its tenant, which must be here with a
+  # per_day quota.
+  tenants:
+    ten_instr_42:
+      per_day: {usd: 50.00, answers: 5000}
+
+  # The models the school's key may use, as adapter:provider:model with *
+  # for any text. Unset, the school's key may use any model not denied.
+  allowed_models:
+    - "anthropic:anthropic:claude-*"
+    - "openai_chat:deepseek:deepseek-*"
+
+  # Models no agent may use, on any key.
+  denied_models:
+    - "*:*:*-preview"
+
+  # Settings every agent starts from, over the built-in defaults and under
+  # the agent's own. Here, the school's own words for the quota notice.
+  defaults:
+    prompt:
+      on_quota_text: >-
+        I've answered as many questions as I can today. Please try again
+        tomorrow, or ask your instructor in class.
