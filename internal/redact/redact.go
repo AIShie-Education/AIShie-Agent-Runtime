@@ -32,11 +32,14 @@ type rule struct {
 var builtin = []rule{
 	// scheme://user:password@host: the password.
 	{re: regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://[^/\s:@\[\]]*:)[^/\s@\[\]]+(@)`), keep: 1, tail: 2},
-	// Authorization: <scheme> <credentials>, as a header, in JSON or in a
-	// printed http.Header.
-	{re: regexp.MustCompile(`(?i)\b((?:proxy-)?authorization["']?\s*[:=]\s*["']?)\[?[^\s"',;\[\]]+(?:[ \t]+[^\s"',;\[\]]+)?\]?`), keep: 1},
-	// x-api-key, api-key, x-goog-api-key, api_key: <value>.
-	{re: regexp.MustCompile(`(?i)\b((?:x-goog-|x-)?api[-_]?key["']?\s*[:=]\s*["']?)\[?[^\s"',;&\[\]]+\]?`), keep: 1},
+	// Authorization: <scheme> <credentials>, as a header, in JSON, and in
+	// a printed http.Header (map[Authorization:[Basic …]]) or its JSON
+	// ({"Authorization":["Basic …"]}).
+	{re: regexp.MustCompile(`(?i)\b((?:proxy-)?authorization["']?\s*[:=]\s*["']?)` + headerValue(`(?:[ \t]+[^\s"',;\[\]]+)?`)), keep: 1},
+	// Headers and fields whose value is a key: x-api-key, api-key,
+	// x-goog-api-key, api_key, and AWS's secret access key and session
+	// token (X-Amz-Security-Token).
+	{re: regexp.MustCompile(`(?i)\b((?:(?:x-goog-|x-)?api[-_]?key|x-amz-security-token|(?:aws[-_]?)?secret[-_]?access[-_]?key|(?:aws[-_]?)?session[-_]?token)["']?\s*[:=]\s*["']?)` + headerValue("")), keep: 1},
 	// Bearer <token>.
 	{re: regexp.MustCompile(`(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]+`), keep: 1},
 	// Core's API tokens and invitations.
@@ -44,12 +47,22 @@ var builtin = []rule{
 	{re: regexp.MustCompile(`ais_[A-Za-z0-9_-]+`)},
 	// OpenAI, Anthropic, DeepSeek and most compatible providers' keys
 	// (sk-, sk-proj-, sk-ant-, …). The letter or digit before is excluded
-	// so that words such as "task-management" stay as written.
+	// so that words such as "task-management" stay as written; a key long
+	// or marked enough to be one goes wherever it is (their keys have 32
+	// or more characters after "sk-").
 	{re: regexp.MustCompile(`(^|[^A-Za-z0-9])sk-[A-Za-z0-9_-]{8,}`), keep: 1},
+	{re: regexp.MustCompile(`sk-(?:ant|proj|or|svcacct|admin)-[A-Za-z0-9_-]{8,}|sk-[A-Za-z0-9_-]{32,}`)},
 	// Google API keys.
 	{re: regexp.MustCompile(`AIza[0-9A-Za-z_-]{20,}`)},
 	// AWS access key ids, long-term and temporary.
 	{re: regexp.MustCompile(`(?:AKIA|ASIA)[0-9A-Z]{16}`)},
+}
+
+// headerValue matches a header's value after its name: in a JSON list
+// (["v"]), or a word in optional brackets ([v], as a printed http.Header
+// has it), with more after it as more says.
+func headerValue(more string) string {
+	return `(?:\[\s*["'][^"'\]\n]*["']\s*\]|\[?[^\s"',;&\[\]]+` + more + `\]?)`
 }
 
 // Redactor removes secrets from text: the built-in shapes and its extra

@@ -44,6 +44,13 @@ func TestString(t *testing.T) {
 		{"key after underscore", "OPENAI_sk-abcdefghijk", "OPENAI_[redacted]"},
 		{"two keys", openaiKey + "," + anthropic, "[redacted],[redacted]"},
 		{"nothing to redact", "conversation 0192 answered in 3.2s", "conversation 0192 answered in 3.2s"},
+		{"a key in a JSON header list", `{"x-api-key":["plainvalue123"]}`, `{"x-api-key":[redacted]}`},
+		{"authorization in a JSON header list", `{"Authorization":["Basic dXNlcjpwYXNz"]}`, `{"Authorization":[redacted]}`},
+		{"an AWS session token header", "map[X-Amz-Security-Token:[IQoJb3JpZ2luX2VjEJr]]", "map[X-Amz-Security-Token:[redacted]]"},
+		{"an AWS secret key", "aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "aws_secret_access_key = [redacted]"},
+		{"an AWS secret key in JSON", `{"SecretAccessKey":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY","SessionToken": "IQoJb3J"}`, `{"SecretAccessKey":"[redacted]","SessionToken": "[redacted]"}`},
+		{"a marked key run into a word", "apikeysk-proj-AbCdEfGhIjKl", "apikey[redacted]"},
+		{"a long key run into a word", "xsk-0123456789abcdef0123456789abcdef", "x[redacted]"},
 		{"placeholder stays", "Bearer [redacted] api-key: [redacted] http://u:[redacted]@h", "Bearer [redacted] api-key: [redacted] http://u:[redacted]@h"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

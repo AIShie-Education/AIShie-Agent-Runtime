@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"testing"
@@ -181,5 +183,80 @@ func TestHandlerBytes(t *testing.T) {
 	// with such bytes deeper inside goes whole.
 	if got["raw"] != `{"key":"[redacted]"}` || got["hidden"] != Placeholder {
 		t.Fatalf("%s", buf.String())
+	}
+}
+
+type formatOnly struct{ k string }
+
+func (f formatOnly) Format(s fmt.State, _ rune) { fmt.Fprintf(s, "formatted(%s)", f.k) }
+
+type quietError struct{ Secret string }
+
+func (quietError) Error() string { return "an error" }
+
+type (
+	level1  struct{ Next level2 }
+	level2  struct{ Next level3 }
+	level3  struct{ Next level4 }
+	level4  struct{ Next level5 }
+	level5  struct{ Next level6 }
+	level6  struct{ Next level7 }
+	level7  struct{ Next level8 }
+	level8  struct{ Next level9 }
+	level9  struct{ Next level10 }
+	level10 struct{ Key string }
+)
+
+// Every token and key shape, in every form an attribute may take, through
+// both of slog's handlers: nothing of it is written.
+func TestHandlerEveryShapeInEveryForm(t *testing.T) {
+	shapes := map[string]string{
+		"core token":    coreToken,
+		"invitation":    inviteToken,
+		"openai":        "sk-proj-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789",
+		"anthropic":     "sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789",
+		"deepseek":      "sk-0123456789abcdef0123456789abcdef",
+		"google":        googleKey,
+		"aws":           awsKey,
+		"aws temporary": awsTempKey,
+	}
+	forms := func(tok string) []slog.Attr {
+		s := tok
+		p := &s
+		return []slog.Attr{
+			slog.String("string", tok),
+			slog.String("run into a word", "apikey"+tok),
+			slog.String("header", "Authorization: Bearer "+tok),
+			slog.String("json header", `{"x-api-key":["`+tok+`"]}`),
+			slog.Any("http header", http.Header{"X-Api-Key": {tok}}),
+			slog.Any("url", &url.URL{Scheme: "https", Host: "h", RawQuery: "key=" + tok}),
+			slog.Any("stringer", stringer{tok}),
+			slog.Any("text marshaler", textMarshaler{tok}),
+			slog.Any("json marshaler", jsonOnly{tok}),
+			slog.Any("log valuer", valuer{tok}),
+			slog.Any("formatter", formatOnly{tok}),
+			slog.Any("error with a field", quietError{tok}),
+			slog.Any("joined errors", errors.Join(errors.New("a"), fmt.Errorf("b %s", tok))),
+			slog.Any("deep struct", level1{level2{level3{level4{level5{level6{level7{level8{level9{level10{tok}}}}}}}}}}),
+			slog.Any("slice", []any{1, tok}),
+			slog.Any("attrs", []slog.Attr{slog.String("in", tok)}),
+			slog.Any("map key", map[string]int{tok: 1}),
+			slog.Any("raw json", json.RawMessage(`"`+tok+`"`)),
+			slog.Any("bytes", []byte(tok)),
+			slog.Any("array", [1]string{tok}),
+			slog.Any("pointer to pointer", &p),
+			slog.Group("group", slog.Group(tok, slog.String(tok, tok))),
+		}
+	}
+	for shape, tok := range shapes {
+		for name := range handlers(&bytes.Buffer{}) {
+			for _, a := range forms(tok) {
+				var buf bytes.Buffer
+				slog.New(NewHandler(handlers(&buf)[name], nil)).With(tok, tok).WithGroup(tok).LogAttrs(context.Background(), slog.LevelInfo, tok, a)
+				if out := buf.String(); strings.Contains(out, tok[len(tok)-12:]) {
+					t.Errorf("%s, %s handler, %s: %s", shape, name, a.Key, out)
+				}
+			}
+		}
 	}
 }
