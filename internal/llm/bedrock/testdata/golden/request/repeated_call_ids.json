@@ -1,0 +1,298 @@
+{
+  "request": {
+    "limits": {},
+    "messages": [
+      {
+        "parts": [
+          {
+            "text": "What is due this week?",
+            "type": "text"
+          }
+        ],
+        "role": "user"
+      },
+      {
+        "parts": [
+          {
+            "args": {},
+            "id": "call_1",
+            "name": "course_get",
+            "type": "tool_call"
+          },
+          {
+            "args": {},
+            "id": "call_2",
+            "name": "assignment_list",
+            "type": "tool_call"
+          }
+        ],
+        "role": "assistant"
+      },
+      {
+        "parts": [
+          {
+            "call_id": "call_1",
+            "content": "{\"status\":\"executed\",\"result\":{\"title\":\"CS101\"}}",
+            "name": "course_get",
+            "type": "tool_result"
+          },
+          {
+            "call_id": "call_2",
+            "content": "{\"status\":\"executed\",\"result\":{\"assignments\":[]}}",
+            "name": "assignment_list",
+            "type": "tool_result"
+          }
+        ],
+        "role": "tool"
+      },
+      {
+        "parts": [
+          {
+            "args": {},
+            "id": "call_1",
+            "name": "event_list",
+            "type": "tool_call"
+          },
+          {
+            "args": {},
+            "id": "call_1",
+            "name": "document_list",
+            "type": "tool_call"
+          }
+        ],
+        "role": "assistant"
+      },
+      {
+        "parts": [
+          {
+            "call_id": "call_1",
+            "content": "{\"status\":\"executed\",\"result\":{\"events\":[]}}",
+            "name": "event_list",
+            "type": "tool_result"
+          },
+          {
+            "call_id": "call_1",
+            "content": "{\"status\":\"executed\",\"result\":{\"documents\":[]}}",
+            "name": "document_list",
+            "type": "tool_result"
+          }
+        ],
+        "role": "tool"
+      }
+    ],
+    "system": "",
+    "tool_mode": "auto",
+    "tools": [
+      {
+        "description": "List grades.",
+        "name": "grade_list",
+        "schema": {
+          "additionalProperties": false,
+          "properties": {
+            "assignment_id": {
+              "description": "(UUID)",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      {
+        "description": "Get an assignment.",
+        "name": "assignment_get",
+        "schema": {
+          "properties": {
+            "assignment_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "assignment_id"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "description": "",
+        "name": "course_get",
+        "schema": null
+      }
+    ]
+  },
+  "wire": {
+    "messages": [
+      {
+        "content": [
+          {
+            "text": "What is due this week?"
+          }
+        ],
+        "role": "user"
+      },
+      {
+        "content": [
+          {
+            "toolUse": {
+              "input": {},
+              "name": "course_get",
+              "toolUseId": "call_1"
+            }
+          },
+          {
+            "toolUse": {
+              "input": {},
+              "name": "assignment_list",
+              "toolUseId": "call_2"
+            }
+          }
+        ],
+        "role": "assistant"
+      },
+      {
+        "content": [
+          {
+            "toolResult": {
+              "content": [
+                {
+                  "json": {
+                    "result": {
+                      "title": "CS101"
+                    },
+                    "status": "executed"
+                  }
+                }
+              ],
+              "status": "success",
+              "toolUseId": "call_1"
+            }
+          },
+          {
+            "toolResult": {
+              "content": [
+                {
+                  "json": {
+                    "result": {
+                      "assignments": []
+                    },
+                    "status": "executed"
+                  }
+                }
+              ],
+              "status": "success",
+              "toolUseId": "call_2"
+            }
+          }
+        ],
+        "role": "user"
+      },
+      {
+        "content": [
+          {
+            "toolUse": {
+              "input": {},
+              "name": "event_list",
+              "toolUseId": "tooluse_b3c5a5d1d6f7691d67a53ca9177651cf"
+            }
+          },
+          {
+            "toolUse": {
+              "input": {},
+              "name": "document_list",
+              "toolUseId": "tooluse_640b8330ba1fa051a124faa75f025470"
+            }
+          }
+        ],
+        "role": "assistant"
+      },
+      {
+        "content": [
+          {
+            "toolResult": {
+              "content": [
+                {
+                  "json": {
+                    "result": {
+                      "events": []
+                    },
+                    "status": "executed"
+                  }
+                }
+              ],
+              "status": "success",
+              "toolUseId": "tooluse_b3c5a5d1d6f7691d67a53ca9177651cf"
+            }
+          },
+          {
+            "toolResult": {
+              "content": [
+                {
+                  "json": {
+                    "result": {
+                      "documents": []
+                    },
+                    "status": "executed"
+                  }
+                }
+              ],
+              "status": "success",
+              "toolUseId": "tooluse_640b8330ba1fa051a124faa75f025470"
+            }
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "toolConfig": {
+      "tools": [
+        {
+          "toolSpec": {
+            "description": "List grades.",
+            "inputSchema": {
+              "json": {
+                "additionalProperties": false,
+                "properties": {
+                  "assignment_id": {
+                    "description": "(UUID)",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "name": "grade_list"
+          }
+        },
+        {
+          "toolSpec": {
+            "description": "Get an assignment.",
+            "inputSchema": {
+              "json": {
+                "properties": {
+                  "assignment_id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "assignment_id"
+                ],
+                "type": "object"
+              }
+            },
+            "name": "assignment_get"
+          }
+        },
+        {
+          "toolSpec": {
+            "inputSchema": {
+              "json": {
+                "properties": {},
+                "type": "object"
+              }
+            },
+            "name": "course_get"
+          }
+        }
+      ]
+    }
+  }
+}

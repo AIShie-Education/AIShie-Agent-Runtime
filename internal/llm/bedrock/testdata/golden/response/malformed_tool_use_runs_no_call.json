@@ -1,0 +1,44 @@
+{
+  "response": {
+    "parts": [],
+    "raw_stop": "malformed_tool_use",
+    "stop": "tool_error",
+    "usage": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 1234,
+      "output": 210,
+      "raw": {
+        "inputTokens": 1234,
+        "outputTokens": 210,
+        "totalTokens": 1444
+      },
+      "reasoning": 0
+    }
+  },
+  "wire": {
+    "output": {
+      "message": {
+        "content": [
+          {
+            "toolUse": {
+              "input": {
+                "assignment_id": 7
+              },
+              "name": "grade_list",
+              "toolUseId": "tooluse_bad"
+            }
+          }
+        ],
+        "role": "assistant"
+      }
+    },
+    "stopReason": "malformed_tool_use",
+    "usage": {
+      "inputTokens": 1234,
+      "outputTokens": 210,
+      "totalTokens": 1444
+    }
+  }
+}

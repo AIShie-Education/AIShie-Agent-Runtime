@@ -1,0 +1,74 @@
+{
+  "response": {
+    "parts": [
+      {
+        "maker": "bedrock_converse|https://bedrock-runtime.us-east-1.amazonaws.com|us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "opaque": {
+          "reasoningText": {
+            "signature": "EqQBCgIYAhIM1gbcDa9GJwZA2b3hGgxBdjrkzLoky3dl1pkiMOYds",
+            "text": "The rubric gives 2.5 for the lexer."
+          }
+        },
+        "text": "The rubric gives 2.5 for the lexer.",
+        "type": "reasoning"
+      },
+      {
+        "maker": "bedrock_converse|https://bedrock-runtime.us-east-1.amazonaws.com|us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        "opaque": {
+          "redactedContent": "RXJyb3I6IGVuY3J5cHRlZA=="
+        },
+        "type": "reasoning"
+      },
+      {
+        "text": "You lost 2.5 points.",
+        "type": "text"
+      }
+    ],
+    "raw_stop": "end_turn",
+    "stop": "end",
+    "usage": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 1234,
+      "output": 210,
+      "raw": {
+        "inputTokens": 1234,
+        "outputTokens": 210,
+        "totalTokens": 1444
+      },
+      "reasoning": 0
+    }
+  },
+  "wire": {
+    "output": {
+      "message": {
+        "content": [
+          {
+            "reasoningContent": {
+              "reasoningText": {
+                "signature": "EqQBCgIYAhIM1gbcDa9GJwZA2b3hGgxBdjrkzLoky3dl1pkiMOYds",
+                "text": "The rubric gives 2.5 for the lexer."
+              }
+            }
+          },
+          {
+            "reasoningContent": {
+              "redactedContent": "RXJyb3I6IGVuY3J5cHRlZA=="
+            }
+          },
+          {
+            "text": "You lost 2.5 points."
+          }
+        ],
+        "role": "assistant"
+      }
+    },
+    "stopReason": "end_turn",
+    "usage": {
+      "inputTokens": 1234,
+      "outputTokens": 210,
+      "totalTokens": 1444
+    }
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "request": {
+    "limits": {
+      "max_output_tokens": 3000
+    },
+    "messages": [
+      {
+        "parts": [
+          {
+            "text": "[Earlier messages in this conversation are not shown.]",
+            "type": "text"
+          }
+        ],
+        "role": "user"
+      },
+      {
+        "parts": [
+          {
+            "text": "Lexing comes first.",
+            "type": "text"
+          },
+          {
+            "text": "   ",
+            "type": "text"
+          }
+        ],
+        "role": "assistant"
+      },
+      {
+        "parts": [
+          {
+            "text": "And then?",
+            "type": "text"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "system": "You are CS101 Tutor.",
+    "tool_mode": "auto"
+  },
+  "wire": {
+    "inferenceConfig": {
+      "maxTokens": 3000,
+      "temperature": 0.3,
+      "topP": 0.9
+    },
+    "messages": [
+      {
+        "content": [
+          {
+            "text": "[Earlier messages in this conversation are not shown.]"
+          }
+        ],
+        "role": "user"
+      },
+      {
+        "content": [
+          {
+            "text": "Lexing comes first."
+          }
+        ],
+        "role": "assistant"
+      },
+      {
+        "content": [
+          {
+            "text": "And then?"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "system": [
+      {
+        "text": "You are CS101 Tutor."
+      }
+    ]
+  }
+}

@@ -1,0 +1,217 @@
+{
+  "request": {
+    "limits": {},
+    "messages": [
+      {
+        "parts": [
+          {
+            "text": "Here is my feedback.",
+            "type": "text"
+          },
+          {
+            "file": {
+              "data": "JVBERi0xLjcgZmVlZGJhY2s=",
+              "mime": "application/pdf",
+              "name": "HW3 feedback.pdf"
+            },
+            "type": "file"
+          }
+        ],
+        "role": "user"
+      },
+      {
+        "parts": [
+          {
+            "args": {
+              "document_id": "0192f3c1-0000-7000-8000-000000000009"
+            },
+            "id": "tooluse_doc",
+            "name": "document_get",
+            "type": "tool_call"
+          }
+        ],
+        "role": "assistant"
+      },
+      {
+        "parts": [
+          {
+            "call_id": "tooluse_doc",
+            "content": "{\"status\":\"executed\",\"result\":{\"title\":\"HW3\"}}",
+            "name": "document_get",
+            "type": "tool_result"
+          },
+          {
+            "file": {
+              "data": "JVBERi0xLjcgYW5vdGhlcg==",
+              "mime": "application/pdf",
+              "name": "HW3_feedback.pdf"
+            },
+            "type": "file"
+          },
+          {
+            "file": {
+              "data": "iVBORw0KGgo=",
+              "mime": "image/png",
+              "name": "diagram.png"
+            },
+            "type": "file"
+          },
+          {
+            "file": {
+              "data": "IyBOb3RlcwpMZXhlcnMgc3BsaXQgdGV4dCBpbnRvIHRva2Vucy4=",
+              "mime": "text/markdown; charset=utf-8",
+              "name": "notes.md"
+            },
+            "type": "file"
+          },
+          {
+            "file": {
+              "data": "UEsDBA==",
+              "mime": "application/zip",
+              "name": "code.zip"
+            },
+            "type": "file"
+          }
+        ],
+        "role": "tool"
+      }
+    ],
+    "system": "",
+    "tool_mode": "auto",
+    "tools": [
+      {
+        "description": "List grades.",
+        "name": "grade_list",
+        "schema": {
+          "additionalProperties": false,
+          "properties": {
+            "assignment_id": {
+              "description": "(UUID)",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      }
+    ]
+  },
+  "wire": {
+    "messages": [
+      {
+        "content": [
+          {
+            "text": "Here is my feedback."
+          },
+          {
+            "text": "[The file \"HW3 feedback.pdf\" follows, as the document \"HW3 feedback\".]"
+          },
+          {
+            "document": {
+              "format": "pdf",
+              "name": "HW3 feedback",
+              "source": {
+                "bytes": "JVBERi0xLjcgZmVlZGJhY2s="
+              }
+            }
+          }
+        ],
+        "role": "user"
+      },
+      {
+        "content": [
+          {
+            "toolUse": {
+              "input": {
+                "document_id": "0192f3c1-0000-7000-8000-000000000009"
+              },
+              "name": "document_get",
+              "toolUseId": "tooluse_doc"
+            }
+          }
+        ],
+        "role": "assistant"
+      },
+      {
+        "content": [
+          {
+            "toolResult": {
+              "content": [
+                {
+                  "json": {
+                    "result": {
+                      "title": "HW3"
+                    },
+                    "status": "executed"
+                  }
+                }
+              ],
+              "status": "success",
+              "toolUseId": "tooluse_doc"
+            }
+          },
+          {
+            "text": "[The file \"HW3_feedback.pdf\" follows, as the document \"HW3 feedback (2)\".]"
+          },
+          {
+            "document": {
+              "format": "pdf",
+              "name": "HW3 feedback (2)",
+              "source": {
+                "bytes": "JVBERi0xLjcgYW5vdGhlcg=="
+              }
+            }
+          },
+          {
+            "text": "[The file \"diagram.png\" follows.]"
+          },
+          {
+            "image": {
+              "format": "png",
+              "source": {
+                "bytes": "iVBORw0KGgo="
+              }
+            }
+          },
+          {
+            "text": "[The file \"notes.md\" follows, as the document \"notes\".]"
+          },
+          {
+            "document": {
+              "format": "md",
+              "name": "notes",
+              "source": {
+                "bytes": "IyBOb3RlcwpMZXhlcnMgc3BsaXQgdGV4dCBpbnRvIHRva2Vucy4="
+              }
+            }
+          },
+          {
+            "text": "[The file \"code.zip\" (application/zip) is not included: the model does not take files of this type.]"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "toolConfig": {
+      "tools": [
+        {
+          "toolSpec": {
+            "description": "List grades.",
+            "inputSchema": {
+              "json": {
+                "additionalProperties": false,
+                "properties": {
+                  "assignment_id": {
+                    "description": "(UUID)",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "name": "grade_list"
+          }
+        }
+      ]
+    }
+  }
+}
