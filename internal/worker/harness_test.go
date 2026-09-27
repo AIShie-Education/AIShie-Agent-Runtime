@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -56,6 +57,8 @@ type world struct {
 
 	dir string
 	env sync.Map // the environment secrets are read from
+	// catalogueFetches counts GET /v1/tools.
+	catalogueFetches atomic.Int32
 
 	logs *logBuffer
 }
@@ -68,9 +71,14 @@ func newWorld(t *testing.T) *world {
 func newWorldWith(t *testing.T, o fakecore.Options) *world {
 	t.Helper()
 	fc := fakecore.New(o)
-	srv := httptest.NewServer(fc.Handler())
-	t.Cleanup(srv.Close)
-	w := &world{t: t, fc: fc, srv: srv, dir: t.TempDir(), logs: &logBuffer{}}
+	w := &world{t: t, fc: fc, dir: t.TempDir(), logs: &logBuffer{}}
+	w.srv = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/tools" {
+			w.catalogueFetches.Add(1)
+		}
+		fc.Handler().ServeHTTP(rw, r)
+	}))
+	t.Cleanup(w.srv.Close)
 	w.co = fc.AddCourse("CS101")
 	w.sato = fc.AddPerson("Sato")
 	w.satoSeat = w.must(fc.Seat(w.sato.ID, w.co.ID, fakecore.SeatOptions{Preset: "instructor"}))

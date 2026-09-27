@@ -46,7 +46,7 @@ type Supervisor struct {
 	// paused are the paused agents, whose state has been written.
 	paused map[string]bool
 	// cats are Core's catalogues, fetched once per base URL.
-	cats map[string]*core.Catalogue
+	cats map[string]*catEntry
 }
 
 // runner is one configured agent that is not paused, and the instance of
@@ -84,7 +84,7 @@ func NewSupervisor(o Options) (*Supervisor, error) {
 		o: o, log: o.Log.With("worker", o.WorkerID), coreHTTP: coreClient(o.HTTPClient),
 		files: toolset.NewHTTPFetcher(o.HTTPClient), schemas: toolschema.NewCache(),
 		kick: make(chan struct{}, 1), runners: map[string]*runner{}, paused: map[string]bool{},
-		cats: map[string]*core.Catalogue{}, pending: o.Config,
+		cats: map[string]*catEntry{}, pending: o.Config,
 	}
 	s.prices.Store(o.Prices)
 	return s, nil
@@ -186,7 +186,7 @@ func (s *Supervisor) apply(ctx context.Context) {
 		return
 	}
 	s.cfg = cfg
-	s.cats = map[string]*core.Catalogue{}
+	s.cats = map[string]*catEntry{}
 	want := map[string]*config.Agent{}
 	for _, a := range cfg.Agents {
 		want[a.ID] = a
@@ -500,16 +500,50 @@ func (s *Supervisor) updateGauge() {
 	}
 }
 
+// catEntry is one base URL's catalogue: fetched by the first agent that
+// asks, while the others wait for it.
+type catEntry struct {
+	done chan struct{}
+	cat  *core.Catalogue
+	err  error
+}
+
 // catalogue is Core's catalogue at baseURL, fetched once per base URL and
 // held to the gates the toolset keeps by hand. Its hash is logged, with a
-// warning when it is not the one this runtime was built against.
+// warning when it is not the one this runtime was built against. A fetch
+// that fails is tried again by the next agent that asks.
 func (s *Supervisor) catalogue(ctx context.Context, baseURL string) (*core.Catalogue, error) {
 	s.mu.Lock()
-	cat := s.cats[baseURL]
-	s.mu.Unlock()
-	if cat != nil {
-		return cat, nil
+	e, ok := s.cats[baseURL]
+	if !ok {
+		e = &catEntry{done: make(chan struct{})}
+		s.cats[baseURL] = e
 	}
+	s.mu.Unlock()
+	if ok {
+		select {
+		case <-e.done:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		if e.err != nil {
+			return nil, e.err
+		}
+		return e.cat, nil
+	}
+	e.cat, e.err = s.fetchCatalogue(ctx, baseURL)
+	if e.err != nil {
+		s.mu.Lock()
+		if s.cats[baseURL] == e {
+			delete(s.cats, baseURL)
+		}
+		s.mu.Unlock()
+	}
+	close(e.done)
+	return e.cat, e.err
+}
+
+func (s *Supervisor) fetchCatalogue(ctx context.Context, baseURL string) (*core.Catalogue, error) {
 	cat, err := core.FetchCatalogue(ctx, s.coreHTTP, baseURL)
 	if err != nil {
 		return nil, err
@@ -523,9 +557,6 @@ func (s *Supervisor) catalogue(ctx context.Context, baseURL string) (*core.Catal
 		s.log.Warn("Core's catalogue is not the one this runtime was built against; its tools still pass the checks",
 			"core", baseURL, "hash", cat.Hash(), "snapshot", SnapshotCatalogueHash, "tools", cat.Len())
 	}
-	s.mu.Lock()
-	s.cats[baseURL] = cat
-	s.mu.Unlock()
 	return cat, nil
 }
 

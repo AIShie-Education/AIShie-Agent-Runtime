@@ -204,3 +204,20 @@ func TestShutdownGivesAnswersTheirGrace(t *testing.T) {
 		t.Errorf("the lease was not released: %v %v", ok, err)
 	}
 }
+
+// TestCatalogueFetchedOncePerCore: agents of one Core share one fetch of
+// its catalogue, however many start at once.
+func TestCatalogueFetchedOncePerCore(t *testing.T) {
+	w := newWorld(t)
+	w.ownAgent("yuki-helper", 0)
+	w.ownAgent("ken-helper", 1)
+	w.tutor("cs101-tutor")
+	cfg := w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil), w.agentDoc("ken-helper", "m1", nil, nil), w.agentDoc("cs101-tutor", "m1", nil, nil))
+	wk := w.start(cfg, models{"m1": scripted.New()}, workerOpts{})
+	for _, id := range []string{"yuki-helper", "ken-helper", "cs101-tutor"} {
+		wk.waitState(id, store.AgentRunning)
+	}
+	if n := w.catalogueFetches.Load(); n != 1 {
+		t.Errorf("the catalogue was fetched %d times", n)
+	}
+}
