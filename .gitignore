@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Build output
+/bin/
+/dist/
+
+# Local state
+/var/
+
+# Secrets and local overrides
+.env
+.env.*
+!.env.example
+
+# Test and coverage output
+cover.out
+*.test
+
+# Local agent state (review worktrees)
+/.claude/
