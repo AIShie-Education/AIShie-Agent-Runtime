@@ -1,0 +1,110 @@
+{
+  "properties": {
+    "allow_extra": {
+      "description": "permit a score above the points possible",
+      "type": "boolean"
+    },
+    "breakdown": {
+      "description": "(optional; omit or null)",
+      "items": {
+        "properties": {
+          "comment": {
+            "description": "(optional; omit or null)",
+            "nullable": true,
+            "type": "string"
+          },
+          "criterion": {
+            "type": "string"
+          },
+          "max": {
+            "description": "a decimal number; a string is accepted where exactness matters, with at most 40 digits either side of the point and an exponent of at most two digits (a decimal number as a string, e.g. \"87.5\")",
+            "pattern": "^[-+]?([0-9]{1,40}(\\.[0-9]{0,40})?|\\.[0-9]{1,40})([eE][-+]?[0-9]{1,2})?$",
+            "type": "string"
+          },
+          "points": {
+            "description": "a decimal number; a string is accepted where exactness matters, with at most 40 digits either side of the point and an exponent of at most two digits (a decimal number as a string, e.g. \"87.5\")",
+            "pattern": "^[-+]?([0-9]{1,40}(\\.[0-9]{0,40})?|\\.[0-9]{1,40})([eE][-+]?[0-9]{1,2})?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "criterion",
+          "points",
+          "max"
+        ],
+        "type": "object"
+      },
+      "nullable": true,
+      "type": "array"
+    },
+    "component_id": {
+      "description": "grade a directly graded component, such as an exam (UUID) (optional; omit or null)",
+      "nullable": true,
+      "type": "string"
+    },
+    "feedback": {
+      "description": "(optional; omit or null)",
+      "nullable": true,
+      "type": "string"
+    },
+    "feedback_files": {
+      "description": "files to return with the grade, uploaded beforehand (optional; omit or null)",
+      "items": {
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "upload_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "upload_token"
+        ],
+        "type": "object"
+      },
+      "nullable": true,
+      "type": "array"
+    },
+    "for_missing": {
+      "description": "whether the grade is for a 'missing' placeholder, nothing handed in; filled in when the grade is proposed, and the grade is refused if late work has since taken the placeholder's place (optional; omit or null)",
+      "nullable": true,
+      "type": "boolean"
+    },
+    "no_rubric": {
+      "description": "that the grader was shown no rubric; filled in when the grade is proposed and no rubric is published, and the grade then records none, whatever is published before it is approved. A call giving it is refused if a rubric is published",
+      "type": "boolean"
+    },
+    "out_of": {
+      "description": "the points possible the score is out of; defaults to what the work is worth now. A proposal records it, and is refused on approval if the work has been rescaled since (a decimal number as a string, e.g. \"87.5\") (optional; omit or null)",
+      "nullable": true,
+      "pattern": "^[-+]?([0-9]{1,40}(\\.[0-9]{0,40})?|\\.[0-9]{1,40})([eE][-+]?[0-9]{1,2})?$",
+      "type": "string"
+    },
+    "rubric_version_id": {
+      "description": "the rubric version the grader was shown; defaults to the published one. A proposal records it, or no_rubric if none was published when it was made (UUID) (optional; omit or null)",
+      "nullable": true,
+      "type": "string"
+    },
+    "score": {
+      "description": "a decimal number; a string is accepted where exactness matters, with at most 40 digits either side of the point and an exponent of at most two digits (a decimal number as a string, e.g. \"87.5\")",
+      "pattern": "^[-+]?([0-9]{1,40}(\\.[0-9]{0,40})?|\\.[0-9]{1,40})([eE][-+]?[0-9]{1,2})?$",
+      "type": "string"
+    },
+    "student_member_id": {
+      "description": "required with component_id (UUID) (optional; omit or null)",
+      "nullable": true,
+      "type": "string"
+    },
+    "submission_id": {
+      "description": "grade this submission; or give component_id and student_member_id (UUID) (optional; omit or null)",
+      "nullable": true,
+      "type": "string"
+    }
+  },
+  "required": [
+    "score"
+  ],
+  "type": "object"
+}

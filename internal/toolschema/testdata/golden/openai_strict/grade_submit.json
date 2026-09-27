@@ -1,0 +1,155 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "allow_extra": {
+      "description": "permit a score above the points possible (optional; omit or null)",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "breakdown": {
+      "description": "(optional; omit or null)",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "comment": {
+            "description": "(optional; omit or null)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "criterion": {
+            "type": "string"
+          },
+          "max": {
+            "description": "a decimal number; a string is accepted where exactness matters, with at most 40 digits either side of the point and an exponent of at most two digits (a decimal number as a string, e.g. \"87.5\")",
+            "pattern": "^[-+]?([0-9]{1,40}(\\.[0-9]{0,40})?|\\.[0-9]{1,40})([eE][-+]?[0-9]{1,2})?$",
+            "type": "string"
+          },
+          "points": {
+            "description": "a decimal number; a string is accepted where exactness matters, with at most 40 digits either side of the point and an exponent of at most two digits (a decimal number as a string, e.g. \"87.5\")",
+            "pattern": "^[-+]?([0-9]{1,40}(\\.[0-9]{0,40})?|\\.[0-9]{1,40})([eE][-+]?[0-9]{1,2})?$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "comment",
+          "criterion",
+          "max",
+          "points"
+        ],
+        "type": "object"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "component_id": {
+      "description": "grade a directly graded component, such as an exam (optional; omit or null)",
+      "format": "uuid",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "feedback": {
+      "description": "(optional; omit or null)",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "feedback_files": {
+      "description": "files to return with the grade, uploaded beforehand (optional; omit or null)",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "upload_token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "upload_token"
+        ],
+        "type": "object"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "for_missing": {
+      "description": "whether the grade is for a 'missing' placeholder, nothing handed in; filled in when the grade is proposed, and the grade is refused if late work has since taken the placeholder's place (optional; omit or null)",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "no_rubric": {
+      "description": "that the grader was shown no rubric; filled in when the grade is proposed and no rubric is published, and the grade then records none, whatever is published before it is approved. A call giving it is refused if a rubric is published (optional; omit or null)",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "out_of": {
+      "description": "the points possible the score is out of; defaults to what the work is worth now. A proposal records it, and is refused on approval if the work has been rescaled since (a decimal number as a string, e.g. \"87.5\") (optional; omit or null)",
+      "pattern": "^[-+]?([0-9]{1,40}(\\.[0-9]{0,40})?|\\.[0-9]{1,40})([eE][-+]?[0-9]{1,2})?$",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "rubric_version_id": {
+      "description": "the rubric version the grader was shown; defaults to the published one. A proposal records it, or no_rubric if none was published when it was made (optional; omit or null)",
+      "format": "uuid",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "score": {
+      "description": "a decimal number; a string is accepted where exactness matters, with at most 40 digits either side of the point and an exponent of at most two digits (a decimal number as a string, e.g. \"87.5\")",
+      "pattern": "^[-+]?([0-9]{1,40}(\\.[0-9]{0,40})?|\\.[0-9]{1,40})([eE][-+]?[0-9]{1,2})?$",
+      "type": "string"
+    },
+    "student_member_id": {
+      "description": "required with component_id (optional; omit or null)",
+      "format": "uuid",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "submission_id": {
+      "description": "grade this submission; or give component_id and student_member_id (optional; omit or null)",
+      "format": "uuid",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "allow_extra",
+    "breakdown",
+    "component_id",
+    "feedback",
+    "feedback_files",
+    "for_missing",
+    "no_rubric",
+    "out_of",
+    "rubric_version_id",
+    "score",
+    "student_member_id",
+    "submission_id"
+  ],
+  "type": "object"
+}

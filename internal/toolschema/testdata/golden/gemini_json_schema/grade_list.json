@@ -1,0 +1,25 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "after": {
+      "description": "the id of the last item already seen (optional; omit or null)",
+      "format": "uuid",
+      "type": "string"
+    },
+    "assignment_id": {
+      "description": "(optional; omit or null)",
+      "format": "uuid",
+      "type": "string"
+    },
+    "limit": {
+      "description": "at most this many items; default 50, maximum 200",
+      "type": "integer"
+    },
+    "student_member_id": {
+      "description": "(optional; omit or null)",
+      "format": "uuid",
+      "type": "string"
+    }
+  },
+  "type": "object"
+}
