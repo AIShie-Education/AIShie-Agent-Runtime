@@ -1,0 +1,33 @@
+# A table for the tests. The numbers are made up.
+version: "t1"
+prices:
+  - provider: anthropic
+    model: claude-sonnet-4*
+    from: 2025-05-22
+    id: sonnet-4
+    usd_per_mtok: {input: 3, cache_read: "0.30", cache_write: 3.75, output: 15}
+  - provider: anthropic
+    model: claude-sonnet-4*
+    from: 2026-06-01
+    id: sonnet-4-cheaper
+    usd_per_mtok: {input: 2, output: 10}
+  - provider: anthropic
+    model: claude-sonnet-4-5
+    from: 2025-09-29
+    usd_per_mtok: {input: 3.5, output: 16}
+  - provider: anthropic
+    model: "*"
+    from: 2025-01-01
+    usd_per_mtok: {input: 100, output: 100}
+  - provider: anthropic
+    model: claude-*
+    from: 2025-01-01
+    usd_per_mtok: {input: 50, output: 50}
+  - provider: deepseek
+    model: deepseek-chat
+    from: "2025-09-29"
+    usd_per_mtok: {input: 0.28, cache_read: 0.028, output: 0.42}
+  - provider: openrouter
+    model: anthropic/claude-*:beta
+    from: 2025-01-01
+    usd_per_mtok: {input: 1_000, output: 0.000001}

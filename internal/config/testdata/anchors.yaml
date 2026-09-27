@@ -1,0 +1,19 @@
+# YAML anchors and merge keys are read as YAML defines them: the keys
+# written win over the ones merged in.
+agent:
+  id: anchored
+  display_name: Anchored
+  core:
+    base_url: https://lms.example.edu
+    token_ref: env://ANCHORED_CORE_TOKEN
+  model:
+    adapter: openai_chat
+    model: gpt-4.1-mini
+    key_ref: env://OPENAI_API_KEY
+  polling:
+    <<: {inbox_idle_s: 6, inbox_max_s: 25, events_s: 50}
+    inbox_max_s: 40
+courses:
+  0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0a1b: &course
+    polling: {inbox_idle_s: 5}
+  0192F3C1-7D2E-7C3A-9B1F-2A4C6E8F0A1C: *course

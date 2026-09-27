@@ -1,0 +1,48 @@
+# An example price table (package pricing; runtime.prices_ref, or PRICES).
+#
+# ILLUSTRATIVE ONLY. These numbers show the format; they are not a claim
+# about what any provider charges today. Before relying on a row, check it
+# against the provider's own price page, and add a row with a new `from`
+# whenever a price changes: the ledger keeps the version and row of every
+# cost it records, so old rows must stay as they were.
+#
+# Prices are US dollars per million tokens, written as numbers or decimal
+# strings and read exactly (at most six decimal places). A cache price left
+# out is the input price. `provider` is the runtime's name for who serves
+# the model (openai, azure, anthropic, gemini, bedrock, deepseek, qwen,
+# moonshot, glm, openrouter, ollama, lmstudio, vllm, openai_compatible);
+# `model` is exact, or a glob where * stands for any text. A row naming the
+# model exactly beats every glob.
+version: "example-2026-09-27"
+prices:
+  - provider: openai
+    model: gpt-4.1
+    from: 2025-04-14
+    usd_per_mtok: {input: 2.00, cache_read: 0.50, output: 8.00}
+  - provider: openai
+    model: gpt-4.1-mini
+    from: 2025-04-14
+    usd_per_mtok: {input: 0.40, cache_read: 0.10, output: 1.60}
+  - provider: anthropic
+    model: claude-sonnet-4*
+    from: 2025-05-22
+    id: anthropic-sonnet-4
+    usd_per_mtok: {input: 3.00, cache_read: 0.30, cache_write: 3.75, output: 15.00}
+  - provider: anthropic
+    model: claude-haiku-4*
+    from: 2025-10-15
+    id: anthropic-haiku-4
+    usd_per_mtok: {input: 1.00, cache_read: 0.10, cache_write: 1.25, output: 5.00}
+  - provider: deepseek
+    model: deepseek-chat
+    from: 2025-09-29
+    usd_per_mtok: {input: "0.28", cache_read: "0.028", output: "0.42"}
+  - provider: gemini
+    model: gemini-2.5-flash
+    from: 2025-06-17
+    usd_per_mtok: {input: 0.30, cache_read: 0.03, output: 2.50}
+  # Models on the operator's own hardware cost nothing per token.
+  - provider: ollama
+    model: "*"
+    from: 2024-01-01
+    usd_per_mtok: {input: 0, output: 0}
