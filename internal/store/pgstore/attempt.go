@@ -66,9 +66,14 @@ const putTries = 3
 // PutAttempt writes a's row, or returns the row already under its key with
 // store.ErrExists. An empty State is written as sending. Of writers racing
 // for one key, the first insert wins; the others wait for it to commit, do
-// nothing, and read its row.
+// nothing, and read its row. Both statements run in one READ COMMITTED
+// transaction: there the read sees the winner's row once it has committed,
+// and the read holds no second connection of the pool.
 func (s *Store) PutAttempt(ctx context.Context, a store.Attempt) (*store.Attempt, error) {
-	if err := required("agent_id", a.AgentID, "key", a.Key); err != nil {
+	// member_id is what Unsettled finds the row by and what PurgeMember
+	// removes it by: without it, the bytes of an answer would outlive the
+	// seat's memory.
+	if err := required("agent_id", a.AgentID, "key", a.Key, "member_id", a.MemberID); err != nil {
 		return nil, err
 	}
 	if a.State == "" {
@@ -81,30 +86,43 @@ func (s *Store) PutAttempt(ctx context.Context, a store.Attempt) (*store.Attempt
 		a.Args = []byte{}
 	}
 	for range putTries {
-		row, err := scanAttempt(s.pool.QueryRow(ctx, `
-			INSERT INTO attempt (agent_id, key, member_id, course_id, conversation_id, message_id, attempt_no,
-			                     tool, args, kind, state, action_id, posted_message_id, error_code, reason,
-			                     created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-			        NULLIF($12, ''), NULLIF($13, ''), NULLIF($14, ''), NULLIF($15, ''),
-			        COALESCE($16::timestamptz, now()), COALESCE($16::timestamptz, now()))
-			ON CONFLICT (agent_id, key) DO NOTHING
-			RETURNING `+attemptColumns,
-			a.AgentID, a.Key, a.MemberID, a.CourseID, a.ConversationID, a.MessageID, a.No,
-			a.Tool, a.Args, a.Kind, string(a.State), a.ActionID, a.PostedMessageID, a.ErrorCode, a.Reason,
-			orNow(a.CreatedAt)))
-		if err == nil {
-			return row, nil
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("store: put attempt %s: %w", a.Key, err)
-		}
-		row, err = s.Attempt(ctx, a.AgentID, a.Key)
-		if err == nil {
+		var (
+			row    *store.Attempt
+			exists bool
+		)
+		err := s.readCommitted(ctx, func(tx pgx.Tx) error {
+			var err error
+			row, err = scanAttempt(tx.QueryRow(ctx, `
+				INSERT INTO attempt (agent_id, key, member_id, course_id, conversation_id, message_id, attempt_no,
+				                     tool, args, kind, state, action_id, posted_message_id, error_code, reason,
+				                     created_at, updated_at)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+				        NULLIF($12, ''), NULLIF($13, ''), NULLIF($14, ''), NULLIF($15, ''),
+				        COALESCE($16::timestamptz, now()), COALESCE($16::timestamptz, now()))
+				ON CONFLICT (agent_id, key) DO NOTHING
+				RETURNING `+attemptColumns,
+				a.AgentID, a.Key, a.MemberID, a.CourseID, a.ConversationID, a.MessageID, a.No,
+				a.Tool, a.Args, a.Kind, string(a.State), a.ActionID, a.PostedMessageID, a.ErrorCode, a.Reason,
+				orNow(a.CreatedAt)))
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+			exists = true
+			row, err = scanAttempt(tx.QueryRow(ctx,
+				`SELECT `+attemptColumns+` FROM attempt WHERE agent_id = $1 AND key = $2`, a.AgentID, a.Key))
+			return err
+		})
+		switch {
+		case err == nil && exists:
 			return row, store.ErrExists
-		}
-		if !errors.Is(err, store.ErrNotFound) {
-			return nil, err
+		case err == nil:
+			return row, nil
+		case exists && errors.Is(err, pgx.ErrNoRows):
+			// Taken, then freed before it could be read: its seat was
+			// purged in between. Try again.
+			continue
+		default:
+			return nil, fmt.Errorf("store: put attempt %s: %w", a.Key, err)
 		}
 	}
 	return nil, fmt.Errorf("store: put attempt %s: the key was taken and freed %d times over", a.Key, putTries)

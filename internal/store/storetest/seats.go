@@ -140,6 +140,23 @@ func testSeats(t *testing.T, open Opener) {
 		})
 	})
 
+	t.Run("one agent's seat is never another's, under one member id", func(t *testing.T) {
+		s := open(t)
+		t0, t1, t2, t3 := at(0), at(time.Hour), at(2*time.Hour), at(3*time.Hour)
+		seen(t, s, "a1", "m1", "c1", t0)
+		seen(t, s, "a2", "m1", "c2", t0)
+
+		gone(t, s, "a1", "m1", t1)
+		sameSeats(t, "KnownSeats(a2) after a1's seat went", knownSeats(t, s, "a2"), []seatWant{{"a2", "m1", "c2", t0, time.Time{}}})
+
+		gone(t, s, "a2", "m1", t2)
+		sameSeats(t, "KnownSeats(a1) after a2's seat went", knownSeats(t, s, "a1"), []seatWant{{"a1", "m1", "c1", t0, t1}})
+
+		seen(t, s, "a1", "m1", "c1", t3)
+		sameSeats(t, "KnownSeats(a2) after a1's seat came back", knownSeats(t, s, "a2"), []seatWant{{"a2", "m1", "c2", t0, t2}})
+		sameSeats(t, "KnownSeats(a1) after it came back", knownSeats(t, s, "a1"), []seatWant{{"a1", "m1", "c1", t3, time.Time{}}})
+	})
+
 	t.Run("ForgetSeat removes the seat's row, and only that", func(t *testing.T) {
 		s, ctx := open(t), t.Context()
 		seen(t, s, "a1", "m1", "c1", base)

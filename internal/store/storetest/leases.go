@@ -116,6 +116,59 @@ func testLeases(t *testing.T, open Opener) {
 		}
 	})
 
+	t.Run("one of many racing holders takes over an expired lease", func(t *testing.T) {
+		s, ctx := open(t), t.Context()
+		const (
+			name   = "agent:lapsed"
+			racers = 20
+		)
+		mustAcquire(t, s, name, "dead-worker", time.Millisecond, true)
+		// Long past its millisecond on any clock, the process's or the
+		// database's: both move on with real time.
+		time.Sleep(20 * time.Millisecond)
+		var (
+			wg     sync.WaitGroup
+			start  = make(chan struct{})
+			errs   = make(chan error, racers)
+			winner = make(chan string, racers)
+		)
+		for i := range racers {
+			wg.Go(func() {
+				<-start
+				ok, err := s.AcquireLease(ctx, name, holderName(i), time.Minute)
+				switch {
+				case err != nil:
+					errs <- err
+				case ok:
+					winner <- holderName(i)
+				}
+			})
+		}
+		close(start)
+		wg.Wait()
+		close(errs)
+		close(winner)
+		for err := range errs {
+			t.Error(err)
+		}
+		var won []string
+		for w := range winner {
+			won = append(won, w)
+		}
+		if len(won) != 1 {
+			t.Fatalf("%v took over the expired lease, want exactly one racer", won)
+		}
+		// The winner holds it: it renews, and the dead worker and the other
+		// racers are refused.
+		mustAcquire(t, s, name, won[0], time.Minute, true)
+		mustAcquire(t, s, name, "dead-worker", time.Minute, false)
+		for i := range racers {
+			if holderName(i) != won[0] {
+				mustAcquire(t, s, name, holderName(i), time.Minute, false)
+			}
+		}
+	})
+
 	t.Run("refuses a lease without a name or holder, or that never lasts", func(t *testing.T) {
 		s, ctx := open(t), t.Context()
 		for _, c := range []struct {

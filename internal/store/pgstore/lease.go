@@ -11,8 +11,10 @@ import (
 
 // AcquireLease takes name for holder until ttl from now on the database's
 // clock, when it is free, expired, or holder's already. One statement does
-// it: of workers racing for one name, the first insert wins, and the others
-// find its row and, it being neither theirs nor expired, update nothing.
+// it: of workers racing for one name, the first insert (or the first
+// takeover of an expired row) wins, and the others wait for it to commit,
+// find its row and, it being neither theirs nor expired, update nothing. It
+// runs at READ COMMITTED, where that wait ends in a plain no.
 func (s *Store) AcquireLease(ctx context.Context, name, holder string, ttl time.Duration) (bool, error) {
 	if err := required("name", name, "holder", holder); err != nil {
 		return false, err
@@ -21,13 +23,15 @@ func (s *Store) AcquireLease(ctx context.Context, name, holder string, ttl time.
 		return false, fmt.Errorf("store: lease %s for %s: ttl must be positive", name, ttl)
 	}
 	var got string
-	err := s.pool.QueryRow(ctx, `
-		INSERT INTO lease (name, holder, expires_at)
-		VALUES ($1, $2, now() + $3::interval)
-		ON CONFLICT (name) DO UPDATE
-		   SET holder = EXCLUDED.holder, expires_at = EXCLUDED.expires_at
-		 WHERE lease.holder = EXCLUDED.holder OR lease.expires_at < now()
-		RETURNING holder`, name, holder, ttl).Scan(&got)
+	err := s.readCommitted(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			INSERT INTO lease (name, holder, expires_at)
+			VALUES ($1, $2, now() + $3::interval)
+			ON CONFLICT (name) DO UPDATE
+			   SET holder = EXCLUDED.holder, expires_at = EXCLUDED.expires_at
+			 WHERE lease.holder = EXCLUDED.holder OR lease.expires_at < now()
+			RETURNING holder`, name, holder, ttl).Scan(&got)
+	})
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
 		return false, nil

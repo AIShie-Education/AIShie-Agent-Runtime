@@ -9,6 +9,8 @@
 //     time given to a write is the store's own now.
 //   - A write without the ids it is keyed on is refused, as is an attempt in
 //     a state store.go does not name, and a lease whose ttl is not positive.
+//     An attempt needs its seat's member_id too: Unsettled finds it by that,
+//     and PurgeMember removes it by that, bytes and all.
 //   - PutAttempt writes an empty State as sending: a row is written ahead.
 //   - FinishAttempt keeps the action id and posted message id already known
 //     when the outcome carries none; its error code and reason replace the

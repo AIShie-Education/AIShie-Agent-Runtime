@@ -144,6 +144,13 @@ func testAttempts(t *testing.T, open Opener) {
 		a.State, a.PostedMessageID, a.UpdatedAt = store.AttemptExecuted, "msg-2", got.UpdatedAt
 		sameAttempt(t, got, a)
 
+		// So is the posted message id: a replay that names neither keeps
+		// both.
+		finish(t, s, "a1", a.Key, store.Outcome{State: store.AttemptExecuted})
+		got = get(t, s, "a1", a.Key)
+		a.UpdatedAt = got.UpdatedAt
+		sameAttempt(t, got, a)
+
 		// An error code and reason say why the attempt stands where it now
 		// does, so the newest replace the old.
 		b := answer("a1", "m1", "x1", "q1", 2, at(time.Minute))
@@ -376,11 +383,14 @@ func testAttempts(t *testing.T, open Opener) {
 		}
 	})
 
-	t.Run("refuses an attempt without an agent or key, or in an unknown state", func(t *testing.T) {
+	t.Run("refuses an attempt without an agent, key or seat, or in an unknown state", func(t *testing.T) {
 		s, ctx := open(t), t.Context()
 		for _, mutate := range []func(*store.Attempt){
 			func(a *store.Attempt) { a.AgentID = "" },
 			func(a *store.Attempt) { a.Key = "" },
+			// Unsettled and PurgeMember find a row by its seat: one without
+			// would hold an answer's bytes for ever.
+			func(a *store.Attempt) { a.MemberID = "" },
 			func(a *store.Attempt) { a.State = "posted" },
 		} {
 			a := answer("a1", "m1", "x1", "q1", 1, base)

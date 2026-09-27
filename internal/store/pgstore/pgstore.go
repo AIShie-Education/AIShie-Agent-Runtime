@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
@@ -108,3 +109,14 @@ func utc(t *time.Time) {
 
 // errNoScope is Spend asked for everything, which no quota is.
 var errNoScope = errors.New("store: spend needs at least one scope field")
+
+// readCommitted runs fn in a transaction at READ COMMITTED, whatever the
+// database's or role's default_transaction_isolation says. What the store
+// promises of writers racing for one row (a lease, an attempt's key) holds
+// only there: a statement that waited on another's row sees it once that
+// commits, where REPEATABLE READ and SERIALIZABLE fail the statement with a
+// serialization error instead. It is set per transaction, not per session,
+// so that it holds behind a transaction-pooling proxy too.
+func (s *Store) readCommitted(ctx context.Context, fn func(pgx.Tx) error) error {
+	return pgx.BeginTxFunc(ctx, s.pool, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, fn)
+}

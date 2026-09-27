@@ -3,11 +3,13 @@ package pgstore
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -28,14 +30,27 @@ var tables = []string{"lease", "attempt", "cursor", "note", "seat", "llm_call", 
 func openShared(t *testing.T) *Store {
 	t.Helper()
 	needDB(t)
-	s, err := Open(t.Context(), sharedURL)
+	return openEmptied(t, sharedURL)
+}
+
+// openEmptied opens the database at u, closed when t ends, and empties it.
+func openEmptied(t *testing.T, u string) *Store {
+	t.Helper()
+	s := openOn(t, u)
+	if _, err := s.pool.Exec(t.Context(), "TRUNCATE "+strings.Join(tables, ", ")+" RESTART IDENTITY"); err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+// openOn opens the database at u as it is, closed when t ends.
+func openOn(t *testing.T, u string) *Store {
+	t.Helper()
+	s, err := Open(t.Context(), u)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	if _, err := s.pool.Exec(t.Context(), "TRUNCATE "+strings.Join(tables, ", ")+" RESTART IDENTITY"); err != nil {
-		t.Fatal(err)
-	}
 	return s
 }
 
@@ -247,6 +262,76 @@ func TestRawUsageIsKeptAsJSON(t *testing.T) {
 	}
 	if cached == nil || *cached != 1000 || !missing {
 		t.Fatalf("cached_tokens = %v, no raw usage stored as NULL = %v; want 1000, true", cached, missing)
+	}
+}
+
+// The ledger is only ever summed through the interface, so the shared suite
+// would not see a field written to another's column. Every field here has a
+// value of its own, and comes back from its own column.
+func TestLedgerRowsKeepEveryField(t *testing.T) {
+	s := openShared(t)
+	ctx := t.Context()
+	when := time.Date(2026, time.September, 27, 9, 30, 0, 123456000, time.UTC)
+
+	call := store.LLMCall{ID: "call-1", At: when, TenantID: "ten-1", AgentID: "agt-1", CourseID: "crs-1",
+		MemberID: "mem-1", ConversationID: "cnv-1", MessageID: "msg-1", OpenerMemberID: "opn-1",
+		Adapter: "anthropic", Provider: "anthropic-direct", Model: "claude-test", Stop: "tool_calls", RawStop: "tool_use",
+		Input: 101, CacheRead: 102, CacheWrite: 103, Output: 104, Reasoning: 105, Estimated: true,
+		RawUsage: json.RawMessage(`{"input_tokens":101,"output_tokens":104}`), PriceVersion: "2026-09-01",
+		CostPUSD: 106, KeySource: "school", LatencyMS: 107}
+	if err := s.RecordLLMCall(ctx, call); err != nil {
+		t.Fatal(err)
+	}
+	var got store.LLMCall
+	var raw string
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, at, tenant_id, agent_id, course_id, member_id, conversation_id, message_id, opener_member_id,
+		       adapter, provider, model, stop, raw_stop, input_tokens, cache_read_tokens, cache_write_tokens,
+		       output_tokens, reasoning_tokens, estimated, raw_usage::text, price_version, cost_pusd, key_source, latency_ms
+		  FROM llm_call`).Scan(&got.ID, &got.At, &got.TenantID, &got.AgentID, &got.CourseID, &got.MemberID,
+		&got.ConversationID, &got.MessageID, &got.OpenerMemberID, &got.Adapter, &got.Provider, &got.Model, &got.Stop,
+		&got.RawStop, &got.Input, &got.CacheRead, &got.CacheWrite, &got.Output, &got.Reasoning, &got.Estimated, &raw,
+		&got.PriceVersion, &got.CostPUSD, &got.KeySource, &got.LatencyMS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wantUsage, gotUsage any
+	if err := json.Unmarshal(call.RawUsage, &wantUsage); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(raw), &gotUsage); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(gotUsage, wantUsage) {
+		t.Errorf("raw_usage = %s, want %s", raw, call.RawUsage)
+	}
+	got.At, got.RawUsage = got.At.UTC(), call.RawUsage
+	if !reflect.DeepEqual(got, call) {
+		t.Errorf("llm_call row:\n got %+v\nwant %+v", got, call)
+	}
+
+	answer := store.AnswerRecord{ID: "ans-1", At: when, TenantID: "ten-1", AgentID: "agt-1", CourseID: "crs-1",
+		MemberID: "mem-1", ConversationID: "cnv-1", MessageID: "msg-1", OpenerMemberID: "opn-1",
+		Key: "answer:cnv-1:msg-1:2", Outcome: store.OutcomeProposed, Billable: true, Turns: 3, ToolCalls: 4,
+		InputTokens: 201, OutputTokens: 202, CostPUSD: 203, KeySource: "own", PromptHash: "sha256:feed", LatencyMS: 204}
+	if err := s.RecordAnswer(ctx, answer); err != nil {
+		t.Fatal(err)
+	}
+	var gotAnswer store.AnswerRecord
+	err = s.pool.QueryRow(ctx, `
+		SELECT id, at, tenant_id, agent_id, course_id, member_id, conversation_id, message_id, opener_member_id,
+		       key, outcome, billable, turns, tool_calls, input_tokens, output_tokens, cost_pusd, key_source,
+		       prompt_hash, latency_ms
+		  FROM answer`).Scan(&gotAnswer.ID, &gotAnswer.At, &gotAnswer.TenantID, &gotAnswer.AgentID, &gotAnswer.CourseID,
+		&gotAnswer.MemberID, &gotAnswer.ConversationID, &gotAnswer.MessageID, &gotAnswer.OpenerMemberID, &gotAnswer.Key,
+		&gotAnswer.Outcome, &gotAnswer.Billable, &gotAnswer.Turns, &gotAnswer.ToolCalls, &gotAnswer.InputTokens,
+		&gotAnswer.OutputTokens, &gotAnswer.CostPUSD, &gotAnswer.KeySource, &gotAnswer.PromptHash, &gotAnswer.LatencyMS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotAnswer.At = gotAnswer.At.UTC()
+	if gotAnswer != answer {
+		t.Errorf("answer row:\n got %+v\nwant %+v", gotAnswer, answer)
 	}
 }
 

@@ -205,9 +205,10 @@ func copyAttempt(a store.Attempt) *store.Attempt {
 }
 
 // PutAttempt writes a's row, or returns the row already under its key with
-// store.ErrExists. An empty State is written as sending.
+// store.ErrExists. An empty State is written as sending. A row without its
+// seat's member_id is refused: Unsettled and PurgeMember find it by that.
 func (s *Store) PutAttempt(_ context.Context, a store.Attempt) (*store.Attempt, error) {
-	if err := required("agent_id", a.AgentID, "key", a.Key); err != nil {
+	if err := required("agent_id", a.AgentID, "key", a.Key, "member_id", a.MemberID); err != nil {
 		return nil, err
 	}
 	if a.State == "" {
