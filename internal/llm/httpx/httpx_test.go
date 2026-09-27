@@ -133,3 +133,21 @@ func TestClipKeepsRunes(t *testing.T) {
 		}
 	}
 }
+
+func TestRefusalsNeverEchoTheKey(t *testing.T) {
+	const key = "sk-proj-abcdefghijklmnopqrstuvwxyz"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(400)
+		// A proxy that quotes the request back.
+		_, _ = w.Write([]byte(`{"error":{"message":"bad request with Authorization: ` + r.Header.Get("Authorization") +
+			` and x-api-key ` + r.Header.Get("X-Api-Key") + `"}}`))
+	}))
+	defer srv.Close()
+	_, err := PostJSON(context.Background(), srv.Client(), srv.URL, map[string]string{"Authorization": "Bearer " + key, "x-api-key": key}, []byte(`{}`))
+	if err == nil || strings.Contains(err.Error(), key) || strings.Contains(err.Error(), key[:12]) {
+		t.Fatalf("the key reached the error: %v", err)
+	}
+	if !strings.Contains(err.Error(), "[redacted]") {
+		t.Errorf("error = %v", err)
+	}
+}

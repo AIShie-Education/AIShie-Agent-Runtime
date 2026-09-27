@@ -102,7 +102,7 @@ func New(cfg llm.Config) (*Adapter, error) {
 		maker:    llm.MakerOf(llm.AdapterOpenAIResponses, base, cfg.Model),
 		headers:  headers,
 		key:      key,
-		client:   withErrorFix(cfg.HTTPClient),
+		client:   cfg.HTTPClient,
 		params:   cfg.Params,
 		effort:   strings.TrimSpace(cfg.Reasoning.Effort),
 		caps:     caps,

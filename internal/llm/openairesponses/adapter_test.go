@@ -593,45 +593,6 @@ func TestPhaseSplitsMessages(t *testing.T) {
 	}
 }
 
-func TestFixErrorStatus(t *testing.T) {
-	tests := []struct{ name, body, want string }{
-		{"Azure's number", `{"error":{"code":"content_filter","message":"m","status":400,"innererror":{"code":"ResponsibleAIPolicyViolation"}}}`,
-			`{"error":{"code":"content_filter","innererror":{"code":"ResponsibleAIPolicyViolation"},"message":"m"}}`},
-		{"a string", `{"error":{"code":"c","status":"INVALID_ARGUMENT"}}`, `{"error":{"code":"c","status":"INVALID_ARGUMENT"}}`},
-		{"null", `{"error":{"code":"c","status":null}}`, `{"error":{"code":"c","status":null}}`},
-		{"no status", `{"error":{"code":"c"}}`, `{"error":{"code":"c"}}`},
-		{"a string error", `{"error":"boom"}`, `{"error":"boom"}`},
-		{"no error", `{"message":"m"}`, `{"message":"m"}`},
-		{"not JSON", `<html>`, `<html>`},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := string(fixErrorStatus([]byte(tt.body))); got != tt.want {
-				t.Errorf("got %s, want %s", got, tt.want)
-			}
-		})
-	}
-}
-
-// TestWithErrorFixLeavesClient: the configured client may be shared by
-// other adapters; wrapping its transport must not change it.
-func TestWithErrorFixLeavesClient(t *testing.T) {
-	shared := &http.Client{Timeout: time.Minute}
-	c := withErrorFix(shared)
-	if shared.Transport != nil {
-		t.Error("the shared client's transport was changed")
-	}
-	if c.Timeout != time.Minute {
-		t.Errorf("Timeout = %s, want the shared client's", c.Timeout)
-	}
-	if _, ok := c.Transport.(errorStatusFix); !ok {
-		t.Errorf("Transport is %T", c.Transport)
-	}
-	if _, ok := withErrorFix(nil).Transport.(errorStatusFix); !ok {
-		t.Error("a nil client is not wrapped")
-	}
-}
-
 func TestEncodeEdges(t *testing.T) {
 	a, err := New(llm.Config{Model: "gpt-5"})
 	if err != nil {

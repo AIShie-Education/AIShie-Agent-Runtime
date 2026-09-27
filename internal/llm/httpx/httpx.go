@@ -13,6 +13,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -70,7 +71,7 @@ func Do(ctx context.Context, client *http.Client, method, url string, headers ma
 		return nil, &llm.Error{Kind: llm.ErrServer, Status: resp.StatusCode, Message: "the response is larger than the runtime reads"}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, Classify(resp.StatusCode, resp.Header, data)
+		return nil, Classify(resp.StatusCode, resp.Header, withoutCredentials(data, headers))
 	}
 	return &Response{Status: resp.StatusCode, Header: resp.Header, Body: data}, nil
 }
@@ -93,6 +94,30 @@ func networkError(ctx context.Context, err error) *llm.Error {
 		}
 	}
 	return &llm.Error{Kind: llm.ErrNetwork, Message: llm.Clip(err.Error())}
+}
+
+// credentialHeaders carry keys. A provider or a proxy that echoes the
+// request back in its refusal must not put one into an error.
+var credentialHeaders = []string{"authorization", "api-key", "x-api-key", "x-goog-api-key", "proxy-authorization"}
+
+// withoutCredentials is body with the values of the request's credential
+// headers taken out.
+func withoutCredentials(body []byte, headers map[string]string) []byte {
+	for name, value := range headers {
+		if !slices.Contains(credentialHeaders, strings.ToLower(name)) {
+			continue
+		}
+		secrets := []string{value}
+		if _, token, ok := strings.Cut(value, " "); ok {
+			secrets = append(secrets, token) // "Bearer <token>"
+		}
+		for _, secret := range secrets {
+			if len(secret) >= 8 {
+				body = bytes.ReplaceAll(body, []byte(secret), []byte("[redacted]"))
+			}
+		}
+	}
+	return body
 }
 
 // Classify turns a provider's refusal into an *llm.Error: the kind from the
