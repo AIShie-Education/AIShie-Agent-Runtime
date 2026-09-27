@@ -1,0 +1,20 @@
+# A student's own agent (handout §1.3, §2.6): Yuki's helper, on Yuki's own
+# DeepSeek key. It answers Yuki alone and reads Yuki's own work, as far as
+# its seat's perms allow. Everything unset here is the built-in default.
+agent:
+  id: yuki-helper
+  display_name: "Yuki's helper"
+  core:
+    base_url: https://lms.example.edu
+    # The token Yuki issued in Core, kept in the secret store: never here.
+    token_ref: secret://students/yuki/agents/yuki-helper/core_token
+  model:
+    adapter: openai_chat
+    base_url: https://api.deepseek.com
+    model: deepseek-chat
+    key_ref: secret://students/yuki/keys/deepseek
+    key_source: own
+    params: {max_output_tokens: 1500, temperature: 0.3}
+  budgets:
+    # A daily limit Yuki set for their own key.
+    per_agent_day: {answers: 100, usd: 1.00}

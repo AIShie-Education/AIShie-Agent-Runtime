@@ -1,0 +1,66 @@
+# A course tutor (handout §1.3, §2.7), §4's example adapted: an
+# instructor's tutor for CS101 on the school's Anthropic key, with a course
+# budget, and its own settings for one course.
+agent:
+  id: cs101-tutor
+  display_name: "CS101 Tutor"
+  tenant_id: ten_instr_42
+  core:
+    base_url: https://lms.example.edu
+    transport: mcp                 # mcp | rest
+    mcp_protocol: "2025-11-25"     # pinned
+    token_ref: secret://ten_instr_42/agents/cs101-tutor/core_token
+  model:
+    adapter: anthropic             # openai_chat | openai_responses | anthropic | gemini | bedrock_converse
+    model: claude-sonnet-4-5       # the provider's model id; Azure: the deployment name
+    base_url: null                 # the adapter's own; set it for anything else
+    key_ref: secret://school/keys/anthropic-main   # or secret://ten_…/keys/…
+    key_source: school             # school | own
+    params: {max_output_tokens: 1500, temperature: 0.3}
+    reasoning: {effort: low}
+    capabilities:                  # overrides the adapter's table
+      parallel_tool_calls: true
+      strict_tools: false
+    # Tried when Anthropic cannot be reached; paid for as the model is.
+    fallback: {adapter: openai_chat, model: deepseek-chat, base_url: https://api.deepseek.com, key_ref: secret://school/keys/deepseek}
+  prompt:
+    answer_language: opener        # opener | fixed:<bcp47>
+    on_refusal_text: "I can't help with that here. Please ask your instructor."
+    on_budget_text: "I couldn't finish this one. Try a narrower question."
+  tools:
+    mode: derived                  # the seat's perms ∩ allow − deny
+    allow: [course_get, document_list, document_get, assignment_list, assignment_get]
+    deny: []                       # beside the built-in list (§6.1)
+    max_parallel_tools: 4
+  answer:
+    max_attempts: 3                # §2.4
+    on_attempts_exhausted: close   # close | skip
+    on_quota_exhausted: canned     # canned | silent
+    max_body_chars: 19000          # Core's limit is 20000
+  budgets:
+    per_answer: {turns: 8, tool_calls: 12, input_tokens: 150000, output_tokens: 4000, wall_clock_s: 90}
+    per_agent_day: {usd: 20.00, answers: 2000}
+    per_asker_day: {answers: 30, usd: 0.40}   # keyed on (course_id, opener member_id)
+  polling:
+    inbox_hot_s: 2                 # for hot_window_s after activity
+    hot_window_s: 120
+    inbox_idle_s: 10
+    inbox_max_s: 30
+    events_s: 45
+    memberships_s: 300
+    jitter: 0.25
+    max_rate_share: 0.3            # of Core's allowance, for polling
+    assumed_core_rate_per_min: 600
+  memory:
+    enabled: true
+    retention_days_after_removal: 30
+courses:                           # by course_id
+  "0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0a1b":
+    enabled: true
+    prompt_append_ref: prompts/cs101_style.md
+    model: {model: claude-haiku-4-5}
+    budgets: {per_asker_day: {answers: 15}}
+    polling: {inbox_idle_s: 5}
+  # A course the tutor is seated in but should not answer in.
+  "0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0a1c":
+    enabled: false

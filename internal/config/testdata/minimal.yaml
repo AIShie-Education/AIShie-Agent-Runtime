@@ -1,0 +1,11 @@
+# The least an agent needs: everything else is a default.
+agent:
+  id: minimal
+  display_name: Minimal
+  core:
+    base_url: https://lms.example.edu
+    token_ref: env://MINIMAL_CORE_TOKEN
+  model:
+    adapter: openai_chat
+    model: gpt-4.1-mini
+    key_ref: env://OPENAI_API_KEY

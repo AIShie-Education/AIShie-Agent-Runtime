@@ -1,0 +1,78 @@
+id: minimal
+display_name: Minimal
+tenant_id: ""
+paused: false
+core:
+    base_url: https://lms.example.edu
+    transport: mcp
+    mcp_protocol: "2025-11-25"
+    token_ref: env://MINIMAL_CORE_TOKEN
+model:
+    adapter: openai_chat
+    model: gpt-4.1-mini
+    base_url: ""
+    key_ref: env://OPENAI_API_KEY
+    key_source: own
+    provider: ""
+    region: ""
+    params:
+        max_output_tokens: 2000
+        temperature: null
+        top_p: null
+    reasoning:
+        effort: ""
+    capabilities:
+        parallel_tool_calls: null
+        strict_tools: null
+        tool_choice_none: null
+        file_input: null
+        schema_dialect: ""
+    headers: {}
+    fallback: null
+prompt:
+    system_ref: ""
+    answer_language: opener
+    on_refusal_text: I can't help with that here. Please ask your instructor.
+    on_budget_text: I couldn't finish this one. Try a narrower question.
+    on_quota_text: I've answered as many questions as I can today. Please try again tomorrow, or ask your instructor.
+    close_reason_text: I couldn't produce an answer to this after several tries, so I've closed this conversation. Please ask again, or ask your instructor.
+tools:
+    mode: derived
+    allow: []
+    deny: []
+    max_parallel_tools: 4
+answer:
+    max_attempts: 3
+    on_attempts_exhausted: close
+    on_quota_exhausted: canned
+    max_body_chars: 19000
+    history_messages: 30
+    max_concurrent: 8
+    max_concurrent_per_course: 4
+budgets:
+    per_answer:
+        turns: 8
+        tool_calls: 12
+        input_tokens: 150000
+        output_tokens: 4000
+        wall_clock_s: 90
+    per_agent_day:
+        usd: null
+        answers: null
+    per_asker_day:
+        usd: null
+        answers: null
+polling:
+    inbox_hot_s: 2
+    hot_window_s: 120
+    inbox_idle_s: 10
+    inbox_max_s: 30
+    events_s: 45
+    memberships_s: 300
+    jitter: 0.25
+    max_rate_share: 0.3
+    assumed_core_rate_per_min: 600
+    assumed_core_burst: 100
+memory:
+    enabled: true
+    retention_days_after_removal: 30
