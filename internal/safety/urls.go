@@ -1,6 +1,7 @@
 package safety
 
 import (
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
@@ -22,38 +23,89 @@ const safeURLChars = ";/?:@&=+$,-_.!~*'()#"
 // carries reports whether a link to u could take data to whoever owns it
 // (design §7). u is the URL as markdown-it reads it: a destination with its
 // escapes and entities undone, or a URL as written in the text. It is
-// judged as the href markdown-it's normalizeLink makes of it, which
-// percent-encodes every character that is not ASCII and those of "<>[\]^`{|}
-// and the space, and turns a host that is not ASCII into punycode. It
-// carries data when that href would have a query or a fragment, any
-// percent-encoding, user information, a scheme other than http, https or
-// mailto, a host label (in punycode) or path segment with dataRun
-// characters of data, or, for mailto, an address part that does; or when
-// it is longer than maxURLBytes.
+// judged as the href markdown-it's normalizeLink makes of it, which parses
+// it as mdurl does, percent-encodes every character that is not ASCII and
+// those of "<>[\]^`{|} and the space, and puts a host that is not ASCII
+// into punycode. It carries data when that href would have a query or a
+// fragment, any percent-encoding, user information, a scheme other than
+// http, https or mailto, a host label (in punycode) or path segment with
+// dataRun characters of data, or, for mailto, a name that does; or when it
+// is longer than maxURLBytes.
 func carries(u string) bool {
 	if len(u) > maxURLBytes {
 		return true
 	}
-	scheme, rest, ok := splitScheme(u)
-	if !ok {
-		if strings.HasPrefix(u, "//") && !strings.HasPrefix(u, "///") {
-			return webCarries(u[2:])
-		}
+	p := parseMDURL(u)
+	if p.proto != "" && !isASCIIAlpha(p.proto[0]) {
+		// No scheme to a browser, which reads it all as a relative path.
 		return unsafe(u, false) || pathCarries(u)
 	}
-	switch strings.ToLower(scheme) {
-	case "http", "https":
-		if strings.HasPrefix(rest, "//") && !strings.HasPrefix(rest, "///") {
-			return webCarries(rest[2:])
-		}
-		// Without "//" the renderer encodes it all as a path, which a
-		// browser then reads as a host: it is judged as both.
-		return unsafe(rest, false) || webCarries(strings.TrimLeft(rest, "/"))
-	case "mailto":
-		return mailtoCarries(rest)
+	proto := strings.ToLower(p.proto)
+	switch proto {
+	case "", "http:", "https:", "mailto:":
+	default:
+		return true
 	}
-	return true
+	if p.hasAuth && proto != "mailto:" || unsafe(p.auth, false) || unsafe(p.rest, false) {
+		return true
+	}
+	// normalizeLink puts a host into punycode only after these, written so;
+	// any other host that is not ASCII is percent-encoded.
+	recode := p.proto == "" || p.proto == "http:" || p.proto == "https:" || p.proto == "mailto:"
+	if len(p.hostname) > maxHostBytes || unsafe(p.hostname, recode) {
+		return true
+	}
+	if proto == "mailto:" {
+		// An address is judged whole: '/' does not break its runs.
+		addr := punycodeHost(p.hostname) + p.rest
+		if p.hasAuth {
+			addr = p.auth + "@" + addr
+		}
+		if p.slashes {
+			addr = "//" + addr
+		}
+		for _, part := range strings.FieldsFunc(addr, func(r rune) bool { return r == ',' || r == '@' || r == '.' || r == ';' }) {
+			if longestDataRun(part) >= dataRun {
+				return true
+			}
+		}
+	}
+	if proto == "http:" || proto == "https:" || proto == "" && p.slashes {
+		// A browser reads the host up to the next '/', '?' or '#': what
+		// mdurl split off the host joins it again, and with no host read
+		// at all (http:u@host, ///u@host) it takes one after any further
+		// slashes, user information and all.
+		rest := p.rest
+		if p.hostname == "" {
+			rest = strings.TrimLeft(rest, "/")
+		}
+		tail := rest
+		if i := strings.IndexAny(rest, "/?#"); i >= 0 {
+			tail, rest = rest[:i], rest[i:]
+		} else {
+			rest = ""
+		}
+		if strings.Contains(tail, "@") {
+			return true
+		}
+		for _, label := range strings.FieldsFunc(punycodeHost(p.hostname)+tail, func(r rune) bool { return r == '.' || r == ':' }) {
+			if longestDataRun(label) >= dataRun {
+				return true
+			}
+		}
+		return pathCarries(rest)
+	}
+	for _, label := range strings.Split(punycodeHost(p.hostname), ".") {
+		if longestDataRun(label) >= dataRun {
+			return true
+		}
+	}
+	return pathCarries(p.rest)
 }
+
+// maxHostBytes is mdurl's longest host; a longer one it drops, and a
+// browser then reads the path as the host.
+const maxHostBytes = 255
 
 // unsafe reports whether s holds '?', '#', '%', or a character markdown-it
 // would percent-encode; with host, characters that are not ASCII are let
@@ -71,78 +123,115 @@ func unsafe(s string, host bool) bool {
 	return false
 }
 
-// splitScheme splits a URL's scheme from the rest, if it has one: a letter,
-// then letters, digits, '+', '.' and '-', before a ':'.
-func splitScheme(s string) (scheme, rest string, ok bool) {
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch {
-		case isASCIIAlpha(c):
-		case i > 0 && (isDigit(c) || c == '+' || c == '.' || c == '-'):
-		case c == ':' && i > 0:
-			return s[:i], s[i+1:], true
-		default:
-			return "", s, false
-		}
-	}
-	return "", s, false
+// mdURL is a URL as mdurl's parse (url, true) splits it, which is how
+// markdown-it's normalizeLink reads a link.
+type mdURL struct {
+	proto    string // with its ':', as written; "" for none
+	slashes  bool
+	hasAuth  bool
+	auth     string
+	hostname string // without its port or an IPv6 address's brackets
+	rest     string // the path, query and fragment
 }
 
-// webCarries judges what follows "//": an authority, which ends at the next
-// '/', '?', '#' or '\', then the rest.
-func webCarries(s string) bool {
-	auth, tail := s, ""
-	if i := strings.IndexAny(s, "/?#\\"); i >= 0 {
-		auth, tail = s[:i], s[i:]
-	}
-	if strings.Contains(auth, "@") || unsafe(tail, false) {
+var (
+	mdProtocolRe = regexp.MustCompile(`(?i)^[a-z0-9.+-]+:`)
+	mdPortRe     = regexp.MustCompile(`:[0-9]*$`)
+	mdHostPartRe = regexp.MustCompile(`^[+a-z0-9A-Z_-]{0,63}$`)
+)
+
+// mdNonHostChars end a host.
+const mdNonHostChars = "%/?;#'{}|\\^`<>\" \r\n\t"
+
+// isMDSlashed are mdurl's slashedProtocol, as written.
+func isMDSlashed(proto string) bool {
+	switch proto {
+	case "http:", "https:", "ftp:", "gopher:", "file:":
 		return true
 	}
-	host := auth
-	if strings.HasPrefix(host, "[") {
-		// An IPv6 address, which the renderer leaves as it is.
-		if j := strings.IndexByte(host, ']'); j > 0 && strings.Trim(host[1:j], "0123456789abcdefABCDEF:.") == "" {
-			host = host[j+1:]
+	return false
+}
+
+func parseMDURL(url string) mdURL {
+	var p mdURL
+	rest := jsTrim(url)
+	if m := mdProtocolRe.FindString(rest); m != "" {
+		p.proto, rest = m, rest[len(m):]
+	}
+	hostless := p.proto == "javascript:"
+	slashes := strings.HasPrefix(rest, "//")
+	if slashes && !hostless {
+		rest, p.slashes = rest[2:], true
+	}
+	if hostless || !slashes && (p.proto == "" || isMDSlashed(p.proto)) {
+		p.rest = rest
+		return p
+	}
+	hostEnd := strings.IndexAny(rest, "/?#")
+	atSign := strings.LastIndexByte(rest, '@')
+	if hostEnd >= 0 {
+		atSign = strings.LastIndexByte(rest[:hostEnd], '@')
+	}
+	if atSign >= 0 {
+		p.hasAuth, p.auth, rest = true, rest[:atSign], rest[atSign+1:]
+	}
+	hostEnd = strings.IndexAny(rest, mdNonHostChars)
+	if hostEnd < 0 {
+		hostEnd = len(rest)
+	}
+	if hostEnd > 0 && rest[hostEnd-1] == ':' {
+		hostEnd--
+	}
+	host := rest[:hostEnd]
+	rest = rest[hostEnd:]
+	host = strings.TrimSuffix(host, mdPortRe.FindString(host))
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		p.hostname, p.rest = host[1:len(host)-1], rest
+		return p
+	}
+	// A label with a character but letters, digits, '+', '_', '-' and
+	// characters that are not ASCII ends the host there; the rest of it is
+	// read as the start of the path.
+	parts := strings.Split(host, ".")
+	for i, part := range parts {
+		if part == "" || mdHostPartRe.MatchString(asciiStandIns(part)) {
+			continue
+		}
+		valid := len(part) - len(strings.TrimLeftFunc(part, isHostPartChar))
+		valid = min(valid, 63)
+		notHost := append([]string{part[valid:]}, parts[i+1:]...)
+		rest = strings.Join(notHost, ".") + rest
+		host = strings.Join(append(parts[:i:i], part[:valid]), ".")
+		break
+	}
+	p.hostname, p.rest = host, rest
+	return p
+}
+
+// asciiStandIns is part with each UTF-16 code unit that is not ASCII
+// replaced by 'x', as mdurl tests a host label.
+func asciiStandIns(part string) string {
+	var b strings.Builder
+	for _, r := range part {
+		switch {
+		case r >= 0x10000:
+			b.WriteString("xx")
+		case r >= utf8.RuneSelf:
+			b.WriteByte('x')
+		default:
+			b.WriteRune(r)
 		}
 	}
-	if unsafe(host, true) {
-		return true
-	}
-	for _, label := range strings.FieldsFunc(punycodeHost(host), func(r rune) bool { return r == '.' || r == ':' }) {
-		if longestDataRun(label) >= dataRun {
-			return true
-		}
-	}
-	return pathCarries(tail)
+	return b.String()
+}
+
+func isHostPartChar(r rune) bool {
+	return r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r == '+' || r == '_' || r == '-'
 }
 
 func pathCarries(p string) bool {
 	for _, seg := range strings.Split(p, "/") {
 		if longestDataRun(seg) >= dataRun {
-			return true
-		}
-	}
-	return false
-}
-
-// mailtoCarries judges a mailto: URL: its domain may be in punycode, and
-// no part of an address may spell out data.
-func mailtoCarries(rest string) bool {
-	addr, tail := rest, ""
-	if i := strings.IndexAny(rest, "/?#"); i >= 0 {
-		addr, tail = rest[:i], rest[i:]
-	}
-	name, host := addr, ""
-	if at := strings.LastIndexByte(addr, '@'); at >= 0 {
-		name, host = addr[:at], addr[at+1:]
-	}
-	if unsafe(name, false) || unsafe(host, true) || unsafe(tail, false) {
-		return true
-	}
-	for _, part := range strings.FieldsFunc(name+"@"+punycodeHost(host)+tail, func(r rune) bool {
-		return r == ',' || r == '@' || r == '.' || r == ';' || r == '/'
-	}) {
-		if longestDataRun(part) >= dataRun {
 			return true
 		}
 	}

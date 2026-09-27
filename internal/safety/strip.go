@@ -64,7 +64,7 @@ func inlineEdits(src string, refs map[string]string, rep *Report) []edit {
 			continue
 		}
 		t := src[p.start:p.end]
-		linkifyCandidates(t, func(start, end int, url string) {
+		linkifyCandidates(t, p.afterSpecial, func(start, end int, url string) {
 			if !carries(url) {
 				return
 			}

@@ -40,7 +40,7 @@ func linksIn(s string) []string {
 		}
 		for _, p := range joinPieces(res.pieces) {
 			if !p.inLink {
-				linkifyCandidates(t.s[p.start:p.end], func(_, _ int, url string) { urls = append(urls, url) })
+				linkifyCandidates(t.s[p.start:p.end], p.afterSpecial, func(_, _ int, url string) { urls = append(urls, url) })
 			}
 		}
 	}

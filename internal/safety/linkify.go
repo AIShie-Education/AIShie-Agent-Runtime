@@ -59,7 +59,18 @@ func hasPrefixFold(s, prefix string) bool {
 // token could begin, whatever precedes it, and a host may end at a
 // delimiter as it would at the end of a token (loose); the rest of each
 // match, and so its end, is linkify-it's.
-func linkifyCandidates(t string, emit func(start, end int, url string)) {
+//
+// afterSpecial says t follows an escape or an entity: linkify then drops a
+// link that begins the text token, and so is a link at 0 dropped here.
+func linkifyCandidates(t string, afterSpecial bool, emit func(start, end int, url string)) {
+	if afterSpecial {
+		inner := emit
+		emit = func(start, end int, url string) {
+			if start > 0 {
+				inner(start, end, url)
+			}
+		}
+	}
 	l := &linker{t: t, loose: true, memo: make([]int, len(t)+1)}
 	for i := range l.memo {
 		l.memo[i] = -1
@@ -95,7 +106,7 @@ func linkifyCandidates(t string, emit func(start, end int, url string)) {
 				// linkify-it refuses "//" after ':' or '/', and takes it
 				// only after punctuation or a space, or where a token
 				// begins (after a delimiter).
-				if p, _ := utf8.DecodeLastRuneInString(t[:i]); p == ':' || p == '/' || isPseudoLetter(p) && p != '~' {
+				if p, _ := utf8.DecodeLastRuneInString(t[:i]); p == ':' || p == '/' || isPseudoLetter(p) && !strikeEnds(t, i) {
 					continue
 				}
 			}
@@ -122,9 +133,10 @@ func linkifyCandidates(t string, emit func(start, end int, url string)) {
 // the start, a separator, punctuation (not '_'), a control character, '<',
 // '>' or '｜' begins a link, or an address follows its name as linkify-it
 // takes one. It is true in some runs where linkify-it's is not (it looks at
-// every schema, and at names of any length), never the other way.
+// every schema, and at names of any length), never the other way. The run
+// is read whole, with its delimiters, as linkify-it reads it.
 func linkifyTest(t string) bool {
-	l := &linker{t: t, loose: true}
+	l := &linker{t: t}
 	for i := 0; i < len(t); i++ {
 		c := t[i]
 		switch c {
@@ -254,12 +266,16 @@ func mailNameStart(t string, at int) int {
 		if s == 0 {
 			return s
 		}
-		if p, _ := utf8.DecodeLastRuneInString(t[:s]); isMailBoundary(p) || p == '*' || p == '_' || p == '~' {
+		if p, _ := utf8.DecodeLastRuneInString(t[:s]); isMailBoundary(p) || p == '*' || p == '_' || strikeEnds(t, s) {
 			return s
 		}
 	}
 	return at
 }
+
+// strikeEnds reports whether a run of two or more '~', a strikethrough's
+// delimiter, ends at i: a single '~' is none.
+func strikeEnds(t string, i int) bool { return i >= 2 && t[i-1] == '~' && t[i-2] == '~' }
 
 func isMailBoundary(r rune) bool {
 	return r == '<' || r == '>' || r == '｜' || r == '"' || r == '(' || isZCc(r)
@@ -505,7 +521,7 @@ func (l *linker) hostTerminator(e int) bool {
 		return true
 	}
 	r, _ := runeAt(t, e)
-	if l.loose && (r == '*' || r == '_' || r == '~') {
+	if l.loose && (r == '*' || r == '_' || r == '~' && e+1 < len(t) && t[e+1] == '~') {
 		return true
 	}
 	if r != '<' && r != '>' && r != '｜' && !isZPCc(r) {

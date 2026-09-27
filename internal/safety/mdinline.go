@@ -43,6 +43,9 @@ type found struct {
 type piece struct {
 	start, end int
 	inLink     bool // inside a link's text, where linkify makes no link
+	// afterSpecial is true for text right after an escape or an entity,
+	// where linkify drops a link that begins the text.
+	afterSpecial bool
 }
 
 // inlineResult is what parseInline found.
@@ -56,7 +59,7 @@ type inlineResult struct {
 // parseInline reads one inline run as markdown-it's inline parser does,
 // with the frontend's $…$ rule; refs are the document's definitions.
 func parseInline(src string, refs map[string]string) *inlineResult {
-	st := &inlineState{src: src, posMax: len(src), refs: refs, cache: map[int]int{}, mathNone: map[[2]int]int{}, res: &inlineResult{}}
+	st := &inlineState{src: src, posMax: len(src), refs: refs, special: -1, cache: map[int]int{}, mathNone: map[[2]int]int{}, res: &inlineResult{}}
 	st.tokenize()
 	return st.res
 }
@@ -71,12 +74,14 @@ type inlineState struct {
 	// for pendingLen bytes, pendingUnits UTF-16 code units long (what
 	// the linkify rule measures).
 	pendingFrom, pendingLen, pendingUnits int
-	cache                                 map[int]int
-	lastRuns                              map[int]int
-	backticksScanned                      bool
-	mathNone                              map[[2]int]int
-	refs                                  map[string]string
-	res                                   *inlineResult
+	// special is where the last escape or entity ended.
+	special          int
+	cache            map[int]int
+	lastRuns         map[int]int
+	backticksScanned bool
+	mathNone         map[[2]int]int
+	refs             map[string]string
+	res              *inlineResult
 }
 
 func (st *inlineState) addPending(from, to int) {
@@ -97,9 +102,15 @@ func (st *inlineState) trimPending(n int) {
 // pushPending ends the pending text, as pushing any token does.
 func (st *inlineState) pushPending() {
 	if st.pendingLen > 0 {
-		st.res.pieces = append(st.res.pieces, piece{st.pendingFrom, st.pendingFrom + st.pendingLen, st.linkLevel > 0})
+		st.res.pieces = append(st.res.pieces, piece{start: st.pendingFrom, end: st.pendingFrom + st.pendingLen, inLink: st.linkLevel > 0, afterSpecial: st.pendingFrom == st.special})
 	}
 	st.pendingLen, st.pendingUnits = 0, 0
+}
+
+// pushSpecial ends the pending text for an escape or entity ending at end.
+func (st *inlineState) pushSpecial(end int) {
+	st.pushPending()
+	st.special = end
 }
 
 func (st *inlineState) record(f found) { st.res.found = append(st.res.found, f) }
@@ -303,14 +314,14 @@ func (st *inlineState) escape(silent bool) bool {
 		return true
 	case ' ':
 		if !silent {
-			st.pushPending()
+			st.pushSpecial(pos)
 		}
 		st.pos = pos
 		return true
 	}
 	_, n := utf8.DecodeRuneInString(st.src[pos:])
 	if !silent {
-		st.pushPending()
+		st.pushSpecial(pos + n)
 	}
 	st.pos = pos + n
 	return true
@@ -512,7 +523,7 @@ func (st *inlineState) emphasis(silent bool) bool {
 
 func (st *inlineState) delimiter(n int) {
 	st.pushPending()
-	st.res.pieces = append(st.res.pieces, piece{st.pos, st.pos + n, st.linkLevel > 0})
+	st.res.pieces = append(st.res.pieces, piece{start: st.pos, end: st.pos + n, inLink: st.linkLevel > 0, afterSpecial: st.pos == st.special})
 	st.pos += n
 }
 
@@ -801,7 +812,7 @@ func (st *inlineState) entity(silent bool) bool {
 		return false
 	}
 	if !silent {
-		st.pushPending()
+		st.pushSpecial(pos + len(m))
 	}
 	st.pos += len(m)
 	return true
