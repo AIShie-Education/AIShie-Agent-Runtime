@@ -381,7 +381,9 @@ const (
 )
 
 // pollInboxOnce polls the inbox once and hands each row that is not held
-// back and not being answered to the scheduler.
+// back and not being answered to the scheduler. A poll that found a row
+// to answer, or one left waiting for a slot, is not an empty poll: only
+// empty polls put the next one off (§7.2).
 func (s *Seat) pollInboxOnce(ctx context.Context) {
 	now := s.a.now()
 	limit := inboxLimit
@@ -401,12 +403,17 @@ func (s *Seat) pollInboxOnce(ctx context.Context) {
 		return
 	}
 	perCourse := s.config().Answer.MaxConcurrentPerCourse
-	started := 0
+	started, waiting := 0, 0
 	for _, row := range rows {
 		if row.LatestOpenerMessageID == nil || *row.LatestOpenerMessageID == "" || s.heldBackNow(row.ID, now) {
 			continue
 		}
 		if !s.a.sched.tryStart(s.course, row.ID, perCourse) {
+			if !s.a.sched.has(row.ID) {
+				// No slot for it: it waits for the next poll, which is
+				// not to be put off as if the inbox were empty.
+				waiting++
+			}
 			continue
 		}
 		started++
@@ -417,14 +424,14 @@ func (s *Seat) pollInboxOnce(ctx context.Context) {
 		}(row)
 	}
 	s.mu.Lock()
-	if started == 0 {
+	if started+waiting == 0 {
 		s.emptyPolls++
 	} else {
 		s.emptyPolls = 0
 	}
 	s.mu.Unlock()
 	result := "empty"
-	if started > 0 {
+	if started+waiting > 0 {
 		result = "work"
 	}
 	s.a.s.o.Metrics.InboxPolls.WithLabelValues(s.a.id, result).Inc()
