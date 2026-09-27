@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
 )
 
 // AgentStatus is what the supervisor knows of one configured agent, for
@@ -65,7 +67,7 @@ func (s *Supervisor) Status() []AgentStatus {
 		out = append(out, st)
 	}
 	for id := range s.paused {
-		out = append(out, AgentStatus{AgentID: id, State: "paused", Paused: true})
+		out = append(out, AgentStatus{AgentID: id, State: store.AgentPaused, Paused: true})
 	}
 	s.mu.Unlock()
 	for i, a := range agents {

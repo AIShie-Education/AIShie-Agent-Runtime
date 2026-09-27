@@ -176,3 +176,63 @@ func TestProposalDecidedWhileDown(t *testing.T) {
 		t.Errorf("posted %q, answer %q", at.PostedMessageID, got[0].ID)
 	}
 }
+
+// TestActionsCursorWaitsForProposals: the seat's cursor into
+// action_list_mine moves over the agent's settled actions, and stops before
+// a proposal still waiting, so that its fate is found however late it
+// comes.
+func TestActionsCursorWaitsForProposals(t *testing.T) {
+	w := newWorld(t)
+	model := scripted.New(scripted.Reply("Autonomous one."), scripted.Reply("Autonomous two."),
+		scripted.Reply("Waits for a person."), scripted.Reply("Waits too."))
+	tu := w.tutor("cs101-tutor")
+	wk := w.start(w.config(nil, w.agentDoc("cs101-tutor", "m1", nil, nil)), models{"m1": model}, workerOpts{})
+	c1, _ := w.ask(0, tu, "One?")
+	w.waitAnswers(c1, 1)
+	c2, _ := w.ask(1, tu, "Two?")
+	w.waitAnswers(c2, 1)
+	w.ok(w.fc.SetLevel(tu.seat.ID, "conversation_answer", "confirm_required"))
+	eventually(t, "the seat at confirm_required", func() bool {
+		st := wk.sup.Status()
+		return len(st) == 1 && len(st[0].Seats) == 1 && st[0].Seats[0].Level == "confirm_required"
+	})
+	c3, m3 := w.ask(0, tu, "Three?")
+	p3 := w.waitProposal(core.AnswerKey(c3, m3, 1))
+	c4, m4 := w.ask(1, tu, "Four?")
+	p4 := w.waitProposal(core.AnswerKey(c4, m4, 1))
+
+	// The later proposal is decided first: its fate is found, and the
+	// cursor stays before the earlier one, still waiting.
+	w.ok(w.fc.Reject(p4.ActionID, "Not yet."))
+	wk.waitAttempt("cs101-tutor", core.AnswerKey(c4, m4, 1), store.AttemptRejected)
+	cursor := func() string {
+		c, err := wk.st.Cursor(context.Background(), "cs101-tutor", tu.seat.ID, store.CursorActions)
+		w.ok(err)
+		return c
+	}
+	if c := cursor(); c == "" || c >= p3.ActionID {
+		t.Errorf("the cursor %q is not before the proposal waiting, %s", c, p3.ActionID)
+	}
+	_, err := w.fc.Approve(p3.ActionID)
+	w.ok(err)
+	wk.waitAttempt("cs101-tutor", core.AnswerKey(c3, m3, 1), store.AttemptExecuted)
+}
+
+// TestAgentFailsThenStarts: an agent that cannot start (its token's secret
+// is missing) is recorded in error, saying why, and started again after a
+// backoff until it can.
+func TestAgentFailsThenStarts(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("yuki-helper", 0)
+	token := w.getenv(tokenVar("yuki-helper"))
+	w.env.Delete(tokenVar("yuki-helper"))
+	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": scripted.New(scripted.Reply("Started at last."))}, workerOpts{})
+	st := wk.waitState("yuki-helper", store.AgentError)
+	if !strings.Contains(st.Detail, "token") || strings.Contains(st.Detail, "ais_") {
+		t.Errorf("detail %q", st.Detail)
+	}
+	w.env.Store(tokenVar("yuki-helper"), token)
+	wk.waitState("yuki-helper", store.AgentRunning)
+	conv, _ := w.ask(0, own, "Are you up?")
+	w.waitAnswers(conv, 1)
+}

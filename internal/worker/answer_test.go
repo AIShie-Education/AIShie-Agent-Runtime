@@ -199,3 +199,25 @@ func TestMovedOn(t *testing.T) {
 		t.Errorf("outcomes %v", o)
 	}
 }
+
+// TestRESTTransport: an agent connected over REST answers as one over MCP.
+func TestRESTTransport(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("yuki-helper", 0)
+	model := scripted.New(scripted.CallTool("assignment_list", `{}`), scripted.Reply("Over REST."))
+	over := map[string]any{"core": map[string]any{"transport": "rest"}}
+	w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", over, nil)), models{"m1": model}, workerOpts{})
+	conv, msg := w.ask(0, own, "Which transport?")
+	got := w.waitAnswers(conv, 1)
+	if got[0].Body != "Over REST." || got[0].IdempotencyKey != core.AnswerKey(conv, msg, 1) {
+		t.Errorf("answer %+v", got[0])
+	}
+	for _, c := range w.calls(own.actor.ID, "") {
+		if c.Transport != "rest" {
+			t.Fatalf("a call over %s", c.Transport)
+		}
+	}
+	if len(w.calls(own.actor.ID, "assignment_list")) != 1 {
+		t.Error("the model's call did not reach Core")
+	}
+}

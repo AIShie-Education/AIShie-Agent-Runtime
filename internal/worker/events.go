@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	// eventsPage is how many events one read of event_list asks for.
-	eventsPage = 100
+	// eventsPage is how many events one read of event_list asks for, Core's
+	// most: a seat's first read pages through the course's history.
+	eventsPage = 500
 	// maxEventPages bounds the pages one round reads; the rest wait for the
 	// next round, from the cursor saved.
 	maxEventPages = 50
@@ -99,6 +100,7 @@ func (s *Seat) readEvents(ctx context.Context) {
 	}
 	since, _ := strconv.ParseInt(raw, 10, 64)
 	acts := &actionLookup{s: s}
+	defer acts.save(ctx)
 	for page := 0; page < maxEventPages; page++ {
 		evs, err := s.a.client.Events(ctx, s.course, since, eventsPage)
 		s.markEventsRead()
@@ -315,63 +317,82 @@ func (s *Seat) retracted(ctx context.Context, conv, msg string) {
 	s.a.tell("an answer of the agent's was retracted (conversation " + conv + ", message " + msg + ")")
 }
 
-// actionLookup reads the agent's own actions in the seat's course once per
-// round, from the seat's actions cursor. The cursor moves only over
+// actionLookup finds the agent's own actions in the seat's course, paging
+// action_list_mine (all types: the answers are what matter) from the
+// seat's actions cursor only as far as it must. The cursor moves only over
 // actions that are settled, so that a proposal still waiting is found
-// again when it is decided, however long that takes.
+// again when it is decided, however long that takes; save keeps it.
 type actionLookup struct {
-	s    *Seat
-	read bool
-	acts map[string]core.Action
+	s     *Seat
+	begun bool
+	// start is the cursor as read; after, where the next page starts;
+	// keep, the last action of the settled run from start.
+	start, after, keep string
+	blocked            bool
+	done               bool
+	pages              int
+	acts               map[string]core.Action
 }
 
+// find is the action id, reading pages until it is found or there are no
+// more.
 func (l *actionLookup) find(ctx context.Context, id string) (core.Action, bool) {
-	if !l.read {
-		l.read = true
-		l.acts = l.s.readActions(ctx)
+	if !l.begun {
+		l.begun, l.acts = true, map[string]core.Action{}
+		cur, err := l.s.a.store().Cursor(ctx, l.s.a.id, l.s.id, store.CursorActions)
+		if err != nil {
+			l.done = true
+		}
+		l.start, l.after, l.keep = cur, cur, cur
 	}
-	act, ok := l.acts[id]
-	return act, ok
+	for {
+		if act, ok := l.acts[id]; ok {
+			return act, true
+		}
+		if l.done || !l.more(ctx) {
+			return core.Action{}, false
+		}
+	}
 }
 
-// readActions pages action_list_mine from the seat's actions cursor,
-// all types (the answers are what matter), and keeps the cursor at the
-// last action before the first one still proposed.
-func (s *Seat) readActions(ctx context.Context) map[string]core.Action {
-	ctx = core.WithPriority(ctx, core.PriorityBackground)
-	st := s.a.store()
-	start, err := st.Cursor(ctx, s.a.id, s.id, store.CursorActions)
+// more reads the next page, and reports whether it read one.
+func (l *actionLookup) more(ctx context.Context) bool {
+	if l.pages >= maxActionPages {
+		l.done = true
+		return false
+	}
+	l.pages++
+	page, err := l.s.a.client.ActionsMine(core.WithPriority(ctx, core.PriorityBackground), l.s.course, l.after, nil, actionsPage)
 	if err != nil {
-		return nil
+		l.s.readFailed(ctx, "action_list_mine", err)
+		l.done = true
+		return false
 	}
-	out := map[string]core.Action{}
-	after, keep, blocked := start, start, false
-	for range maxActionPages {
-		page, err := s.a.client.ActionsMine(ctx, s.course, after, nil, actionsPage)
-		if err != nil {
-			s.readFailed(ctx, "action_list_mine", err)
-			break
+	for _, act := range page.Actions {
+		l.acts[act.ID] = act
+		if act.Status == actionProposed {
+			l.blocked = true
 		}
-		for _, act := range page.Actions {
-			out[act.ID] = act
-			if act.Status == actionProposed {
-				blocked = true
-			}
-			if !blocked {
-				keep = act.ID
-			}
-		}
-		if len(page.Actions) < actionsPage {
-			break
-		}
-		after = page.Actions[len(page.Actions)-1].ID
-	}
-	if keep != start {
-		if err := st.SetCursor(ctx, s.a.id, s.id, store.CursorActions, keep); err != nil && ctx.Err() == nil {
-			s.log.Warn("the actions cursor could not be saved", "err", err)
+		if !l.blocked {
+			l.keep = act.ID
 		}
 	}
-	return out
+	if len(page.Actions) < actionsPage {
+		l.done = true
+	} else {
+		l.after = page.Actions[len(page.Actions)-1].ID
+	}
+	return true
+}
+
+// save keeps the cursor, when it moved.
+func (l *actionLookup) save(ctx context.Context) {
+	if !l.begun || l.keep == l.start {
+		return
+	}
+	if err := l.s.a.store().SetCursor(ctx, l.s.a.id, l.s.id, store.CursorActions, l.keep); err != nil && ctx.Err() == nil {
+		l.s.log.Warn("the actions cursor could not be saved", "err", err)
+	}
 }
 
 // recover is the seat's start (design §5.4): every attempt a crash or a
@@ -397,9 +418,10 @@ func (s *Seat) recover(ctx context.Context) {
 	if len(proposed) == 0 || ctx.Err() != nil {
 		return
 	}
-	acts := s.readActions(ctx)
+	acts := &actionLookup{s: s}
+	defer acts.save(ctx)
 	for _, at := range proposed {
-		if act, ok := acts[at.ActionID]; ok && act.Status != actionProposed {
+		if act, ok := acts.find(ctx, at.ActionID); ok && act.Status != actionProposed {
 			s.settleProposal(&at, act)
 		}
 	}
@@ -417,7 +439,8 @@ func (s *Seat) resendAtStart(ctx context.Context, at store.Attempt) {
 		return
 	}
 	defer c.release()
-	ctx = core.WithPriority(ctx, core.PriorityAnswer)
+	ctx, cancel := context.WithTimeout(core.WithPriority(ctx, core.PriorityAnswer), c.eff.Budgets.PerAnswer.WallClock()+passSlack)
+	defer cancel()
 	s.log.Info("an attempt written ahead is sent again", "conversation", at.ConversationID, "key", at.Key)
 	env, err := s.a.client.Send(ctx, at.Tool, at.Args)
 	var d Decision

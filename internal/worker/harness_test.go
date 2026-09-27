@@ -471,3 +471,5 @@ func counter(t *testing.T, reg *prometheus.Registry, name string, labels map[str
 	}
 	return sum
 }
+
+func discardLog() *slog.Logger { return slog.New(slog.DiscardHandler) }

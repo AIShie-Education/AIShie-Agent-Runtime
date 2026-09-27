@@ -293,6 +293,7 @@ func (s *Supervisor) leaseTick(ctx context.Context) {
 		if err != nil || !ok {
 			if held {
 				s.log.Warn("agent lease lost; stopping the agent", "agent", r.id, "err", err)
+				s.o.Metrics.Forget(r.id)
 			}
 			if running {
 				s.stopRunner(r, 0)
