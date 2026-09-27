@@ -1,20 +1,447 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
+	"time"
+
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/fakecore"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/fakellm"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/pricing"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/version"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/worker"
 )
 
-func TestRun(t *testing.T) {
+// childArgs, when set, makes the test binary the runtime itself, running
+// the command it names: how TestRunServesAndStops sends it real signals.
+const childArgs = "AISHIE_RUNTIME_TEST_ARGS"
+
+func TestMain(m *testing.M) {
+	if args := os.Getenv(childArgs); args != "" {
+		sigs := make(chan os.Signal, 4)
+		signal.Notify(sigs, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+		os.Exit(run(context.Background(), strings.Fields(args), os.Getenv, os.Stdout, os.Stderr, sigs))
+	}
+	os.Exit(m.Run())
+}
+
+// env is an environment of the given variables alone.
+func env(kv ...string) func(string) string {
+	m := map[string]string{}
+	for i := 0; i+1 < len(kv); i += 2 {
+		m[kv[i]] = kv[i+1]
+	}
+	return func(k string) string { return m[k] }
+}
+
+func runCmd(t *testing.T, getenv func(string) string, args ...string) (int, string, string) {
+	t.Helper()
 	var out, errs bytes.Buffer
-	if code := run([]string{"version"}, &out, &errs); code != 0 || !strings.HasPrefix(out.String(), "aishie-runtime ") {
-		t.Errorf("version: %d %q", code, out.String())
+	code := run(context.Background(), args, getenv, &out, &errs, nil)
+	return code, out.String(), errs.String()
+}
+
+func TestUsage(t *testing.T) {
+	for _, c := range []struct {
+		args []string
+		code int
+		out  string
+	}{
+		{[]string{"version"}, exitOK, "aishie-runtime " + version.Version},
+		{[]string{"help"}, exitOK, "DATABASE_URL"},
+		{nil, exitUsage, "Usage:"},
+		{[]string{"nonsense"}, exitUsage, "unknown command"},
+		{[]string{"run", "extra"}, exitUsage, "run takes no arguments"},
+		{[]string{"check", "--dead"}, exitUsage, "check takes only --live"},
+		{[]string{"migrate"}, exitUsage, "migrate takes"},
+		{[]string{"migrate", "sideways"}, exitUsage, "not \"sideways\""},
+		{[]string{"migrate", "down"}, exitUsage, "--yes"},
+		{[]string{"migrate", "up", "--yes"}, exitUsage, "takes no --yes"},
+		{[]string{"migrate", "version"}, exitFailure, "DATABASE_URL is not set"},
+		{[]string{"catalogue"}, exitUsage, "--core URL"},
+	} {
+		code, out, errs := runCmd(t, env(), c.args...)
+		if code != c.code || !strings.Contains(out+errs, c.out) {
+			t.Errorf("%v: %d\n%s%s", c.args, code, out, errs)
+		}
 	}
-	if code := run(nil, &out, &errs); code != 2 {
-		t.Errorf("no command: %d", code)
+}
+
+func TestCheckExamples(t *testing.T) {
+	code, out, errs := runCmd(t, env("CONFIG", "../../examples/runtime.yaml,../../examples/agents"), "check")
+	if code != exitOK {
+		t.Fatalf("check: %d\n%s%s", code, out, errs)
 	}
-	if code := run([]string{"nonsense"}, &out, &errs); code != 2 || !strings.Contains(errs.String(), "unknown command") {
-		t.Errorf("unknown command: %d %q", code, errs.String())
+	for _, want := range []string{
+		`agent cs101-tutor: "CS101 Tutor"`,
+		"model: anthropic claude-sonnet-4-5 (anthropic) on the school key, 1500 output tokens a call; fallback openai_chat deepseek-chat (deepseek)",
+		"course 0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0a1b: model anthropic claude-haiku-4-5",
+		"prompt appended from prompts/cs101_style.md",
+		"course 0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0a1c: disabled",
+		`agent yuki-helper: "Yuki's helper"`,
+		"quotas: per agent 100 answers and $1.00 a day",
+		"prices: ../../examples/prices.example.yaml (version example-2026-09-27)",
+		"the configuration passes: 2 agents",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("check does not say %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestCheckRefusesDollarsWithoutPrices(t *testing.T) {
+	code, out, errs := runCmd(t, env("CONFIG", "../../examples/agents/delegate.yaml"), "check")
+	if code != exitFailure || !strings.Contains(errs, `agent "yuki-helper": it has a quota in dollars, and there is no price table`) {
+		t.Errorf("check: %d\n%s%s", code, out, errs)
+	}
+	dir := t.TempDir()
+	prices := filepath.Join(dir, "prices.yaml")
+	if err := os.WriteFile(prices, []byte("version: v\nprices:\n  - {provider: openai, model: gpt-4.1, from: 2025-01-01, usd_per_mtok: {input: 1, output: 1}}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errs = runCmd(t, env("CONFIG", "../../examples/agents/delegate.yaml", "PRICES", prices), "check")
+	if code != exitFailure || !strings.Contains(errs, "the price table has no price for deepseek deepseek-chat") {
+		t.Errorf("check with a table that misses the model: %d\n%s%s", code, out, errs)
+	}
+}
+
+func TestUSDWithoutPrices(t *testing.T) {
+	cfg, err := config.Load("../../examples/runtime.yaml", "../../examples/agents")
+	if err != nil {
+		t.Fatal(err)
+	}
+	table, err := pricing.Load("../../examples/prices.example.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := usdWithoutPrices(cfg, table, time.Now()); len(p) != 0 {
+		t.Errorf("the examples' prices leave %v", p)
+	}
+	if p := usdWithoutPrices(cfg, nil, time.Now()); len(p) != 2 {
+		t.Errorf("without prices: %v", p)
+	}
+}
+
+// fakeCore is the fake Core on loopback.
+func fakeCore(t *testing.T) (*fakecore.Core, *httptest.Server) {
+	t.Helper()
+	fc := fakecore.New(fakecore.Options{})
+	srv := httptest.NewServer(fc.Handler())
+	t.Cleanup(srv.Close)
+	return fc, srv
+}
+
+func TestCatalogue(t *testing.T) {
+	_, srv := fakeCore(t)
+	code, out, errs := runCmd(t, env(), "catalogue", "--core", srv.URL)
+	if code != exitOK || !strings.HasPrefix(out, worker.SnapshotCatalogueHash+"  104 tools") {
+		t.Fatalf("catalogue: %d\n%s%s", code, out, errs)
+	}
+	for _, snapshot := range []string{"../../internal/core/testdata/catalogue.json", "../../internal/core/testdata/catalogue.sha256"} {
+		if code, out, errs := runCmd(t, env(), "catalogue", "--core", srv.URL, "--check", snapshot); code != exitOK {
+			t.Errorf("--check %s: %d\n%s%s", snapshot, code, out, errs)
+		}
+	}
+	written := filepath.Join(t.TempDir(), "catalogue.json")
+	if code, out, errs := runCmd(t, env(), "catalogue", "--core", srv.URL, "--write", written); code != exitOK {
+		t.Fatalf("--write: %d\n%s%s", code, out, errs)
+	}
+	if h, err := snapshotHash(written); err != nil || h != worker.SnapshotCatalogueHash {
+		t.Errorf("the catalogue written hashes %s, %v", h, err)
+	}
+	other := filepath.Join(t.TempDir(), "other.sha256")
+	if err := os.WriteFile(other, []byte(strings.Repeat("0", 64)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errs = runCmd(t, env(), "catalogue", "--core", srv.URL, "--check", other)
+	if code != exitFailure || !strings.Contains(errs, "Core's catalogue has changed") {
+		t.Errorf("--check a changed catalogue: %d %s", code, errs)
+	}
+}
+
+// liveWorld is a course in the fake Core with a student's own agent and a
+// course tutor, and an OpenAI-compatible model server, as check --live and
+// run meet them.
+type liveWorld struct {
+	fc      *fakecore.Core
+	co      fakecore.Course
+	yuki    fakecore.Member
+	own     fakecore.Member
+	tutor   fakecore.Member
+	config  string
+	secrets string
+	llm     *fakellm.Server
+}
+
+func newLiveWorld(t *testing.T) *liveWorld {
+	t.Helper()
+	fc, srv := fakeCore(t)
+	model := fakellm.New(fakellm.DefaultResponder).Start()
+	t.Cleanup(model.Close)
+	w := &liveWorld{fc: fc, co: fc.AddCourse("CS101"), llm: model}
+	must := func(m fakecore.Member, err error) fakecore.Member {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	sato, yuki := fc.AddPerson("Sato"), fc.AddPerson("Yuki")
+	satoSeat := must(fc.Seat(sato.ID, w.co.ID, fakecore.SeatOptions{Preset: "instructor"}))
+	w.yuki = must(fc.Seat(yuki.ID, w.co.ID, fakecore.SeatOptions{Preset: "student"}))
+	ownA, err := fc.AddAgent("Yuki's helper", yuki.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.own = must(fc.Seat(ownA.ID, w.co.ID, fakecore.SeatOptions{Preset: "delegate", Principal: w.yuki.ID}))
+	tutorA, err := fc.AddAgent("CS101 Tutor", sato.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.tutor = must(fc.Seat(tutorA.ID, w.co.ID, fakecore.SeatOptions{Preset: "course_tutor", Principal: satoSeat.ID}))
+
+	dir := t.TempDir()
+	w.secrets = filepath.Join(dir, "secrets")
+	for path, v := range map[string]string{"agents/own/token": ownA.Token, "agents/tutor/token": tutorA.Token} {
+		p := filepath.Join(w.secrets, path)
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(v+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w.config = filepath.Join(dir, "agents")
+	if err := os.MkdirAll(w.config, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	polling := "{inbox_hot_s: 0.02, inbox_idle_s: 0.05, inbox_max_s: 0.1, events_s: 0.1, memberships_s: 1, assumed_core_rate_per_min: 600000}"
+	for _, a := range []struct{ id, name string }{{"own", "Yuki's helper"}, {"tutor", "CS101 Tutor"}} {
+		yaml := fmt.Sprintf(`agent:
+  id: %s
+  display_name: %q
+  core: {base_url: %q, token_ref: "secret://agents/%s/token"}
+  model: {adapter: openai_chat, model: fake-model, base_url: %q}
+  polling: %s
+`, a.id, a.name, srv.URL, a.id, model.URL(), polling)
+		if err := os.WriteFile(filepath.Join(w.config, a.id+".yaml"), []byte(yaml), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return w
+}
+
+func TestCheckLive(t *testing.T) {
+	w := newLiveWorld(t)
+	code, out, errs := runCmd(t, env("CONFIG", w.config, "SECRETS_DIR", w.secrets), "check", "--live")
+	if code != exitOK {
+		t.Fatalf("check --live: %d\n%s%s", code, out, errs)
+	}
+	for _, want := range []string{
+		"catalogue " + worker.SnapshotCatalogueHash,
+		`agent own: connected as "Yuki's helper"`,
+		"Delegate of member " + w.yuki.ID + " in CS101 (A): reads your work and the material, answers only you",
+		"tools: assignment_get, assignment_list, component_tree, course_get, document_get, document_list, grade_get, grade_list, gradebook_get, submission_get, submission_list",
+		`agent tutor: connected as "CS101 Tutor"`,
+		"Tutor of CS101 (A): answers every student, reads the material",
+		"tools: assignment_get, assignment_list, course_get, document_get, document_list",
+		"model openai_chat fake-model (openai_compatible): the key works",
+		"every agent connects",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("check --live does not say %q:\n%s", want, out)
+		}
+	}
+	if len(w.llm.Requests()) != 2 {
+		t.Errorf("the model was tried %d times", len(w.llm.Requests()))
+	}
+
+	// A token Core refuses fails the check.
+	if err := os.WriteFile(filepath.Join(w.secrets, "agents/own/token"), []byte("ais_nottoken_0123456789abcdef\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errs = runCmd(t, env("CONFIG", w.config, "SECRETS_DIR", w.secrets), "check", "--live")
+	if code != exitFailure || !strings.Contains(out, "agent own: FAILED: me_get") || strings.Contains(out+errs, "ais_nottoken") {
+		t.Errorf("check --live with a bad token: %d\n%s%s", code, out, errs)
+	}
+}
+
+// lines collects a child's standard error, line by line.
+type lines struct {
+	mu  sync.Mutex
+	all []string
+}
+
+func (l *lines) read(r io.Reader) {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64<<10), 1<<20)
+	for sc.Scan() {
+		l.mu.Lock()
+		l.all = append(l.all, sc.Text())
+		l.mu.Unlock()
+	}
+}
+
+// wait waits for a line holding s, and returns it.
+func (l *lines) wait(t *testing.T, s string) string {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		l.mu.Lock()
+		for _, line := range l.all {
+			if strings.Contains(line, s) {
+				l.mu.Unlock()
+				return line
+			}
+		}
+		l.mu.Unlock()
+		time.Sleep(10 * time.Millisecond)
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	t.Fatalf("no line says %q:\n%s", s, strings.Join(l.all, "\n"))
+	return ""
+}
+
+func (l *lines) text() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return strings.Join(l.all, "\n")
+}
+
+// TestRunServesAndStops runs the binary as a process of its own: it starts,
+// serves /healthz and /metrics, answers a question end to end with the
+// fake model, reads its configuration again on SIGHUP, and stops on
+// SIGTERM, exiting 0.
+func TestRunServesAndStops(t *testing.T) {
+	w := newLiveWorld(t)
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	cmd.Env = append(os.Environ(), childArgs+"=run", "CONFIG="+w.config, "SECRETS_DIR="+w.secrets, "HTTP_ADDR=127.0.0.1:0",
+		"LOG_FORMAT=json", "LOG_LEVEL=info", "SHUTDOWN_GRACE=5s", "DATABASE_URL=", "WORKER_ID=child")
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	var out lines
+	done := make(chan struct{})
+	go func() { out.read(stderr); close(done) }()
+	exited := make(chan error, 1)
+	stopped := false
+	t.Cleanup(func() {
+		if !stopped {
+			_ = cmd.Process.Kill()
+		}
+	})
+
+	var started struct {
+		Addr string `json:"addr"`
+	}
+	if err := json.Unmarshal([]byte(out.wait(t, `"msg":"aishie-runtime started"`)), &started); err != nil || started.Addr == "" {
+		t.Fatalf("the started line: %v", err)
+	}
+	if !strings.Contains(out.text(), "DATABASE_URL is not set") {
+		t.Error("no warning that state is kept in memory")
+	}
+	get := func(path string) (int, string) {
+		resp, err := http.Get("http://" + started.Addr + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		code, body := get("/healthz")
+		if code == http.StatusOK && strings.Contains(body, `"status": "ok"`) && strings.Contains(body, `"version": "`+version.Version+`"`) &&
+			strings.Contains(body, `"commit": "`+version.Commit+`"`) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("healthz: %d %s", code, body)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	conv, _, err := w.fc.Ask(w.co.ID, w.yuki.ID, w.own.ID, "When is HW1 due?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(20 * time.Second)
+	for len(w.fc.Answers(conv.ID)) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("no answer:\n%s", out.text())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if a := w.fc.Answers(conv.ID)[0]; !strings.HasPrefix(a.Body, "Answer: When is HW1 due?") {
+		t.Errorf("the answer: %q", a.Body)
+	}
+	code, metrics := get("/metrics")
+	for _, want := range []string{"go_goroutines", "process_cpu_seconds_total", `answers_total{outcome="posted"} 1`, "inbox_polls_total{"} {
+		if code != http.StatusOK || !strings.Contains(metrics, want) {
+			t.Errorf("/metrics lacks %s", want)
+		}
+	}
+
+	if err := cmd.Process.Signal(syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	out.wait(t, "SIGHUP: the configuration was read again")
+
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	go func() { exited <- cmd.Wait() }()
+	select {
+	case err := <-exited:
+		stopped = true
+		if err != nil {
+			t.Errorf("the runtime exited with %v:\n%s", err, out.text())
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatalf("the runtime did not stop on SIGTERM:\n%s", out.text())
+	}
+	<-done
+	for _, want := range []string{`"msg":"stopping"`, `"msg":"aishie-runtime stopped"`} {
+		if !strings.Contains(out.text(), want) {
+			t.Errorf("no line says %s", want)
+		}
+	}
+	if strings.Contains(out.text(), "ais_") {
+		t.Error("a log line holds a token")
+	}
+}
+
+func TestMigrate(t *testing.T) {
+	dbURL := scratchDatabase(t)
+	getenv := env("DATABASE_URL", dbURL)
+	if code, out, errs := runCmd(t, getenv, "migrate", "up"); code != exitOK || !strings.Contains(out, "schema version 1;") {
+		t.Fatalf("migrate up: %d\n%s%s", code, out, errs)
+	}
+	if code, out, errs := runCmd(t, getenv, "migrate", "version"); code != exitOK || !strings.Contains(out, "schema version 1; this binary's newest is 1") {
+		t.Errorf("migrate version: %d\n%s%s", code, out, errs)
+	}
+	if code, out, errs := runCmd(t, getenv, "migrate", "down", "--yes"); code != exitOK || !strings.Contains(out, "schema version 0 (older") {
+		t.Errorf("migrate down: %d\n%s%s", code, out, errs)
 	}
 }
