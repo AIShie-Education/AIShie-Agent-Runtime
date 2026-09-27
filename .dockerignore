@@ -1,0 +1,12 @@
+.git
+.github
+bin
+dist
+var
+docs
+examples
+e2e
+cover.out
+.env
+.env.*
+.DS_Store
