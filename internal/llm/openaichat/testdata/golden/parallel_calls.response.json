@@ -1,0 +1,41 @@
+{
+  "model": "gpt-4.1",
+  "parts": [
+    {
+      "text": "Checking both.",
+      "type": "text"
+    },
+    {
+      "args": {
+        "assignment_id": "hw3"
+      },
+      "id": "call_1a",
+      "name": "grade_list",
+      "type": "tool_call"
+    },
+    {
+      "args": {
+        "assignment_id": "hw3"
+      },
+      "id": "call_2",
+      "name": "assignment_get",
+      "type": "tool_call"
+    }
+  ],
+  "raw_stop": "tool_calls",
+  "request_id": "chatcmpl-A4",
+  "stop": "tool_calls",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 120,
+    "output": 40,
+    "raw": {
+      "completion_tokens": 40,
+      "prompt_tokens": 120,
+      "total_tokens": 160
+    },
+    "reasoning": 0
+  }
+}

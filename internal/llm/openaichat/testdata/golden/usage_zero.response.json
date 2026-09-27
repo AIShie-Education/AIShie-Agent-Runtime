@@ -1,0 +1,25 @@
+{
+  "model": "local-model",
+  "parts": [
+    {
+      "text": "You lost 3 marks.",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "stop",
+  "request_id": "u4",
+  "stop": "end",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": true,
+    "input": 28,
+    "output": 5,
+    "raw": {
+      "completion_tokens": 0,
+      "prompt_tokens": 0,
+      "total_tokens": 0
+    },
+    "reasoning": 0
+  }
+}

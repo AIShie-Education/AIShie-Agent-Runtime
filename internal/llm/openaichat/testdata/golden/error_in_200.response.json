@@ -1,0 +1,10 @@
+{
+  "error": {
+    "code": "429",
+    "kind": "rate_limited",
+    "message": "Rate limit exceeded: free-models-per-min",
+    "retry_after": "0s",
+    "retryable": true,
+    "status": 200
+  }
+}

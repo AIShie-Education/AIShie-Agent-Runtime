@@ -1,0 +1,25 @@
+{
+  "model": "m",
+  "parts": [
+    {
+      "text": "You scored 7 out of 10.",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "stop",
+  "request_id": "chatcmpl-1",
+  "stop": "end",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 40,
+    "output": 9,
+    "raw": {
+      "completion_tokens": 9,
+      "prompt_tokens": 40,
+      "total_tokens": 49
+    },
+    "reasoning": 0
+  }
+}

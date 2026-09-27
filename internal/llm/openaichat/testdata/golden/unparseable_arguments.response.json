@@ -1,0 +1,49 @@
+{
+  "model": "gpt-4.1",
+  "parts": [
+    {
+      "args": {},
+      "args_error": "{\"assignment_id\": \"hw3\"",
+      "id": "call_t",
+      "name": "grade_list",
+      "type": "tool_call"
+    },
+    {
+      "args": {
+        "assignment_id": "hw4"
+      },
+      "id": "call_o",
+      "name": "grade_list",
+      "type": "tool_call"
+    },
+    {
+      "args": {},
+      "id": "call_e",
+      "name": "course_get",
+      "type": "tool_call"
+    },
+    {
+      "args": {},
+      "args_error": "[1,2]",
+      "id": "call_a",
+      "name": "grade_list",
+      "type": "tool_call"
+    }
+  ],
+  "raw_stop": "tool_calls",
+  "request_id": "chatcmpl-A5",
+  "stop": "tool_calls",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 150,
+    "output": 30,
+    "raw": {
+      "completion_tokens": 30,
+      "prompt_tokens": 150,
+      "total_tokens": 180
+    },
+    "reasoning": 0
+  }
+}
