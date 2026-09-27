@@ -9,6 +9,16 @@
 // Every method is scoped to one agent (agent_id) or names it: no call reads
 // across agents except SeatsGoneBefore and AgentStates, which the runtime
 // uses for housekeeping and the status page.
+//
+// Where the interfaces leave a choice, storetest's package comment says
+// what both stores do. What a caller must know: a write without the ids it
+// is keyed on is refused (an attempt needs its seat's member_id too); a
+// zero time is the store's now; FinishAttempt keeps a known action id and
+// posted message id when the outcome has none; PurgeMember removes the
+// seat's notes, attempts and cursors, but not its seat row or the ledger;
+// SeatGone of a seat never seen is ErrNotFound; and a ledger row is keyed on
+// (agent_id, ID), so every LLMCall and AnswerRecord needs an ID of its own,
+// and recording one again counts nothing twice.
 package store
 
 import (
@@ -67,6 +77,17 @@ const (
 	AttemptRejected  AttemptState = "rejected"
 	AttemptCancelled AttemptState = "cancelled"
 )
+
+// Known reports whether s is one of the states above. A store refuses any
+// other.
+func (s AttemptState) Known() bool {
+	switch s {
+	case AttemptSending, AttemptExecuted, AttemptProposed, AttemptFailed,
+		AttemptDenied, AttemptError, AttemptRejected, AttemptCancelled:
+		return true
+	}
+	return false
+}
 
 // Posted reports whether the attempt put a message in the conversation.
 func (s AttemptState) Posted() bool { return s == AttemptExecuted }
@@ -189,7 +210,9 @@ type Memory interface {
 	Notes(ctx context.Context, agentID, memberID, conversationID string, limit int) ([]Note, error)
 	// ForgetMessage removes the notes about messageID.
 	ForgetMessage(ctx context.Context, agentID, memberID, conversationID, messageID string) error
-	// PurgeMember removes everything remembered in the seat.
+	// PurgeMember removes everything the store holds in the seat: its notes,
+	// its attempts (whose bytes hold the answers' bodies) and its cursors.
+	// The seat's row goes with ForgetSeat; the ledger stays.
 	PurgeMember(ctx context.Context, agentID, memberID string) error
 }
 
