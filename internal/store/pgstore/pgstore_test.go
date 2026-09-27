@@ -400,7 +400,11 @@ func describeSchema(t *testing.T, s *Store) []byte {
 			SELECT line FROM (
 			       SELECT conrelid::regclass::text || ' ' || conname || ' ' || pg_get_constraintdef(oid) AS line
 			         FROM pg_constraint
-			        WHERE connamespace = 'public'::regnamespace AND conrelid::regclass::text <> 'schema_migrations') c
+			        WHERE connamespace = 'public'::regnamespace AND conrelid::regclass::text <> 'schema_migrations'
+			          -- PostgreSQL 18 names each NOT NULL as a constraint of its own
+			          -- (contype n), where earlier versions keep none; the columns
+			          -- above already say which are not null.
+			          AND contype <> 'n') c
 			 ORDER BY line COLLATE "C"`},
 		{"indexes", `
 			SELECT indexdef FROM pg_indexes
