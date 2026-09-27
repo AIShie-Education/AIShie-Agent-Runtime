@@ -147,6 +147,25 @@ func TestRequestGolden(t *testing.T) {
 			},
 		},
 		{
+			// The second round of a turn that began thinking: the model
+			// thought only at its start, and the turn goes on thinking.
+			name: "thinking_second_round",
+			cfg:  llm.Config{Reasoning: llm.Reasoning{Effort: "medium"}, Params: llm.Params{Temperature: ptr(0.3)}},
+			req: llm.Request{
+				System: "You are CS101's tutor.", ToolMode: llm.ToolAuto, Tools: []llm.Tool{gradeList, assignmentGet},
+				Limits: llm.Limits{MaxOutputTokens: 2000},
+				Messages: append(twoCalls(llm.Part{Type: llm.PartReasoning, Text: "The student asks about <HW3> & its marks.", Maker: sonnet45, Opaque: thinkingBlock}),
+					llm.Message{Role: llm.RoleAssistant, Parts: []llm.Part{
+						llm.Text("The rubric too."),
+						{Type: llm.PartToolCall, ID: "toolu_03", Name: "assignment_get", Args: json.RawMessage(`{"assignment_id":"0192f3c1-0000-7000-8000-000000000004"}`)},
+					}},
+					llm.Message{Role: llm.RoleTool, Parts: []llm.Part{
+						{Type: llm.PartToolResult, CallID: "toolu_03", Name: "assignment_get", Content: assignmentEnvelope},
+					}},
+				),
+			},
+		},
+		{
 			// Reasoning another model made is dropped; with a thinking
 			// budget the API would then refuse thinking, so it is off for
 			// this call and the configured temperature comes back.
@@ -335,6 +354,8 @@ func TestSampling(t *testing.T) {
 		{"4.7 refuses sampling", "claude-opus-4-7", "", llm.Params{Temperature: ptr(0.3), TopP: ptr(0.9)}, nil, nil},
 		{"5 refuses sampling", "claude-sonnet-5", "", llm.Params{TopP: ptr(0.9)}, nil, nil},
 		{"another server takes both one at a time", "deepseek-chat", "", llm.Params{Temperature: ptr(0.7), TopP: ptr(0.9)}, ptr(0.7), nil},
+		{"top_p over 1 is held to 1", "claude-sonnet-4-5", "", llm.Params{TopP: ptr(1.5)}, nil, ptr(1.0)},
+		{"negative top_p is held to 0", "claude-sonnet-4-5", "", llm.Params{TopP: ptr(-0.1)}, nil, ptr(0.0)},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -469,6 +490,16 @@ func TestFileLimits(t *testing.T) {
 	if b := a.fileBlock(pdf, &files); b.Type != "text" {
 		t.Errorf("a PDF past the allowance became %s, want a note", b.Type)
 	}
+	// Text is shown until the allowance is spent, as files are.
+	text := &llm.File{Name: "notes.txt", MIME: "text/plain", Data: bytes.Repeat([]byte("a"), 64)}
+	few := 63
+	if b := a.fileBlock(text, &few); !strings.Contains(b.Text, "too large") || few != 63 {
+		t.Errorf("a text file past the allowance became %q, leaving %d", b.Text, few)
+	}
+	few = 64
+	if b := a.fileBlock(text, &few); !strings.HasPrefix(b.Text, `[file "notes.txt"]`) || few != 0 {
+		t.Errorf("a text file within the allowance became %q, leaving %d", b.Text, few)
+	}
 	// Text that is not UTF-8 is not text.
 	if b := a.fileBlock(&llm.File{Name: "x.txt", MIME: "text/plain", Data: []byte{0xff, 0xfe}}, &files); !strings.HasPrefix(b.Text, "[The file") {
 		t.Errorf("a text file that is not UTF-8 became %q, want a note", b.Text)
@@ -504,6 +535,7 @@ func TestRequestsThatCannotBeMade(t *testing.T) {
 		{"only blank text", &llm.Request{Messages: []llm.Message{llm.UserText(" ")}}},
 		{"an unknown role", &llm.Request{Messages: []llm.Message{{Role: "system", Parts: []llm.Part{llm.Text("hi")}}}}},
 		{"a schema that is not an object", &llm.Request{Messages: []llm.Message{question}, Tools: []llm.Tool{{Name: "x", Schema: json.RawMessage(`[1]`)}}}},
+		{"an unknown tool mode", &llm.Request{Messages: []llm.Message{question}, Tools: []llm.Tool{gradeList}, ToolMode: "required"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -561,5 +593,74 @@ func TestMediaType(t *testing.T) {
 		if got := mediaType(in); got != want {
 			t.Errorf("mediaType(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// A tool loop of several rounds is one assistant turn, and a model thinking
+// with a budget thinks only at its start: the later rounds' messages carry
+// no thinking block, and the turn keeps thinking because its first message
+// did. A turn another model began goes without, to its end.
+func TestThinkingLastsTheTurn(t *testing.T) {
+	a := newAdapter(t, llm.Config{Reasoning: llm.Reasoning{Effort: "medium"}, Params: llm.Params{Temperature: ptr(0.3)}})
+	call := func(id string) llm.Part {
+		return llm.Part{Type: llm.PartToolCall, ID: id, Name: "grade_list", Args: json.RawMessage(`{"assignment_id":"hw3"}`)}
+	}
+	result := func(id string) llm.Message {
+		return llm.Message{Role: llm.RoleTool, Parts: []llm.Part{{Type: llm.PartToolResult, CallID: id, Name: "grade_list", Content: gradesEnvelope}}}
+	}
+	ours := llm.Part{Type: llm.PartReasoning, Maker: a.Maker(), Opaque: thinkingBlock}
+	theirs := llm.Part{Type: llm.PartReasoning, Maker: llm.MakerOf(llm.AdapterOpenAIChat, "https://api.deepseek.com", "deepseek-reasoner"), Opaque: thinkingBlock}
+	cases := []struct {
+		name  string
+		msgs  []llm.Message
+		think bool
+	}{
+		{"a question", []llm.Message{question}, true},
+		{"the first round, thought", []llm.Message{
+			question, {Role: llm.RoleAssistant, Parts: []llm.Part{ours, call("t1")}}, result("t1"),
+		}, true},
+		{"the third round of a turn that began thinking", []llm.Message{
+			question,
+			{Role: llm.RoleAssistant, Parts: []llm.Part{ours, call("t1")}}, result("t1"),
+			{Role: llm.RoleAssistant, Parts: []llm.Part{llm.Text("And the rubric."), call("t2")}}, result("t2"),
+			{Role: llm.RoleAssistant, Parts: []llm.Part{call("t3")}}, result("t3"),
+		}, true},
+		{"a turn another model began", []llm.Message{
+			question, {Role: llm.RoleAssistant, Parts: []llm.Part{theirs, call("t1")}}, result("t1"),
+		}, false},
+		{"the second round of a turn another model began", []llm.Message{
+			question,
+			{Role: llm.RoleAssistant, Parts: []llm.Part{theirs, call("t1")}}, result("t1"),
+			{Role: llm.RoleAssistant, Parts: []llm.Part{call("t2")}}, result("t2"),
+		}, false},
+		{"a new question after a turn another model began", []llm.Message{
+			question,
+			{Role: llm.RoleAssistant, Parts: []llm.Part{theirs, call("t1")}}, result("t1"),
+			{Role: llm.RoleAssistant, Parts: []llm.Part{llm.Text("You lost 2.5 marks.")}},
+			llm.UserText("And on HW4?"),
+		}, true},
+		{"a later turn that began thinking", []llm.Message{
+			question,
+			{Role: llm.RoleAssistant, Parts: []llm.Part{theirs, call("t1")}}, result("t1"),
+			{Role: llm.RoleAssistant, Parts: []llm.Part{llm.Text("You lost 2.5 marks.")}},
+			llm.UserText("And on HW4?"),
+			{Role: llm.RoleAssistant, Parts: []llm.Part{ours, call("t2")}}, result("t2"),
+			{Role: llm.RoleAssistant, Parts: []llm.Part{call("t3")}}, result("t3"),
+		}, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w, err := a.buildRequest(&llm.Request{Messages: c.msgs, Tools: []llm.Tool{gradeList}, ToolMode: llm.ToolAuto})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := w.Thinking != nil; got != c.think {
+				t.Errorf("thinking %+v, want on: %v", w.Thinking, c.think)
+			}
+			// Sampling comes back exactly when thinking is off.
+			if got := w.Temperature != nil; got == c.think {
+				t.Errorf("temperature %v with thinking on: %v", show(w.Temperature), c.think)
+			}
+		})
 	}
 }

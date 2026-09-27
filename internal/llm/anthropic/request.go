@@ -176,8 +176,12 @@ func (a *Adapter) buildRequest(req *llm.Request) (*wireRequest, error) {
 	// tool_result blocks in a request that declares no tools, so a history
 	// holding them is flattened to text then (llm.FlattenToolHistory).
 	mode := req.ToolMode
-	if mode == "" {
+	switch mode {
+	case "":
 		mode = llm.ToolAuto
+	case llm.ToolAuto, llm.ToolNone:
+	default:
+		return nil, badRequest("tool mode %q is not auto or none", mode)
 	}
 	declare := len(req.Tools) > 0 && (mode == llm.ToolAuto || a.caps.ToolChoiceNone)
 	msgs := req.Messages
@@ -207,14 +211,15 @@ func (a *Adapter) buildRequest(req *llm.Request) (*wireRequest, error) {
 	w.MaxTokens = outputCap(req.Limits.MaxOutputTokens, a.params.MaxOutputTokens) + r.allowance
 	// The API refuses temperature and top_p while the model thinks, and the
 	// newest models refuse them always. Claude 4 models also refuse both at
-	// once, so temperature wins when both are configured.
+	// once, so temperature wins when both are configured. Both are held to
+	// the API's range, 0 to 1, outside which it refuses them.
 	if !r.on && !a.family.noSampling {
 		switch {
 		case a.params.Temperature != nil:
-			t := min(max(*a.params.Temperature, 0), 1) // the API's range is 0 to 1
+			t := min(max(*a.params.Temperature, 0), 1)
 			w.Temperature = &t
 		case a.params.TopP != nil:
-			p := *a.params.TopP
+			p := min(max(*a.params.TopP, 0), 1)
 			w.TopP = &p
 		}
 	}
@@ -263,32 +268,48 @@ func (a *Adapter) reasoning(msgs []wireMessage) reasoningConfig {
 			allowance: thinkingBudgets[a.effort],
 			on:        true,
 		}
-	case !lastToolTurnThinks(msgs):
-		// With a thinking budget, the API refuses a request whose last
-		// assistant message, the one whose tool calls the last user
-		// message answers, does not start with a thinking block. That
-		// happens only when another model made the message (a fallback
-		// mid-loop): this call goes without thinking rather than fail.
+	case !turnThinks(msgs):
+		// With a thinking budget, the API refuses a request that continues
+		// an assistant turn which did not start with a thinking block, and
+		// a turn cannot change its thinking mode half way. That happens
+		// only when another model began the turn (a fallback mid-loop), or
+		// its thinking was stripped (Call): the rest of the turn goes
+		// without thinking rather than fail.
 		return reasoningConfig{}
 	}
 	b := thinkingBudgets[a.effort]
 	return reasoningConfig{thinking: &thinking{Type: "enabled", BudgetTokens: b}, allowance: b, on: true}
 }
 
-// lastToolTurnThinks reports whether msgs end in tool results answering an
-// assistant message that starts with a thinking block, or do not end in
-// tool results at all.
-func lastToolTurnThinks(msgs []wireMessage) bool {
+// turnThinks reports whether the assistant turn msgs continue began with a
+// thinking block; msgs that do not end in tool results continue no turn,
+// and may think.
+//
+// A turn runs from the first assistant message after the last user message
+// that is not tool results, through every round of tool calls and results
+// since: the API sees one assistant turn. Without interleaved thinking,
+// which the adapter does not ask for, a model thinking with a budget thinks
+// only at the start of the turn, so the later rounds' messages carry no
+// thinking of their own, and only the first says how the turn thinks.
+func turnThinks(msgs []wireMessage) bool {
 	n := len(msgs)
-	if n < 2 || msgs[n-1].Role != "user" || msgs[n-1].Content[0].Type != "tool_result" {
+	if n < 2 || !isToolResults(msgs[n-1]) {
 		return true
 	}
-	prev := msgs[n-2]
-	if prev.Role != "assistant" {
-		return true
+	// Neighbours of one role are merged, so roles alternate: msgs[i-1] is
+	// the user message before the assistant message msgs[i].
+	i := n - 2
+	for i >= 2 && isToolResults(msgs[i-1]) {
+		i -= 2
 	}
-	t := prev.Content[0].Type
+	t := msgs[i].Content[0].Type
 	return t == "thinking" || t == "redacted_thinking"
+}
+
+// isToolResults reports whether m is a user message answering tool calls.
+// Its tool_result blocks come first (messages).
+func isToolResults(m wireMessage) bool {
+	return m.Role == "user" && len(m.Content) > 0 && m.Content[0].Type == "tool_result"
 }
 
 // messages translates the history. Tool messages become user messages;

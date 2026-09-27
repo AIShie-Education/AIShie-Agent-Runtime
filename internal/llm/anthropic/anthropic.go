@@ -9,9 +9,11 @@
 package anthropic
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -42,8 +44,10 @@ type Adapter struct {
 	maker    string
 	caps     llm.Capabilities
 	dialect  toolschema.Dialect
-	// headers hold the key; nothing prints them.
+	// headers hold the key, and key is kept to scrub it from errors;
+	// nothing prints either.
 	headers map[string]string
+	key     string
 	client  *http.Client
 	params  llm.Params
 	effort  string
@@ -64,6 +68,11 @@ func New(cfg llm.Config) (*Adapter, error) {
 	if cfg.Reasoning.Effort != "" {
 		if _, ok := thinkingBudgets[cfg.Reasoning.Effort]; !ok {
 			return nil, fmt.Errorf("anthropic: reasoning effort %q is not minimal, low, medium or high", cfg.Reasoning.Effort)
+		}
+	}
+	for name, v := range map[string]*float64{"temperature": cfg.Params.Temperature, "top_p": cfg.Params.TopP} {
+		if v != nil && math.IsNaN(*v) {
+			return nil, fmt.Errorf("anthropic: %s is not a number", name)
 		}
 	}
 	if cfg.Params.MaxOutputTokens < 0 {
@@ -98,6 +107,7 @@ func New(cfg llm.Config) (*Adapter, error) {
 		caps:     caps,
 		dialect:  dialect,
 		headers:  requestHeaders(cfg, provider),
+		key:      cfg.APIKey,
 		client:   cfg.HTTPClient,
 		params:   cfg.Params,
 		effort:   cfg.Reasoning.Effort,
@@ -128,20 +138,103 @@ func (a *Adapter) Capabilities() llm.Capabilities { return a.caps }
 func (a *Adapter) Endpoint() string { return a.endpoint }
 
 // Call makes one model call. Every error is an *llm.Error.
+//
+// A request whose replayed thinking blocks the API refuses (staleThinking)
+// is sent once more without them, as Anthropic advises: the model answers
+// without that reasoning rather than not at all. With a thinking budget,
+// the rest of that turn then goes without thinking (turnThinks).
 func (a *Adapter) Call(ctx context.Context, req *llm.Request) (*llm.Response, error) {
 	body, err := a.encodeRequest(req)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := httpx.PostJSON(ctx, a.client, a.endpoint, a.headers, body)
-	if err != nil {
-		var le *llm.Error
-		if errors.As(err, &le) {
-			return nil, refine(le)
+	resp, err := a.post(ctx, body)
+	var le *llm.Error
+	if errors.As(err, &le) && staleThinking(le) {
+		// Taking parts out cannot make a request that encoded fail to; a
+		// body that replayed no thinking block is not sent again.
+		if stripped, serr := a.encodeRequest(withoutReasoning(req)); serr == nil && !bytes.Equal(stripped, body) {
+			resp, err = a.post(ctx, stripped)
 		}
-		return nil, &llm.Error{Kind: llm.ErrNetwork, Message: llm.Clip(err.Error())}
 	}
-	return a.decodeResponse(resp)
+	if err != nil {
+		return nil, err
+	}
+	out, err := a.decodeResponse(resp)
+	if errors.As(err, &le) {
+		return nil, scrub(le, a.key)
+	}
+	return out, err
+}
+
+// post sends one body, and returns a refusal as an *llm.Error in
+// Anthropic's terms with the key scrubbed from it.
+func (a *Adapter) post(ctx context.Context, body []byte) (*httpx.Response, error) {
+	resp, err := httpx.PostJSON(ctx, a.client, a.endpoint, a.headers, body)
+	if err == nil {
+		return resp, nil
+	}
+	var le *llm.Error
+	if !errors.As(err, &le) {
+		le = &llm.Error{Kind: llm.ErrNetwork, Message: llm.Clip(err.Error())}
+	}
+	return nil, scrub(refine(le), a.key)
+}
+
+// staleThinking reports whether e is the API refusing a replayed thinking
+// block: its signature does not verify, or, where preserved thinking is
+// enforced (Claude Fable 5.1 and Opus 5.5, for accounts created from
+// 2026-08-31), the history before it changed since the block was made
+// ("The block is bound to a different conversation"). Anthropic's
+// documented recovery is to send the history again without its thinking
+// blocks.
+func staleThinking(e *llm.Error) bool {
+	if e.Status != http.StatusBadRequest || e.Kind != llm.ErrBadRequest {
+		return false
+	}
+	lower := strings.ToLower(e.Message)
+	return strings.Contains(lower, "signature") && strings.Contains(lower, "thinking")
+}
+
+// withoutReasoning is req with every reasoning part removed, so that no
+// thinking block is replayed. req is not changed.
+func withoutReasoning(req *llm.Request) *llm.Request {
+	out := *req
+	out.Messages = make([]llm.Message, 0, len(req.Messages))
+	for _, m := range req.Messages {
+		parts := make([]llm.Part, 0, len(m.Parts))
+		for _, p := range m.Parts {
+			if p.Type != llm.PartReasoning {
+				parts = append(parts, p)
+			}
+		}
+		out.Messages = append(out.Messages, llm.Message{Role: m.Role, Parts: parts})
+	}
+	return &out
+}
+
+// scrub removes the key from an error's text. Errors are built from
+// response bodies only, but a server or proxy that echoes the key it was
+// given would otherwise carry it into logs, whole or cut off by Clip.
+func scrub(e *llm.Error, key string) *llm.Error {
+	if len(key) < 8 {
+		return e
+	}
+	e.Message = scrubText(e.Message, key)
+	e.Code = scrubText(e.Code, key)
+	return e
+}
+
+func scrubText(s, key string) string {
+	s = strings.ReplaceAll(s, key, "[redacted]")
+	// Clip may have cut the key off at the end, leaving its start.
+	body := strings.TrimSuffix(s, "…")
+	for n := min(len(key)-1, len(body)); n >= 8; n-- {
+		if strings.HasSuffix(body, key[:n]) {
+			return body[:len(body)-n] + "[redacted]" + s[len(body):]
+		}
+	}
+	return s
 }
 
 // versionSegment is a path segment that names an API version (v1).

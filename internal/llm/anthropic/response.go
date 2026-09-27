@@ -100,15 +100,16 @@ func (a *Adapter) decodeResponse(r *httpx.Response) (*llm.Response, error) {
 }
 
 // dropUnsafeCalls removes the tool calls that must not run. A response cut
-// off at max_tokens may end in a tool_use whose input is a valid but
-// partial object; it is dropped, and the stop stays max_tokens unless
+// off at max_tokens, or where the context window ran out
+// (model_context_window_exceeded), may end in a tool_use whose input is a
+// valid but partial object; it is dropped, and the stop stands unless
 // complete calls came before it. A refusal can cut a call off too, and
 // none of a refused turn's calls may run, so all are dropped and the
-// refusal stands. Without this, rule 3 would turn both into tool_calls and
-// run what the model never finished.
+// refusal stands. Without this, rule 3 would turn all three into
+// tool_calls and run what the model never finished.
 func dropUnsafeCalls(parts []llm.Part, stop llm.Stop) []llm.Part {
 	switch stop {
-	case llm.StopMaxTokens:
+	case llm.StopMaxTokens, llm.StopContextOverflow:
 		if n := len(parts); n > 0 && parts[n-1].Type == llm.PartToolCall {
 			return parts[:n-1]
 		}
@@ -214,6 +215,11 @@ func refine(e *llm.Error) *llm.Error {
 			e.Kind = llm.ErrAuth
 		case strings.Contains(lower, "prompt is too long") || strings.Contains(lower, "exceed context limit"):
 			e.Kind = llm.ErrContextOverflow
+		case strings.Contains(lower, "content filtering policy"):
+			// "Output blocked by content filtering policy": what the model
+			// was writing was stopped, which the loop answers as it does a
+			// refusal.
+			e.Kind = llm.ErrContentFilter
 		}
 	}
 	return e

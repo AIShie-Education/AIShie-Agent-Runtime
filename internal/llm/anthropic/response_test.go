@@ -103,6 +103,10 @@ func TestStops(t *testing.T) {
 		{"max_tokens", `[{"type":"tool_use","id":"t","name":"x","input":{}},{"type":"text","text":"and then"}]`, llm.StopToolCalls},
 		{"refusal", `[{"type":"tool_use","id":"t","name":"x","input":{}}]`, llm.StopRefusal},
 		{"model_context_window_exceeded", `[]`, llm.StopContextOverflow},
+		// The context ran out as the model wrote a call: it is cut off like
+		// one at max_tokens, and a complete call before it still runs.
+		{"model_context_window_exceeded", `[{"type":"text","text":"Hi"},{"type":"tool_use","id":"t","name":"x","input":{"a":"b"}}]`, llm.StopContextOverflow},
+		{"model_context_window_exceeded", `[{"type":"tool_use","id":"t","name":"x","input":{}},{"type":"tool_use","id":"u","name":"x","input":{"a":"b"}}]`, llm.StopToolCalls},
 		{"pause_turn", `[{"type":"server_tool_use","id":"s","name":"web_search","input":{}}]`, llm.StopError},
 		{"something_new", `[{"type":"text","text":"Hi"}]`, llm.StopError},
 	}
@@ -115,6 +119,9 @@ func TestStops(t *testing.T) {
 		}
 		if resp.Stop != c.want || resp.RawStop != c.reason {
 			t.Errorf("%s %s: stop %q, raw %q; want %q, %q", c.reason, c.parts, resp.Stop, resp.RawStop, c.want, c.reason)
+		}
+		if calls := resp.ToolCalls(); resp.Stop != llm.StopToolCalls && len(calls) != 0 {
+			t.Errorf("%s %s: stop %q with calls %+v left to run", c.reason, c.parts, resp.Stop, calls)
 		}
 	}
 }

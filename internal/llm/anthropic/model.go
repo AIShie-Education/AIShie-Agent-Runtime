@@ -9,7 +9,18 @@ import (
 // family is what a model takes for thinking and sampling. Anthropic changed
 // both across its model generations, and a parameter one generation needs
 // is a 400 on another, so the adapter asks by model rather than sending one
-// shape everywhere.
+// shape everywhere. As Anthropic documents it (read 2026-09):
+//
+//	models                     to think            unasked   budget_tokens  temperature, top_p
+//	Claude 4 to 4.5 (Haiku     enabled, a budget   none      required       one of the two
+//	  4.5 included), others
+//	Opus 4.6, Sonnet 4.6       adaptive, effort    none      deprecated     one of the two
+//	Opus 4.7, 4.8              adaptive, effort    none      400            400
+//	Opus 5 on, Sonnet 5,       adaptive, effort    adaptive  400            400
+//	  Fable, Mythos 5 on
+//
+// The adapter sends only what every model of a row takes: never both
+// sampling settings, none while thinking, and never {type: disabled}.
 type family struct {
 	// adaptive models are asked to think with {type: adaptive} and
 	// output_config.effort. budget_tokens is deprecated on the 4.6 models and

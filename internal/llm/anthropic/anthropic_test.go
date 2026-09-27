@@ -1,10 +1,12 @@
 package anthropic
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -140,6 +142,9 @@ func TestNewRefuses(t *testing.T) {
 		{"an unknown effort", llm.Config{Model: "m", Reasoning: llm.Reasoning{Effort: "xhigh"}}},
 		{"a negative cap", llm.Config{Model: "m", Params: llm.Params{MaxOutputTokens: -1}}},
 		{"a base that is not a URL", llm.Config{Model: "m", BaseURL: "api.anthropic.com"}},
+		{"a base that does not parse", llm.Config{Model: "m", BaseURL: "https://[::1"}},
+		{"a temperature that is not a number", llm.Config{Model: "m", Params: llm.Params{Temperature: ptr(math.NaN())}}},
+		{"a top_p that is not a number", llm.Config{Model: "m", Params: llm.Params{TopP: ptr(math.NaN())}}},
 		{"a base with another scheme", llm.Config{Model: "m", BaseURL: "ftp://api.anthropic.com"}},
 		{"a key in the base", llm.Config{Model: "m", BaseURL: "https://user:" + testKey + "@api.anthropic.com"}},
 		{"an unknown dialect", llm.Config{Model: "m", Dialect: "yaml"}},
@@ -273,6 +278,9 @@ func TestErrors(t *testing.T) {
 		{"a bad request", http.StatusBadRequest, nil,
 			`{"type":"error","error":{"type":"invalid_request_error","message":"messages: roles must alternate between \"user\" and \"assistant\""}}`,
 			llm.ErrBadRequest, "invalid_request_error", 0},
+		{"output blocked", http.StatusBadRequest, nil,
+			`{"type":"error","error":{"type":"invalid_request_error","message":"Output blocked by content filtering policy"}}`,
+			llm.ErrContentFilter, "invalid_request_error", 0},
 		{"no credit", http.StatusBadRequest, nil,
 			`{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API."}}`,
 			llm.ErrAuth, "invalid_request_error", 0},
@@ -381,13 +389,163 @@ func TestFamilyOf(t *testing.T) {
 		"claude-sonnet-5":                              always,
 		"claude-fable-5-1":                             always,
 		"claude-mythos-5":                              always,
-		"claude-haiku-6":                               always,
-		"deepseek-chat":                                budget,
-		"glm-4.6":                                      budget,
-		"":                                             budget,
+		"claude-mythos-5-1":                            always,
+		"claude-fable-5":                               always,
+		"anthropic.claude-opus-5":                      always,
+		"claude-opus-4-8":                              adaptive,
+		// Mythos Preview took a thinking budget, as the models before 4.6.
+		"claude-mythos-preview": budget,
+		"claude-haiku-6":        always,
+		"deepseek-chat":         budget,
+		"glm-4.6":               budget,
+		"":                      budget,
 	} {
 		if got := familyOf(model); got != want {
 			t.Errorf("familyOf(%q) = %+v, want %+v", model, got, want)
 		}
+	}
+}
+
+// A replayed thinking block the API refuses (preserved thinking, or a
+// signature that does not verify) costs the call its thinking, not the
+// answer: the request goes once more without any thinking block.
+func TestStaleThinkingIsDropped(t *testing.T) {
+	stale := "{\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.1.content.0: Invalid `signature` in `thinking` block. The block is bound to a different conversation.\"}}"
+	ok := string(readGolden(t, "response_text.anthropic.json"))
+	cases := []struct {
+		name     string
+		model    string
+		effort   string
+		replay   bool
+		bodies   []string
+		requests int
+		kind     llm.ErrorKind // "" for an answer
+		thinking string        // the retry's thinking type, "" for none
+	}{
+		{"an adaptive model answers without the blocks", "claude-opus-5-5", "", true, []string{stale, ok}, 2, "", ""},
+		{"a budget turn goes on without thinking", "claude-sonnet-4-5", "low", true, []string{stale, ok}, 2, "", ""},
+		{"refused again, the second refusal stands", "claude-opus-5-5", "high", true, []string{stale, stale}, 2, llm.ErrBadRequest, "adaptive"},
+		{"no block replayed, nothing sent again", "claude-opus-5-5", "", false, []string{stale, ok}, 1, llm.ErrBadRequest, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var mu sync.Mutex
+			var seen [][]byte
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				b, _ := io.ReadAll(r.Body)
+				mu.Lock()
+				body := c.bodies[min(len(seen), len(c.bodies)-1)]
+				seen = append(seen, b)
+				mu.Unlock()
+				w.Header().Set("Content-Type", "application/json")
+				if body == stale {
+					w.WriteHeader(http.StatusBadRequest)
+				}
+				_, _ = io.WriteString(w, body)
+			}))
+			t.Cleanup(srv.Close)
+			a := newAdapter(t, llm.Config{BaseURL: srv.URL, Model: c.model, Reasoning: llm.Reasoning{Effort: c.effort}})
+			var reasoning []llm.Part
+			if c.replay {
+				reasoning = []llm.Part{{Type: llm.PartReasoning, Maker: a.Maker(), Opaque: thinkingBlock}}
+			}
+			req := &llm.Request{Messages: twoCalls(reasoning...), Tools: []llm.Tool{gradeList, assignmentGet}}
+			resp, err := a.Call(context.Background(), req)
+
+			mu.Lock()
+			defer mu.Unlock()
+			if len(seen) != c.requests {
+				t.Fatalf("%d requests, want %d", len(seen), c.requests)
+			}
+			if c.kind == "" {
+				if err != nil || resp.Text() == "" {
+					t.Fatalf("Call: %v, %+v", err, resp)
+				}
+			} else {
+				var le *llm.Error
+				if !errors.As(err, &le) || le.Kind != c.kind {
+					t.Fatalf("err = %v, want %s", err, c.kind)
+				}
+			}
+			if c.replay && len(req.Messages[1].Parts) != 4 {
+				t.Errorf("the caller's history lost its reasoning part: %+v", req.Messages[1].Parts)
+			}
+			if c.requests < 2 {
+				return
+			}
+			if !bytes.Contains(seen[0], thinkingBlock) {
+				t.Errorf("the first request does not replay the block:\n%s", seen[0])
+			}
+			if bytes.Contains(seen[1], []byte("signature")) {
+				t.Errorf("the retry still replays thinking:\n%s", seen[1])
+			}
+			var retry wireRequest
+			if err := json.Unmarshal(seen[1], &retry); err != nil {
+				t.Fatal(err)
+			}
+			var got string
+			if retry.Thinking != nil {
+				got = retry.Thinking.Type
+			}
+			if got != c.thinking {
+				t.Errorf("the retry thinks %q, want %q", got, c.thinking)
+			}
+			// The history is otherwise the same: the text, the calls and
+			// their results.
+			if len(retry.Messages) != 3 || len(retry.Messages[1].Content) != 3 || retry.Messages[2].Content[1].Type != "tool_result" {
+				t.Errorf("the retry's messages changed:\n%s", seen[1])
+			}
+		})
+	}
+}
+
+// A server that echoes the key it was given does not put it in an error,
+// whole or cut off.
+func TestErrorsNeverShowTheKey(t *testing.T) {
+	long := strings.Repeat("x", 380)
+	cases := []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{"whole", http.StatusUnauthorized, `{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key: ` + testKey + `"}}`},
+		{"cut off", http.StatusUnauthorized, `{"type":"error","error":{"type":"authentication_error","message":"` + long + ` key ` + testKey + `"}}`},
+		{"as the code", http.StatusUnauthorized, `{"type":"error","error":{"type":"` + testKey + `","message":"no"}}`},
+		{"in a 2xx", http.StatusOK, `{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key: ` + testKey + `"}}`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			srv, _ := server(t, c.status, nil, c.body)
+			a := newAdapter(t, llm.Config{BaseURL: srv.URL})
+			_, err := a.Call(context.Background(), &llm.Request{Messages: []llm.Message{question}})
+			if err == nil {
+				t.Fatal("Call accepted it")
+			}
+			if strings.Contains(err.Error(), testKey[:8]) {
+				t.Errorf("the error shows the key: %v", err)
+			}
+			if !strings.Contains(err.Error(), "[redacted]") {
+				t.Errorf("the error does not say what was removed: %v", err)
+			}
+		})
+	}
+}
+
+func TestScrubText(t *testing.T) {
+	const key = "sk-ant-api03-abcdefgh"
+	for in, want := range map[string]string{
+		"no key here":                       "no key here",
+		"bad key " + key:                    "bad key [redacted]",
+		key + " and " + key:                 "[redacted] and [redacted]",
+		"cut off: sk-ant-api03-ab…":         "cut off: [redacted]…",
+		"cut off, no ellipsis: sk-ant-api0": "cut off, no ellipsis: [redacted]",
+		"too short to tell: sk-ant…":        "too short to tell: sk-ant…",
+	} {
+		if got := scrubText(in, key); got != want {
+			t.Errorf("scrubText(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if e := scrub(&llm.Error{Message: "short key k"}, "k"); e.Message != "short key k" {
+		t.Errorf("a key too short to find was scrubbed: %q", e.Message)
 	}
 }
