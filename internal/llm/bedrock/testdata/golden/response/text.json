@@ -1,0 +1,53 @@
+{
+  "response": {
+    "parts": [
+      {
+        "text": "You lost 2.5 points on the lexer.",
+        "type": "text"
+      },
+      {
+        "text": " See the rubric.",
+        "type": "text"
+      }
+    ],
+    "raw_stop": "end_turn",
+    "stop": "end",
+    "usage": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 1234,
+      "output": 210,
+      "raw": {
+        "inputTokens": 1234,
+        "outputTokens": 210,
+        "totalTokens": 1444
+      },
+      "reasoning": 0
+    }
+  },
+  "wire": {
+    "metrics": {
+      "latencyMs": 812
+    },
+    "output": {
+      "message": {
+        "content": [
+          {
+            "text": "You lost 2.5 points on the lexer."
+          },
+          {
+            "text": " See the rubric."
+          }
+        ],
+        "role": "assistant"
+      }
+    },
+    "stopReason": "end_turn",
+    "usage": {
+      "inputTokens": 1234,
+      "outputTokens": 210,
+      "totalTokens": 1444
+    }
+  }
+}

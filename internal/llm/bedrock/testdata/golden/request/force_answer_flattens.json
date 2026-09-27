@@ -1,0 +1,160 @@
+{
+  "request": {
+    "limits": {
+      "max_output_tokens": 500
+    },
+    "messages": [
+      {
+        "parts": [
+          {
+            "text": "Why did I lose marks on HW3?",
+            "type": "text"
+          }
+        ],
+        "role": "user"
+      },
+      {
+        "parts": [
+          {
+            "maker": "bedrock_converse|https://bedrock-runtime.us-east-1.amazonaws.com|us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+            "opaque": {
+              "reasoningText": {
+                "signature": "c2lnbmF0dXJl",
+                "text": "I should look at the grade."
+              }
+            },
+            "text": "I should look at the grade.",
+            "type": "reasoning"
+          },
+          {
+            "text": "Let me check.",
+            "type": "text"
+          },
+          {
+            "args": {
+              "assignment_id": "0192f3c1-0000-7000-8000-000000000003"
+            },
+            "id": "tooluse_kZJMlvQmRJ6eAyJE5GIl7Q",
+            "name": "grade_list",
+            "type": "tool_call"
+          },
+          {
+            "args": {
+              "assignment_id": "0192f3c1-0000-7000-8000-000000000003"
+            },
+            "id": "call_2",
+            "name": "assignment_get",
+            "type": "tool_call"
+          },
+          {
+            "args": {},
+            "args_error": "{\"submission_id\":",
+            "id": "toolu_01.fallback:7",
+            "name": "submission_get",
+            "type": "tool_call"
+          }
+        ],
+        "role": "assistant"
+      },
+      {
+        "parts": [
+          {
+            "call_id": "tooluse_kZJMlvQmRJ6eAyJE5GIl7Q",
+            "content": "{\"status\":\"executed\",\"review_state\":\"none\",\"result\":{\"grades\":[{\"points\":\"7.5\",\"max_points\":\"10\"}]}}",
+            "name": "grade_list",
+            "type": "tool_result"
+          },
+          {
+            "call_id": "call_2",
+            "content": "{\"status\":\"error\",\"error\":{\"code\":\"not_found\",\"message\":\"no such assignment\"},\"result\":{\"body_md\":\"Write a lexer…[truncated, 40000 bytes]",
+            "is_error": true,
+            "name": "assignment_get",
+            "type": "tool_result"
+          },
+          {
+            "call_id": "toolu_01.fallback:7",
+            "content": "The arguments are not a JSON object: unexpected end of JSON input",
+            "is_error": true,
+            "name": "submission_get",
+            "type": "tool_result"
+          }
+        ],
+        "role": "tool"
+      }
+    ],
+    "system": "You are CS101 Tutor.",
+    "tool_mode": "none",
+    "tools": [
+      {
+        "description": "List grades.",
+        "name": "grade_list",
+        "schema": {
+          "additionalProperties": false,
+          "properties": {
+            "assignment_id": {
+              "description": "(UUID)",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      },
+      {
+        "description": "Get an assignment.",
+        "name": "assignment_get",
+        "schema": {
+          "properties": {
+            "assignment_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "assignment_id"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "description": "",
+        "name": "course_get",
+        "schema": null
+      }
+    ]
+  },
+  "wire": {
+    "inferenceConfig": {
+      "maxTokens": 500
+    },
+    "messages": [
+      {
+        "content": [
+          {
+            "text": "Why did I lose marks on HW3?"
+          }
+        ],
+        "role": "user"
+      },
+      {
+        "content": [
+          {
+            "text": "Let me check.\n[called grade_list with {\"assignment_id\":\"0192f3c1-0000-7000-8000-000000000003\"}]\n[called assignment_get with {\"assignment_id\":\"0192f3c1-0000-7000-8000-000000000003\"}]\n[called submission_get with {}]"
+          }
+        ],
+        "role": "assistant"
+      },
+      {
+        "content": [
+          {
+            "text": "[result of grade_list]\n{\"status\":\"executed\",\"review_state\":\"none\",\"result\":{\"grades\":[{\"points\":\"7.5\",\"max_points\":\"10\"}]}}\n[error from assignment_get]\n{\"status\":\"error\",\"error\":{\"code\":\"not_found\",\"message\":\"no such assignment\"},\"result\":{\"body_md\":\"Write a lexer…[truncated, 40000 bytes]\n[error from submission_get]\nThe arguments are not a JSON object: unexpected end of JSON input"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "system": [
+      {
+        "text": "You are CS101 Tutor."
+      }
+    ]
+  }
+}
