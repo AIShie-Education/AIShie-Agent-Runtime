@@ -1,0 +1,31 @@
+{
+  "model": "gemini-2.5-flash",
+  "parts": [
+    {
+      "text": "HW3 is due on Friday at 17:00.",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "STOP",
+  "request_id": "resp-text",
+  "stop": "end",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 42,
+    "output": 11,
+    "raw": {
+      "candidatesTokenCount": 11,
+      "promptTokenCount": 42,
+      "promptTokensDetails": [
+        {
+          "modality": "TEXT",
+          "tokenCount": 42
+        }
+      ],
+      "totalTokenCount": 53
+    },
+    "reasoning": 0
+  }
+}

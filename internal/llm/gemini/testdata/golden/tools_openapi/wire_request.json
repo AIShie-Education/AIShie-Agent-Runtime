@@ -1,0 +1,58 @@
+{
+  "body": {
+    "contents": [
+      {
+        "parts": [
+          {
+            "text": "When is HW3 due?"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "generationConfig": {
+      "maxOutputTokens": 1500
+    },
+    "systemInstruction": {
+      "parts": [
+        {
+          "text": "You are the CS101 tutor. Answer from the course material only."
+        }
+      ]
+    },
+    "toolConfig": {
+      "functionCallingConfig": {
+        "mode": "AUTO"
+      }
+    },
+    "tools": [
+      {
+        "functionDeclarations": [
+          {
+            "description": "Lists the course's assignments.",
+            "name": "assignment_list",
+            "parameters": {
+              "properties": {
+                "limit": {
+                  "description": "How many to list (optional; omit or null)",
+                  "nullable": true,
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            }
+          },
+          {
+            "description": "Gets the course.",
+            "name": "course_get"
+          },
+          {
+            "description": "The grade components.",
+            "name": "component_tree"
+          }
+        ]
+      }
+    ]
+  },
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+}

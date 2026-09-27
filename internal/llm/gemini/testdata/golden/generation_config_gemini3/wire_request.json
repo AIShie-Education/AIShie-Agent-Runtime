@@ -1,0 +1,29 @@
+{
+  "body": {
+    "contents": [
+      {
+        "parts": [
+          {
+            "text": "Explain recursion briefly."
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "generationConfig": {
+      "maxOutputTokens": 1500,
+      "thinkingConfig": {
+        "includeThoughts": false,
+        "thinkingLevel": "HIGH"
+      }
+    },
+    "systemInstruction": {
+      "parts": [
+        {
+          "text": "You are the CS101 tutor. Answer from the course material only."
+        }
+      ]
+    }
+  },
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent"
+}

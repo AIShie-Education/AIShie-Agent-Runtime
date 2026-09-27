@@ -1,0 +1,127 @@
+{
+  "body": {
+    "contents": [
+      {
+        "parts": [
+          {
+            "text": "What does the syllabus say about late work?"
+          }
+        ],
+        "role": "user"
+      },
+      {
+        "parts": [
+          {
+            "functionCall": {
+              "args": {
+                "document_id": "0192f3c1-0000-7000-8000-00000000d0c1"
+              },
+              "name": "document_get"
+            }
+          },
+          {
+            "functionCall": {
+              "args": {
+                "document_id": "0192f3c1-0000-7000-8000-00000000d0c2"
+              },
+              "name": "document_get"
+            }
+          }
+        ],
+        "role": "model"
+      },
+      {
+        "parts": [
+          {
+            "functionResponse": {
+              "name": "document_get",
+              "response": {
+                "output": {
+                  "result": {
+                    "document": {
+                      "file": {
+                        "name": "syllabus.pdf"
+                      },
+                      "title": "Syllabus"
+                    }
+                  },
+                  "status": "executed"
+                }
+              }
+            }
+          },
+          {
+            "functionResponse": {
+              "name": "document_get",
+              "response": {
+                "output": {
+                  "result": {
+                    "document": {
+                      "file": {
+                        "name": "schedule.txt"
+                      },
+                      "title": "Schedule"
+                    }
+                  },
+                  "status": "executed"
+                }
+              }
+            }
+          },
+          {
+            "text": "[file \"syllabus.pdf\" left out: this model is not given files]"
+          },
+          {
+            "text": "[file \"diagram.png\" left out: this model is not given files]"
+          },
+          {
+            "text": "[file \"schedule.txt\" left out: this model is not given files]"
+          },
+          {
+            "text": "[file \"export.bin\" left out: this model is not given files]"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "generationConfig": {
+      "maxOutputTokens": 1500
+    },
+    "systemInstruction": {
+      "parts": [
+        {
+          "text": "You are the CS101 tutor. Answer from the course material only."
+        }
+      ]
+    },
+    "toolConfig": {
+      "functionCallingConfig": {
+        "mode": "AUTO"
+      }
+    },
+    "tools": [
+      {
+        "functionDeclarations": [
+          {
+            "description": "Gets a document.",
+            "name": "document_get",
+            "parametersJsonSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "document_id": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "document_id"
+              ],
+              "type": "object"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+}

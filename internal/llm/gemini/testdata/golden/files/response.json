@@ -1,0 +1,25 @@
+{
+  "model": "gemini-2.5-flash",
+  "parts": [
+    {
+      "text": "Late work loses 10% a day.",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "STOP",
+  "request_id": "resp-files",
+  "stop": "end",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 120,
+    "output": 18,
+    "raw": {
+      "candidatesTokenCount": 18,
+      "promptTokenCount": 120,
+      "totalTokenCount": 138
+    },
+    "reasoning": 0
+  }
+}

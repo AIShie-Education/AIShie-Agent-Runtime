@@ -1,0 +1,152 @@
+{
+  "system": "You are the CS101 tutor. Answer from the course material only.",
+  "messages": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "What did I get on HW3, and why?"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Let me look that up.",
+          "maker": "gemini|https://generativelanguage.googleapis.com|gemini-2.5-flash",
+          "opaque": {
+            "thoughtSignature": "c2lnLXRleHQ="
+          }
+        },
+        {
+          "type": "tool_call",
+          "id": "call_1",
+          "name": "grade_list",
+          "args": {
+            "assignment_id": "0192f3c1-0000-7000-8000-0000000000a3"
+          },
+          "maker": "gemini|https://generativelanguage.googleapis.com|gemini-2.5-flash",
+          "opaque": {
+            "thoughtSignature": "c2lnLWNhbGw="
+          }
+        },
+        {
+          "type": "text",
+          "text": "",
+          "maker": "gemini|https://generativelanguage.googleapis.com|gemini-2.5-flash",
+          "opaque": {
+            "thoughtSignature": "c2lnLWVtcHR5"
+          }
+        },
+        {
+          "type": "text",
+          "text": ""
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "parts": [
+        {
+          "type": "tool_result",
+          "call_id": "call_1",
+          "name": "grade_list",
+          "content": "{\"status\":\"executed\",\"result\":{\"grades\":[{\"points\":\"6.5\"}]}}"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "parts": [
+        {
+          "type": "reasoning",
+          "maker": "anthropic|https://api.anthropic.com|claude-sonnet-4-5",
+          "opaque": {
+            "type": "thinking",
+            "thinking": "...",
+            "signature": "Q0xBVURF"
+          }
+        },
+        {
+          "type": "text",
+          "text": "Now the rubric.",
+          "maker": "gemini|https://generativelanguage.googleapis.com|gemini-2.5-pro",
+          "opaque": {
+            "thoughtSignature": "c2lnLXByby10ZXh0"
+          }
+        },
+        {
+          "type": "tool_call",
+          "id": "fc-pro-1",
+          "name": "assignment_list",
+          "args": {},
+          "maker": "gemini|https://generativelanguage.googleapis.com|gemini-2.5-pro",
+          "opaque": {
+            "thoughtSignature": "c2lnLXByby1jYWxs",
+            "id": "fc-pro-1"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "parts": [
+        {
+          "type": "tool_result",
+          "call_id": "fc-pro-1",
+          "name": "assignment_list",
+          "content": "{\"status\":\"executed\",\"result\":{\"assignments\":[]}}"
+        }
+      ]
+    }
+  ],
+  "tool_mode": "auto",
+  "limits": {
+    "max_output_tokens": 1500
+  },
+  "tools": [
+    {
+      "name": "assignment_list",
+      "description": "Lists the course's assignments.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "How many to list (optional; omit or null)"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "grade_list",
+      "description": "Lists the grades for an assignment.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "assignment_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "assignment_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "course_get",
+      "description": "Gets the course.",
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    }
+  ]
+}

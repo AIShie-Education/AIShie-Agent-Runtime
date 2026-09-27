@@ -1,0 +1,134 @@
+{
+  "body": {
+    "contents": [
+      {
+        "parts": [
+          {
+            "text": "Show me the HW3 grades and the course."
+          }
+        ],
+        "role": "user"
+      },
+      {
+        "parts": [
+          {
+            "functionCall": {
+              "args": {
+                "assignment_id": "0192f3c1-0000-7000-8000-0000000000a3"
+              },
+              "name": "grade_list"
+            }
+          },
+          {
+            "functionCall": {
+              "args": {},
+              "name": "assignment_list"
+            }
+          },
+          {
+            "functionCall": {
+              "args": {},
+              "name": "course_get"
+            }
+          }
+        ],
+        "role": "model"
+      },
+      {
+        "parts": [
+          {
+            "functionResponse": {
+              "name": "grade_list",
+              "response": {
+                "error": {
+                  "error": {
+                    "code": "forbidden",
+                    "details": {
+                      "reason": "perm"
+                    },
+                    "message": "not allowed"
+                  },
+                  "status": "denied"
+                }
+              }
+            }
+          },
+          {
+            "functionResponse": {
+              "name": "assignment_list",
+              "response": {
+                "output": "{\"status\":\"executed\",\"result\":{\"assignments\":[{\"id\":\"a1\"…[truncated, 40211 bytes]"
+              }
+            }
+          },
+          {
+            "functionResponse": {
+              "name": "course_get",
+              "response": {
+                "error": "the arguments are not a JSON object"
+              }
+            }
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "generationConfig": {
+      "maxOutputTokens": 1500
+    },
+    "systemInstruction": {
+      "parts": [
+        {
+          "text": "You are the CS101 tutor. Answer from the course material only."
+        }
+      ]
+    },
+    "toolConfig": {
+      "functionCallingConfig": {
+        "mode": "AUTO"
+      }
+    },
+    "tools": [
+      {
+        "functionDeclarations": [
+          {
+            "description": "Lists the course's assignments.",
+            "name": "assignment_list",
+            "parametersJsonSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "limit": {
+                  "description": "How many to list (optional; omit or null)",
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            }
+          },
+          {
+            "description": "Lists the grades for an assignment.",
+            "name": "grade_list",
+            "parametersJsonSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "assignment_id": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "assignment_id"
+              ],
+              "type": "object"
+            }
+          },
+          {
+            "description": "Gets the course.",
+            "name": "course_get"
+          }
+        ]
+      }
+    ]
+  },
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+}

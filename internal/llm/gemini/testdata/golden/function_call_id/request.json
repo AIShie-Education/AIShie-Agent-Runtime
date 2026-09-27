@@ -1,0 +1,86 @@
+{
+  "system": "You are the CS101 tutor. Answer from the course material only.",
+  "messages": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Why did I lose marks on HW3?"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "parts": [
+        {
+          "type": "tool_call",
+          "id": "fc-assign-1",
+          "name": "assignment_list",
+          "args": {},
+          "maker": "gemini|https://generativelanguage.googleapis.com|gemini-2.5-flash",
+          "opaque": {
+            "id": "fc-assign-1"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "parts": [
+        {
+          "type": "tool_result",
+          "call_id": "fc-assign-1",
+          "name": "assignment_list",
+          "content": "{\"status\":\"executed\",\"result\":{\"assignments\":[{\"id\":\"0192f3c1-0000-7000-8000-0000000000a3\",\"title\":\"HW3\"}]}}"
+        }
+      ]
+    }
+  ],
+  "tool_mode": "auto",
+  "limits": {
+    "max_output_tokens": 1500
+  },
+  "tools": [
+    {
+      "name": "assignment_list",
+      "description": "Lists the course's assignments.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "How many to list (optional; omit or null)"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "grade_list",
+      "description": "Lists the grades for an assignment.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "assignment_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "assignment_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "course_get",
+      "description": "Gets the course.",
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "body": {
+    "contents": [
+      {
+        "parts": [
+          {
+            "text": "When is HW3 due?"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "generationConfig": {
+      "maxOutputTokens": 1500
+    },
+    "systemInstruction": {
+      "parts": [
+        {
+          "text": "You are the CS101 tutor. Answer from the course material only."
+        }
+      ]
+    }
+  },
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+}

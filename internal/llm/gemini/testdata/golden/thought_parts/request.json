@@ -1,0 +1,113 @@
+{
+  "system": "You are the CS101 tutor. Answer from the course material only.",
+  "messages": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Explain my HW3 grade."
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "parts": [
+        {
+          "type": "reasoning",
+          "text": "Looking at the grade",
+          "maker": "gemini|https://generativelanguage.googleapis.com|gemini-2.5-flash",
+          "opaque": {
+            "text": "Looking at the grade",
+            "thought": true,
+            "thoughtSignature": "dGhvdWdodC0x"
+          }
+        },
+        {
+          "type": "reasoning",
+          "maker": "anthropic|https://api.anthropic.com|claude-sonnet-4-5",
+          "opaque": {
+            "type": "thinking",
+            "thinking": "hmm",
+            "signature": "Q0xBVURF"
+          }
+        },
+        {
+          "type": "reasoning",
+          "maker": "gemini|https://generativelanguage.googleapis.com|gemini-2.5-flash",
+          "opaque": {
+            "executableCode": {
+              "language": "PYTHON",
+              "code": "print(6.5 / 10)"
+            }
+          }
+        },
+        {
+          "type": "tool_call",
+          "id": "call_1",
+          "name": "grade_list",
+          "args": {
+            "assignment_id": "0192f3c1-0000-7000-8000-0000000000a3"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "parts": [
+        {
+          "type": "tool_result",
+          "call_id": "call_1",
+          "name": "grade_list",
+          "content": "{\"status\":\"executed\",\"result\":{\"grades\":[{\"points\":\"6.5\"}]}}"
+        }
+      ]
+    }
+  ],
+  "tool_mode": "auto",
+  "limits": {
+    "max_output_tokens": 1500
+  },
+  "tools": [
+    {
+      "name": "assignment_list",
+      "description": "Lists the course's assignments.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "How many to list (optional; omit or null)"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "grade_list",
+      "description": "Lists the grades for an assignment.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "assignment_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "assignment_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "course_get",
+      "description": "Gets the course.",
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    }
+  ]
+}
