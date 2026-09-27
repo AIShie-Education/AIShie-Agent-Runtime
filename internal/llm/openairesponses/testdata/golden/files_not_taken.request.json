@@ -3,7 +3,7 @@
     {
       "content": [
         {
-          "text": "Here are my essay and its chart.",
+          "text": "Here are my essay, its chart and my notes.",
           "type": "input_text"
         },
         {
@@ -12,6 +12,10 @@
         },
         {
           "text": "[the file \"essay.pdf\" is left out: this model cannot read files]",
+          "type": "input_text"
+        },
+        {
+          "text": "[the file \"notes.txt\"]\nLoop invariants: see week 3.",
           "type": "input_text"
         }
       ],
@@ -33,6 +37,22 @@
       "content": [
         {
           "text": "[the file \"syllabus.pdf\" is left out: this model cannot read files]",
+          "type": "input_text"
+        },
+        {
+          "text": "[the file \"board.jpg\" is left out: this model cannot read files]",
+          "type": "input_text"
+        },
+        {
+          "text": "[the file \"rubric.json\"]\n{\"criteria\":[\"correctness\",\"style\"]}",
+          "type": "input_text"
+        },
+        {
+          "text": "[the file \"slides.pptx\" is left out: this model cannot read files]",
+          "type": "input_text"
+        },
+        {
+          "text": "[the file \"latin1.txt\" is left out: this model cannot read files]",
           "type": "input_text"
         },
         {

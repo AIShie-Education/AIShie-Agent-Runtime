@@ -26,9 +26,15 @@
         "properties": {
           "assignment_id": {
             "description": "Only this assignment's grades (optional; omit or null)",
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
+        "required": [
+          "assignment_id"
+        ],
         "type": "object"
       },
       "strict": true,

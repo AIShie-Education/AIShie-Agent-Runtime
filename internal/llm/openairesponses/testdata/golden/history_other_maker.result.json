@@ -2,6 +2,10 @@
   "model": "gpt-test-2026-06-01",
   "parts": [
     {
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "opaque": {
+        "id": "msg_other"
+      },
       "text": "Here is what I found.",
       "type": "text"
     }

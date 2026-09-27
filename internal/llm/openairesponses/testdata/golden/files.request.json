@@ -3,7 +3,7 @@
     {
       "content": [
         {
-          "text": "Here are my essay and its chart.",
+          "text": "Here are my essay, its chart and my notes.",
           "type": "input_text"
         },
         {
@@ -15,6 +15,10 @@
           "file_data": "data:application/pdf;base64,JVBERi0xLjcKMSAwIG9iago8PD4+CmVuZG9iago=",
           "filename": "essay.pdf",
           "type": "input_file"
+        },
+        {
+          "text": "[the file \"notes.txt\"]\nLoop invariants: see week 3.",
+          "type": "input_text"
         }
       ],
       "role": "user",
@@ -39,9 +43,25 @@
           "type": "input_file"
         },
         {
-          "file_data": "data:application/octet-stream;base64,cGxhaW4gYnl0ZXM=",
-          "filename": "file",
-          "type": "input_file"
+          "detail": "auto",
+          "image_url": "data:image/jpeg;base64,/9j/4AAQSkZJRg==",
+          "type": "input_image"
+        },
+        {
+          "text": "[the file \"rubric.json\"]\n{\"criteria\":[\"correctness\",\"style\"]}",
+          "type": "input_text"
+        },
+        {
+          "text": "[the file \"slides.pptx\" is left out: this model cannot read a file of type application/vnd.openxmlformats-officedocument.presentationml.presentation]",
+          "type": "input_text"
+        },
+        {
+          "text": "[the file \"latin1.txt\" is left out: this model cannot read a file of type text/plain]",
+          "type": "input_text"
+        },
+        {
+          "text": "[a file is left out: this model cannot read a file of type application/octet-stream]",
+          "type": "input_text"
         }
       ],
       "role": "user",

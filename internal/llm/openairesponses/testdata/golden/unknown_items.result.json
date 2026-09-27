@@ -22,10 +22,18 @@
       "type": "reasoning"
     },
     {
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "opaque": {
+        "id": "msg_unknown"
+      },
       "text": "First part. ",
       "type": "text"
     },
     {
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "opaque": {
+        "id": "msg_unknown"
+      },
       "text": "Second part.",
       "type": "text"
     }

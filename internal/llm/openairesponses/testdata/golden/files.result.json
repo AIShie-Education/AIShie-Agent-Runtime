@@ -2,6 +2,10 @@
   "model": "gpt-test-2026-06-01",
   "parts": [
     {
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "opaque": {
+        "id": "msg_files"
+      },
       "text": "Your essay argues well; the chart's axis is unlabelled.",
       "type": "text"
     }

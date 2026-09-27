@@ -14,6 +14,7 @@
     {
       "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
       "opaque": {
+        "id": "msg_rs_2",
         "phase": "final_answer"
       },
       "text": "You lost two marks on question 3: the loop never ends.",

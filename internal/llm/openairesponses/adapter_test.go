@@ -146,6 +146,9 @@ func TestNewRefuses(t *testing.T) {
 		{"an unknown dialect", llm.Config{Model: "gpt-5", Dialect: "openapi"}, "dialect"},
 		{"Authorization among the headers", llm.Config{Model: "gpt-5", Headers: map[string]string{"authorization": "Bearer x"}}, "may not be configured"},
 		{"api-key among the headers", llm.Config{Model: "gpt-5", Headers: map[string]string{"API-KEY": "x"}}, "may not be configured"},
+		{"a header name that is no token", llm.Config{Model: "gpt-5", Headers: map[string]string{"X Trace": "1"}}, "not a valid HTTP header"},
+		{"a header value that splits the request", llm.Config{Model: "gpt-5", Headers: map[string]string{"X-Trace": "1\r\nX-Injected: secret"}}, "not a valid HTTP header"},
+		{"a key no header can carry", llm.Config{Model: "gpt-5", APIKey: "sk-secret\x00key"}, "API key"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -189,6 +192,13 @@ func TestAuth(t *testing.T) {
 			wantHost:   "school.openai.azure.com",
 			wantPath:   "/openai/v1/responses",
 			wantHeader: map[string]string{"Api-Key": testKey, "Authorization": ""},
+		},
+		{
+			name:       "a key read from a file, newline and all",
+			cfg:        func(c *llm.Config) { c.APIKey = " " + testKey + "\n" },
+			wantHost:   "api.openai.com",
+			wantPath:   "/v1/responses",
+			wantHeader: map[string]string{"Authorization": "Bearer " + testKey},
 		},
 		{
 			name:       "no key: no credentials",
@@ -284,6 +294,16 @@ func TestErrors(t *testing.T) {
 			wantKind: llm.ErrServer, wantCode: "server_error", retryable: true,
 		},
 		{
+			name: "a proxy that echoes the key", status: http.StatusUnauthorized,
+			body:     `{"error":{"message":"Bearer ` + testKey + ` was refused upstream.","code":"invalid_api_key"}}`,
+			wantKind: llm.ErrAuth, wantCode: "invalid_api_key", wantInText: "Bearer [redacted] was refused",
+		},
+		{
+			name: "an echo of the key cut short", status: http.StatusBadGateway,
+			body:     strings.Repeat("x", 380) + "key=" + testKey + " was refused",
+			wantKind: llm.ErrServer, retryable: true, wantInText: "key=[redacted]…",
+		},
+		{
 			name: "a 200 that is not a response", status: http.StatusOK, body: `<html>gateway</html>`,
 			wantKind: llm.ErrServer, retryable: true, wantInText: "does not decode",
 		},
@@ -324,8 +344,27 @@ func TestErrors(t *testing.T) {
 			if !strings.Contains(err.Error(), tt.wantInText) {
 				t.Errorf("error %q does not say %q", err, tt.wantInText)
 			}
-			if strings.Contains(err.Error(), testKey) {
+			if strings.Contains(err.Error(), testKey[:minKeyPrefix+4]) {
 				t.Errorf("error %q holds the key", err)
+			}
+		})
+	}
+}
+
+func TestRedactKey(t *testing.T) {
+	const key = "sk-proj-0123456789abcdef"
+	tests := []struct{ name, in, want string }{
+		{"no key", "Rate limit reached.", "Rate limit reached."},
+		{"the key twice", "key " + key + ", again " + key, "key [redacted], again [redacted]"},
+		{"cut in the key", "key=" + key[:12] + "…", "key=[redacted]…"},
+		{"cut in the key after a whole one", key + " and " + key[:10] + "…", "[redacted] and [redacted]…"},
+		{"cut before the key's eighth character", "key=" + key[:7] + "…", "key=" + key[:7] + "…"},
+		{"cut elsewhere", "a long message…", "a long message…"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := redactKey(tt.in, key); got != tt.want {
+				t.Errorf("redactKey(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
 	}
@@ -464,8 +503,9 @@ func TestReplayOnlyToMaker(t *testing.T) {
 		t.Fatal(err)
 	}
 	reasoning := llm.Part{Type: llm.PartReasoning, Maker: a.Maker(), Opaque: json.RawMessage(`{"type":"reasoning","id":"rs_1","summary":[],"encrypted_content":"enc"}`)}
+	unencrypted := llm.Part{Type: llm.PartReasoning, Maker: a.Maker(), Opaque: json.RawMessage(`{"type":"reasoning","id":"rs_2","summary":[]}`)}
 	call := llm.Part{Type: llm.PartToolCall, ID: "call_1", Name: "grade_list", Args: json.RawMessage(`{}`), Maker: a.Maker(), Opaque: json.RawMessage(`{"id":"fc_1"}`)}
-	text := llm.Part{Type: llm.PartText, Text: "Checking.", Maker: a.Maker(), Opaque: json.RawMessage(`{"phase":"commentary"}`)}
+	text := llm.Part{Type: llm.PartText, Text: "Checking.", Maker: a.Maker(), Opaque: json.RawMessage(`{"id":"msg_1","phase":"commentary"}`)}
 	parts := []llm.Part{reasoning, text, call}
 
 	tests := []struct {
@@ -475,8 +515,12 @@ func TestReplayOnlyToMaker(t *testing.T) {
 		want    []string
 		notWant []string
 	}{
-		{"the maker", a, parts, []string{`"rs_1"`, `"fc_1"`, `"commentary"`}, nil},
-		{"the same model elsewhere", azure, parts, []string{`"call_1"`}, []string{`rs_1`, `fc_1`, `commentary`}},
+		{"the maker", a, parts, []string{`"rs_1"`, `"msg_1"`, `"fc_1"`, `"commentary"`}, nil},
+		{"the same model elsewhere", azure, parts, []string{`"call_1"`, `"Checking."`}, []string{`rs_1`, `msg_1`, `fc_1`, `commentary`}},
+		{"reasoning that cannot go back", a, []llm.Part{unencrypted, text, call}, []string{`"call_1"`, `"commentary"`}, []string{`rs_2`, `msg_1`, `fc_1`}},
+		{"reasoning that nothing follows", a, []llm.Part{text, reasoning}, []string{`"msg_1"`}, []string{`rs_1`, `enc`}},
+		{"a turn of reasoning alone", a, []llm.Part{reasoning}, []string{`"input":[]`}, []string{`rs_1`}},
+		{"unencrypted reasoning that nothing follows", a, []llm.Part{reasoning, call, unencrypted}, []string{`"rs_1"`, `"fc_1"`}, []string{`rs_2`}},
 		{"reasoning that is not an object", a, []llm.Part{{Type: llm.PartReasoning, Maker: a.Maker(), Opaque: json.RawMessage(`"x"`)}, call}, []string{`"call_1"`}, []string{`fc_1`, `reasoning`}},
 		{"reasoning of another type", a, []llm.Part{{Type: llm.PartReasoning, Maker: a.Maker(), Opaque: json.RawMessage(`{"type":"message","encrypted_content":"enc"}`)}}, nil, []string{`enc`}},
 		{"reasoning without content", a, []llm.Part{{Type: llm.PartReasoning, Maker: a.Maker()}, call}, []string{`"call_1"`}, []string{`fc_1`}},
@@ -504,24 +548,28 @@ func TestReplayOnlyToMaker(t *testing.T) {
 }
 
 // TestPhaseSplitsMessages: text parts in a row become one assistant
-// message, and a change of phase starts another.
+// message, and a change of item or phase starts another.
 func TestPhaseSplitsMessages(t *testing.T) {
 	a, err := New(llm.Config{Model: "gpt-5"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	phase := func(s string) json.RawMessage { return json.RawMessage(`{"phase":"` + s + `"}`) }
+	item := func(id, phase string) json.RawMessage {
+		return json.RawMessage(`{"id":"` + id + `","phase":"` + phase + `"}`)
+	}
 	body, err := a.encode(&llm.Request{Messages: []llm.Message{{Role: llm.RoleAssistant, Parts: []llm.Part{
-		{Type: llm.PartText, Text: "one", Maker: a.Maker(), Opaque: phase("commentary")},
-		{Type: llm.PartText, Text: "two", Maker: a.Maker(), Opaque: phase("commentary")},
-		{Type: llm.PartText, Text: "three", Maker: a.Maker(), Opaque: phase("final_answer")},
-		llm.Text("four"),
+		{Type: llm.PartText, Text: "one", Maker: a.Maker(), Opaque: item("msg_1", "commentary")},
+		{Type: llm.PartText, Text: "two", Maker: a.Maker(), Opaque: item("msg_1", "commentary")},
+		{Type: llm.PartText, Text: "three", Maker: a.Maker(), Opaque: item("msg_2", "commentary")},
+		{Type: llm.PartText, Text: "four", Maker: a.Maker(), Opaque: item("msg_2", "final_answer")},
+		llm.Text("five"),
 	}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var w struct {
 		Input []struct {
+			ID      string `json:"id"`
 			Phase   string `json:"phase"`
 			Content []struct {
 				Text string `json:"text"`
@@ -537,9 +585,9 @@ func TestPhaseSplitsMessages(t *testing.T) {
 		for _, c := range it.Content {
 			texts = append(texts, c.Text)
 		}
-		got = append(got, it.Phase+":"+strings.Join(texts, "+"))
+		got = append(got, it.ID+":"+it.Phase+":"+strings.Join(texts, "+"))
 	}
-	want := []string{"commentary:one+two", "final_answer:three", ":four"}
+	want := []string{"msg_1:commentary:one+two", "msg_2:commentary:three", "msg_2:final_answer:four", "::five"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("messages %q, want %q", got, want)
 	}
@@ -636,6 +684,9 @@ func TestDecodeEdges(t *testing.T) {
 		{"an error with no code", `{"status":"failed","error":{"message":"m"},"output":[]}`, "failed", 0, "", llm.StopError, 0},
 		{"usage that does not decode", `{"status":"completed","output":[],"usage":{"input_tokens":"12"}}`, "completed", 0, `{"input_tokens":"12"}`, llm.StopEnd, 0},
 		{"null usage", `{"status":"completed","output":null,"usage":null}`, "completed", 0, "", llm.StopEnd, 0},
+		{"a call with no status, cut off last", `{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[{"type":"message","content":[{"type":"output_text","text":"Let me"}]},{"type":"function_call","call_id":"c","name":"grade_list","arguments":"{\"a\":"}]}`, "incomplete/max_output_tokens", 0, "", llm.StopMaxTokens, 1},
+		{"a call with no status before the cut", `{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[{"type":"function_call","call_id":"c","name":"grade_list","arguments":"{}"},{"type":"message","content":[{"type":"output_text","text":"Let me"}]}]}`, "incomplete/max_output_tokens", 0, "", llm.StopToolCalls, 2},
+		{"a call in progress in a failed response", `{"status":"failed","error":{"code":"server_error"},"output":[{"type":"function_call","status":"in_progress","call_id":"c","name":"grade_list","arguments":"{"}]}`, "failed/server_error", 0, "", llm.StopError, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -40,6 +40,8 @@ type Adapter struct {
 	maker    string
 	// headers are the extra headers and the key's header, built once.
 	headers map[string]string
+	// key is kept only to take it out of errors (withoutKey).
+	key     string
 	client  *http.Client
 	params  llm.Params
 	effort  string
@@ -83,7 +85,13 @@ func New(cfg llm.Config) (*Adapter, error) {
 	// it; the capability says what is sent, whatever was asked.
 	caps.StrictTools = dialect == toolschema.OpenAIStrict
 
-	headers, err := buildHeaders(cfg.Headers, cfg.APIKey, provider)
+	// A key read from a file often ends in a newline, which no header may
+	// carry: every call would fail as a network error, and be retried.
+	key := strings.TrimSpace(cfg.APIKey)
+	if !validHeaderValue(key) {
+		return nil, errors.New("openairesponses: the API key holds characters no HTTP header can carry")
+	}
+	headers, err := buildHeaders(cfg.Headers, key, provider)
 	if err != nil {
 		return nil, err
 	}
@@ -93,6 +101,7 @@ func New(cfg llm.Config) (*Adapter, error) {
 		endpoint: httpx.Join(base, "responses"),
 		maker:    llm.MakerOf(llm.AdapterOpenAIResponses, base, cfg.Model),
 		headers:  headers,
+		key:      key,
 		client:   withErrorFix(cfg.HTTPClient),
 		params:   cfg.Params,
 		effort:   strings.TrimSpace(cfg.Reasoning.Effort),
@@ -134,10 +143,14 @@ func baseURL(raw, provider string) (string, error) {
 
 // buildHeaders is the extra headers with the key's header added. Extra
 // headers never carry the credentials: the key goes only where the provider
-// expects it, from the key reference.
+// expects it, from the key reference. A header net/http would refuse is
+// refused here, once, rather than on every call as a network error.
 func buildHeaders(extra map[string]string, key, provider string) (map[string]string, error) {
 	h := make(map[string]string, len(extra)+1)
 	for k, v := range extra {
+		if !validHeaderName(k) || !validHeaderValue(v) {
+			return nil, fmt.Errorf("openairesponses: header %q is not a valid HTTP header", k)
+		}
 		switch textproto.CanonicalMIMEHeaderKey(k) {
 		case "Authorization", "Api-Key":
 			return nil, fmt.Errorf("openairesponses: header %q is set from the key and may not be configured", k)
@@ -153,6 +166,31 @@ func buildHeaders(extra map[string]string, key, provider string) (map[string]str
 		h["Authorization"] = "Bearer " + key
 	}
 	return h, nil
+}
+
+// validHeaderName reports whether s is a header name (RFC 9110's token).
+func validHeaderName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c <= ' ' || c >= 0x7f || strings.IndexByte(`"(),/:;<=>?@[\]{}`, c) >= 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// validHeaderValue reports whether s may be a header's value: no control
+// characters but tab.
+func validHeaderValue(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; (c < ' ' && c != '\t') || c == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 // Name is openai_responses.
@@ -191,7 +229,7 @@ func (a *Adapter) Call(ctx context.Context, req *llm.Request) (*llm.Response, er
 	}
 	resp, err := httpx.PostJSON(ctx, a.client, a.endpoint, a.headers, body)
 	if err != nil {
-		return nil, err
+		return nil, a.withoutKey(err)
 	}
 	out, err := a.decode(resp.Body)
 	if err != nil {
@@ -201,4 +239,41 @@ func (a *Adapter) Call(ctx context.Context, req *llm.Request) (*llm.Response, er
 		out.RequestID = resp.Header.Get("X-Request-Id")
 	}
 	return out, nil
+}
+
+// redacted stands for the key in an error.
+const redacted = "[redacted]"
+
+// minKeyPrefix is the shortest start of the key that is taken out of an
+// error cut in the middle of it.
+const minKeyPrefix = 8
+
+// withoutKey is err with the key taken out of its code and message. httpx
+// builds them from the response body alone, but a provider, or a proxy on
+// the way, that echoes the request's headers in its refusal would put the
+// key there, and errors are logged and shown to the agent's owner.
+func (a *Adapter) withoutKey(err error) error {
+	var le *llm.Error
+	if a.key == "" || !errors.As(err, &le) {
+		return err
+	}
+	le.Code = redactKey(le.Code, a.key)
+	le.Message = llm.Clip(redactKey(le.Message, a.key))
+	return err
+}
+
+// redactKey is s with every copy of key replaced, and the start of key
+// too where s was clipped in the middle of it.
+func redactKey(s, key string) string {
+	s = strings.ReplaceAll(s, key, redacted)
+	body, clipped := strings.CutSuffix(s, "…")
+	if !clipped {
+		return s
+	}
+	for n := len(key) - 1; n >= minKeyPrefix; n-- {
+		if strings.HasSuffix(body, key[:n]) {
+			return body[:len(body)-n] + redacted + "…"
+		}
+	}
+	return s
 }

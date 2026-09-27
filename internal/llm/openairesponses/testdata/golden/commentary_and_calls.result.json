@@ -4,6 +4,7 @@
     {
       "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
       "opaque": {
+        "id": "msg_commentary",
         "phase": "commentary"
       },
       "text": "Let me look at your grades first.",

@@ -2,17 +2,21 @@
   "model": "gpt-test-2026-06-01",
   "parts": [
     {
-      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
-      "opaque": {
-        "id": "msg_inc_max"
+      "args": {
+        "assignment_id": "0192f3c1-7a2b-7c3d-8e4f-5a6b7c8d9e0f"
       },
-      "text": "You lost two marks on quest",
-      "type": "text"
+      "id": "call_whole",
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "name": "grade_list",
+      "opaque": {
+        "id": "fc_whole"
+      },
+      "type": "tool_call"
     }
   ],
   "raw_stop": "incomplete/max_output_tokens",
-  "request_id": "resp_inc_max",
-  "stop": "max_tokens",
+  "request_id": "resp_inc_before",
+  "stop": "tool_calls",
   "usage": {
     "cache_read": 0,
     "cache_write": 0,

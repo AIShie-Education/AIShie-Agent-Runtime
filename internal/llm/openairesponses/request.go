@@ -8,6 +8,7 @@ import (
 	"mime"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolschema"
@@ -59,7 +60,10 @@ type wireTool struct {
 // Input items and their content.
 type (
 	messageItem struct {
-		Type    string `json:"type"`
+		Type string `json:"type"`
+		// ID is an assistant message's msg_… item id, sent only to the
+		// model that made it.
+		ID      string `json:"id,omitempty"`
 		Role    string `json:"role"`
 		Content []any  `json:"content"`
 		// Phase labels an assistant message commentary or final_answer.
@@ -96,7 +100,8 @@ type (
 )
 
 // opaqueItem is what the adapter keeps in a part's Opaque besides a whole
-// reasoning item: a function call's item id, a message's phase.
+// reasoning item: the item id of the message or function call the part
+// came in, and a message's phase.
 type opaqueItem struct {
 	ID    string `json:"id,omitempty"`
 	Phase string `json:"phase,omitempty"`
@@ -241,14 +246,26 @@ func (a *Adapter) userContent(parts []llm.Part) []any {
 
 // assistantItems replays one assistant turn: its reasoning (to its maker
 // only), its text as assistant messages, its calls as function_call items.
+//
+// To its maker the turn goes back as the API gave it, which is how OpenAI
+// documents a loop that stores nothing: the reasoning items with their
+// encrypted_content, then the message and function_call items with their
+// ids. The API ties an item to the reasoning before it by id, and refuses
+// an item whose reasoning is missing, so when this model's reasoning cannot
+// go back (it came without encrypted_content) the turn's ids stay behind
+// too: call_id alone links a call to its output. The API also refuses a
+// reasoning item that nothing follows, so one at the end of the turn is
+// left out.
 func (a *Adapter) assistantItems(parts []llm.Part) []any {
-	// A reasoning item of this model's that cannot go back (it came without
-	// encrypted_content) takes the turn's item ids with it: an item id that
-	// points at reasoning the API cannot see is a risk, and call_id alone
-	// links a call to its output.
+	last := -1 // the last part that is an item of its own
+	for i, p := range parts {
+		if (p.Type == llm.PartText && p.Text != "") || p.Type == llm.PartToolCall {
+			last = i
+		}
+	}
 	keepIDs := true
-	for _, p := range parts {
-		if p.Type == llm.PartReasoning && p.Maker == a.maker && replayableReasoning(p.Opaque) == nil {
+	for i, p := range parts {
+		if i < last && p.Type == llm.PartReasoning && p.Maker == a.maker && replayableReasoning(p.Opaque) == nil {
 			keepIDs = false
 		}
 	}
@@ -261,23 +278,27 @@ func (a *Adapter) assistantItems(parts []llm.Part) []any {
 		}
 		msg = nil
 	}
-	for _, p := range parts {
+	for i, p := range parts {
 		switch p.Type {
 		case llm.PartReasoning:
-			flush()
-			if p.Maker == a.maker {
-				if raw := replayableReasoning(p.Opaque); raw != nil {
-					items = append(items, raw)
-				}
+			if i > last || p.Maker != a.maker {
+				continue
+			}
+			if raw := replayableReasoning(p.Opaque); raw != nil {
+				flush()
+				items = append(items, raw)
 			}
 		case llm.PartText:
 			if p.Text == "" {
 				continue
 			}
-			phase := a.opaque(p).Phase
-			if msg == nil || msg.Phase != phase {
+			o := a.opaque(p)
+			if !keepIDs {
+				o.ID = ""
+			}
+			if msg == nil || msg.ID != o.ID || msg.Phase != o.Phase {
 				flush()
-				msg = &messageItem{Type: "message", Role: "assistant", Phase: phase}
+				msg = &messageItem{Type: "message", ID: o.ID, Role: "assistant", Phase: o.Phase}
 			}
 			msg.Content = append(msg.Content, textContent{Type: "output_text", Text: p.Text})
 		case llm.PartToolCall:
@@ -320,35 +341,57 @@ func (a *Adapter) toolItems(parts []llm.Part) []any {
 	return items
 }
 
-// fileContent gives the model a file's bytes as a data URL: an image as
-// input_image, anything else as input_file. A model that takes no files is
-// told that one was left out, rather than sent what it would refuse.
+// fileContent gives the model a file (rule 6). Text is given as text,
+// which every model reads. When the model takes files, an image goes as
+// input_image and a PDF as input_file, each as a data URL. Anything else,
+// or any file for a model that takes none, is a note that the file was
+// left out: input_file is documented for PDFs, and a type the API refuses
+// would cost the whole call a 400.
 func (a *Adapter) fileContent(f *llm.File) any {
-	if !a.caps.FileInput {
-		label := "a file"
-		if f.Name != "" {
-			label = "the file " + strconv.Quote(f.Name)
+	mt := mediaType(f.MIME)
+	switch {
+	case isText(mt) && utf8.Valid(f.Data):
+		return textContent{Type: "input_text", Text: "[" + fileLabel(f) + "]\n" + string(f.Data)}
+	case !a.caps.FileInput:
+		return fileNote(f, "this model cannot read files")
+	case isImage(mt):
+		return imageContent{Type: "input_image", ImageURL: dataURL(mt, f.Data), Detail: "auto"}
+	case mt == "application/pdf":
+		name := f.Name
+		if name == "" {
+			name = "file.pdf"
 		}
-		return textContent{Type: "input_text", Text: "[" + label + " is left out: this model cannot read files]"}
+		return fileContent{Type: "input_file", Filename: name, FileData: dataURL(mt, f.Data)}
 	}
-	mimeType := mediaType(f.MIME)
-	data := "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(f.Data)
-	if isImage(mimeType) {
-		return imageContent{Type: "input_image", ImageURL: data, Detail: "auto"}
-	}
-	name := f.Name
-	if name == "" {
-		name = "file"
-	}
-	return fileContent{Type: "input_file", Filename: name, FileData: data}
+	return fileNote(f, "this model cannot read a file of type "+mt)
 }
 
-// mediaType is the MIME type without parameters, lower case;
+func dataURL(mediaType string, data []byte) string {
+	return "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(data)
+}
+
+// fileNote stands in for a file the model is not given.
+func fileNote(f *llm.File, why string) textContent {
+	return textContent{Type: "input_text", Text: "[" + fileLabel(f) + " is left out: " + why + "]"}
+}
+
+func fileLabel(f *llm.File) string {
+	if f.Name == "" {
+		return "a file"
+	}
+	return "the file " + strconv.Quote(f.Name)
+}
+
+// mediaType is the MIME type without parameters, lower case, with the
+// image/jpg some servers send read as image/jpeg;
 // application/octet-stream when there is none.
 func mediaType(s string) string {
 	t, _, err := mime.ParseMediaType(s)
 	if err != nil || t == "" {
 		return "application/octet-stream"
+	}
+	if t == "image/jpg" {
+		return "image/jpeg"
 	}
 	return t
 }
@@ -361,6 +404,12 @@ func isImage(t string) bool {
 		return true
 	}
 	return false
+}
+
+// isText reports whether a file of the type is text the model can read as
+// it is.
+func isText(t string) bool {
+	return strings.HasPrefix(t, "text/") || t == "application/json"
 }
 
 // arguments is a call's arguments as the model wrote them: its raw text

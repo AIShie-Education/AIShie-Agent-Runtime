@@ -29,11 +29,13 @@ type wireIncomplete struct {
 // the runtime never offers, and any added later) are skipped unread.
 type (
 	wireMessage struct {
+		ID      string        `json:"id"`
 		Phase   string        `json:"phase"`
 		Content []wireContent `json:"content"`
 	}
 	wireFunctionCall struct {
 		ID     string `json:"id"`
+		Status string `json:"status"`
 		CallID string `json:"call_id"`
 		Name   string `json:"name"`
 		// Arguments is a JSON string; a server that sends an object instead
@@ -80,6 +82,9 @@ func (a *Adapter) decode(body []byte) (*llm.Response, error) {
 	}
 	out := &llm.Response{Parts: []llm.Part{}, Model: w.Model, RequestID: w.ID}
 	refused := false
+	// unconfirmed is the index in out.Parts of the last call that came
+	// with no status, from a server that gives none.
+	unconfirmed := -1
 	for _, raw := range w.Output {
 		var head struct {
 			Type string `json:"type"`
@@ -96,9 +101,19 @@ func (a *Adapter) decode(body []byte) (*llm.Response, error) {
 			}
 		case "function_call":
 			var fc wireFunctionCall
-			if err = json.Unmarshal(raw, &fc); err == nil {
-				out.Parts = append(out.Parts, a.toolCallPart(fc))
+			if err = json.Unmarshal(raw, &fc); err != nil {
+				break
 			}
+			switch fc.Status {
+			case "":
+				unconfirmed = len(out.Parts)
+			case statusCompleted:
+			default:
+				// in_progress or incomplete: the model did not finish the
+				// call, its arguments are cut short, and it must not run.
+				continue
+			}
+			out.Parts = append(out.Parts, a.toolCallPart(fc))
 		case "reasoning":
 			var r wireReasoningItem
 			if err = json.Unmarshal(raw, &r); err == nil {
@@ -110,9 +125,36 @@ func (a *Adapter) decode(body []byte) (*llm.Response, error) {
 		}
 	}
 	out.Stop, out.RawStop = stopOf(&w, refused)
+	out.Parts = dropUnsafeCalls(out.Parts, out.Stop, unconfirmed)
 	out.Usage = usageOf(w.Usage)
 	out.Normalize()
 	return out, nil
+}
+
+// dropUnsafeCalls removes the calls that must not run, before rule 3 makes
+// any call left mean tool_calls. A response cut off at max_output_tokens
+// may end in a call whose arguments are cut short: the API marks it
+// incomplete and decode leaves it out, and one from a server that gives no
+// status is dropped here when it is the last part. The stop then stands,
+// unless complete calls came before it. A filtered or refused turn's calls
+// are disowned, every one, so that the loop answers content_filter and
+// refusal with the refusal text (§3.4) instead of running them.
+func dropUnsafeCalls(parts []llm.Part, stop llm.Stop, unconfirmed int) []llm.Part {
+	switch stop {
+	case llm.StopMaxTokens:
+		if n := len(parts); n > 0 && unconfirmed == n-1 {
+			return parts[:n-1]
+		}
+	case llm.StopContentFilter, llm.StopRefusal:
+		kept := parts[:0]
+		for _, p := range parts {
+			if p.Type != llm.PartToolCall {
+				kept = append(kept, p)
+			}
+		}
+		return kept
+	}
+	return parts
 }
 
 // messageParts appends a message's text parts to parts, and reports
@@ -122,7 +164,7 @@ func (a *Adapter) messageParts(parts []llm.Part, m wireMessage, refused bool) ([
 	for _, c := range m.Content {
 		switch c.Type {
 		case "output_text":
-			parts = append(parts, a.textPart(c.Text, m.Phase))
+			parts = append(parts, a.textPart(c.Text, m))
 		case "refusal":
 			refused = true
 		}
@@ -130,12 +172,13 @@ func (a *Adapter) messageParts(parts []llm.Part, m wireMessage, refused bool) ([
 	return parts, refused
 }
 
-// textPart keeps the message's phase for the maker, when it has one.
-func (a *Adapter) textPart(text, phase string) llm.Part {
+// textPart keeps the message's item id and phase for the maker, when it
+// has them.
+func (a *Adapter) textPart(text string, m wireMessage) llm.Part {
 	p := llm.Text(text)
-	if phase != "" {
+	if m.ID != "" || m.Phase != "" {
 		p.Maker = a.maker
-		p.Opaque = mustOpaque(opaqueItem{Phase: phase})
+		p.Opaque = mustOpaque(opaqueItem{ID: m.ID, Phase: m.Phase})
 	}
 	return p
 }

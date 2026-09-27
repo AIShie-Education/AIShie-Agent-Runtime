@@ -2,6 +2,10 @@
   "model": "gpt-test",
   "parts": [
     {
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "opaque": {
+        "id": "msg_nostatus"
+      },
       "text": "An answer from a server that says no status.",
       "type": "text"
     }

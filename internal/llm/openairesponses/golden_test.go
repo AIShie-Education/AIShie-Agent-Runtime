@@ -209,6 +209,19 @@ var testTools = []llm.Tool{
 	},
 }
 
+var strictTools = []llm.Tool{
+	{
+		Name:        "grade_list",
+		Description: "Lists the grades the seat may read.",
+		Schema:      json.RawMessage(`{"type":"object","properties":{"assignment_id":{"type":["string","null"],"description":"Only this assignment's grades (optional; omit or null)"}},"required":["assignment_id"],"additionalProperties":false}`),
+	},
+	{
+		Name:        "assignment_get",
+		Description: "Reads one assignment.",
+		Schema:      json.RawMessage(`{"type":"object","properties":{"assignment_id":{"type":"string","format":"uuid"}},"required":["assignment_id"],"additionalProperties":false}`),
+	},
+}
+
 const (
 	question = "Why did I lose marks on HW3?"
 	system   = "You are a tutor."
@@ -229,7 +242,7 @@ func toolHistory(a *Adapter) []llm.Message {
 	return []llm.Message{
 		llm.UserText(question),
 		{Role: llm.RoleAssistant, Parts: []llm.Part{
-			{Type: llm.PartText, Text: "Let me check.", Maker: a.Maker(), Opaque: args(`{"phase":"commentary"}`)},
+			{Type: llm.PartText, Text: "Let me check.", Maker: a.Maker(), Opaque: args(`{"id":"msg_A","phase":"commentary"}`)},
 			{Type: llm.PartToolCall, ID: "call_A", Name: "grade_list", Args: args(`{"assignment_id":"` + assignment + `"}`), Maker: a.Maker(), Opaque: args(`{"id":"fc_A"}`)},
 			{Type: llm.PartToolCall, ID: "call_B", Name: "assignment_get", Args: args(`{"assignment_id":"` + assignment + `"}`), Maker: a.Maker(), Opaque: args(`{"id":"fc_B"}`)},
 		}},
@@ -292,18 +305,26 @@ var goldenCases = []goldenCase{
 	}, req: func(*Adapter) *llm.Request {
 		return &llm.Request{System: system, Messages: []llm.Message{llm.UserText(question)}, Tools: testTools[:1], ToolMode: llm.ToolAuto}
 	}},
+	// The tools as the openai_strict dialect gives them: every property
+	// required, the optional ones nullable.
 	{name: "strict_tools", cfg: func(c *llm.Config) { c.Capabilities.StrictTools = ptr(true) }, req: func(*Adapter) *llm.Request {
-		return &llm.Request{System: system, Messages: []llm.Message{llm.UserText(question)}, Tools: testTools, ToolMode: llm.ToolAuto, Limits: llm.Limits{MaxOutputTokens: 2000}}
+		return &llm.Request{System: system, Messages: []llm.Message{llm.UserText(question)}, Tools: strictTools, ToolMode: llm.ToolAuto, Limits: llm.Limits{MaxOutputTokens: 2000}}
 	}},
 	{name: "refusal"},
 	{name: "refusal_incomplete"},
+	// A refused turn's calls are disowned: none runs.
+	{name: "refusal_with_call"},
 	{name: "commentary_and_calls"},
 	{name: "args"},
 	{name: "usage"},
 	{name: "usage_absent"},
 	{name: "incomplete_max_output_tokens"},
 	{name: "incomplete_reasoning_only"},
+	// A call cut off by the cap never runs; complete calls before it do.
+	{name: "incomplete_call_cut"},
+	{name: "incomplete_calls_before_cut"},
 	{name: "incomplete_content_filter"},
+	{name: "incomplete_content_filter_calls"},
 	{name: "incomplete_max_messages"},
 	{name: "incomplete_steered"},
 	{name: "incomplete_no_reason"},
@@ -316,14 +337,18 @@ var goldenCases = []goldenCase{
 	{name: "unknown_items"},
 }
 
-func filesRequest(a *Adapter) *llm.Request {
+// filesRequest gives files of every kind, in a question and beside a
+// result: images and PDFs go as files, text as text, and the rest as notes.
+func filesRequest(*Adapter) *llm.Request {
 	png := []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+	jpeg := []byte("\xff\xd8\xff\xe0\x00\x10JFIF")
 	pdf := []byte("%PDF-1.7\n1 0 obj\n<<>>\nendobj\n")
 	return &llm.Request{System: system, Tools: testTools, ToolMode: llm.ToolAuto, Messages: []llm.Message{
 		{Role: llm.RoleUser, Parts: []llm.Part{
-			llm.Text("Here are my essay and its chart."),
+			llm.Text("Here are my essay, its chart and my notes."),
 			{Type: llm.PartFile, File: &llm.File{Name: "chart.png", MIME: "image/png", Data: png}},
 			{Type: llm.PartFile, File: &llm.File{Name: "essay.pdf", MIME: "application/pdf", Data: pdf}},
+			{Type: llm.PartFile, File: &llm.File{Name: "notes.txt", MIME: "text/plain; charset=utf-8", Data: []byte("Loop invariants: see week 3.")}},
 		}},
 		{Role: llm.RoleAssistant, Parts: []llm.Part{
 			{Type: llm.PartToolCall, ID: "call_doc", Name: "document_get", Args: args(`{"document_id":"` + assignment + `"}`)},
@@ -331,6 +356,10 @@ func filesRequest(a *Adapter) *llm.Request {
 		{Role: llm.RoleTool, Parts: []llm.Part{
 			{Type: llm.PartToolResult, CallID: "call_doc", Name: "document_get", Content: `{"status":"executed","result":{"title":"Syllabus","file":"given below"}}`},
 			{Type: llm.PartFile, File: &llm.File{Name: "syllabus.pdf", MIME: "Application/PDF; name=syllabus.pdf", Data: pdf}},
+			{Type: llm.PartFile, File: &llm.File{Name: "board.jpg", MIME: "image/jpg", Data: jpeg}},
+			{Type: llm.PartFile, File: &llm.File{Name: "rubric.json", MIME: "application/json", Data: []byte(`{"criteria":["correctness","style"]}`)}},
+			{Type: llm.PartFile, File: &llm.File{Name: "slides.pptx", MIME: "application/vnd.openxmlformats-officedocument.presentationml.presentation", Data: []byte("PK\x03\x04")}},
+			{Type: llm.PartFile, File: &llm.File{Name: "latin1.txt", MIME: "text/plain", Data: []byte("caf\xe9")}},
 			{Type: llm.PartFile, File: &llm.File{Data: []byte("plain bytes")}},
 		}},
 	}}

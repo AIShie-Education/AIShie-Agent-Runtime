@@ -17,6 +17,7 @@
           "type": "output_text"
         }
       ],
+      "id": "msg_A",
       "phase": "commentary",
       "role": "assistant",
       "type": "message"

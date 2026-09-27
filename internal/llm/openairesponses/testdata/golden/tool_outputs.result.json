@@ -4,6 +4,7 @@
     {
       "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
       "opaque": {
+        "id": "msg_outputs",
         "phase": "final_answer"
       },
       "text": "Question 3 lost two marks: the loop has no exit.",

@@ -2,6 +2,10 @@
   "model": "gpt-test-2026-06-01",
   "parts": [
     {
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "opaque": {
+        "id": "msg_text"
+      },
       "text": "You lost two marks on question 3: the loop never ends.",
       "type": "text"
     }
