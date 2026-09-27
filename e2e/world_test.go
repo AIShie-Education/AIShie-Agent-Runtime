@@ -34,7 +34,6 @@ type agentSeat struct {
 // course tutor. No two worlds share a course, a person or an agent, so the
 // tests run side by side without seeing each other.
 type world struct {
-	name  string
 	api   *coreAPI
 	root  string
 	admin person
@@ -61,7 +60,7 @@ type capture struct {
 // the runtime's env:// references find them.
 func newWorld(t *testing.T, api *coreAPI, root, slug string) *world {
 	t.Helper()
-	w := &world{name: slug, api: api, root: root}
+	w := &world{api: api, root: root}
 	env := strings.ToUpper(strings.ReplaceAll(slug, "-", "_"))
 
 	adminID := result[struct {
@@ -170,7 +169,7 @@ func (w *world) memberID(t testing.TB, token, path string, body any) string {
 		MemberID string `json:"member_id"`
 	}](t, w.api, token, "POST", path, body).MemberID
 	if m == "" {
-		t.Fatalf("POST %s: %v", path, errNoResult)
+		t.Fatalf("POST %s seated nobody: its result names no member", path)
 	}
 	return m
 }

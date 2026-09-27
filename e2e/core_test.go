@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -230,6 +229,3 @@ func within(d time.Duration, cond func() bool) bool {
 		time.Sleep(tick)
 	}
 }
-
-// errNoResult is a result without the id it must have.
-var errNoResult = errors.New("the result holds no id")
