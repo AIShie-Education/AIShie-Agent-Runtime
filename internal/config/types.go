@@ -41,7 +41,7 @@ type Agent struct {
 	File string `yaml:"-"`
 	// merged is the agent's configuration as a generic map, after the
 	// defaults, for ForCourse to merge a course into.
-	merged map[string]any //nolint:unused // set by the loader, read by ForCourse
+	merged map[string]any
 }
 
 // Core is how the agent reaches Core.
@@ -124,7 +124,8 @@ type Tools struct {
 	// Mode is derived (the seat's perms ∩ allow − deny) or none.
 	Mode  string   `yaml:"mode"`
 	Allow []string `yaml:"allow"`
-	// Deny is beside the built-in list, which always applies.
+	// Deny is beside the built-in list, which always applies; an entry
+	// ending in * denies every tool whose name begins so (design §4).
 	Deny             []string `yaml:"deny"`
 	MaxParallelTools int      `yaml:"max_parallel_tools"`
 }
