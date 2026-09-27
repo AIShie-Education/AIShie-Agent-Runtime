@@ -1,0 +1,84 @@
+{
+  "request": {
+    "limits": {
+      "max_output_tokens": 8000
+    },
+    "messages": [
+      {
+        "parts": [
+          {
+            "text": "What is a lexer?",
+            "type": "text"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "system": "You are CS101 Tutor.",
+    "tool_mode": "auto",
+    "tools": [
+      {
+        "description": "List grades.",
+        "name": "grade_list",
+        "schema": {
+          "additionalProperties": false,
+          "properties": {
+            "assignment_id": {
+              "description": "(UUID)",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      }
+    ]
+  },
+  "wire": {
+    "additionalModelRequestFields": {
+      "thinking": {
+        "budget_tokens": 2048,
+        "type": "enabled"
+      }
+    },
+    "inferenceConfig": {
+      "maxTokens": 8000
+    },
+    "messages": [
+      {
+        "content": [
+          {
+            "text": "What is a lexer?"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "system": [
+      {
+        "text": "You are CS101 Tutor."
+      }
+    ],
+    "toolConfig": {
+      "tools": [
+        {
+          "toolSpec": {
+            "description": "List grades.",
+            "inputSchema": {
+              "json": {
+                "additionalProperties": false,
+                "properties": {
+                  "assignment_id": {
+                    "description": "(UUID)",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "name": "grade_list"
+          }
+        }
+      ]
+    }
+  }
+}

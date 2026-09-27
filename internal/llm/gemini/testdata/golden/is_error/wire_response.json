@@ -1,0 +1,23 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "I can't see your grades, but here is the course."
+          }
+        ]
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 120,
+    "candidatesTokenCount": 18,
+    "totalTokenCount": 138
+  },
+  "modelVersion": "gemini-2.5-flash",
+  "responseId": "resp-err"
+}

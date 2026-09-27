@@ -1,0 +1,149 @@
+{
+  "system": "You are the CS101 tutor. Answer from the course material only.",
+  "messages": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "What did I get on HW3, and why?"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Let me look that up.",
+          "maker": "gemini|https://generativelanguage.googleapis.com|gemini-2.5-flash",
+          "opaque": {
+            "thoughtSignature": "c2lnLTI1LXRleHQ="
+          }
+        },
+        {
+          "type": "tool_call",
+          "id": "fc-25-1",
+          "name": "grade_list",
+          "args": {
+            "assignment_id": "0192f3c1-0000-7000-8000-0000000000a3"
+          },
+          "maker": "gemini|https://generativelanguage.googleapis.com|gemini-2.5-flash",
+          "opaque": {
+            "thoughtSignature": "c2lnLTI1LWNhbGw=",
+            "id": "fc-25-1"
+          }
+        },
+        {
+          "type": "tool_call",
+          "id": "call_2",
+          "name": "assignment_list",
+          "args": {}
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "parts": [
+        {
+          "type": "tool_result",
+          "call_id": "fc-25-1",
+          "name": "grade_list",
+          "content": "{\"status\":\"executed\",\"result\":{\"grades\":[{\"points\":\"6.5\"}]}}"
+        },
+        {
+          "type": "tool_result",
+          "call_id": "call_2",
+          "name": "assignment_list",
+          "content": "{\"status\":\"executed\",\"result\":{\"assignments\":[]}}"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "parts": [
+        {
+          "type": "tool_call",
+          "id": "call_1",
+          "name": "course_get",
+          "args": {},
+          "maker": "gemini|https://generativelanguage.googleapis.com|gemini-3.5-flash",
+          "opaque": {
+            "thoughtSignature": "c2lnLTMtY2FsbA=="
+          }
+        },
+        {
+          "type": "tool_call",
+          "id": "call_2",
+          "name": "assignment_list",
+          "args": {
+            "limit": 5
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "parts": [
+        {
+          "type": "tool_result",
+          "call_id": "call_1",
+          "name": "course_get",
+          "content": "{\"status\":\"executed\",\"result\":{\"course\":{\"code\":\"CS101\"}}}"
+        },
+        {
+          "type": "tool_result",
+          "call_id": "call_2",
+          "name": "assignment_list",
+          "content": "{\"status\":\"executed\",\"result\":{\"assignments\":[]}}"
+        }
+      ]
+    }
+  ],
+  "tool_mode": "auto",
+  "limits": {
+    "max_output_tokens": 1500
+  },
+  "tools": [
+    {
+      "name": "assignment_list",
+      "description": "Lists the course's assignments.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "How many to list (optional; omit or null)"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "grade_list",
+      "description": "Lists the grades for an assignment.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "assignment_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "assignment_id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "course_get",
+      "description": "Gets the course.",
+      "schema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    }
+  ]
+}

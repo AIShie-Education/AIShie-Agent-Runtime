@@ -1,0 +1,33 @@
+{
+  "response": {
+    "parts": [
+      {
+        "text": "Hi.",
+        "type": "text"
+      }
+    ],
+    "raw_stop": "end_turn",
+    "stop": "end",
+    "usage": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 0,
+      "output": 0,
+      "reasoning": 0
+    }
+  },
+  "wire": {
+    "output": {
+      "message": {
+        "content": [
+          {
+            "text": "Hi."
+          }
+        ],
+        "role": "assistant"
+      }
+    },
+    "stopReason": "end_turn"
+  }
+}

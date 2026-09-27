@@ -1,0 +1,25 @@
+{
+  "model": "m",
+  "parts": [
+    {
+      "text": "You lost marks because",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "length",
+  "request_id": "chatcmpl-1",
+  "stop": "max_tokens",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 40,
+    "output": 9,
+    "raw": {
+      "completion_tokens": 9,
+      "prompt_tokens": 40,
+      "total_tokens": 49
+    },
+    "reasoning": 0
+  }
+}

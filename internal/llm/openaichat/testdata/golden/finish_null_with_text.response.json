@@ -1,0 +1,24 @@
+{
+  "model": "llama3.2",
+  "parts": [
+    {
+      "text": "Done.",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "",
+  "request_id": "n",
+  "stop": "end",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 40,
+    "output": 2,
+    "raw": {
+      "completion_tokens": 2,
+      "prompt_tokens": 40
+    },
+    "reasoning": 0
+  }
+}

@@ -1,0 +1,294 @@
+{
+ "scenario": "own_agent",
+ "steps": [
+  {
+   "args": {},
+   "envelope": {
+    "result": {
+     "memberships": [
+      {
+       "answers_course": false,
+       "assignment_scope": "all",
+       "code": "CS101",
+       "course_id": "<id:1>",
+       "course_status": "active",
+       "member_id": "<id:2>",
+       "perms": {
+        "action_decide": "denied",
+        "agent_delegate": "denied",
+        "assignment_write": "denied",
+        "conversation_answer": "autonomous",
+        "conversation_ask": "denied",
+        "document_read": "autonomous",
+        "document_read_draft": "denied",
+        "document_write": "denied",
+        "grade_post": "denied",
+        "grade_read": "autonomous",
+        "grade_submit": "denied",
+        "member_manage": "denied",
+        "member_read": "denied",
+        "rubric_read": "denied",
+        "submission_read": "autonomous",
+        "submission_write": "denied"
+       },
+       "principal_member_id": "<id:3>",
+       "role": "assistant",
+       "section": "A",
+       "status": "active",
+       "student_scope": "listed",
+       "title": "CS101"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "memberships",
+   "text_is_envelope": true,
+   "tool": "me_memberships"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "conversations": [
+      {
+       "created_at": "<time>",
+       "id": "<id:4>",
+       "last_author_member_id": "<id:3>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:5>",
+       "opener": {
+        "display_name": "Yuki",
+        "kind": "human",
+        "member_id": "<id:3>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "Yuki's helper",
+        "is_delegate_of_opener": true,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:2>",
+        "owner_name": "Yuki",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "inbox",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:4>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "created_at": "<time>",
+     "id": "<id:4>",
+     "last_author_member_id": "<id:3>",
+     "last_message_at": "<time>",
+     "latest_opener_message_id": "<id:5>",
+     "opener": {
+      "display_name": "Yuki",
+      "kind": "human",
+      "member_id": "<id:3>"
+     },
+     "respondent": {
+      "answer_level": "autonomous",
+      "display_name": "Yuki's helper",
+      "is_delegate_of_opener": true,
+      "kind": "agent",
+      "last_seen_at": "<time>",
+      "member_id": "<id:2>",
+      "owner_name": "Yuki",
+      "role": "assistant",
+      "seat_status": "active"
+     },
+     "state": "awaiting_answer",
+     "status": "open",
+     "visible_to": [
+      "participants",
+      "overseers",
+      "action_record"
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "get",
+   "text_is_envelope": true,
+   "tool": "conversation_get"
+  },
+  {
+   "args": {
+    "body": "Let me look at your grades.",
+    "conversation_id": "<id:4>",
+    "course_id": "<id:1>",
+    "idempotency_key": "answer:<id:4>:<id:5>:1",
+    "in_reply_to_message_id": "<id:5>"
+   },
+   "envelope": {
+    "action_id": "<id:6>",
+    "result": {
+     "message_id": "<id:7>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "answer",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "submissions": []
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "submissions",
+   "text_is_envelope": true,
+   "tool": "submission_list"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "grades": []
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "grades",
+   "text_is_envelope": true,
+   "tool": "grade_list"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "student_member_id": "<id:8>"
+   },
+   "envelope": {
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "student_out_of_scope"
+     },
+     "message": "not permitted"
+    },
+    "status": "denied"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "gradebook_other_student",
+   "text_is_envelope": true,
+   "tool": "gradebook_get"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "since_seq": 0
+   },
+   "envelope": {
+    "result": {
+     "events": [
+      {
+       "action_id": "<id:9>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:1>",
+       "subject_id": "<id:1>",
+       "subject_type": "course",
+       "type": "course.created"
+      },
+      {
+       "action_id": "<id:10>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:2>",
+       "subject_id": "<id:1>",
+       "subject_type": "course",
+       "type": "course.activated"
+      },
+      {
+       "action_id": "<id:11>",
+       "occurred_at": "<time>",
+       "payload": {
+        "conversation_id": "<id:4>",
+        "opener_member_id": "<id:3>",
+        "respondent_member_id": "<id:2>"
+       },
+       "seq": "<seq:3>",
+       "subject_id": "<id:4>",
+       "subject_type": "conversation",
+       "type": "conversation.opened"
+      },
+      {
+       "action_id": "<id:11>",
+       "occurred_at": "<time>",
+       "payload": {
+        "author_member_id": "<id:3>",
+        "conversation_id": "<id:4>",
+        "message_id": "<id:5>",
+        "opener_member_id": "<id:3>",
+        "respondent_member_id": "<id:2>"
+       },
+       "seq": "<seq:4>",
+       "subject_id": "<id:4>",
+       "subject_type": "conversation",
+       "type": "conversation.message_posted"
+      },
+      {
+       "action_id": "<id:6>",
+       "occurred_at": "<time>",
+       "payload": {
+        "author_member_id": "<id:2>",
+        "conversation_id": "<id:4>",
+        "message_id": "<id:7>",
+        "opener_member_id": "<id:3>",
+        "respondent_member_id": "<id:2>"
+       },
+       "seq": "<seq:5>",
+       "subject_id": "<id:4>",
+       "subject_type": "conversation",
+       "type": "conversation.message_posted"
+      }
+     ],
+     "more": false,
+     "next_seq": "<seq:5>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "events",
+   "text_is_envelope": true,
+   "tool": "event_list"
+  }
+ ]
+}

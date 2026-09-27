@@ -1,0 +1,167 @@
+name: CI
+
+# Runs on every pull request and on main. On a pull request it only checks. A
+# push to main whose lint, tests, end to end and build all pass is handed to
+# publish.yml, which pushes its image and deploys it to staging; releases come
+# from release.yml, on version tags.
+#
+# Every check calls a Makefile target, so `make ci` locally is the same thing.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "23 3 * * 1" # weekly, so new advisories surface without a push
+
+# A newer push to a pull request makes the older run moot. Every push to main
+# is checked in a run of its own, which nothing waits for or cancels: waiting
+# would hold the next commit's checks back until this one is deployed, and a
+# waiting run is cancelled when another joins the group. publish.yml puts the
+# publishing in order.
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+# Each run block is bash with -o pipefail: a pipeline fails when any command
+# in it does, not only when its last one does.
+defaults:
+  run:
+    shell: bash
+
+env:
+  GOLANGCI_LINT_VERSION: v2.13.2
+  # Makes the store's Postgres tests fail, rather than skip, if the database
+  # is missing.
+  CI: "true"
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL "https://raw.githubusercontent.com/golangci/golangci-lint/${GOLANGCI_LINT_VERSION}/install.sh" \
+            | sh -s -- -b "$(go env GOPATH)/bin" "${GOLANGCI_LINT_VERSION}"
+      - run: make lint
+      - run: make script-test
+
+  test:
+    name: test (pg ${{ matrix.postgres }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: ["13", "18"] # the oldest Core supports, and the newest
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make test
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: matrix.postgres == '18'
+        with:
+          name: coverage
+          path: cover.out
+          retention-days: 14
+
+  # The runtime against the Core pinned in .github/core-image, on a scratch
+  # database: its catalogue must be the snapshot, and agents seated through
+  # its REST API must get their questions answered.
+  e2e:
+    name: end to end, against the pinned Core
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read # Core's image, which is private
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      # scripts/ci-core.sh creates it for Core, and Core alone uses it.
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/aishiteru_e2e?sslmode=disable
+      TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # The package is private: this works once an organization owner has let
+      # this repository read it (CONTRIBUTING.md, One-time settings), and
+      # scripts/ci-core.sh says so when the pull is refused.
+      - name: Log in to GHCR
+        env:
+          TOKEN: ${{ github.token }}
+        run: printf '%s\n' "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - run: make e2e
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: e2e-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/aishiteru-ci-core/core.log
+            ${{ runner.temp }}/aishiteru-ci-core/e2e.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make build
+      - run: ./bin/aishie-runtime version
+      # Proves the Dockerfile still builds. Nothing is pushed from CI.
+      - run: make docker
+      - run: docker run --rm aishie-runtime:dev version
+
+  vuln:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make vuln
+
+  # A green push to main: its image, deployed to staging. Pull requests and
+  # the weekly run publish nothing. vuln does not hold it back; a new advisory
+  # is for a person to weigh, and it still shows red here.
+  publish:
+    needs: [lint, test, e2e, build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/publish.yml
+    # A called workflow sees no secret its caller does not pass, and deploy.yml
+    # is two calls down: see its header.
+    secrets: inherit

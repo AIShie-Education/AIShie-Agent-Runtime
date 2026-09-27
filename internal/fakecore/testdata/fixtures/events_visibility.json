@@ -1,0 +1,517 @@
+{
+ "scenario": "events_visibility",
+ "steps": [
+  {
+   "args": {
+    "body": "Tuesdays at two.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "action_id": "<id:4>",
+    "result": {
+     "message_id": "<id:5>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "answer_x",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "Yes.",
+    "conversation_id": "<id:6>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:6>:<id:7>:1",
+    "in_reply_to_message_id": "<id:7>"
+   },
+   "envelope": {
+    "action_id": "<id:8>",
+    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed.",
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "propose_y",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "since_seq": 0
+   },
+   "envelope": {
+    "result": {
+     "events": [
+      {
+       "action_id": "<id:9>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:1>",
+       "subject_id": "<id:2>",
+       "subject_type": "course",
+       "type": "course.created"
+      },
+      {
+       "action_id": "<id:10>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:2>",
+       "subject_id": "<id:2>",
+       "subject_type": "course",
+       "type": "course.activated"
+      },
+      {
+       "action_id": "<id:11>",
+       "occurred_at": "<time>",
+       "payload": {
+        "conversation_id": "<id:6>",
+        "opener_member_id": "<id:12>",
+        "respondent_member_id": "<id:13>"
+       },
+       "seq": "<seq:3>",
+       "subject_id": "<id:6>",
+       "subject_type": "conversation",
+       "type": "conversation.opened"
+      },
+      {
+       "action_id": "<id:11>",
+       "occurred_at": "<time>",
+       "payload": {
+        "author_member_id": "<id:12>",
+        "conversation_id": "<id:6>",
+        "message_id": "<id:7>",
+        "opener_member_id": "<id:12>",
+        "respondent_member_id": "<id:13>"
+       },
+       "seq": "<seq:4>",
+       "subject_id": "<id:6>",
+       "subject_type": "conversation",
+       "type": "conversation.message_posted"
+      }
+     ],
+     "more": false,
+     "next_seq": "<seq:4>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "student_events",
+   "text_is_envelope": true,
+   "tool": "event_list"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "since_seq": 0
+   },
+   "envelope": {
+    "result": {
+     "events": [
+      {
+       "action_id": "<id:9>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:1>",
+       "subject_id": "<id:2>",
+       "subject_type": "course",
+       "type": "course.created"
+      },
+      {
+       "action_id": "<id:10>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:2>",
+       "subject_id": "<id:2>",
+       "subject_type": "course",
+       "type": "course.activated"
+      },
+      {
+       "action_id": "<id:14>",
+       "occurred_at": "<time>",
+       "payload": {
+        "actor_id": "<id:15>",
+        "role": "instructor"
+       },
+       "seq": "<seq:5>",
+       "subject_id": "<id:16>",
+       "subject_type": "course_member",
+       "type": "member.added"
+      },
+      {
+       "action_id": "<id:17>",
+       "occurred_at": "<time>",
+       "payload": {
+        "actor_id": "<id:18>",
+        "role": "instructor"
+       },
+       "seq": "<seq:6>",
+       "subject_id": "<id:19>",
+       "subject_type": "course_member",
+       "type": "member.added"
+      },
+      {
+       "action_id": "<id:20>",
+       "occurred_at": "<time>",
+       "payload": {
+        "actor_id": "<id:21>",
+        "role": "student"
+       },
+       "seq": "<seq:7>",
+       "subject_id": "<id:22>",
+       "subject_type": "course_member",
+       "type": "member.added"
+      },
+      {
+       "action_id": "<id:23>",
+       "occurred_at": "<time>",
+       "payload": {
+        "actor_id": "<id:24>",
+        "role": "student"
+       },
+       "seq": "<seq:8>",
+       "subject_id": "<id:12>",
+       "subject_type": "course_member",
+       "type": "member.added"
+      },
+      {
+       "action_id": "<id:25>",
+       "occurred_at": "<time>",
+       "payload": {
+        "actor_id": "<id:26>",
+        "answers_course": true,
+        "delegate": true,
+        "principal_member_id": "<id:16>",
+        "role": "assistant"
+       },
+       "seq": "<seq:9>",
+       "subject_id": "<id:13>",
+       "subject_type": "course_member",
+       "type": "member.added"
+      },
+      {
+       "action_id": "<id:27>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:10>",
+       "subject_id": "<id:13>",
+       "subject_type": "course_member",
+       "type": "member.updated"
+      },
+      {
+       "action_id": "<id:8>",
+       "occurred_at": "<time>",
+       "payload": {
+        "action_type": "conversation.answer",
+        "target_id": "<id:6>",
+        "target_type": "conversation"
+       },
+       "seq": "<seq:11>",
+       "subject_id": "<id:8>",
+       "subject_type": "action",
+       "type": "action.proposed"
+      }
+     ],
+     "more": false,
+     "next_seq": "<seq:11>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "decider_events",
+   "text_is_envelope": true,
+   "tool": "event_list"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "since_seq": 0
+   },
+   "envelope": {
+    "result": {
+     "events": [
+      {
+       "action_id": "<id:9>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:1>",
+       "subject_id": "<id:2>",
+       "subject_type": "course",
+       "type": "course.created"
+      },
+      {
+       "action_id": "<id:10>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:2>",
+       "subject_id": "<id:2>",
+       "subject_type": "course",
+       "type": "course.activated"
+      },
+      {
+       "action_id": "<id:28>",
+       "occurred_at": "<time>",
+       "payload": {
+        "conversation_id": "<id:1>",
+        "opener_member_id": "<id:22>",
+        "respondent_member_id": "<id:13>"
+       },
+       "seq": "<seq:12>",
+       "subject_id": "<id:1>",
+       "subject_type": "conversation",
+       "type": "conversation.opened"
+      },
+      {
+       "action_id": "<id:28>",
+       "occurred_at": "<time>",
+       "payload": {
+        "author_member_id": "<id:22>",
+        "conversation_id": "<id:1>",
+        "message_id": "<id:3>",
+        "opener_member_id": "<id:22>",
+        "respondent_member_id": "<id:13>"
+       },
+       "seq": "<seq:13>",
+       "subject_id": "<id:1>",
+       "subject_type": "conversation",
+       "type": "conversation.message_posted"
+      },
+      {
+       "action_id": "<id:4>",
+       "occurred_at": "<time>",
+       "payload": {
+        "author_member_id": "<id:13>",
+        "conversation_id": "<id:1>",
+        "message_id": "<id:5>",
+        "opener_member_id": "<id:22>",
+        "respondent_member_id": "<id:13>"
+       },
+       "seq": "<seq:14>",
+       "subject_id": "<id:1>",
+       "subject_type": "conversation",
+       "type": "conversation.message_posted"
+      },
+      {
+       "action_id": "<id:11>",
+       "occurred_at": "<time>",
+       "payload": {
+        "conversation_id": "<id:6>",
+        "opener_member_id": "<id:12>",
+        "respondent_member_id": "<id:13>"
+       },
+       "seq": "<seq:3>",
+       "subject_id": "<id:6>",
+       "subject_type": "conversation",
+       "type": "conversation.opened"
+      },
+      {
+       "action_id": "<id:11>",
+       "occurred_at": "<time>",
+       "payload": {
+        "author_member_id": "<id:12>",
+        "conversation_id": "<id:6>",
+        "message_id": "<id:7>",
+        "opener_member_id": "<id:12>",
+        "respondent_member_id": "<id:13>"
+       },
+       "seq": "<seq:4>",
+       "subject_id": "<id:6>",
+       "subject_type": "conversation",
+       "type": "conversation.message_posted"
+      },
+      {
+       "action_id": "<id:8>",
+       "occurred_at": "<time>",
+       "payload": {
+        "action_type": "conversation.answer",
+        "target_id": "<id:6>",
+        "target_type": "conversation"
+       },
+       "seq": "<seq:11>",
+       "subject_id": "<id:8>",
+       "subject_type": "action",
+       "type": "action.proposed"
+      }
+     ],
+     "more": false,
+     "next_seq": "<seq:11>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "tutor_events",
+   "text_is_envelope": true,
+   "tool": "event_list"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "message": "no such conversation in this course"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "student_reads_another",
+   "text_is_envelope": true,
+   "tool": "conversation_messages"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "permission_denied"
+     },
+     "message": "not permitted"
+    },
+    "status": "denied"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "student_inbox",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "since_seq": 0
+   },
+   "envelope": {
+    "result": {
+     "events": [
+      {
+       "action_id": "<id:9>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:1>",
+       "subject_id": "<id:2>",
+       "subject_type": "course",
+       "type": "course.created"
+      },
+      {
+       "action_id": "<id:10>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:2>",
+       "subject_id": "<id:2>",
+       "subject_type": "course",
+       "type": "course.activated"
+      },
+      {
+       "action_id": "<id:29>",
+       "occurred_at": "<time>",
+       "payload": {
+        "conversation_id": "<id:30>",
+        "opener_member_id": "<id:22>",
+        "respondent_member_id": "<id:31>"
+       },
+       "seq": "<seq:15>",
+       "subject_id": "<id:30>",
+       "subject_type": "conversation",
+       "type": "conversation.opened"
+      },
+      {
+       "action_id": "<id:29>",
+       "occurred_at": "<time>",
+       "payload": {
+        "author_member_id": "<id:22>",
+        "conversation_id": "<id:30>",
+        "message_id": "<id:32>",
+        "opener_member_id": "<id:22>",
+        "respondent_member_id": "<id:31>"
+       },
+       "seq": "<seq:16>",
+       "subject_id": "<id:30>",
+       "subject_type": "conversation",
+       "type": "conversation.message_posted"
+      }
+     ],
+     "more": false,
+     "next_seq": "<seq:16>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "own_agent_events",
+   "text_is_envelope": true,
+   "tool": "event_list"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "message": "no such conversation in this course"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "own_agent_reads_the_tutors",
+   "text_is_envelope": true,
+   "tool": "conversation_get"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "since_seq": "<seq:11>"
+   },
+   "envelope": {
+    "result": {
+     "events": [],
+     "more": false,
+     "next_seq": "<seq:11>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "tutor_events_after",
+   "text_is_envelope": true,
+   "tool": "event_list"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:30>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "message": "no such conversation in this course"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "tutor_reads_the_own_agents",
+   "text_is_envelope": true,
+   "tool": "conversation_get"
+  }
+ ]
+}

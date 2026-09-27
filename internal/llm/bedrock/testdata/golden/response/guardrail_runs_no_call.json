@@ -1,0 +1,50 @@
+{
+  "response": {
+    "parts": [
+      {
+        "text": "Sorry, the model cannot answer this question.",
+        "type": "text"
+      }
+    ],
+    "raw_stop": "guardrail_intervened",
+    "stop": "content_filter",
+    "usage": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 1234,
+      "output": 210,
+      "raw": {
+        "inputTokens": 1234,
+        "outputTokens": 210,
+        "totalTokens": 1444
+      },
+      "reasoning": 0
+    }
+  },
+  "wire": {
+    "output": {
+      "message": {
+        "content": [
+          {
+            "text": "Sorry, the model cannot answer this question."
+          },
+          {
+            "toolUse": {
+              "input": {},
+              "name": "course_get",
+              "toolUseId": "tooluse_g"
+            }
+          }
+        ],
+        "role": "assistant"
+      }
+    },
+    "stopReason": "guardrail_intervened",
+    "usage": {
+      "inputTokens": 1234,
+      "outputTokens": 210,
+      "totalTokens": 1444
+    }
+  }
+}

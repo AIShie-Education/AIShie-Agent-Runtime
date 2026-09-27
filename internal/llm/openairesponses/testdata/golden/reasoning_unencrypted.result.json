@@ -1,0 +1,48 @@
+{
+  "model": "gpt-test-2026-06-01",
+  "parts": [
+    {
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "opaque": {
+        "id": "rs_plain",
+        "summary": [],
+        "type": "reasoning"
+      },
+      "type": "reasoning"
+    },
+    {
+      "args": {
+        "assignment_id": "0192f3c1-7a2b-7c3d-8e4f-5a6b7c8d9e0f"
+      },
+      "id": "call_plain",
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "name": "grade_list",
+      "opaque": {
+        "id": "fc_plain"
+      },
+      "type": "tool_call"
+    }
+  ],
+  "raw_stop": "completed",
+  "request_id": "resp_rs_plain",
+  "stop": "tool_calls",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 36,
+    "output": 14,
+    "raw": {
+      "input_tokens": 36,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 14,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 50
+    },
+    "reasoning": 0
+  }
+}

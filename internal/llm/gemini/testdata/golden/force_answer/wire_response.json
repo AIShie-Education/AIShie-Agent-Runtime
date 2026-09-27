@@ -1,0 +1,23 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "HW3 is due on 2 October at 17:00 UTC."
+          }
+        ]
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 120,
+    "candidatesTokenCount": 18,
+    "totalTokenCount": 138
+  },
+  "modelVersion": "gemini-2.5-flash",
+  "responseId": "resp-force"
+}

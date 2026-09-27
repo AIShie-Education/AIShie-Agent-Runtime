@@ -1,0 +1,21 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "document_id": {
+      "description": "(UUID)",
+      "type": "string"
+    },
+    "version_id": {
+      "description": "a specific version; otherwise the published one, or the latest for members who can read drafts (UUID) (optional; omit or null)",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "document_id",
+    "version_id"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,24 @@
+{
+  "max_tokens": 17884,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "Why did I lose marks on HW3?",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-opus-5",
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "You are CS101's tutor.",
+      "type": "text"
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+{
+  "response": {
+    "parts": [
+      {
+        "args": {},
+        "id": "tooluse_1",
+        "name": "course_get",
+        "type": "tool_call"
+      }
+    ],
+    "raw_stop": "tool_use",
+    "stop": "tool_calls",
+    "usage": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 1234,
+      "output": 210,
+      "raw": {
+        "inputTokens": 1234,
+        "outputTokens": 210,
+        "totalTokens": 1444
+      },
+      "reasoning": 0
+    }
+  },
+  "wire": {
+    "output": {
+      "message": {
+        "content": [
+          {
+            "toolUse": {
+              "input": {},
+              "name": "course_get",
+              "toolUseId": "tooluse_1"
+            }
+          }
+        ],
+        "role": "assistant"
+      }
+    },
+    "stopReason": "tool_use",
+    "usage": {
+      "inputTokens": 1234,
+      "outputTokens": 210,
+      "totalTokens": 1444
+    }
+  }
+}

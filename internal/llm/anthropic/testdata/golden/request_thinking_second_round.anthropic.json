@@ -1,0 +1,141 @@
+{
+  "max_tokens": 6096,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "Why did I lose marks on HW3?",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "signature": "EqQBCkgIARABGAIiQLu8m1Xz/signature+bytes==",
+          "thinking": "The student asks about <HW3> & its marks.",
+          "type": "thinking"
+        },
+        {
+          "text": "Let me check.",
+          "type": "text"
+        },
+        {
+          "id": "toolu_01",
+          "input": {
+            "assignment_id": "0192f3c1-0000-7000-8000-000000000003"
+          },
+          "name": "grade_list",
+          "type": "tool_use"
+        },
+        {
+          "id": "toolu_02",
+          "input": {
+            "assignment_id": "0192f3c1-0000-7000-8000-000000000003"
+          },
+          "name": "assignment_get",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "{\"status\":\"executed\",\"result\":{\"grades\":[{\"points\":\"7.5\",\"max\":\"10\"}]}}",
+          "tool_use_id": "toolu_01",
+          "type": "tool_result"
+        },
+        {
+          "content": "{\"status\":\"executed\",\"result\":{\"assignment\":{\"title\":\"HW3\",\"rubric\":\"…\"}}}",
+          "tool_use_id": "toolu_02",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "text": "The rubric too.",
+          "type": "text"
+        },
+        {
+          "id": "toolu_03",
+          "input": {
+            "assignment_id": "0192f3c1-0000-7000-8000-000000000004"
+          },
+          "name": "assignment_get",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "{\"status\":\"executed\",\"result\":{\"assignment\":{\"title\":\"HW3\",\"rubric\":\"…\"}}}",
+          "tool_use_id": "toolu_03",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-sonnet-4-5",
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "You are CS101's tutor.",
+      "type": "text"
+    }
+  ],
+  "thinking": {
+    "budget_tokens": 4096,
+    "type": "enabled"
+  },
+  "tool_choice": {
+    "type": "auto"
+  },
+  "tools": [
+    {
+      "description": "List the grades of an assignment.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "assignment_id": {
+            "description": "the assignment (UUID)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "assignment_id"
+        ],
+        "type": "object"
+      },
+      "name": "grade_list"
+    },
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "description": "Read one assignment.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "assignment_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "assignment_id"
+        ],
+        "type": "object"
+      },
+      "name": "assignment_get"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "model": "gpt-5-mini-2025-08-07",
+  "parts": [
+    {
+      "text": "Question 2 lost 3 marks.",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "stop",
+  "request_id": "chatcmpl-A2",
+  "stop": "end",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 60,
+    "output": 200,
+    "raw": {
+      "completion_tokens": 200,
+      "completion_tokens_details": {
+        "reasoning_tokens": 192
+      },
+      "prompt_tokens": 60,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "total_tokens": 260
+    },
+    "reasoning": 192
+  }
+}

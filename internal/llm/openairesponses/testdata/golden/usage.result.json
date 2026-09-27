@@ -1,0 +1,36 @@
+{
+  "model": "gpt-test-2026-06-01",
+  "parts": [
+    {
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "opaque": {
+        "id": "msg_usage"
+      },
+      "text": "Done.",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "completed",
+  "request_id": "resp_usage",
+  "stop": "end",
+  "usage": {
+    "cache_read": 1000,
+    "cache_write": 200,
+    "estimated": false,
+    "input": 1234,
+    "output": 210,
+    "raw": {
+      "input_tokens": 1234,
+      "input_tokens_details": {
+        "cache_write_tokens": 200,
+        "cached_tokens": 1000
+      },
+      "output_tokens": 210,
+      "output_tokens_details": {
+        "reasoning_tokens": 64
+      },
+      "total_tokens": 1444
+    },
+    "reasoning": 64
+  }
+}

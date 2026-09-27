@@ -1,0 +1,53 @@
+{
+  "model": "anthropic/claude-sonnet-4.5",
+  "parts": [
+    {
+      "maker": "openai_chat|https://openrouter.ai/api/v1|anthropic/claude-sonnet-4.5",
+      "opaque": {
+        "reasoning_details": [
+          {
+            "format": "anthropic-claude-v1",
+            "index": 0,
+            "signature": "EqQC",
+            "text": "Now the assignment itself.",
+            "type": "reasoning.text"
+          }
+        ]
+      },
+      "text": "Now the assignment itself.",
+      "type": "reasoning"
+    },
+    {
+      "args": {
+        "assignment_id": "hw3"
+      },
+      "id": "toolu_02",
+      "name": "assignment_get",
+      "type": "tool_call"
+    }
+  ],
+  "raw_stop": "tool_calls/tool_use",
+  "request_id": "gen-1",
+  "stop": "tool_calls",
+  "usage": {
+    "cache_read": 800,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 900,
+    "output": 80,
+    "raw": {
+      "completion_tokens": 80,
+      "completion_tokens_details": {
+        "reasoning_tokens": 40
+      },
+      "cost": 0.0039,
+      "prompt_tokens": 900,
+      "prompt_tokens_details": {
+        "cache_write_tokens": 0,
+        "cached_tokens": 800
+      },
+      "total_tokens": 980
+    },
+    "reasoning": 40
+  }
+}

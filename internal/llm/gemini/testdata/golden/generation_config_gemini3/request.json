@@ -1,0 +1,18 @@
+{
+  "system": "You are the CS101 tutor. Answer from the course material only.",
+  "messages": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Explain recursion briefly."
+        }
+      ]
+    }
+  ],
+  "tool_mode": "auto",
+  "limits": {
+    "max_output_tokens": 0
+  }
+}

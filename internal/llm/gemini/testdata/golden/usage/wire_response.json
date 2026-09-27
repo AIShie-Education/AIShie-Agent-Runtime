@@ -1,0 +1,44 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "The course has weekly labs, three homeworks and a final exam."
+          }
+        ]
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 1234,
+    "cachedContentTokenCount": 1000,
+    "candidatesTokenCount": 150,
+    "toolUsePromptTokenCount": 20,
+    "thoughtsTokenCount": 64,
+    "totalTokenCount": 1468,
+    "promptTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 1234
+      }
+    ],
+    "cacheTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 1000
+      }
+    ],
+    "candidatesTokensDetails": [
+      {
+        "modality": "TEXT",
+        "tokenCount": 150
+      }
+    ]
+  },
+  "modelVersion": "gemini-2.5-flash-001",
+  "responseId": "resp-usage"
+}

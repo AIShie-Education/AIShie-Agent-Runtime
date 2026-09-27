@@ -1,0 +1,20 @@
+{
+  "id": "resp_nostatus",
+  "model": "gpt-test",
+  "output": [
+    {
+      "id": "msg_nostatus",
+      "type": "message",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "annotations": [],
+          "logprobs": [],
+          "text": "An answer from a server that says no status."
+        }
+      ],
+      "role": "assistant"
+    }
+  ]
+}

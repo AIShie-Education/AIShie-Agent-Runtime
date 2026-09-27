@@ -1,0 +1,37 @@
+{
+  "model": "gpt-test-2026-06-01",
+  "parts": [
+    {
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "opaque": {
+        "encrypted_content": "gAAAAAinc",
+        "id": "rs_inc",
+        "summary": [],
+        "type": "reasoning"
+      },
+      "type": "reasoning"
+    }
+  ],
+  "raw_stop": "incomplete/max_output_tokens",
+  "request_id": "resp_inc_rs",
+  "stop": "max_tokens",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 50,
+    "output": 16,
+    "raw": {
+      "input_tokens": 50,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 16,
+      "output_tokens_details": {
+        "reasoning_tokens": 16
+      },
+      "total_tokens": 66
+    },
+    "reasoning": 16
+  }
+}

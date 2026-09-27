@@ -1,0 +1,148 @@
+{
+  "body": {
+    "contents": [
+      {
+        "parts": [
+          {
+            "text": "What does the syllabus say about late work?"
+          }
+        ],
+        "role": "user"
+      },
+      {
+        "parts": [
+          {
+            "functionCall": {
+              "args": {
+                "document_id": "0192f3c1-0000-7000-8000-00000000d0c1"
+              },
+              "name": "document_get"
+            }
+          },
+          {
+            "functionCall": {
+              "args": {
+                "document_id": "0192f3c1-0000-7000-8000-00000000d0c2"
+              },
+              "name": "document_get"
+            }
+          }
+        ],
+        "role": "model"
+      },
+      {
+        "parts": [
+          {
+            "functionResponse": {
+              "name": "document_get",
+              "response": {
+                "output": {
+                  "result": {
+                    "document": {
+                      "file": {
+                        "name": "syllabus.pdf"
+                      },
+                      "title": "Syllabus"
+                    }
+                  },
+                  "status": "executed"
+                }
+              }
+            }
+          },
+          {
+            "functionResponse": {
+              "name": "document_get",
+              "response": {
+                "output": {
+                  "result": {
+                    "document": {
+                      "file": {
+                        "name": "schedule.txt"
+                      },
+                      "title": "Schedule"
+                    }
+                  },
+                  "status": "executed"
+                }
+              }
+            }
+          },
+          {
+            "inlineData": {
+              "data": "JVBERi0xLjQKJSB0aGUgc3lsbGFidXMK",
+              "mimeType": "application/pdf"
+            }
+          },
+          {
+            "inlineData": {
+              "data": "iVBORw0KGgo=",
+              "mimeType": "image/png"
+            }
+          },
+          {
+            "inlineData": {
+              "data": "V2VlayAxOiB2YXJpYWJsZXMK",
+              "mimeType": "text/plain"
+            }
+          },
+          {
+            "text": "[file \"export.bin\" left out: its type is not known]"
+          },
+          {
+            "text": "[file \"notes.md\"]\n# Late work\n\nTen per cent a day.\n"
+          },
+          {
+            "text": "[file \"handout.docx\" left out: Gemini does not take files of its type]"
+          },
+          {
+            "inlineData": {
+              "data": "/9j/4AAQ",
+              "mimeType": "image/jpeg"
+            }
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "generationConfig": {
+      "maxOutputTokens": 26076
+    },
+    "systemInstruction": {
+      "parts": [
+        {
+          "text": "You are the CS101 tutor. Answer from the course material only."
+        }
+      ]
+    },
+    "toolConfig": {
+      "functionCallingConfig": {
+        "mode": "AUTO"
+      }
+    },
+    "tools": [
+      {
+        "functionDeclarations": [
+          {
+            "description": "Gets a document.",
+            "name": "document_get",
+            "parametersJsonSchema": {
+              "additionalProperties": false,
+              "properties": {
+                "document_id": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "document_id"
+              ],
+              "type": "object"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+}

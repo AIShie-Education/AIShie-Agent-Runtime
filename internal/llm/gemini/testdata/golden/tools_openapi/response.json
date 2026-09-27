@@ -1,0 +1,29 @@
+{
+  "model": "gemini-2.5-flash",
+  "parts": [
+    {
+      "args": {
+        "limit": null
+      },
+      "id": "call_1",
+      "name": "assignment_list",
+      "type": "tool_call"
+    }
+  ],
+  "raw_stop": "STOP",
+  "request_id": "resp-openapi",
+  "stop": "tool_calls",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 120,
+    "output": 18,
+    "raw": {
+      "candidatesTokenCount": 18,
+      "promptTokenCount": 120,
+      "totalTokenCount": 138
+    },
+    "reasoning": 0
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "model": "gemini-3.5-flash",
+  "parts": [
+    {
+      "maker": "gemini|https://generativelanguage.googleapis.com|gemini-3.5-flash",
+      "opaque": {
+        "thoughtSignature": "c2lnLTMtYW5zd2Vy"
+      },
+      "text": "You got 6.5 of 10: the edge-case tests failed.",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "STOP",
+  "request_id": "resp-g3",
+  "stop": "end",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 410,
+    "output": 136,
+    "raw": {
+      "candidatesTokenCount": 16,
+      "promptTokenCount": 410,
+      "thoughtsTokenCount": 120,
+      "totalTokenCount": 546
+    },
+    "reasoning": 120
+  }
+}

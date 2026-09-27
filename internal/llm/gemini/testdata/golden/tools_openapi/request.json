@@ -1,0 +1,49 @@
+{
+  "system": "You are the CS101 tutor. Answer from the course material only.",
+  "messages": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "When is HW3 due?"
+        }
+      ]
+    }
+  ],
+  "tool_mode": "auto",
+  "limits": {
+    "max_output_tokens": 1500
+  },
+  "tools": [
+    {
+      "name": "assignment_list",
+      "description": "Lists the course's assignments.",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "nullable": true,
+            "description": "How many to list (optional; omit or null)"
+          }
+        }
+      }
+    },
+    {
+      "name": "course_get",
+      "description": "Gets the course.",
+      "schema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "component_tree",
+      "description": "The grade components.",
+      "schema": {
+        "type": "object"
+      }
+    }
+  ]
+}

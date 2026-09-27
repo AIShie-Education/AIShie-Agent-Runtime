@@ -1,0 +1,47 @@
+{
+  "model": "gemini-2.5-flash",
+  "parts": [
+    {
+      "maker": "gemini|https://generativelanguage.googleapis.com|gemini-2.5-flash",
+      "opaque": {
+        "text": "**Reading the feedback**\nThe grader noted failing edge-case tests.",
+        "thought": true,
+        "thoughtSignature": "dGhvdWdodC0y"
+      },
+      "text": "**Reading the feedback**\nThe grader noted failing edge-case tests.",
+      "type": "reasoning"
+    },
+    {
+      "maker": "gemini|https://generativelanguage.googleapis.com|gemini-2.5-flash",
+      "opaque": {
+        "codeExecutionResult": {
+          "outcome": "OUTCOME_OK",
+          "output": "0.65\n"
+        },
+        "thoughtSignature": "Y29kZS0x"
+      },
+      "type": "reasoning"
+    },
+    {
+      "text": "You lost 3.5 marks because the edge-case tests failed.",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "STOP",
+  "request_id": "resp-thought",
+  "stop": "end",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 300,
+    "output": 110,
+    "raw": {
+      "candidatesTokenCount": 14,
+      "promptTokenCount": 300,
+      "thoughtsTokenCount": 96,
+      "totalTokenCount": 410
+    },
+    "reasoning": 96
+  }
+}

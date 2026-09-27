@@ -1,0 +1,59 @@
+{
+  "id": "resp_inc_cut",
+  "object": "response",
+  "created_at": 1790000000,
+  "status": "incomplete",
+  "background": false,
+  "error": null,
+  "incomplete_details": {
+    "reason": "max_output_tokens"
+  },
+  "instructions": "You are a tutor.",
+  "max_output_tokens": 2000,
+  "model": "gpt-test-2026-06-01",
+  "output": [
+    {
+      "id": "rs_cut",
+      "type": "reasoning",
+      "summary": [],
+      "encrypted_content": "gAAAAAcut"
+    },
+    {
+      "id": "fc_cut",
+      "type": "function_call",
+      "status": "incomplete",
+      "arguments": "{\"assignment_id\": \"0192f3c1-7a2b",
+      "call_id": "call_cut",
+      "name": "assignment_get"
+    }
+  ],
+  "parallel_tool_calls": true,
+  "previous_response_id": null,
+  "reasoning": {
+    "effort": null,
+    "summary": null
+  },
+  "store": false,
+  "temperature": 1.0,
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": "medium"
+  },
+  "tool_choice": "auto",
+  "tools": [],
+  "top_p": 1.0,
+  "truncation": "disabled",
+  "usage": {
+    "input_tokens": 50,
+    "input_tokens_details": {
+      "cached_tokens": 0
+    },
+    "output_tokens": 40,
+    "output_tokens_details": {
+      "reasoning_tokens": 24
+    },
+    "total_tokens": 90
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "response": {
+    "parts": [
+      {
+        "text": "Hi.",
+        "type": "text"
+      }
+    ],
+    "raw_stop": "end_turn",
+    "stop": "end",
+    "usage": {
+      "cache_read": 15883,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 15887,
+      "output": 257,
+      "raw": {
+        "cacheReadInputTokens": 15883,
+        "cacheWriteInputTokens": 0,
+        "inputTokens": 4,
+        "outputTokens": 257,
+        "totalTokens": 16144
+      },
+      "reasoning": 0
+    }
+  },
+  "wire": {
+    "output": {
+      "message": {
+        "content": [
+          {
+            "text": "Hi."
+          }
+        ],
+        "role": "assistant"
+      }
+    },
+    "stopReason": "end_turn",
+    "usage": {
+      "cacheReadInputTokens": 15883,
+      "cacheWriteInputTokens": 0,
+      "inputTokens": 4,
+      "outputTokens": 257,
+      "totalTokens": 16144
+    }
+  }
+}

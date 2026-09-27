@@ -1,0 +1,28 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "functionCall": {
+              "name": "grade_list",
+              "args": {
+                "assignment_id": "0192f3c1-0000-7000-8000-0000000000a3"
+              }
+            }
+          }
+        ]
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 120,
+    "candidatesTokenCount": 18,
+    "totalTokenCount": 138
+  },
+  "modelVersion": "gemini-2.5-flash",
+  "responseId": "resp-noid"
+}

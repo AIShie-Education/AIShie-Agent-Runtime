@@ -1,0 +1,51 @@
+{
+  "model": "gpt-test-2026-06-01",
+  "parts": [
+    {
+      "args": {
+        "assignment_id": "0192f3c1-7a2b-7c3d-8e4f-5a6b7c8d9e0f"
+      },
+      "id": "call_grades",
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "name": "grade_list",
+      "opaque": {
+        "id": "fc_parallel_1"
+      },
+      "type": "tool_call"
+    },
+    {
+      "args": {
+        "assignment_id": "0192f3c1-7a2b-7c3d-8e4f-5a6b7c8d9e0f"
+      },
+      "id": "call_assignment",
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "name": "assignment_get",
+      "opaque": {
+        "id": "fc_parallel_2"
+      },
+      "type": "tool_call"
+    }
+  ],
+  "raw_stop": "completed",
+  "request_id": "resp_parallel",
+  "stop": "tool_calls",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 412,
+    "output": 61,
+    "raw": {
+      "input_tokens": 412,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 61,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 473
+    },
+    "reasoning": 0
+  }
+}

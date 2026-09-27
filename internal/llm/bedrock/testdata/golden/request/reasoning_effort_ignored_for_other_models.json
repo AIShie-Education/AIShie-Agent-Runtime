@@ -1,0 +1,34 @@
+{
+  "request": {
+    "limits": {},
+    "messages": [
+      {
+        "parts": [
+          {
+            "text": "Hello",
+            "type": "text"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "system": "",
+    "tool_mode": "auto"
+  },
+  "wire": {
+    "inferenceConfig": {
+      "maxTokens": 4000,
+      "temperature": 0.3
+    },
+    "messages": [
+      {
+        "content": [
+          {
+            "text": "Hello"
+          }
+        ],
+        "role": "user"
+      }
+    ]
+  }
+}

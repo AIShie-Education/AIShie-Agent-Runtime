@@ -1,0 +1,32 @@
+{
+  "model": "claude-opus-4-7",
+  "parts": [
+    {
+      "text": "Question 2 lost the marks.",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "end_turn",
+  "request_id": "req_011CSHoEeqs5C35K2UUqR7Fy",
+  "stop": "end",
+  "usage": {
+    "cache_read": 10240,
+    "cache_write": 1290,
+    "estimated": false,
+    "input": 11587,
+    "output": 12,
+    "raw": {
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 0,
+        "ephemeral_5m_input_tokens": 1290
+      },
+      "cache_creation_input_tokens": 1290,
+      "cache_read_input_tokens": 10240,
+      "input_tokens": 57,
+      "output_tokens": 12,
+      "server_tool_use": null,
+      "service_tier": "standard"
+    },
+    "reasoning": 0
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "properties": {
+    "clear_points_possible": {
+      "description": "turn a directly graded component back into a bucket",
+      "type": "boolean"
+    },
+    "component_id": {
+      "description": "(UUID)",
+      "type": "string"
+    },
+    "drop_lowest": {
+      "description": "(optional; omit or null)",
+      "maximum": 2147483647,
+      "minimum": -2147483648,
+      "nullable": true,
+      "type": "integer"
+    },
+    "name": {
+      "description": "(optional; omit or null)",
+      "nullable": true,
+      "type": "string"
+    },
+    "points_possible": {
+      "description": "a decimal number; a string is accepted where exactness matters, with at most 40 digits either side of the point and an exponent of at most two digits (a decimal number as a string, e.g. \"87.5\") (optional; omit or null)",
+      "nullable": true,
+      "pattern": "^[-+]?([0-9]{1,40}(\\.[0-9]{0,40})?|\\.[0-9]{1,40})([eE][-+]?[0-9]{1,2})?$",
+      "type": "string"
+    },
+    "sort_order": {
+      "description": "(optional; omit or null)",
+      "maximum": 2147483647,
+      "minimum": -2147483648,
+      "nullable": true,
+      "type": "integer"
+    },
+    "weight": {
+      "description": "a decimal number; a string is accepted where exactness matters, with at most 40 digits either side of the point and an exponent of at most two digits (a decimal number as a string, e.g. \"87.5\") (optional; omit or null)",
+      "nullable": true,
+      "pattern": "^[-+]?([0-9]{1,40}(\\.[0-9]{0,40})?|\\.[0-9]{1,40})([eE][-+]?[0-9]{1,2})?$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "component_id"
+  ],
+  "type": "object"
+}

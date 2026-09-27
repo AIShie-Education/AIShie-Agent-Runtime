@@ -1,0 +1,123 @@
+-- columns
+agent_state.agent_id text not null
+agent_state.state text not null
+agent_state.detail text not null
+agent_state.worker text not null
+agent_state.updated_at timestamp with time zone not null
+answer.agent_id text not null
+answer.id text not null
+answer.seq bigint not null identity
+answer.at timestamp with time zone not null
+answer.tenant_id text not null
+answer.course_id text not null
+answer.member_id text not null
+answer.conversation_id text not null
+answer.message_id text not null
+answer.opener_member_id text not null
+answer.key text not null
+answer.outcome text not null
+answer.billable boolean not null
+answer.turns integer not null
+answer.tool_calls integer not null
+answer.input_tokens bigint not null
+answer.output_tokens bigint not null
+answer.cost_pusd bigint not null
+answer.key_source text not null
+answer.prompt_hash text not null
+answer.latency_ms bigint not null
+attempt.agent_id text not null
+attempt.key text not null
+attempt.seq bigint not null identity
+attempt.member_id text not null
+attempt.course_id text not null
+attempt.conversation_id text not null
+attempt.message_id text not null
+attempt.attempt_no integer not null
+attempt.tool text not null
+attempt.args bytea not null
+attempt.kind text not null
+attempt.state text not null
+attempt.action_id text
+attempt.posted_message_id text
+attempt.error_code text
+attempt.reason text
+attempt.created_at timestamp with time zone not null
+attempt.updated_at timestamp with time zone not null
+cursor.agent_id text not null
+cursor.member_id text not null
+cursor.kind text not null
+cursor.value text not null
+cursor.updated_at timestamp with time zone not null default now()
+lease.name text not null
+lease.holder text not null
+lease.expires_at timestamp with time zone not null
+llm_call.agent_id text not null
+llm_call.id text not null
+llm_call.at timestamp with time zone not null
+llm_call.tenant_id text not null
+llm_call.course_id text not null
+llm_call.member_id text not null
+llm_call.conversation_id text not null
+llm_call.message_id text not null
+llm_call.opener_member_id text not null
+llm_call.adapter text not null
+llm_call.provider text not null
+llm_call.model text not null
+llm_call.stop text not null
+llm_call.raw_stop text not null
+llm_call.input_tokens bigint not null
+llm_call.cache_read_tokens bigint not null
+llm_call.cache_write_tokens bigint not null
+llm_call.output_tokens bigint not null
+llm_call.reasoning_tokens bigint not null
+llm_call.estimated boolean not null
+llm_call.raw_usage jsonb
+llm_call.price_version text not null
+llm_call.cost_pusd bigint not null
+llm_call.key_source text not null
+llm_call.latency_ms bigint not null
+note.id bigint not null identity
+note.agent_id text not null
+note.member_id text not null
+note.conversation_id text not null
+note.kind text not null
+note.text text not null
+note.message_id text
+note.created_at timestamp with time zone not null
+seat.agent_id text not null
+seat.member_id text not null
+seat.course_id text not null
+seat.seen_at timestamp with time zone not null
+seat.gone_at timestamp with time zone
+-- constraints
+agent_state agent_state_pkey PRIMARY KEY (agent_id)
+answer answer_pkey PRIMARY KEY (agent_id, id)
+attempt attempt_pkey PRIMARY KEY (agent_id, key)
+attempt attempt_state_known CHECK ((state = ANY (ARRAY['sending'::text, 'executed'::text, 'proposed'::text, 'failed'::text, 'denied'::text, 'error'::text, 'rejected'::text, 'cancelled'::text])))
+cursor cursor_pkey PRIMARY KEY (agent_id, member_id, kind)
+lease lease_pkey PRIMARY KEY (name)
+llm_call llm_call_pkey PRIMARY KEY (agent_id, id)
+note note_pkey PRIMARY KEY (id)
+seat seat_pkey PRIMARY KEY (agent_id, member_id)
+-- indexes
+CREATE UNIQUE INDEX agent_state_pkey ON public.agent_state USING btree (agent_id)
+CREATE INDEX answer_agent_idx ON public.answer USING btree (agent_id, at)
+CREATE INDEX answer_asker_idx ON public.answer USING btree (course_id, opener_member_id, at)
+CREATE INDEX answer_at_idx ON public.answer USING btree (at)
+CREATE UNIQUE INDEX answer_pkey ON public.answer USING btree (agent_id, id)
+CREATE INDEX answer_tenant_idx ON public.answer USING btree (tenant_id, at)
+CREATE INDEX attempt_action_idx ON public.attempt USING btree (agent_id, action_id) WHERE (action_id IS NOT NULL)
+CREATE INDEX attempt_member_state_idx ON public.attempt USING btree (agent_id, member_id, state)
+CREATE INDEX attempt_message_idx ON public.attempt USING btree (agent_id, conversation_id, message_id)
+CREATE UNIQUE INDEX attempt_pkey ON public.attempt USING btree (agent_id, key)
+CREATE UNIQUE INDEX cursor_pkey ON public.cursor USING btree (agent_id, member_id, kind)
+CREATE UNIQUE INDEX lease_pkey ON public.lease USING btree (name)
+CREATE INDEX llm_call_agent_idx ON public.llm_call USING btree (agent_id, at)
+CREATE INDEX llm_call_asker_idx ON public.llm_call USING btree (course_id, opener_member_id, at)
+CREATE INDEX llm_call_at_idx ON public.llm_call USING btree (at)
+CREATE UNIQUE INDEX llm_call_pkey ON public.llm_call USING btree (agent_id, id)
+CREATE INDEX llm_call_tenant_idx ON public.llm_call USING btree (tenant_id, at)
+CREATE INDEX note_conversation_idx ON public.note USING btree (agent_id, member_id, conversation_id, created_at)
+CREATE UNIQUE INDEX note_pkey ON public.note USING btree (id)
+CREATE INDEX seat_gone_idx ON public.seat USING btree (gone_at) WHERE (gone_at IS NOT NULL)
+CREATE UNIQUE INDEX seat_pkey ON public.seat USING btree (agent_id, member_id)

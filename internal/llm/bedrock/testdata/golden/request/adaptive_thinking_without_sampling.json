@@ -1,0 +1,41 @@
+{
+  "request": {
+    "limits": {},
+    "messages": [
+      {
+        "parts": [
+          {
+            "text": "What is a lexer?",
+            "type": "text"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "system": "",
+    "tool_mode": "auto"
+  },
+  "wire": {
+    "additionalModelRequestFields": {
+      "output_config": {
+        "effort": "medium"
+      },
+      "thinking": {
+        "type": "adaptive"
+      }
+    },
+    "inferenceConfig": {
+      "maxTokens": 4000
+    },
+    "messages": [
+      {
+        "content": [
+          {
+            "text": "What is a lexer?"
+          }
+        ],
+        "role": "user"
+      }
+    ]
+  }
+}

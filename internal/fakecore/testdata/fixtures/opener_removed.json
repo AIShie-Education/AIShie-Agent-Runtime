@@ -1,0 +1,143 @@
+{
+ "scenario": "opener_removed",
+ "steps": [
+  {
+   "args": {
+    "body": "Yes.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "action_id": "<id:4>",
+    "error": {
+     "code": "conflict",
+     "details": {
+      "reason": "closed"
+     },
+     "message": "the conversation is closed; start a new one"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "answer",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "message": "no such conversation in this course"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "get",
+   "text_is_envelope": true,
+   "tool": "conversation_get"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "conversations": []
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "inbox",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "since_seq": 0
+   },
+   "envelope": {
+    "result": {
+     "events": [
+      {
+       "action_id": "<id:5>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:1>",
+       "subject_id": "<id:2>",
+       "subject_type": "course",
+       "type": "course.created"
+      },
+      {
+       "action_id": "<id:6>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:2>",
+       "subject_id": "<id:2>",
+       "subject_type": "course",
+       "type": "course.activated"
+      },
+      {
+       "action_id": "<id:7>",
+       "occurred_at": "<time>",
+       "payload": {
+        "conversation_id": "<id:1>",
+        "opener_member_id": "<id:8>",
+        "respondent_member_id": "<id:9>"
+       },
+       "seq": "<seq:3>",
+       "subject_id": "<id:1>",
+       "subject_type": "conversation",
+       "type": "conversation.opened"
+      },
+      {
+       "action_id": "<id:7>",
+       "occurred_at": "<time>",
+       "payload": {
+        "author_member_id": "<id:8>",
+        "conversation_id": "<id:1>",
+        "message_id": "<id:3>",
+        "opener_member_id": "<id:8>",
+        "respondent_member_id": "<id:9>"
+       },
+       "seq": "<seq:4>",
+       "subject_id": "<id:1>",
+       "subject_type": "conversation",
+       "type": "conversation.message_posted"
+      },
+      {
+       "action_id": "<id:10>",
+       "occurred_at": "<time>",
+       "payload": {
+        "conversation_id": "<id:1>",
+        "reason": "seat_removed"
+       },
+       "seq": "<seq:5>",
+       "subject_id": "<id:1>",
+       "subject_type": "conversation",
+       "type": "conversation.closed"
+      }
+     ],
+     "more": false,
+     "next_seq": "<seq:5>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "events",
+   "text_is_envelope": true,
+   "tool": "event_list"
+  }
+ ]
+}

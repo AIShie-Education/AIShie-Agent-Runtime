@@ -1,0 +1,43 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "after": {
+      "description": "the id of the last item already seen (optional; omit or null)",
+      "format": "uuid",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "assignment_id": {
+      "description": "(optional; omit or null)",
+      "format": "uuid",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "limit": {
+      "description": "at most this many items; default 50, maximum 200 (optional; omit or null)",
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "student_member_id": {
+      "description": "(optional; omit or null)",
+      "format": "uuid",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "after",
+    "assignment_id",
+    "limit",
+    "student_member_id"
+  ],
+  "type": "object"
+}
