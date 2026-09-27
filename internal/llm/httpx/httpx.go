@@ -100,6 +100,9 @@ func networkError(ctx context.Context, err error) *llm.Error {
 func Classify(status int, header http.Header, body []byte) *llm.Error {
 	code, msg := errorFields(body)
 	e := &llm.Error{Status: status, Code: code, Message: llm.Clip(msg), RetryAfter: RetryAfter(header)}
+	if e.RetryAfter == 0 {
+		e.RetryAfter = retryInfo(body)
+	}
 	lower := strings.ToLower(code + " " + msg)
 	switch {
 	case status == http.StatusTooManyRequests:
@@ -214,6 +217,31 @@ func rawString(raw json.RawMessage) string {
 		return n.String()
 	}
 	return ""
+}
+
+// retryInfo reads the wait Google puts in its error body when it sends no
+// Retry-After header: a google.rpc.RetryInfo detail whose retryDelay is a
+// duration like "36s".
+func retryInfo(body []byte) time.Duration {
+	var v struct {
+		Error struct {
+			Details []struct {
+				Type       string `json:"@type"`
+				RetryDelay string `json:"retryDelay"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &v) != nil {
+		return 0
+	}
+	for _, d := range v.Error.Details {
+		if strings.HasSuffix(d.Type, "RetryInfo") && d.RetryDelay != "" {
+			if wait, err := time.ParseDuration(d.RetryDelay); err == nil && wait > 0 {
+				return wait
+			}
+		}
+	}
+	return 0
 }
 
 // RetryAfter reads Retry-After (seconds or an HTTP date), and the

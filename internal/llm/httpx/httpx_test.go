@@ -46,6 +46,19 @@ func TestClassify(t *testing.T) {
 	}
 }
 
+func TestRetryInfoFromGooglesBody(t *testing.T) {
+	body := `{"error":{"code":429,"status":"RESOURCE_EXHAUSTED","message":"quota","details":[` +
+		`{"@type":"type.googleapis.com/google.rpc.QuotaFailure"},` +
+		`{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"36s"}]}}`
+	if e := Classify(429, nil, []byte(body)); e.RetryAfter != 36*time.Second {
+		t.Errorf("RetryAfter = %s", e.RetryAfter)
+	}
+	// A header, when there is one, wins.
+	if e := Classify(429, http.Header{"Retry-After": {"3"}}, []byte(body)); e.RetryAfter != 3*time.Second {
+		t.Errorf("RetryAfter with a header = %s", e.RetryAfter)
+	}
+}
+
 func TestRetryAfter(t *testing.T) {
 	if got := RetryAfter(http.Header{"Retry-After": {"7"}}); got != 7*time.Second {
 		t.Errorf("seconds: %s", got)
