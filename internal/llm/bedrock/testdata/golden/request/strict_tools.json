@@ -1,0 +1,69 @@
+{
+  "request": {
+    "limits": {},
+    "messages": [
+      {
+        "parts": [
+          {
+            "text": "What is a lexer?",
+            "type": "text"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "system": "",
+    "tool_mode": "auto",
+    "tools": [
+      {
+        "description": "List grades.",
+        "name": "grade_list",
+        "schema": {
+          "additionalProperties": false,
+          "properties": {
+            "assignment_id": {
+              "description": "(UUID)",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        }
+      }
+    ]
+  },
+  "wire": {
+    "messages": [
+      {
+        "content": [
+          {
+            "text": "What is a lexer?"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "toolConfig": {
+      "tools": [
+        {
+          "toolSpec": {
+            "description": "List grades.",
+            "inputSchema": {
+              "json": {
+                "additionalProperties": false,
+                "properties": {
+                  "assignment_id": {
+                    "description": "(UUID)",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "name": "grade_list",
+            "strict": true
+          }
+        }
+      ]
+    }
+  }
+}

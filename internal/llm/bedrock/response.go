@@ -35,11 +35,10 @@ type reasoningOut struct {
 
 // usageOut is Converse's TokenUsage.
 type usageOut struct {
-	InputTokens           int64  `json:"inputTokens"`
-	OutputTokens          int64  `json:"outputTokens"`
-	TotalTokens           *int64 `json:"totalTokens"`
-	CacheReadInputTokens  int64  `json:"cacheReadInputTokens"`
-	CacheWriteInputTokens int64  `json:"cacheWriteInputTokens"`
+	InputTokens           int64 `json:"inputTokens"`
+	OutputTokens          int64 `json:"outputTokens"`
+	CacheReadInputTokens  int64 `json:"cacheReadInputTokens"`
+	CacheWriteInputTokens int64 `json:"cacheWriteInputTokens"`
 }
 
 // stops maps Converse's stopReason to the runtime's (§3.4). A reason not
@@ -87,8 +86,39 @@ func (a *Adapter) parse(body []byte) (*llm.Response, error) {
 		return nil, fmt.Errorf("usage: %w", err)
 	}
 	out.Usage = u
+	out.Parts = dropUnsafeCalls(out.Parts, out.Stop)
 	out.Normalize()
+	if out.Stop == llm.StopToolCalls && len(out.ToolCalls()) == 0 {
+		// tool_use with no call to make: nothing the loop can go on with.
+		out.Stop = llm.StopError
+	}
 	return out, nil
+}
+
+// dropUnsafeCalls removes the tool calls that must not run, before rule 3
+// makes any call left mean tool_calls. An answer cut off by max_tokens or
+// by the context window may end in a toolUse whose input is a valid but
+// partial object: it is dropped, and the stop stands unless complete calls
+// came before it. A filtered answer and a malformed tool use have calls
+// the provider itself disowned: all are dropped, so that content_filter is
+// answered with the refusal text and tool_error retries the turn, as §3.4
+// asks, instead of running them.
+func dropUnsafeCalls(parts []llm.Part, stop llm.Stop) []llm.Part {
+	switch stop {
+	case llm.StopMaxTokens, llm.StopContextOverflow:
+		if n := len(parts); n > 0 && parts[n-1].Type == llm.PartToolCall {
+			return parts[:n-1]
+		}
+	case llm.StopContentFilter, llm.StopToolError:
+		kept := parts[:0]
+		for _, p := range parts {
+			if p.Type != llm.PartToolCall {
+				kept = append(kept, p)
+			}
+		}
+		return kept
+	}
+	return parts
 }
 
 // part translates one content block; ok is false for a kind the runtime
@@ -124,8 +154,9 @@ func (a *Adapter) part(b map[string]json.RawMessage) (llm.Part, bool, error) {
 }
 
 // arguments is a toolUse's input as an object (rule 1). Converse gives an
-// object; a JSON string holding one is taken too. Anything else is kept in
-// argsErr, with {} as the arguments, and the loop answers it as an error.
+// object; a JSON string holding one is taken too, and no input or null is a
+// call without arguments. Anything else is kept in argsErr, with {} as the
+// arguments, and the loop answers it as an error.
 func arguments(input json.RawMessage) (args json.RawMessage, argsErr string) {
 	if isObject(input) {
 		return compact(input), ""
@@ -134,7 +165,7 @@ func arguments(input json.RawMessage) (args json.RawMessage, argsErr string) {
 	if json.Unmarshal(input, &s) == nil && isObject(json.RawMessage(s)) {
 		return compact(json.RawMessage(s)), ""
 	}
-	if len(bytes.TrimSpace(input)) == 0 {
+	if t := bytes.TrimSpace(input); len(t) == 0 || bytes.Equal(t, []byte("null")) {
 		return json.RawMessage("{}"), ""
 	}
 	return json.RawMessage("{}"), string(input)
@@ -151,14 +182,13 @@ func compact(raw json.RawMessage) json.RawMessage {
 // usage reads Converse's usage (§3.5), keeping it verbatim in Raw.
 //
 // The handout marks it [UNVERIFIED] whether inputTokens includes cached
-// tokens. AWS documents cacheReadInputTokens and cacheWriteInputTokens
-// beside inputTokens, and its prompt-caching examples have totalTokens =
-// inputTokens + outputTokens + both cache counts: inputTokens is the
-// uncached part, as Anthropic's input_tokens is, so Input is the sum.
-// Where a response says otherwise, with totalTokens = inputTokens +
-// outputTokens and some cache, inputTokens already held the cache and is
-// Input as it stands; the response's own arithmetic decides, so the count
-// is right either way.
+// tokens. AWS documents cacheReadInputTokens and cacheWriteInputTokens as
+// counts of their own beside inputTokens, and its prompt-caching examples
+// have totalTokens = inputTokens + outputTokens + both cache counts:
+// inputTokens is the uncached part, as Anthropic's input_tokens is. So
+// Input, which holds every input token, is the sum. Were a model to count
+// the cache within inputTokens too, the sum would count it twice: a cost
+// the ledger overstates, never one it misses, and Raw keeps what AWS said.
 func usage(raw json.RawMessage) (llm.Usage, error) {
 	if len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return llm.Usage{}, nil
@@ -167,13 +197,8 @@ func usage(raw json.RawMessage) (llm.Usage, error) {
 	if err := json.Unmarshal(raw, &u); err != nil {
 		return llm.Usage{}, err
 	}
-	cache := u.CacheReadInputTokens + u.CacheWriteInputTokens
-	input := u.InputTokens + cache
-	if cache > 0 && u.TotalTokens != nil && *u.TotalTokens == u.InputTokens+u.OutputTokens {
-		input = u.InputTokens
-	}
 	return llm.Usage{
-		Input:      input,
+		Input:      u.InputTokens + u.CacheReadInputTokens + u.CacheWriteInputTokens,
 		CacheRead:  u.CacheReadInputTokens,
 		CacheWrite: u.CacheWriteInputTokens,
 		Output:     u.OutputTokens,

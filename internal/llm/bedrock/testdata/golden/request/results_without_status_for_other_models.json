@@ -94,7 +94,7 @@
         "role": "tool"
       }
     ],
-    "system": "You are CS101 Tutor.",
+    "system": "",
     "tool_mode": "auto",
     "tools": [
       {
@@ -125,11 +125,6 @@
           ],
           "type": "object"
         }
-      },
-      {
-        "description": "",
-        "name": "course_get",
-        "schema": null
       }
     ]
   },
@@ -205,7 +200,6 @@
                   }
                 }
               ],
-              "status": "success",
               "toolUseId": "tooluse_kZJMlvQmRJ6eAyJE5GIl7Q"
             }
           },
@@ -222,7 +216,6 @@
                   }
                 }
               ],
-              "status": "error",
               "toolUseId": "call_2"
             }
           },
@@ -233,7 +226,6 @@
                   "text": "The arguments are not a JSON object: unexpected end of JSON input"
                 }
               ],
-              "status": "error",
               "toolUseId": "tooluse_13d0b7ca77782f6ac0d0430a75487abf"
             }
           },
@@ -244,17 +236,11 @@
                   "text": "{\"status\":\"executed\",\"result\":{\"body_md\":\"Write a lexer…[truncated, 40000 bytes]"
                 }
               ],
-              "status": "success",
               "toolUseId": "call_4"
             }
           }
         ],
         "role": "user"
-      }
-    ],
-    "system": [
-      {
-        "text": "You are CS101 Tutor."
       }
     ],
     "toolConfig": {
@@ -294,17 +280,6 @@
               }
             },
             "name": "assignment_get"
-          }
-        },
-        {
-          "toolSpec": {
-            "inputSchema": {
-              "json": {
-                "properties": {},
-                "type": "object"
-              }
-            },
-            "name": "course_get"
           }
         }
       ]

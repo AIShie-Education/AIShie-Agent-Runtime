@@ -3,6 +3,7 @@ package bedrock
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -128,35 +129,153 @@ func TestFileBlocksKeepWithinConverseLimits(t *testing.T) {
 	}
 }
 
-func TestThinkingBudget(t *testing.T) {
+func TestReasoning(t *testing.T) {
 	withTool := []message{{Role: "user"}, {Role: "assistant", Content: []block{{Text: "x"}, {ToolUse: &toolUseBlock{ToolUseID: "t"}}}}, {Role: "user"}}
 	withReasonedTool := []message{{Role: "user"}, {Role: "assistant", Content: []block{{ReasoningContent: json.RawMessage(`{}`)}, {ToolUse: &toolUseBlock{ToolUseID: "t"}}}}, {Role: "user"}}
 	plain := []message{{Role: "user"}, {Role: "assistant", Content: []block{{Text: "x"}}}, {Role: "user"}}
+	budget := func(n int) string { return fmt.Sprintf(`{"thinking":{"type":"enabled","budget_tokens":%d}}`, n) }
+	adaptive := func(effort string) string {
+		return `{"thinking":{"type":"adaptive"},"output_config":{"effort":"` + effort + `"}}`
+	}
 	cases := []struct {
 		name, model, effort string
 		maxTokens           int
 		msgs                []message
-		want                int
+		want                string // "" for nothing
 	}{
-		{"no effort", claude, "", 4000, plain, 0},
-		{"unknown effort", claude, "extreme", 4000, plain, 0},
-		{"not Anthropic", nova, "high", 40000, plain, 0},
-		{"no cap", claude, "low", 0, plain, 0},
-		{"cap too small", claude, "low", 2000, plain, 0},
-		{"minimal", claude, "minimal", 4000, plain, 1024},
-		{"low under a cap", claude, "low", 3000, plain, 1500},
-		{"high", "anthropic.claude-opus-4-1-20250805-v1:0", "high", 64000, plain, 16384},
-		{"an ARN", "arn:aws:bedrock:us-east-1:1:inference-profile/global.anthropic.claude-haiku-4-5-20251001-v1:0", "medium", 32000, plain, 8192},
-		{"a tool turn without its thinking", claude, "medium", 32000, withTool, 0},
-		{"a tool turn with its thinking", claude, "medium", 32000, withReasonedTool, 8192},
+		{"no effort", claude, "", 4000, plain, ""},
+		{"unknown effort", claude, "extreme", 4000, plain, ""},
+		{"not Anthropic", nova, "high", 40000, plain, ""},
+		{"an application inference profile", "arn:aws:bedrock:us-east-1:1:application-inference-profile/a1b2c3", "high", 40000, plain, ""},
+		{"a Claude from before thinking", "anthropic.claude-3-5-sonnet-20241022-v2:0", "high", 40000, plain, ""},
+		{"Claude 3 Haiku", "us.anthropic.claude-3-haiku-20240307-v1:0", "low", 40000, plain, ""},
+		{"no cap", claude, "low", 0, plain, ""},
+		{"cap too small", claude, "low", 2000, plain, ""},
+		{"minimal", claude, "minimal", 4000, plain, budget(1024)},
+		{"low under a cap", claude, "low", 3000, plain, budget(1500)},
+		{"Claude 3.7", "us.anthropic.claude-3-7-sonnet-20250219-v1:0", "medium", 32000, plain, budget(8192)},
+		{"high", "anthropic.claude-opus-4-1-20250805-v1:0", "high", 64000, plain, budget(16384)},
+		{"an ARN", "arn:aws:bedrock:us-east-1:1:inference-profile/global.anthropic.claude-haiku-4-5-20251001-v1:0", "medium", 32000, plain, budget(8192)},
+		{"a tool turn without its thinking", claude, "medium", 32000, withTool, ""},
+		{"a tool turn with its thinking", claude, "medium", 32000, withReasonedTool, budget(8192)},
+		{"4.6 thinks adaptively", "global.anthropic.claude-opus-4-6-v1", "medium", 4000, plain, adaptive("medium")},
+		{"4.7, minimal", "anthropic.claude-opus-4-7", "minimal", 0, plain, adaptive("low")},
+		{"5, with no cap", "us.anthropic.claude-sonnet-5-20260801-v1:0", "high", 0, plain, adaptive("high")},
+		{"adaptive, a tool turn without its thinking", "anthropic.claude-opus-4-7", "high", 32000, withTool, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			a := newTestAdapter(t, func(c *llm.Config) { c.Model = tc.model; c.Reasoning.Effort = tc.effort })
-			if got := a.thinkingBudget(tc.maxTokens, tc.msgs); got != tc.want {
-				t.Errorf("thinkingBudget = %d, want %d", got, tc.want)
+			got := a.reasoning(tc.maxTokens, tc.msgs)
+			if tc.want == "" {
+				if got != nil {
+					b, _ := json.Marshal(got)
+					t.Errorf("reasoning = %s, want nothing", b)
+				}
+				return
+			}
+			b, err := json.Marshal(got)
+			if err != nil || string(b) != tc.want {
+				t.Errorf("reasoning = %s, want %s", b, tc.want)
 			}
 		})
+	}
+}
+
+// Temperature and top_p go to a model unless it thinks on this call or
+// refuses them always.
+func TestSamplingIsLeftOutWhereClaudeRefusesIt(t *testing.T) {
+	cases := []struct {
+		name, model, effort string
+		want                bool
+	}{
+		{"Nova", nova, "high", true},
+		{"Claude 4.5 without thinking", claude, "", true},
+		{"Claude 4.5 thinking", claude, "medium", false},
+		{"Claude 4.7, which refuses them", "global.anthropic.claude-opus-4-7", "", false},
+		{"Claude 5", "anthropic.claude-sonnet-5-v1:0", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := newTestAdapter(t, func(c *llm.Config) {
+				c.Model, c.Reasoning.Effort = tc.model, tc.effort
+				c.Params = llm.Params{MaxOutputTokens: 8000, Temperature: ptr(0.3), TopP: ptr(0.9)}
+			})
+			wire, err := a.translate(&llm.Request{Messages: []llm.Message{llm.UserText("Hi")}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ic := wire.InferenceConfig
+			if got := ic.Temperature != nil && ic.TopP != nil; got != tc.want || ic.MaxTokens != 8000 {
+				t.Errorf("inferenceConfig = %+v, sampling sent %v, want %v", ic, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCallIDs(t *testing.T) {
+	ids := newCallIDs()
+	ids.newTurn()
+	first := []string{ids.call("call_1"), ids.call("fc_1.x"), ids.call("tooluse_A")}
+	ids.newTurn()
+	second := []string{ids.call("call_1"), ids.call("call_1"), ids.call("tooluse_A")}
+	all := append(append([]string{}, first...), second...)
+	seen := map[string]bool{}
+	for _, id := range all {
+		if seen[id] || !toolUseIDPattern.MatchString(id) {
+			t.Errorf("ids %v: %q repeats or is not a toolUseId", all, id)
+		}
+		seen[id] = true
+	}
+	if first[0] != "call_1" || first[2] != "tooluse_A" {
+		t.Errorf("valid ids were not kept: %v", first)
+	}
+	// Results answer the last turn, in order among calls sharing an id.
+	for i, id := range []string{"call_1", "call_1", "tooluse_A"} {
+		if got := ids.result(id); got != second[i] {
+			t.Errorf("result %d (%s) = %s, want %s", i, id, got, second[i])
+		}
+	}
+	// A result with no call before it is mapped as a call would be.
+	if got := ids.result("orphan:1"); got != toolUseID("orphan:1") {
+		t.Errorf("an orphan result = %s", got)
+	}
+	// The same history maps the same way every time.
+	again := newCallIDs()
+	again.newTurn()
+	again.call("call_1")
+	again.call("fc_1.x")
+	again.call("tooluse_A")
+	again.newTurn()
+	if got := again.call("call_1"); got != second[0] {
+		t.Errorf("not deterministic: %s, then %s", second[0], got)
+	}
+}
+
+func TestFamilyOf(t *testing.T) {
+	cases := []struct {
+		model string
+		want  family
+	}{
+		{"anthropic.claude-3-haiku-20240307-v1:0", family{anthropic: true, toolStatus: true}},
+		{"anthropic.claude-v2:1", family{anthropic: true, toolStatus: true}},
+		{"us.anthropic.claude-3-7-sonnet-20250219-v1:0", family{anthropic: true, thinks: true, toolStatus: true}},
+		{claude, family{anthropic: true, thinks: true, toolStatus: true}},
+		{"anthropic.claude-sonnet-4-20250514-v1:0", family{anthropic: true, thinks: true, toolStatus: true}},
+		{"global.anthropic.claude-opus-4-6-v1", family{anthropic: true, thinks: true, adaptive: true, toolStatus: true}},
+		{"arn:aws:bedrock:us-east-1:1:inference-profile/us.anthropic.claude-opus-4-7", family{anthropic: true, thinks: true, adaptive: true, noSampling: true, toolStatus: true}},
+		{"anthropic.claude-fable-1-v1:0", family{anthropic: true, thinks: true, adaptive: true, noSampling: true, toolStatus: true}},
+		{"us.anthropic.claude-opus-5-5-v1:0", family{anthropic: true, thinks: true, adaptive: true, noSampling: true, toolStatus: true}},
+		{nova, family{toolStatus: true}},
+		{"us.amazon.nova-lite-v1:0", family{toolStatus: true}},
+		{"meta.llama3-3-70b-instruct-v1:0", family{}},
+		{"mistral.mistral-large-2407-v1:0", family{}},
+		{"arn:aws:bedrock:us-east-1:1:application-inference-profile/a1b2c3", family{}},
+	}
+	for _, tc := range cases {
+		if got := familyOf(tc.model); got != tc.want {
+			t.Errorf("familyOf(%q) = %+v, want %+v", tc.model, got, tc.want)
+		}
 	}
 }
 
@@ -191,6 +310,29 @@ func TestTranslateAlternatesAndDropsWhatConverseRefuses(t *testing.T) {
 	}
 	if wire.System != nil || wire.InferenceConfig != nil {
 		t.Errorf("system = %v, inferenceConfig = %v; want both left out", wire.System, wire.InferenceConfig)
+	}
+}
+
+// A user message before a tool message is merged into it, and the results
+// still come first.
+func TestTranslateKeepsResultsFirstWhenMerging(t *testing.T) {
+	a := newTestAdapter(t)
+	wire, err := a.translate(&llm.Request{
+		Messages: []llm.Message{
+			llm.UserText("Q"),
+			{Role: llm.RoleAssistant, Parts: []llm.Part{{Type: llm.PartToolCall, ID: "call_1", Name: "course_get", Args: json.RawMessage(`{}`)}}},
+			llm.UserText("Also, hurry."),
+			{Role: llm.RoleTool, Parts: []llm.Part{{Type: llm.PartToolResult, CallID: "call_1", Content: `{"status":"executed"}`}}},
+		},
+		Tools: tools, ToolMode: llm.ToolAuto,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := json.Marshal(wire.Messages[2])
+	want := `{"role":"user","content":[{"toolResult":{"toolUseId":"call_1","content":[{"json":{"status":"executed"}}],"status":"success"}},{"text":"Also, hurry."}]}`
+	if len(wire.Messages) != 3 || string(got) != want {
+		t.Errorf("messages = %d, last =\n%s\nwant\n%s", len(wire.Messages), got, want)
 	}
 }
 

@@ -50,6 +50,14 @@
             "id": "toolu_01.fallback:7",
             "name": "submission_get",
             "type": "tool_call"
+          },
+          {
+            "args": {
+              "document_id": "0192f3c1-0000-7000-8000-000000000009"
+            },
+            "id": "call_4",
+            "name": "document_get",
+            "type": "tool_call"
           }
         ],
         "role": "assistant"
@@ -64,7 +72,7 @@
           },
           {
             "call_id": "call_2",
-            "content": "{\"status\":\"error\",\"error\":{\"code\":\"not_found\",\"message\":\"no such assignment\"},\"result\":{\"body_md\":\"Write a lexer…[truncated, 40000 bytes]",
+            "content": "{\"status\":\"error\",\"error\":{\"code\":\"not_found\",\"message\":\"no such assignment\"}}",
             "is_error": true,
             "name": "assignment_get",
             "type": "tool_result"
@@ -74,6 +82,12 @@
             "content": "The arguments are not a JSON object: unexpected end of JSON input",
             "is_error": true,
             "name": "submission_get",
+            "type": "tool_result"
+          },
+          {
+            "call_id": "call_4",
+            "content": "{\"status\":\"executed\",\"result\":{\"body_md\":\"Write a lexer…[truncated, 40000 bytes]",
+            "name": "document_get",
             "type": "tool_result"
           }
         ],
@@ -157,6 +171,15 @@
               "name": "submission_get",
               "toolUseId": "tooluse_13d0b7ca77782f6ac0d0430a75487abf"
             }
+          },
+          {
+            "toolUse": {
+              "input": {
+                "document_id": "0192f3c1-0000-7000-8000-000000000009"
+              },
+              "name": "document_get",
+              "toolUseId": "call_4"
+            }
           }
         ],
         "role": "assistant"
@@ -189,7 +212,13 @@
             "toolResult": {
               "content": [
                 {
-                  "text": "{\"status\":\"error\",\"error\":{\"code\":\"not_found\",\"message\":\"no such assignment\"},\"result\":{\"body_md\":\"Write a lexer…[truncated, 40000 bytes]"
+                  "json": {
+                    "error": {
+                      "code": "not_found",
+                      "message": "no such assignment"
+                    },
+                    "status": "error"
+                  }
                 }
               ],
               "status": "error",
@@ -205,6 +234,17 @@
               ],
               "status": "error",
               "toolUseId": "tooluse_13d0b7ca77782f6ac0d0430a75487abf"
+            }
+          },
+          {
+            "toolResult": {
+              "content": [
+                {
+                  "text": "{\"status\":\"executed\",\"result\":{\"body_md\":\"Write a lexer…[truncated, 40000 bytes]"
+                }
+              ],
+              "status": "success",
+              "toolUseId": "call_4"
             }
           }
         ],

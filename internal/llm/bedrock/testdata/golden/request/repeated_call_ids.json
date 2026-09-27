@@ -5,7 +5,7 @@
       {
         "parts": [
           {
-            "text": "Why did I lose marks on HW3?",
+            "text": "What is due this week?",
             "type": "text"
           }
         ],
@@ -14,49 +14,15 @@
       {
         "parts": [
           {
-            "maker": "another|maker",
-            "opaque": {
-              "reasoningText": {
-                "signature": "c2lnbmF0dXJl",
-                "text": "I should look at the grade."
-              }
-            },
-            "text": "I should look at the grade.",
-            "type": "reasoning"
-          },
-          {
-            "text": "Let me check.",
-            "type": "text"
-          },
-          {
-            "args": {
-              "assignment_id": "0192f3c1-0000-7000-8000-000000000003"
-            },
-            "id": "tooluse_kZJMlvQmRJ6eAyJE5GIl7Q",
-            "name": "grade_list",
-            "type": "tool_call"
-          },
-          {
-            "args": {
-              "assignment_id": "0192f3c1-0000-7000-8000-000000000003"
-            },
-            "id": "call_2",
-            "name": "assignment_get",
+            "args": {},
+            "id": "call_1",
+            "name": "course_get",
             "type": "tool_call"
           },
           {
             "args": {},
-            "args_error": "{\"submission_id\":",
-            "id": "toolu_01.fallback:7",
-            "name": "submission_get",
-            "type": "tool_call"
-          },
-          {
-            "args": {
-              "document_id": "0192f3c1-0000-7000-8000-000000000009"
-            },
-            "id": "call_4",
-            "name": "document_get",
+            "id": "call_2",
+            "name": "assignment_list",
             "type": "tool_call"
           }
         ],
@@ -65,36 +31,56 @@
       {
         "parts": [
           {
-            "call_id": "tooluse_kZJMlvQmRJ6eAyJE5GIl7Q",
-            "content": "{\"status\":\"executed\",\"review_state\":\"none\",\"result\":{\"grades\":[{\"points\":\"7.5\",\"max_points\":\"10\"}]}}",
-            "name": "grade_list",
+            "call_id": "call_1",
+            "content": "{\"status\":\"executed\",\"result\":{\"title\":\"CS101\"}}",
+            "name": "course_get",
             "type": "tool_result"
           },
           {
             "call_id": "call_2",
-            "content": "{\"status\":\"error\",\"error\":{\"code\":\"not_found\",\"message\":\"no such assignment\"}}",
-            "is_error": true,
-            "name": "assignment_get",
+            "content": "{\"status\":\"executed\",\"result\":{\"assignments\":[]}}",
+            "name": "assignment_list",
+            "type": "tool_result"
+          }
+        ],
+        "role": "tool"
+      },
+      {
+        "parts": [
+          {
+            "args": {},
+            "id": "call_1",
+            "name": "event_list",
+            "type": "tool_call"
+          },
+          {
+            "args": {},
+            "id": "call_1",
+            "name": "document_list",
+            "type": "tool_call"
+          }
+        ],
+        "role": "assistant"
+      },
+      {
+        "parts": [
+          {
+            "call_id": "call_1",
+            "content": "{\"status\":\"executed\",\"result\":{\"events\":[]}}",
+            "name": "event_list",
             "type": "tool_result"
           },
           {
-            "call_id": "toolu_01.fallback:7",
-            "content": "The arguments are not a JSON object: unexpected end of JSON input",
-            "is_error": true,
-            "name": "submission_get",
-            "type": "tool_result"
-          },
-          {
-            "call_id": "call_4",
-            "content": "{\"status\":\"executed\",\"result\":{\"body_md\":\"Write a lexer…[truncated, 40000 bytes]",
-            "name": "document_get",
+            "call_id": "call_1",
+            "content": "{\"status\":\"executed\",\"result\":{\"documents\":[]}}",
+            "name": "document_list",
             "type": "tool_result"
           }
         ],
         "role": "tool"
       }
     ],
-    "system": "You are CS101 Tutor.",
+    "system": "",
     "tool_mode": "auto",
     "tools": [
       {
@@ -138,7 +124,7 @@
       {
         "content": [
           {
-            "text": "Why did I lose marks on HW3?"
+            "text": "What is due this week?"
           }
         ],
         "role": "user"
@@ -146,40 +132,17 @@
       {
         "content": [
           {
-            "text": "Let me check."
-          },
-          {
             "toolUse": {
-              "input": {
-                "assignment_id": "0192f3c1-0000-7000-8000-000000000003"
-              },
-              "name": "grade_list",
-              "toolUseId": "tooluse_kZJMlvQmRJ6eAyJE5GIl7Q"
-            }
-          },
-          {
-            "toolUse": {
-              "input": {
-                "assignment_id": "0192f3c1-0000-7000-8000-000000000003"
-              },
-              "name": "assignment_get",
-              "toolUseId": "call_2"
+              "input": {},
+              "name": "course_get",
+              "toolUseId": "call_1"
             }
           },
           {
             "toolUse": {
               "input": {},
-              "name": "submission_get",
-              "toolUseId": "tooluse_13d0b7ca77782f6ac0d0430a75487abf"
-            }
-          },
-          {
-            "toolUse": {
-              "input": {
-                "document_id": "0192f3c1-0000-7000-8000-000000000009"
-              },
-              "name": "document_get",
-              "toolUseId": "call_4"
+              "name": "assignment_list",
+              "toolUseId": "call_2"
             }
           }
         ],
@@ -193,20 +156,14 @@
                 {
                   "json": {
                     "result": {
-                      "grades": [
-                        {
-                          "max_points": "10",
-                          "points": "7.5"
-                        }
-                      ]
+                      "title": "CS101"
                     },
-                    "review_state": "none",
                     "status": "executed"
                   }
                 }
               ],
               "status": "success",
-              "toolUseId": "tooluse_kZJMlvQmRJ6eAyJE5GIl7Q"
+              "toolUseId": "call_1"
             }
           },
           {
@@ -214,47 +171,75 @@
               "content": [
                 {
                   "json": {
-                    "error": {
-                      "code": "not_found",
-                      "message": "no such assignment"
+                    "result": {
+                      "assignments": []
                     },
-                    "status": "error"
+                    "status": "executed"
                   }
                 }
               ],
-              "status": "error",
-              "toolUseId": "call_2"
-            }
-          },
-          {
-            "toolResult": {
-              "content": [
-                {
-                  "text": "The arguments are not a JSON object: unexpected end of JSON input"
-                }
-              ],
-              "status": "error",
-              "toolUseId": "tooluse_13d0b7ca77782f6ac0d0430a75487abf"
-            }
-          },
-          {
-            "toolResult": {
-              "content": [
-                {
-                  "text": "{\"status\":\"executed\",\"result\":{\"body_md\":\"Write a lexer…[truncated, 40000 bytes]"
-                }
-              ],
               "status": "success",
-              "toolUseId": "call_4"
+              "toolUseId": "call_2"
             }
           }
         ],
         "role": "user"
-      }
-    ],
-    "system": [
+      },
       {
-        "text": "You are CS101 Tutor."
+        "content": [
+          {
+            "toolUse": {
+              "input": {},
+              "name": "event_list",
+              "toolUseId": "tooluse_b3c5a5d1d6f7691d67a53ca9177651cf"
+            }
+          },
+          {
+            "toolUse": {
+              "input": {},
+              "name": "document_list",
+              "toolUseId": "tooluse_640b8330ba1fa051a124faa75f025470"
+            }
+          }
+        ],
+        "role": "assistant"
+      },
+      {
+        "content": [
+          {
+            "toolResult": {
+              "content": [
+                {
+                  "json": {
+                    "result": {
+                      "events": []
+                    },
+                    "status": "executed"
+                  }
+                }
+              ],
+              "status": "success",
+              "toolUseId": "tooluse_b3c5a5d1d6f7691d67a53ca9177651cf"
+            }
+          },
+          {
+            "toolResult": {
+              "content": [
+                {
+                  "json": {
+                    "result": {
+                      "documents": []
+                    },
+                    "status": "executed"
+                  }
+                }
+              ],
+              "status": "success",
+              "toolUseId": "tooluse_640b8330ba1fa051a124faa75f025470"
+            }
+          }
+        ],
+        "role": "user"
       }
     ],
     "toolConfig": {

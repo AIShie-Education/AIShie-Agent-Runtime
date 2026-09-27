@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
@@ -64,7 +65,8 @@ type toolUseBlock struct {
 type toolResult struct {
 	ToolUseID string          `json:"toolUseId"`
 	Content   []resultContent `json:"content"`
-	Status    string          `json:"status"`
+	// Status is left out for a model not known to take it (family).
+	Status string `json:"status,omitempty"`
 }
 
 // resultContent is a ToolResultContentBlock: json or text.
@@ -91,6 +93,9 @@ type toolSpec struct {
 	Name        string      `json:"name"`
 	Description string      `json:"description,omitempty"`
 	InputSchema inputSchema `json:"inputSchema"`
+	// Strict is sent only when the agent's capabilities ask for it
+	// (strict_tools), once the model's contract tests pass (§3.8).
+	Strict bool `json:"strict,omitempty"`
 }
 
 type inputSchema struct {
@@ -100,13 +105,20 @@ type inputSchema struct {
 // additionalRequest is additionalModelRequestFields, passed through to the
 // model as its own request fields.
 type additionalRequest struct {
-	Thinking *thinking `json:"thinking,omitempty"`
+	Thinking     *thinking     `json:"thinking,omitempty"`
+	OutputConfig *outputConfig `json:"output_config,omitempty"`
 }
 
-// thinking is Anthropic's extended thinking, as Claude on Bedrock takes it.
+// thinking is Anthropic's thinking, as Claude on Bedrock takes it: enabled
+// with a budget, or adaptive.
 type thinking struct {
 	Type         string `json:"type"`
-	BudgetTokens int    `json:"budget_tokens"`
+	BudgetTokens int    `json:"budget_tokens,omitempty"`
+}
+
+// outputConfig carries an adaptive model's effort.
+type outputConfig struct {
+	Effort string `json:"effort"`
 }
 
 // emptySchema is what a tool with no schema is declared with: Converse
@@ -139,15 +151,20 @@ func (a *Adapter) translate(req *llm.Request) (*converseRequest, error) {
 
 	out := &converseRequest{}
 	files := newFileState()
+	ids := newCallIDs()
 	for _, m := range msgs {
-		role, content := a.message(m, files)
+		role, content := a.message(m, files, ids)
 		if len(content) == 0 {
 			continue
 		}
 		// Converse wants user and assistant to alternate; a tool message
-		// (user) followed by a user message becomes one, results first.
+		// (user) next to a user message becomes one, results first.
 		if n := len(out.Messages); n > 0 && out.Messages[n-1].Role == role {
-			out.Messages[n-1].Content = append(out.Messages[n-1].Content, content...)
+			merged := append(out.Messages[n-1].Content, content...)
+			if role == "user" {
+				merged = resultsFirst(merged)
+			}
+			out.Messages[n-1].Content = merged
 			continue
 		}
 		out.Messages = append(out.Messages, message{Role: role, Content: content})
@@ -170,7 +187,7 @@ func (a *Adapter) translate(req *llm.Request) (*converseRequest, error) {
 				return nil, badRequest("the schema of tool " + t.Name + " is not JSON")
 			}
 			tc.Tools = append(tc.Tools, toolEntry{ToolSpec: toolSpec{
-				Name: t.Name, Description: t.Description, InputSchema: inputSchema{JSON: schema},
+				Name: t.Name, Description: t.Description, InputSchema: inputSchema{JSON: schema}, Strict: a.caps.StrictTools,
 			}})
 		}
 		out.ToolConfig = tc
@@ -181,17 +198,35 @@ func (a *Adapter) translate(req *llm.Request) (*converseRequest, error) {
 		maxTokens = a.params.MaxOutputTokens
 	}
 	ic := inferenceConfig{MaxTokens: maxTokens, Temperature: a.params.Temperature, TopP: a.params.TopP}
-	if budget := a.thinkingBudget(maxTokens, out.Messages); budget > 0 {
-		out.AdditionalModelRequestFields = &additionalRequest{Thinking: &thinking{Type: "enabled", BudgetTokens: budget}}
-		// Claude refuses a changed temperature or top_p while thinking;
-		// the configured reasoning wins over sampling, rather than the
-		// call failing.
+	out.AdditionalModelRequestFields = a.reasoning(maxTokens, out.Messages)
+	if out.AdditionalModelRequestFields != nil || a.family.noSampling {
+		// Claude refuses a changed temperature or top_p while thinking,
+		// and its newest models refuse them always; the configured
+		// reasoning wins over sampling, rather than the call failing.
 		ic.Temperature, ic.TopP = nil, nil
 	}
 	if ic != (inferenceConfig{}) {
 		out.InferenceConfig = &ic
 	}
 	return out, nil
+}
+
+// resultsFirst is a user message's content with its toolResult blocks
+// first, each group in its order: Converse, and Claude behind it, take the
+// results only at the start of the message after the toolUse message.
+func resultsFirst(content []block) []block {
+	out := make([]block, 0, len(content))
+	for _, b := range content {
+		if b.ToolResult != nil {
+			out = append(out, b)
+		}
+	}
+	for _, b := range content {
+		if b.ToolResult == nil {
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
 // holdsToolParts reports whether any message holds a tool call or result.
@@ -210,8 +245,9 @@ func holdsToolParts(msgs []llm.Message) bool {
 // blocks. A tool message becomes a user message holding one toolResult per
 // result, in call order, and then its files; a reasoning part goes back
 // only to the adapter that made it (rule 4).
-func (a *Adapter) message(m llm.Message, files *fileState) (string, []block) {
+func (a *Adapter) message(m llm.Message, files *fileState, ids *callIDs) (string, []block) {
 	if m.Role == llm.RoleAssistant {
+		ids.newTurn()
 		var content []block
 		for _, p := range m.Parts {
 			switch p.Type {
@@ -221,7 +257,7 @@ func (a *Adapter) message(m llm.Message, files *fileState) (string, []block) {
 				}
 			case llm.PartToolCall:
 				content = append(content, block{ToolUse: &toolUseBlock{
-					ToolUseID: toolUseID(p.ID), Name: p.Name, Input: objectOrEmpty(p.Args),
+					ToolUseID: ids.call(p.ID), Name: p.Name, Input: objectOrEmpty(p.Args),
 				}})
 			case llm.PartReasoning:
 				if p.Maker == a.maker && isObject(p.Opaque) {
@@ -238,7 +274,7 @@ func (a *Adapter) message(m llm.Message, files *fileState) (string, []block) {
 	for _, p := range m.Parts {
 		switch p.Type {
 		case llm.PartToolResult:
-			results = append(results, block{ToolResult: resultBlock(p)})
+			results = append(results, block{ToolResult: a.resultBlock(p, ids.result(p.CallID))})
 		case llm.PartText:
 			if strings.TrimSpace(p.Text) != "" {
 				rest = append(rest, block{Text: p.Text})
@@ -252,14 +288,11 @@ func (a *Adapter) message(m llm.Message, files *fileState) (string, []block) {
 	return "user", append(results, rest...)
 }
 
-// resultBlock is a toolResult: Core's envelope as a json block when it
-// parses as a JSON object (it does, unless it was cut to size), else as
-// text.
-func resultBlock(p llm.Part) *toolResult {
-	status := "success"
-	if p.IsError {
-		status = "error"
-	}
+// resultBlock is a toolResult answering the toolUse given id: Core's
+// envelope as a json block when it parses as a JSON object (it does, unless
+// it was cut to size), else as text. Its status says whether it is an error,
+// for the models that take the field.
+func (a *Adapter) resultBlock(p llm.Part, id string) *toolResult {
 	var content resultContent
 	switch {
 	case isObject(json.RawMessage(p.Content)):
@@ -270,21 +303,75 @@ func resultBlock(p llm.Part) *toolResult {
 	default:
 		content.Text = p.Content
 	}
-	return &toolResult{ToolUseID: toolUseID(p.CallID), Content: []resultContent{content}, Status: status}
+	r := &toolResult{ToolUseID: id, Content: []resultContent{content}}
+	if a.family.toolStatus {
+		r.Status = "success"
+		if p.IsError {
+			r.Status = "error"
+		}
+	}
+	return r
+}
+
+// callIDs gives each tool call of one request its toolUseId, and each
+// result the id of the call it answers. Converse needs the two to match,
+// and Claude behind it refuses a request in which two toolUse blocks share
+// an id, which happens when another adapter numbered its calls call_1,
+// call_2, … afresh on every turn before a fallback. A result answers a call
+// of the assistant turn before it, in order among calls that share an id.
+type callIDs struct {
+	used map[string]bool
+	turn map[string][]string
+}
+
+func newCallIDs() *callIDs {
+	return &callIDs{used: map[string]bool{}, turn: map[string][]string{}}
+}
+
+// newTurn starts an assistant turn: later results answer its calls.
+func (c *callIDs) newTurn() { clear(c.turn) }
+
+// call is the toolUseId for a call with id: the id itself where Converse
+// takes it and no earlier call has it, else a mapped one (toolUseID) or,
+// for a repeat, one mapped from the id and its repeat's number.
+func (c *callIDs) call(id string) string {
+	w := toolUseID(id)
+	for n := 2; c.used[w]; n++ {
+		w = mappedID(fmt.Sprintf("%s#%d", id, n))
+	}
+	c.used[w] = true
+	c.turn[id] = append(c.turn[id], w)
+	return w
+}
+
+// result is the toolUseId of the call id answers: the first call of the
+// last assistant turn with that id not yet answered, or id as toolUseID
+// maps it when there is none.
+func (c *callIDs) result(id string) string {
+	if ws := c.turn[id]; len(ws) > 0 {
+		c.turn[id] = ws[1:]
+		return ws[0]
+	}
+	return toolUseID(id)
 }
 
 // toolUseID is id as Converse takes it: at most 64 characters of
 // [a-zA-Z0-9_-]. Bedrock's own ids (tooluse_…) and the runtime's call_{n}
 // are kept; any other id, one another provider made before a fallback, is
-// mapped to tooluse_ and 32 hex digits of its sha256, so that a call and
-// its result, mapped apart, still match. The handout also allows "." and
-// ":"; AWS's API reference gives ^[a-zA-Z0-9_-]+$, and ids within that are
-// valid under both.
+// mapped (mappedID), deterministically, so that a call and its result,
+// mapped apart, still match. The handout also allows "." and ":"; AWS's
+// API reference gives ^[a-zA-Z0-9_-]+$, and ids within that are valid
+// under both.
 func toolUseID(id string) string {
 	if validToolUseID(id) {
 		return id
 	}
-	sum := sha256.Sum256([]byte(id))
+	return mappedID(id)
+}
+
+// mappedID is tooluse_ and 32 hex digits of s's sha256.
+func mappedID(s string) string {
+	sum := sha256.Sum256([]byte(s))
 	return "tooluse_" + hex.EncodeToString(sum[:16])
 }
 
@@ -320,43 +407,61 @@ func isObject(raw json.RawMessage) bool {
 	return len(t) > 0 && t[0] == '{' && json.Valid(t)
 }
 
-// Thinking budgets by effort, in tokens. Anthropic's minimum is 1024.
+// thinkingBudgets are budget_tokens by effort, for the Claude models that
+// think with a budget. Anthropic's minimum is 1024.
 var thinkingBudgets = map[string]int{"minimal": 1024, "low": 2048, "medium": 8192, "high": 16384}
+
+// adaptiveEffort is output_config.effort by effort, for the Claude models
+// that think adaptively. Anthropic's API has no minimal.
+var adaptiveEffort = map[string]string{"minimal": "low", "low": "low", "medium": "medium", "high": "high"}
 
 const minThinkingBudget = 1024
 
-// thinkingBudget is the budget_tokens to ask a Claude model on Bedrock for,
-// or 0 to ask for no thinking. Reasoning effort is mapped for Anthropic's
-// models only, through additionalModelRequestFields [UNVERIFIED]; no other
-// model is sent anything.
+// reasoning is additionalModelRequestFields asking a Claude model on
+// Bedrock to think at the configured effort, or nil to ask for nothing.
+// Effort is mapped for Anthropic's models only [UNVERIFIED]; no other model
+// is sent anything, and neither is a Claude from before thinking.
 //
-// Claude takes a budget of at least 1024 tokens, below max_tokens, so the
-// budget is at most half of maxTokens, leaving the rest for the answer
-// itself; with no cap known, or too small a one, it asks for no thinking
-// rather than a call Claude would refuse. Claude also refuses thinking when
-// the last assistant turn holds a tool call without the thinking that came
-// with it (a turn another model made, before a fallback), so such a turn
-// gets no thinking either.
-func (a *Adapter) thinkingBudget(maxTokens int, msgs []message) int {
+// Models from Claude 4.6 on are asked with {type: adaptive} and
+// output_config.effort, older ones with {type: enabled, budget_tokens}
+// (family); that Converse passes output_config through as it passes
+// thinking is [UNVERIFIED]. A budget is at least 1024 tokens and below
+// max_tokens, so it is at most half of maxTokens, leaving the rest for the
+// answer itself; with no cap known, or too small a one, it asks for no
+// thinking rather than for a call Claude would refuse.
+//
+// Claude also refuses thinking when the last assistant turn holds a tool
+// call without the thinking that came with it (a turn another model made,
+// before a fallback), so such a turn gets no thinking either.
+func (a *Adapter) reasoning(maxTokens int, msgs []message) *additionalRequest {
 	budget, ok := thinkingBudgets[a.effort]
-	if !ok || !anthropicModel(a.model) || maxTokens <= 0 {
-		return 0
+	if !ok || !a.family.thinks || !lastToolTurnThinks(msgs) {
+		return nil
+	}
+	if a.family.adaptive {
+		return &additionalRequest{Thinking: &thinking{Type: "adaptive"}, OutputConfig: &outputConfig{Effort: adaptiveEffort[a.effort]}}
+	}
+	if maxTokens <= 0 {
+		return nil
 	}
 	budget = min(budget, maxTokens/2)
 	if budget < minThinkingBudget {
-		return 0
+		return nil
 	}
+	return &additionalRequest{Thinking: &thinking{Type: "enabled", BudgetTokens: budget}}
+}
+
+// lastToolTurnThinks reports whether the last assistant message starts
+// with its reasoning, or holds no tool call.
+func lastToolTurnThinks(msgs []message) bool {
 	for i := len(msgs) - 1; i >= 0; i-- {
 		if msgs[i].Role != "assistant" {
 			continue
 		}
 		c := msgs[i].Content
-		if hasToolUse(c) && c[0].ReasoningContent == nil {
-			return 0
-		}
-		break
+		return !hasToolUse(c) || c[0].ReasoningContent != nil
 	}
-	return budget
+	return true
 }
 
 func hasToolUse(content []block) bool {
@@ -366,15 +471,6 @@ func hasToolUse(content []block) bool {
 		}
 	}
 	return false
-}
-
-// anthropicModel reports whether a Bedrock model id names one of
-// Anthropic's models: anthropic.claude-…, a cross-region profile
-// (us.anthropic.claude-…), or an ARN that holds one. An application
-// inference profile's ARN does not say; it gets no thinking.
-func anthropicModel(model string) bool {
-	m := strings.ToLower(model)
-	return strings.Contains(m, "anthropic.") || strings.Contains(m, "claude")
 }
 
 func badRequest(msg string) *llm.Error {

@@ -3,9 +3,10 @@
 // /model/{modelId}/converse, signed with SigV4 or carrying a Bedrock API
 // key.
 //
-// The translation is the package's own (request.go, response.go); AWS's
-// SDK is used only for what a library does better than a page of code
-// here: SigV4 and the default credential chain.
+// The translation is the package's own (request.go, response.go), with
+// what each model behind Bedrock takes (model.go); AWS's SDK is used only
+// for what a library does better than a page of code here: SigV4 and the
+// default credential chain.
 package bedrock
 
 import (
@@ -16,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -52,6 +54,7 @@ type Adapter struct {
 	dialect  toolschema.Dialect
 	params   llm.Params
 	effort   string
+	family   family
 	headers  map[string]string
 	client   *http.Client
 
@@ -97,14 +100,18 @@ func build(cfg llm.Config, creds aws.CredentialsProvider) (*Adapter, error) {
 	region := cfg.Region
 	if region == "" || (sigv4 && creds == nil) {
 		awsCfg, err := loadAWSConfig(region)
-		if err != nil {
+		switch {
+		case err != nil && sigv4:
 			return nil, err
-		}
-		if region == "" {
-			region = awsCfg.Region
-		}
-		if sigv4 && creds == nil {
-			creds = awsCfg.Credentials
+		case err == nil:
+			// Under an API key the configuration is read only for its
+			// region, and one that does not read leaves the region unset.
+			if region == "" {
+				region = awsCfg.Region
+			}
+			if sigv4 && creds == nil {
+				creds = awsCfg.Credentials
+			}
 		}
 	}
 	if sigv4 && creds == nil {
@@ -155,6 +162,7 @@ func build(cfg llm.Config, creds aws.CredentialsProvider) (*Adapter, error) {
 		dialect:  dialect,
 		params:   cfg.Params,
 		effort:   cfg.Reasoning.Effort,
+		family:   familyOf(cfg.Model),
 		headers:  canonicalHeaders(cfg.Headers),
 		client:   cfg.HTTPClient,
 		apiKey:   cfg.APIKey,
@@ -241,12 +249,23 @@ func (a *Adapter) Call(ctx context.Context, req *llm.Request) (*llm.Response, er
 	if err != nil {
 		return nil, &llm.Error{Kind: llm.ErrBadRequest, Message: llm.Clip("bedrock: encoding the request: " + err.Error())}
 	}
+	var creds aws.Credentials
+	var sign func(*http.Request) error
+	if a.apiKey == "" {
+		if creds, err = a.creds.Retrieve(ctx); err != nil {
+			return nil, credentialsError(ctx, err)
+		}
+		sign = a.signFunc(body, creds)
+	}
 	client, seen := capturing(a.client)
-	resp, err := httpx.Do(ctx, client, http.MethodPost, a.endpoint, a.requestHeaders(), body, a.signFunc(body))
+	resp, err := httpx.Do(ctx, client, http.MethodPost, a.endpoint, a.requestHeaders(), body, sign)
 	if err != nil {
 		var e *llm.Error
-		if errors.As(err, &e) && e.Status != 0 {
-			classify(e, seen.header)
+		if errors.As(err, &e) {
+			if e.Status != 0 {
+				classify(e, seen.header)
+			}
+			e.Message = scrub(e.Message, a.apiKey, creds.SessionToken, creds.SecretAccessKey, creds.AccessKeyID)
 		}
 		return nil, err
 	}
@@ -256,6 +275,21 @@ func (a *Adapter) Call(ctx context.Context, req *llm.Request) (*llm.Response, er
 	}
 	out.RequestID = resp.Header.Get("X-Amzn-Requestid")
 	return out, nil
+}
+
+// credentialsError is a failure to get credentials from AWS's chain: the
+// call's own deadline or cancellation when that is what stopped it, a
+// network error when the chain could not reach its source (STS, the
+// instance's metadata), and otherwise no credentials to sign with.
+func credentialsError(ctx context.Context, err error) *llm.Error {
+	var ne net.Error
+	switch {
+	case ctx.Err() != nil:
+		return &llm.Error{Kind: llm.ErrTimeout, Message: "the call ended while AWS credentials were fetched"}
+	case errors.As(err, &ne):
+		return &llm.Error{Kind: llm.ErrNetwork, Message: llm.Clip("retrieving AWS credentials: " + err.Error())}
+	}
+	return &llm.Error{Kind: llm.ErrAuth, Message: llm.Clip("retrieving AWS credentials: " + err.Error())}
 }
 
 // requestHeaders are the configured extra headers and, under an API key,
@@ -271,19 +305,12 @@ func (a *Adapter) requestHeaders() map[string]string {
 	return h
 }
 
-// signFunc signs a request carrying body with SigV4, or is nil under an API
-// key. It runs after every header is set, so all of them are signed.
-func (a *Adapter) signFunc(body []byte) func(*http.Request) error {
-	if a.apiKey != "" {
-		return nil
-	}
+// signFunc signs a request carrying body with SigV4 under creds. It runs
+// after every header is set, so all of them are signed.
+func (a *Adapter) signFunc(body []byte, creds aws.Credentials) func(*http.Request) error {
 	sum := sha256.Sum256(body)
 	payloadHash := hex.EncodeToString(sum[:])
 	return func(r *http.Request) error {
-		creds, err := a.creds.Retrieve(r.Context())
-		if err != nil {
-			return fmt.Errorf("retrieving AWS credentials: %w", err)
-		}
 		return a.signer.SignHTTP(r.Context(), creds, r, payloadHash, signingService, a.region, a.now().UTC())
 	}
 }
@@ -356,6 +383,31 @@ func classify(e *llm.Error, header http.Header) {
 	case "ModelErrorException", "InternalServerException":
 		e.Kind = llm.ErrServer
 	}
+}
+
+// echoedRequest is the part of an AWS signature error that repeats the
+// request as AWS would have signed it: its canonical string and string to
+// sign list every signed header's value, the session token among them.
+var echoedRequest = regexp.MustCompile(`(?is)\s*The (?:canonical string|string-to-sign)\b.*$`)
+
+// secretField is a header or parameter that carries a credential, with
+// its value to the end of the line or quotation, in whatever an error
+// repeats of a request.
+var secretField = regexp.MustCompile(`(?i)(x-amz-security-token|authorization|x-amz-signature|x-amz-credential)(\s*[:=]\s*)[^\r\n'"]*`)
+
+// scrub removes from a provider's error message whatever it repeated of
+// the request's credentials. httpx builds the message from the response
+// body alone, but AWS's body can echo the signed headers back; the known
+// secrets are removed too, wherever they appear whole.
+func scrub(msg string, secrets ...string) string {
+	msg = echoedRequest.ReplaceAllString(msg, "")
+	msg = secretField.ReplaceAllString(msg, "${1}${2}[redacted]")
+	for _, s := range secrets {
+		if s != "" {
+			msg = strings.ReplaceAll(msg, s, "[redacted]")
+		}
+	}
+	return msg
 }
 
 // errorType is an AWS error type without its namespace or URI:

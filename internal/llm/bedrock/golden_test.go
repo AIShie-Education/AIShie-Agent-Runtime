@@ -102,14 +102,45 @@ func history(maker string) []llm.Message {
 			{Type: llm.PartToolCall, ID: "tooluse_kZJMlvQmRJ6eAyJE5GIl7Q", Name: "grade_list", Args: json.RawMessage(`{"assignment_id":"0192f3c1-0000-7000-8000-000000000003"}`)},
 			{Type: llm.PartToolCall, ID: "call_2", Name: "assignment_get", Args: json.RawMessage(`{"assignment_id":"0192f3c1-0000-7000-8000-000000000003"}`)},
 			{Type: llm.PartToolCall, ID: "toolu_01.fallback:7", Name: "submission_get", Args: json.RawMessage(`{}`), ArgsError: `{"submission_id":`},
+			{Type: llm.PartToolCall, ID: "call_4", Name: "document_get", Args: json.RawMessage(`{"document_id":"0192f3c1-0000-7000-8000-000000000009"}`)},
 		}},
 		{Role: llm.RoleTool, Parts: []llm.Part{
+			// json, success
 			{Type: llm.PartToolResult, CallID: "tooluse_kZJMlvQmRJ6eAyJE5GIl7Q", Name: "grade_list",
 				Content: `{"status":"executed","review_state":"none","result":{"grades":[{"points":"7.5","max_points":"10"}]}}`},
+			// json, error: Core's envelope for a failed read
 			{Type: llm.PartToolResult, CallID: "call_2", Name: "assignment_get", IsError: true,
-				Content: `{"status":"error","error":{"code":"not_found","message":"no such assignment"},"result":{"body_md":"Write a lexer…[truncated, 40000 bytes]`},
+				Content: `{"status":"error","error":{"code":"not_found","message":"no such assignment"}}`},
+			// text, error: the runtime's own refusal of unparsable arguments
 			{Type: llm.PartToolResult, CallID: "toolu_01.fallback:7", Name: "submission_get", IsError: true,
 				Content: "The arguments are not a JSON object: unexpected end of JSON input"},
+			// text, success: an envelope cut to size no longer parses
+			{Type: llm.PartToolResult, CallID: "call_4", Name: "document_get",
+				Content: `{"status":"executed","result":{"body_md":"Write a lexer…[truncated, 40000 bytes]`},
+		}},
+	}
+}
+
+// repeatedIDs is a loop in which another adapter numbered its calls afresh
+// on each turn (Gemini's call_1) before a fallback to Bedrock.
+func repeatedIDs() []llm.Message {
+	call := func(id, name string) llm.Part {
+		return llm.Part{Type: llm.PartToolCall, ID: id, Name: name, Args: json.RawMessage(`{}`)}
+	}
+	result := func(id, name, content string) llm.Part {
+		return llm.Part{Type: llm.PartToolResult, CallID: id, Name: name, Content: content}
+	}
+	return []llm.Message{
+		llm.UserText("What is due this week?"),
+		{Role: llm.RoleAssistant, Parts: []llm.Part{call("call_1", "course_get"), call("call_2", "assignment_list")}},
+		{Role: llm.RoleTool, Parts: []llm.Part{
+			result("call_1", "course_get", `{"status":"executed","result":{"title":"CS101"}}`),
+			result("call_2", "assignment_list", `{"status":"executed","result":{"assignments":[]}}`),
+		}},
+		{Role: llm.RoleAssistant, Parts: []llm.Part{call("call_1", "event_list"), call("call_1", "document_list")}},
+		{Role: llm.RoleTool, Parts: []llm.Part{
+			result("call_1", "event_list", `{"status":"executed","result":{"events":[]}}`),
+			result("call_1", "document_list", `{"status":"executed","result":{"documents":[]}}`),
 		}},
 	}
 }
@@ -211,6 +242,29 @@ func TestRequestGolden(t *testing.T) {
 				Tools: tools[:1], ToolMode: llm.ToolAuto, Limits: llm.Limits{MaxOutputTokens: 8000}},
 		},
 		{
+			name: "repeated_call_ids",
+			req:  llm.Request{Messages: repeatedIDs(), Tools: tools, ToolMode: llm.ToolAuto},
+		},
+		{
+			name: "results_without_status_for_other_models",
+			opts: []func(*llm.Config){func(c *llm.Config) { c.Model = "meta.llama3-3-70b-instruct-v1:0" }},
+			req:  llm.Request{Messages: history("another|maker"), Tools: tools[:2], ToolMode: llm.ToolAuto},
+		},
+		{
+			name: "strict_tools",
+			opts: []func(*llm.Config){func(c *llm.Config) { c.Capabilities.StrictTools = ptr(true) }},
+			req:  llm.Request{Messages: []llm.Message{llm.UserText("What is a lexer?")}, Tools: tools[:1], ToolMode: llm.ToolAuto},
+		},
+		{
+			name: "adaptive_thinking_without_sampling",
+			opts: []func(*llm.Config){func(c *llm.Config) {
+				c.Model = "global.anthropic.claude-opus-4-7"
+				c.Reasoning.Effort = "medium"
+				c.Params = llm.Params{MaxOutputTokens: 4000, Temperature: ptr(0.3), TopP: ptr(0.9)}
+			}},
+			req: llm.Request{Messages: []llm.Message{llm.UserText("What is a lexer?")}, ToolMode: llm.ToolAuto},
+		},
+		{
 			name: "reasoning_effort_ignored_for_other_models",
 			opts: []func(*llm.Config){func(c *llm.Config) {
 				c.Model = nova
@@ -264,12 +318,36 @@ func TestResponseGolden(t *testing.T) {
 			"usage":{"inputTokens":22,"outputTokens":125,"totalTokens":12450,"cacheReadInputTokens":0,"cacheWriteInputTokens":12303}}`},
 		{"usage_cache_read", `{"output":{"message":{"role":"assistant","content":[{"text":"Hi."}]}},"stopReason":"end_turn",
 			"usage":{"inputTokens":4,"outputTokens":257,"totalTokens":16144,"cacheReadInputTokens":15883,"cacheWriteInputTokens":0}}`},
-		{"usage_cache_within_input", `{"output":{"message":{"role":"assistant","content":[{"text":"Hi."}]}},"stopReason":"end_turn",
+		{"usage_total_not_consulted", `{"output":{"message":{"role":"assistant","content":[{"text":"Hi."}]}},"stopReason":"end_turn",
 			"usage":{"inputTokens":16000,"outputTokens":100,"totalTokens":16100,"cacheReadInputTokens":15000,"cacheWriteInputTokens":0}}`},
 		{"usage_without_total", `{"output":{"message":{"role":"assistant","content":[{"text":"Hi."}]}},"stopReason":"end_turn",
 			"usage":{"inputTokens":10,"outputTokens":5,"cacheReadInputTokens":100,"cacheWriteInputTokens":20}}`},
 		{"usage_missing", `{"output":{"message":{"role":"assistant","content":[{"text":"Hi."}]}},"stopReason":"end_turn"}`},
 		{"no_message", `{"output":{},"stopReason":"guardrail_intervened","usage":` + usage + `}`},
+		{"tool_use_null_input", `{"output":{"message":{"role":"assistant","content":[
+			{"toolUse":{"toolUseId":"tooluse_n","name":"course_get","input":null}}]}},
+			"stopReason":"tool_use","usage":` + usage + `}`},
+		{"max_tokens_cuts_the_last_call", `{"output":{"message":{"role":"assistant","content":[
+			{"text":"Let me check."},
+			{"toolUse":{"toolUseId":"tooluse_whole","name":"course_get","input":{}}},
+			{"toolUse":{"toolUseId":"tooluse_cut","name":"grade_list","input":{"assignment_id":"0192"}}}]}},
+			"stopReason":"max_tokens","usage":` + usage + `}`},
+		{"max_tokens_cuts_the_only_call", `{"output":{"message":{"role":"assistant","content":[
+			{"text":"Let me check."},
+			{"toolUse":{"toolUseId":"tooluse_cut","name":"grade_list","input":{"assignment_id":"0192"}}}]}},
+			"stopReason":"max_tokens","usage":` + usage + `}`},
+		{"context_window_cuts_the_last_call", `{"output":{"message":{"role":"assistant","content":[
+			{"toolUse":{"toolUseId":"tooluse_cut","name":"grade_list","input":{}}}]}},
+			"stopReason":"model_context_window_exceeded","usage":` + usage + `}`},
+		{"malformed_tool_use_runs_no_call", `{"output":{"message":{"role":"assistant","content":[
+			{"toolUse":{"toolUseId":"tooluse_bad","name":"grade_list","input":{"assignment_id":7}}}]}},
+			"stopReason":"malformed_tool_use","usage":` + usage + `}`},
+		{"guardrail_runs_no_call", `{"output":{"message":{"role":"assistant","content":[
+			{"text":"Sorry, the model cannot answer this question."},
+			{"toolUse":{"toolUseId":"tooluse_g","name":"course_get","input":{}}}]}},
+			"stopReason":"guardrail_intervened","usage":` + usage + `}`},
+		{"tool_use_without_a_call", `{"output":{"message":{"role":"assistant","content":[{"text":"Let me check."}]}},
+			"stopReason":"tool_use","usage":` + usage + `}`},
 	}
 	for _, stop := range []string{
 		"end_turn", "stop_sequence", "tool_use", "max_tokens", "guardrail_intervened", "content_filtered",

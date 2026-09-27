@@ -12,7 +12,7 @@
       "cache_read": 15000,
       "cache_write": 0,
       "estimated": false,
-      "input": 16000,
+      "input": 31000,
       "output": 100,
       "raw": {
         "cacheReadInputTokens": 15000,

@@ -52,6 +52,14 @@
             "id": "toolu_01.fallback:7",
             "name": "submission_get",
             "type": "tool_call"
+          },
+          {
+            "args": {
+              "document_id": "0192f3c1-0000-7000-8000-000000000009"
+            },
+            "id": "call_4",
+            "name": "document_get",
+            "type": "tool_call"
           }
         ],
         "role": "assistant"
@@ -66,7 +74,7 @@
           },
           {
             "call_id": "call_2",
-            "content": "{\"status\":\"error\",\"error\":{\"code\":\"not_found\",\"message\":\"no such assignment\"},\"result\":{\"body_md\":\"Write a lexer…[truncated, 40000 bytes]",
+            "content": "{\"status\":\"error\",\"error\":{\"code\":\"not_found\",\"message\":\"no such assignment\"}}",
             "is_error": true,
             "name": "assignment_get",
             "type": "tool_result"
@@ -76,6 +84,12 @@
             "content": "The arguments are not a JSON object: unexpected end of JSON input",
             "is_error": true,
             "name": "submission_get",
+            "type": "tool_result"
+          },
+          {
+            "call_id": "call_4",
+            "content": "{\"status\":\"executed\",\"result\":{\"body_md\":\"Write a lexer…[truncated, 40000 bytes]",
+            "name": "document_get",
             "type": "tool_result"
           }
         ],
@@ -137,7 +151,7 @@
       {
         "content": [
           {
-            "text": "Let me check.\n[called grade_list with {\"assignment_id\":\"0192f3c1-0000-7000-8000-000000000003\"}]\n[called assignment_get with {\"assignment_id\":\"0192f3c1-0000-7000-8000-000000000003\"}]\n[called submission_get with {}]"
+            "text": "Let me check.\n[called grade_list with {\"assignment_id\":\"0192f3c1-0000-7000-8000-000000000003\"}]\n[called assignment_get with {\"assignment_id\":\"0192f3c1-0000-7000-8000-000000000003\"}]\n[called submission_get with {}]\n[called document_get with {\"document_id\":\"0192f3c1-0000-7000-8000-000000000009\"}]"
           }
         ],
         "role": "assistant"
@@ -145,7 +159,7 @@
       {
         "content": [
           {
-            "text": "[result of grade_list]\n{\"status\":\"executed\",\"review_state\":\"none\",\"result\":{\"grades\":[{\"points\":\"7.5\",\"max_points\":\"10\"}]}}\n[error from assignment_get]\n{\"status\":\"error\",\"error\":{\"code\":\"not_found\",\"message\":\"no such assignment\"},\"result\":{\"body_md\":\"Write a lexer…[truncated, 40000 bytes]\n[error from submission_get]\nThe arguments are not a JSON object: unexpected end of JSON input"
+            "text": "[result of grade_list]\n{\"status\":\"executed\",\"review_state\":\"none\",\"result\":{\"grades\":[{\"points\":\"7.5\",\"max_points\":\"10\"}]}}\n[error from assignment_get]\n{\"status\":\"error\",\"error\":{\"code\":\"not_found\",\"message\":\"no such assignment\"}}\n[error from submission_get]\nThe arguments are not a JSON object: unexpected end of JSON input\n[result of document_get]\n{\"status\":\"executed\",\"result\":{\"body_md\":\"Write a lexer…[truncated, 40000 bytes]"
           }
         ],
         "role": "user"

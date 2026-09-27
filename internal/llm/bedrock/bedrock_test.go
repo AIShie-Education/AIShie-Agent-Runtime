@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -154,16 +155,20 @@ func TestSignFuncAddsSigV4Headers(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			a, err := NewWithCredentials(llm.Config{Model: claude, Region: "eu-central-1"},
-				credentials.NewStaticCredentialsProvider("AKIDEXAMPLE", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY", tc.session))
+			provider := credentials.NewStaticCredentialsProvider("AKIDEXAMPLE", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY", tc.session)
+			a, err := NewWithCredentials(llm.Config{Model: claude, Region: "eu-central-1"}, provider)
 			if err != nil {
 				t.Fatal(err)
 			}
 			a.now = func() time.Time { return signingTime }
+			creds, err := provider.Retrieve(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
 			body := []byte(`{"messages":[]}`)
 			req, _ := http.NewRequest(http.MethodPost, a.endpoint, bytes.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
-			if err := a.signFunc(body)(req); err != nil {
+			if err := a.signFunc(body, creds)(req); err != nil {
 				t.Fatalf("sign: %v", err)
 			}
 			auth := req.Header.Get("Authorization")
@@ -199,6 +204,122 @@ func TestSignFuncReportsMissingCredentials(t *testing.T) {
 	var e *llm.Error
 	if !errors.As(err, &e) || e.Kind != llm.ErrAuth || !strings.Contains(e.Message, "no EC2 IMDS role found") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestCredentialFailuresAreClassified(t *testing.T) {
+	srv, _ := serve(t, http.StatusOK, nil, okBody)
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
+	// AWS's cache fetches under a context that never ends, so the
+	// provider is released when the test ends, and no goroutine outlives it.
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	blocking := aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) {
+		<-release
+		return aws.Credentials{}, errors.New("released")
+	})
+	unreachable := aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) {
+		return aws.Credentials{}, fmt.Errorf("operation error STS: AssumeRoleWithWebIdentity: %w",
+			&net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connection refused")})
+	})
+	cases := []struct {
+		name  string
+		ctx   context.Context
+		creds aws.CredentialsProvider
+		want  llm.ErrorKind
+	}{
+		{"the call's context ends first", cancelled, blocking, llm.ErrTimeout},
+		{"the chain cannot reach its source", context.Background(), unreachable, llm.ErrNetwork},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a, err := NewWithCredentials(llm.Config{Model: claude, Region: testRegion, BaseURL: srv.URL}, tc.creds)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = a.Call(tc.ctx, &llm.Request{Messages: []llm.Message{llm.UserText("Hi")}})
+			var e *llm.Error
+			if !errors.As(err, &e) || e.Kind != tc.want {
+				t.Errorf("err = %v, want %s", err, tc.want)
+			}
+		})
+	}
+}
+
+// AWS's signature errors repeat the canonical request, signed headers and
+// all; the session token must not reach the error, even cut short.
+func TestRefusalsDoNotRepeatCredentials(t *testing.T) {
+	const token = "IQoJb3JpZ2luX2VjEXAMPLESESSIONTOKENxyz0123456789"
+	const key = "ABSKQmVkcm9ja0FQSUtleS1zZWNyZXQ="
+	echo := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Amzn-ErrorType", "InvalidSignatureException")
+		w.WriteHeader(http.StatusForbidden)
+		msg := "The request signature we calculated does not match the signature you provided. " +
+			"Check your AWS Secret Access Key and signing method. Consult the service documentation for details.\n\n" +
+			"The Canonical String for this request should have been\n'POST\n" + r.URL.EscapedPath() + "\n\n" +
+			"content-type:application/json\nhost:" + r.Host + "\nx-amz-date:" + r.Header.Get("X-Amz-Date") +
+			"\nx-amz-security-token:" + r.Header.Get("X-Amz-Security-Token") + "\n'"
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": msg})
+	}
+	bearer := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Amzn-ErrorType", "UnrecognizedClientException")
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "The bearer " + strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ") + " is not valid."})
+	}
+	cases := []struct {
+		name    string
+		handler http.HandlerFunc
+		apiKey  string
+		secret  string
+	}{
+		{"a signature error under session credentials", echo, "", token},
+		{"a key repeated back", bearer, key, key},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(tc.handler)
+			defer srv.Close()
+			cfg := llm.Config{Model: "m", Region: testRegion, BaseURL: srv.URL}
+			var a *Adapter
+			var err error
+			if tc.apiKey != "" {
+				cfg.APIKey = tc.apiKey
+				a, err = New(cfg)
+			} else {
+				a, err = NewWithCredentials(cfg, credentials.NewStaticCredentialsProvider("AKIDEXAMPLE", "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY", token))
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = a.Call(context.Background(), &llm.Request{Messages: []llm.Message{llm.UserText("Hi")}})
+			var e *llm.Error
+			if !errors.As(err, &e) || e.Kind != llm.ErrAuth {
+				t.Fatalf("err = %v, want auth", err)
+			}
+			if strings.Contains(err.Error(), tc.secret[:12]) {
+				t.Errorf("the error repeats a credential: %v", err)
+			}
+			if !strings.Contains(e.Message, "does not match") && !strings.Contains(e.Message, "is not valid") {
+				t.Errorf("the provider's message is gone: %q", e.Message)
+			}
+		})
+	}
+}
+
+func TestScrub(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"Rate exceeded", "Rate exceeded"},
+		{"Signature mismatch.\n\nThe Canonical String for this request should have been\n'POST\n/x\nx-amz-security-token:IQo…",
+			"Signature mismatch."},
+		{"bad header x-amz-security-token: IQoJb3JpZ2lu and more\nnext line", "bad header x-amz-security-token: [redacted]\nnext line"},
+		{"Authorization=AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20260927, Signature=abc'", "Authorization=[redacted]'"},
+		{"the key sk-12345 was refused", "the key [redacted] was refused"},
+	}
+	for _, tc := range cases {
+		if got := scrub(tc.in, "sk-12345", ""); got != tc.want {
+			t.Errorf("scrub(%q) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
 }
 
@@ -276,12 +397,20 @@ func TestCallClassifiesRefusals(t *testing.T) {
 }
 
 func TestCallRejectsAnUnreadableAnswer(t *testing.T) {
-	srv, _ := serve(t, http.StatusOK, nil, `{"output":{"message":{"content":[{"text":7}]}}}`)
-	a := newTestAdapter(t, func(c *llm.Config) { c.BaseURL = srv.URL })
-	_, err := a.Call(context.Background(), &llm.Request{Messages: []llm.Message{llm.UserText("Hi")}})
-	var e *llm.Error
-	if !errors.As(err, &e) || e.Kind != llm.ErrServer {
-		t.Errorf("err = %v, want a server error", err)
+	for _, body := range []string{
+		`{"output":{"message":{"content":[{"text":7}]}}}`,
+		`{"output":{"message":{"content":[{"toolUse":["not","an","object"]}]}},"stopReason":"tool_use"}`,
+		`{"output":{"message":{"content":[{"reasoningContent":"text"}]}},"stopReason":"end_turn"}`,
+		`{"output":{"message":{"content":[{"text":"Hi"}]}},"stopReason":"end_turn","usage":{"inputTokens":"12"}}`,
+		`{"output":`,
+	} {
+		srv, _ := serve(t, http.StatusOK, nil, body)
+		a := newTestAdapter(t, func(c *llm.Config) { c.BaseURL = srv.URL })
+		_, err := a.Call(context.Background(), &llm.Request{Messages: []llm.Message{llm.UserText("Hi")}})
+		var e *llm.Error
+		if !errors.As(err, &e) || e.Kind != llm.ErrServer {
+			t.Errorf("%s: err = %v, want a server error", body, err)
+		}
 	}
 }
 
@@ -377,6 +506,22 @@ func isolateAWS(t *testing.T) {
 	}
 }
 
+// Under an API key, AWS's configuration is read only for a region; one
+// that does not read (a profile that is not there) is no reason to refuse.
+func TestNewWithAPIKeyToleratesABrokenAWSConfiguration(t *testing.T) {
+	isolateAWS(t)
+	t.Setenv("AWS_PROFILE", "no-such-profile")
+	if _, err := New(llm.Config{Model: claude, APIKey: "k", BaseURL: "https://proxy.example/bedrock"}); err != nil {
+		t.Errorf("New under an API key: %v", err)
+	}
+	if _, err := New(llm.Config{Model: claude, APIKey: "k"}); err == nil || !strings.Contains(err.Error(), "no region") {
+		t.Errorf("New under an API key for the default host with no region: err = %v", err)
+	}
+	if _, err := New(llm.Config{Model: claude, Region: testRegion}); err == nil || !strings.Contains(err.Error(), "AWS configuration") {
+		t.Errorf("New under SigV4 with a broken profile: err = %v, want the configuration's error", err)
+	}
+}
+
 func TestNewValidates(t *testing.T) {
 	isolateAWS(t)
 	creds := credentials.NewStaticCredentialsProvider("AKIDEXAMPLE", "secret", "")
@@ -456,8 +601,8 @@ func TestAdapterDescribesItself(t *testing.T) {
 			if a.Maker() != tc.wantMaker || a.Dialect() != tc.wantDialect {
 				t.Errorf("Maker = %s, Dialect = %s", a.Maker(), a.Dialect())
 			}
-			if a.Name() != llm.AdapterBedrockConverse || a.Provider() != llm.ProviderBedrock {
-				t.Errorf("Name = %s, Provider = %s", a.Name(), a.Provider())
+			if a.Name() != llm.AdapterBedrockConverse || a.Provider() != llm.ProviderBedrock || !strings.HasSuffix(tc.wantMaker, "|"+a.Model()) {
+				t.Errorf("Name = %s, Provider = %s, Model = %s", a.Name(), a.Provider(), a.Model())
 			}
 			c := a.Capabilities()
 			if !c.ToolsWithHistory || c.ToolChoiceNone || c.FileInput != tc.wantFiles {
