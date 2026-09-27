@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"go.yaml.in/yaml/v3"
+
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/redact"
 )
 
 // walker reads a YAML document against the Go type it configures, strictly:
@@ -253,7 +255,10 @@ func isNull(n *yaml.Node) bool {
 	return n == nil || n.Kind == yaml.ScalarNode && n.ShortTag() == "!!null"
 }
 
+// join adds key to path. A key is whatever was written, so it is
+// redacted: a problem never repeats a secret pasted as a key.
 func join(path, key string) string {
+	key = redact.String(key)
 	if path == "" {
 		return key
 	}

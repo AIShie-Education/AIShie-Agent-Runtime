@@ -227,6 +227,7 @@ agent:
     params: {max_tokens: 10}
   budgets:
     per_answer: {turn: 3}
+  sk-proj-AbCdEfGhIjKlMnOpQrStUvWx: pasted
 courses:
   0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0a1b:
     model: {modelname: x}
@@ -235,7 +236,10 @@ courses:
 				{file: "a.yaml", line: 5, agent: "a1", path: "agent.colour", msg: "unknown field"},
 				{file: "a.yaml", line: 11, agent: "a1", path: "agent.model.params.max_tokens", msg: "unknown field"},
 				{file: "a.yaml", line: 13, agent: "a1", path: "agent.budgets.per_answer.turn", msg: "unknown field"},
-				{file: "a.yaml", line: 16, agent: "a1", path: "courses.0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0a1b.model.modelname", msg: "unknown field"},
+				// A key is whatever was written: a secret pasted as one is
+				// not repeated.
+				{file: "a.yaml", line: 14, agent: "a1", path: "agent.[redacted]", msg: "unknown field"},
+				{file: "a.yaml", line: 17, agent: "a1", path: "courses.0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0a1b.model.modelname", msg: "unknown field"},
 			},
 		},
 		{

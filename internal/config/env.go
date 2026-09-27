@@ -118,15 +118,21 @@ func FromEnv(getenv func(string) string) (Env, error) {
 	}
 	e.LogRedactExtra = splitPatterns(getenv("LOG_REDACT_EXTRA"))
 	for i, p := range e.LogRedactExtra {
-		if _, err := regexp.Compile(p); err != nil {
-			// The pattern may spell out the very secret it hides: say only
-			// what is wrong with it.
+		// The pattern may spell out the very secret it hides: say only
+		// what is wrong with it.
+		re, err := regexp.Compile(p)
+		if err != nil {
 			msg := "it does not compile"
 			var se *syntax.Error
 			if errors.As(err, &se) {
 				msg = string(se.Code)
 			}
 			bad("LOG_REDACT_EXTRA: pattern %d: %s", i+1, msg)
+			continue
+		}
+		if re.MatchString("") {
+			// It would match between every two characters of every line.
+			bad("LOG_REDACT_EXTRA: pattern %d matches empty text", i+1)
 		}
 	}
 	switch e.LogLevel {

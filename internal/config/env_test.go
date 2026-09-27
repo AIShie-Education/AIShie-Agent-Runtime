@@ -68,6 +68,8 @@ func TestFromEnvRefuses(t *testing.T) {
 		{"EGRESS_PROXY", "proxy.internal:3128", "EGRESS_PROXY"},
 		{"EGRESS_PROXY", "ftp://user:hunter2@proxy.internal", "EGRESS_PROXY"},
 		{"LOG_REDACT_EXTRA", `ok,secret-(value`, "pattern 2: missing closing )"},
+		{"LOG_REDACT_EXTRA", `ok,secret-value|`, "pattern 2 matches empty text"},
+		{"LOG_REDACT_EXTRA", `x*`, "pattern 1 matches empty text"},
 		{"LOG_LEVEL", "verbose", "LOG_LEVEL"},
 		{"LOG_FORMAT", "xml", "LOG_FORMAT"},
 		{"SHUTDOWN_GRACE", "15", "SHUTDOWN_GRACE"},

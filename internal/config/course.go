@@ -61,11 +61,11 @@ func (a *Agent) forCourse(courseID string) (*Effective, []issue, error) {
 	merged := merge(base, rest)
 	b, err := decodeAgent(merged)
 	if err != nil {
-		return nil, nil, &Problem{File: a.File, Agent: a.ID, Path: "courses." + key, Msg: err.Error()}
+		return nil, nil, &Problem{File: a.File, Agent: a.ID, Path: join("courses", key), Msg: err.Error()}
 	}
 	b.merged, b.Courses, b.Dir, b.File = merged, a.Courses, a.Dir, a.File
 	e.Agent = *b
-	is := &issues{prefix: "courses." + key + "."}
+	is := &issues{prefix: join("courses", key) + "."}
 	validateAgent(&e.Agent, nil, nil, is)
 	if e.PromptAppendRef != "" {
 		checkFileRef(is, "prompt_append_ref", e.PromptAppendRef, a.Dir)

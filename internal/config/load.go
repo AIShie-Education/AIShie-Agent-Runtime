@@ -200,7 +200,7 @@ func (w *walker) document(root *yaml.Node) *document {
 		case "runtime", "agent", "courses":
 			top[kv.key] = kv.value
 		default:
-			w.problem(kv.keyNode, kv.key, "unknown field; %s", shapes)
+			w.problem(kv.keyNode, join("", kv.key), "unknown field; %s", shapes)
 		}
 	}
 	d := &document{file: w.file, line: root.Line}

@@ -30,7 +30,10 @@ const (
 var (
 	idRe       = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 	toolNameRe = regexp.MustCompile(`^[a-z_]{1,64}$`)
-	uuidRe     = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+	// A deny entry ending in '*' covers every tool whose name begins with
+	// what precedes it (design §4).
+	denyRe = regexp.MustCompile(`^[a-z_]{1,64}$|^[a-z_]{0,63}\*$`)
+	uuidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 	// A BCP 47 tag, near enough: a language of 2 to 8 letters, then
 	// subtags of letters and digits.
 	langTagRe    = regexp.MustCompile(`^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$`)
@@ -101,7 +104,7 @@ func (c *Config) validateCourses(a *Agent, agentIssues []issue) []error {
 	var errs []error
 	seen := map[string]string{}
 	for _, k := range keys {
-		p := "courses." + k
+		p := join("courses", k)
 		if !uuidRe.MatchString(k) {
 			errs = append(errs, &Problem{File: a.File, Agent: a.ID, Path: p, Msg: "a course is named by its id, a UUID"})
 			continue
@@ -421,14 +424,14 @@ func checkTools(is *issues, t Tools) {
 	if t.Mode != ToolsDerived && t.Mode != ToolsNone {
 		is.add("tools.mode", "%q is not derived or none", redact.String(t.Mode))
 	}
-	for _, l := range []struct {
-		path  string
-		names []string
-	}{{"tools.allow", t.Allow}, {"tools.deny", t.Deny}} {
-		for i, n := range l.names {
-			if !toolNameRe.MatchString(n) {
-				is.add(fmt.Sprintf("%s[%d]", l.path, i), "%q is not a tool name: lower-case letters and '_', as Core names them", redact.String(n))
-			}
+	for i, n := range t.Allow {
+		if !toolNameRe.MatchString(n) {
+			is.add(fmt.Sprintf("tools.allow[%d]", i), "%q is not a tool name: lower-case letters and '_', as Core names them", redact.String(n))
+		}
+	}
+	for i, n := range t.Deny {
+		if !denyRe.MatchString(n) {
+			is.add(fmt.Sprintf("tools.deny[%d]", i), "%q is not a tool name (lower-case letters and '_', as Core names them) or one's beginning followed by '*'", redact.String(n))
 		}
 	}
 	if t.MaxParallelTools < 1 {

@@ -185,6 +185,8 @@ func TestValidate(t *testing.T) {
 
 		{name: "tools mode", agent: map[string]any{"tools.mode": "all"}, want: []problem{{agent: "a1", path: "agent.tools.mode"}}},
 		{name: "tool names", agent: map[string]any{"tools.allow": []any{"course_get", "course.get"}, "tools.deny": []any{"Member_add"}}, want: []problem{{agent: "a1", path: "agent.tools.allow[1]"}, {agent: "a1", path: "agent.tools.deny[0]"}}},
+		{name: "deny by the beginning of a name", agent: map[string]any{"tools.deny": []any{"grade_*", "submission_get", "*"}}},
+		{name: "allow takes whole names only", agent: map[string]any{"tools.allow": []any{"grade_*"}, "tools.deny": []any{"grade*x", "Grade_*"}}, want: []problem{{agent: "a1", path: "agent.tools.allow[0]"}, {agent: "a1", path: "agent.tools.deny[0]"}, {agent: "a1", path: "agent.tools.deny[1]"}}},
 		{name: "parallel tools", agent: map[string]any{"tools.max_parallel_tools": 0}, want: []problem{{agent: "a1", path: "agent.tools.max_parallel_tools"}}},
 
 		{name: "attempts", agent: map[string]any{"answer.max_attempts": 11}, want: []problem{{agent: "a1", path: "agent.answer.max_attempts", msg: "from 1 to 10"}}},
@@ -220,6 +222,7 @@ func TestValidate(t *testing.T) {
 
 		{name: "a course", courses: map[string]any{course1: map[string]any{"model": map[string]any{"model": "claude-haiku-4-5"}, "enabled": false}}},
 		{name: "a course named otherwise", courses: map[string]any{"cs101": map[string]any{}}, want: []problem{{agent: "a1", path: "courses.cs101", msg: "a UUID"}}},
+		{name: "a token pasted as a course", courses: map[string]any{"ais_k7v2m4qhx3ab_9Jx2abcDEFghiJKLmnoPQRstuVWX": map[string]any{}}, want: []problem{{agent: "a1", path: "courses.[redacted]", msg: "a UUID"}}},
 		{
 			name:    "the same course twice",
 			courses: map[string]any{course1: map[string]any{}, strings.ToUpper(course1): map[string]any{}},
