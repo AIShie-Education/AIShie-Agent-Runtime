@@ -68,7 +68,7 @@ func Check(ref string) error {
 		return nil
 	case strings.HasPrefix(ref, SchemeFile):
 		if strings.TrimPrefix(ref, SchemeFile) == "" {
-			return fmt.Errorf("%s: no path", ref)
+			return fmt.Errorf("%s: no path", redact.String(ref))
 		}
 		return nil
 	}
@@ -79,7 +79,7 @@ func Check(ref string) error {
 func secretPath(ref string) (string, error) {
 	p := strings.TrimPrefix(ref, SchemeSecret)
 	if p == "" {
-		return "", fmt.Errorf("%s: no path", ref)
+		return "", fmt.Errorf("%s: no path", redact.String(ref))
 	}
 	for _, seg := range strings.Split(p, "/") {
 		if seg == "." || seg == ".." || !segmentRe.MatchString(seg) {
@@ -147,12 +147,12 @@ func (r Resolver) Resolve(ctx context.Context, ref string) (string, error) {
 		name := strings.TrimPrefix(ref, SchemeEnv)
 		v = r.getenv(name)
 		if v == "" {
-			err = fmt.Errorf("%s: %s is not set", ref, name)
+			err = fmt.Errorf("%s: %s is not set", redact.String(ref), redact.String(name))
 		}
 	default:
 		v, err = readFile(r.filePath(ref))
 		if err != nil {
-			err = fmt.Errorf("%s: %w", ref, err)
+			err = fmt.Errorf("%s: %w", redact.String(ref), redactedError{err})
 		}
 	}
 	if err != nil {
@@ -185,7 +185,7 @@ func (r Resolver) secret(ref string) (string, error) {
 		case err == nil:
 			return v, nil
 		case !errors.Is(err, fs.ErrNotExist):
-			return "", fmt.Errorf("%s: %w", ref, err)
+			return "", fmt.Errorf("%s: %w", redact.String(ref), redactedError{err})
 		}
 	}
 	name := EnvName(p)
@@ -193,9 +193,9 @@ func (r Resolver) secret(ref string) (string, error) {
 		return v, nil
 	}
 	if r.Dir != "" {
-		return "", fmt.Errorf("%s: not in SECRETS_DIR, and %s is not set", ref, name)
+		return "", fmt.Errorf("%s: not in SECRETS_DIR, and %s is not set", redact.String(ref), redact.String(name))
 	}
-	return "", fmt.Errorf("%s: %s is not set, and SECRETS_DIR is not set", ref, name)
+	return "", fmt.Errorf("%s: %s is not set, and SECRETS_DIR is not set", redact.String(ref), redact.String(name))
 }
 
 // filePath is a file:// reference's path: absolute as written, or relative
@@ -216,7 +216,15 @@ func readInRoot(dir, p string) (string, error) {
 		return "", err
 	}
 	defer func() { _ = root.Close() }()
-	f, err := root.Open(filepath.FromSlash(p))
+	name := filepath.FromSlash(p)
+	info, err := root.Stat(name)
+	if err != nil {
+		return "", err
+	}
+	if err := regular(info); err != nil {
+		return "", err
+	}
+	f, err := root.Open(name)
 	if err != nil {
 		return "", err
 	}
@@ -225,12 +233,38 @@ func readInRoot(dir, p string) (string, error) {
 }
 
 func readFile(path string) (string, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if err := regular(info); err != nil {
+		return "", err
+	}
 	f, err := os.Open(path) // #nosec G304 -- the path is the operator's configuration, a file:// reference.
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = f.Close() }()
 	return readLimited(f)
+}
+
+// redactedError is an error whose text is redacted, as an *fs.PathError
+// naming a file after what a reference spells can need.
+type redactedError struct{ err error }
+
+func (e redactedError) Error() string { return redact.String(e.err.Error()) }
+func (e redactedError) Unwrap() error { return e.err }
+
+// regular refuses all but a regular file before it is opened: opening a
+// FIFO waits for a writer, and a device may never end.
+func regular(info fs.FileInfo) error {
+	switch {
+	case info.IsDir():
+		return errors.New("is a directory")
+	case !info.Mode().IsRegular():
+		return errors.New("is not a regular file")
+	}
+	return nil
 }
 
 func readLimited(f *os.File) (string, error) {

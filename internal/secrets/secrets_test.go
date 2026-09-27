@@ -3,10 +3,13 @@ package secrets
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func env(m map[string]string) func(string) string {
@@ -167,5 +170,51 @@ func TestEnvName(t *testing.T) {
 		if got := EnvName(in); got != want {
 			t.Errorf("EnvName(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// A FIFO or a device is refused before it is opened: opening a FIFO waits
+// for a writer, and a device may not end.
+func TestResolveRefusesSpecialFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := syscall.Mkfifo(filepath.Join(dir, "fifo"), 0o600); err != nil {
+		t.Skip("no FIFO here:", err)
+	}
+	if err := os.Symlink("/dev/zero", filepath.Join(dir, "zero")); err != nil {
+		t.Fatal(err)
+	}
+	r := Resolver{Dir: dir, BaseDir: dir, Getenv: env(nil)}
+	for _, ref := range []string{"secret://fifo", "file://fifo", "file:///dev/zero"} {
+		done := make(chan error, 1)
+		go func() {
+			_, err := r.Resolve(context.Background(), ref)
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+				t.Errorf("%s: %v", ref, err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: Resolve is still waiting", ref)
+		}
+	}
+}
+
+// A reference that spells a token is not repeated in an error, nor is a
+// path naming one.
+func TestResolveErrorsAreRedacted(t *testing.T) {
+	dir := t.TempDir()
+	r := Resolver{Dir: dir, BaseDir: dir, Getenv: env(nil)}
+	const token = "ais_k7v2m4qhx3ab_9Jx2abcDEFghiJKLmnoPQRstuVWX"
+	for _, ref := range []string{"secret://" + token, "env://" + token, "file://" + token, "file:///tmp/" + token} {
+		_, err := r.Resolve(context.Background(), ref)
+		if err == nil || strings.Contains(err.Error(), token) || !strings.Contains(err.Error(), "[redacted]") {
+			t.Errorf("%s: %v", ref, err)
+		}
+	}
+	_, err := r.Resolve(context.Background(), "file://"+token)
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the cause is kept: %v", err)
 	}
 }
