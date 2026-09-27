@@ -433,3 +433,41 @@ func requestText(r *llm.Request) string {
 	}
 	return b.String()
 }
+
+// counter is the value of the metric name whose labels include labels,
+// summed over the series that match: a counter's, a gauge's, or a
+// histogram's count.
+func counter(t *testing.T, reg *prometheus.Registry, name string, labels map[string]string) float64 {
+	t.Helper()
+	mfs, err := reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sum float64
+	for _, mf := range mfs {
+		if mf.GetName() != name {
+			continue
+		}
+	series:
+		for _, m := range mf.GetMetric() {
+			have := map[string]string{}
+			for _, lp := range m.GetLabel() {
+				have[lp.GetName()] = lp.GetValue()
+			}
+			for k, v := range labels {
+				if have[k] != v {
+					continue series
+				}
+			}
+			switch {
+			case m.Counter != nil:
+				sum += m.GetCounter().GetValue()
+			case m.Gauge != nil:
+				sum += m.GetGauge().GetValue()
+			case m.Histogram != nil:
+				sum += float64(m.GetHistogram().GetSampleCount())
+			}
+		}
+	}
+	return sum
+}
