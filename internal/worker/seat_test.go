@@ -233,3 +233,23 @@ func TestRateLimitedSlowsTheAgent(t *testing.T) {
 		t.Errorf("core_calls_total{rate_limited} = %v", got)
 	}
 }
+
+// TestUnauthorizedAtStart: a token Core refuses from the first call stops
+// the agent at once, and it is not started again until a reload.
+func TestUnauthorizedAtStart(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("yuki-helper", 0)
+	w.ok(w.fc.Revoke(own.actor.Token))
+	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": scripted.New()}, workerOpts{})
+	wk.waitState("yuki-helper", store.AgentUnauthorized)
+	time.Sleep(200 * time.Millisecond) // ten lease ticks, and restarts twenty times over
+	refused := 0
+	for _, c := range w.fc.Calls() {
+		if c.HTTPStatus == http.StatusUnauthorized {
+			refused++
+		}
+	}
+	if refused != 1 {
+		t.Errorf("Core refused %d calls; the agent should have stopped at the first", refused)
+	}
+}

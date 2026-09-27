@@ -431,3 +431,17 @@ func TestRunServesAndStops(t *testing.T) {
 		t.Error("a log line holds a token")
 	}
 }
+
+func TestMigrate(t *testing.T) {
+	dbURL := scratchDatabase(t)
+	getenv := env("DATABASE_URL", dbURL)
+	if code, out, errs := runCmd(t, getenv, "migrate", "up"); code != exitOK || !strings.Contains(out, "schema version 1;") {
+		t.Fatalf("migrate up: %d\n%s%s", code, out, errs)
+	}
+	if code, out, errs := runCmd(t, getenv, "migrate", "version"); code != exitOK || !strings.Contains(out, "schema version 1; this binary's newest is 1") {
+		t.Errorf("migrate version: %d\n%s%s", code, out, errs)
+	}
+	if code, out, errs := runCmd(t, getenv, "migrate", "down", "--yes"); code != exitOK || !strings.Contains(out, "schema version 0 (older") {
+		t.Errorf("migrate down: %d\n%s%s", code, out, errs)
+	}
+}
