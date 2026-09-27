@@ -273,8 +273,9 @@ func TestProvidersDown(t *testing.T) {
 		if body != config.DefaultBudgetText {
 			t.Errorf("body %q", body)
 		}
+		eventually(t, "every row", func() bool { return len(wk.st.outcomes(conv)) == maxProviderFailures })
 		o := wk.st.outcomes(conv)
-		if len(o) != maxProviderFailures || o[len(o)-1] != store.OutcomeBudget {
+		if o[len(o)-1] != store.OutcomeBudget {
 			t.Errorf("outcomes %v", o)
 		}
 	})

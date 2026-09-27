@@ -41,6 +41,7 @@ type Agent struct {
 	cancelAnswers context.CancelCauseFunc
 	answers       sync.WaitGroup
 	reseat        chan struct{}
+	detailMu      sync.Mutex
 
 	mu        sync.Mutex
 	seats     map[string]*Seat
@@ -426,6 +427,10 @@ func (a *Agent) tell(notice string) {
 // refreshDetail writes the agent's detail: the seats held and why, and the
 // last notice for the owner.
 func (a *Agent) refreshDetail() {
+	// One at a time, so that a detail reckoned before a change is never
+	// written after one reckoned since.
+	a.detailMu.Lock()
+	defer a.detailMu.Unlock()
 	a.mu.Lock()
 	var parts []string
 	for _, s := range a.seats {

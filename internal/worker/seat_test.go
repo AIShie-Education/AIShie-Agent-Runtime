@@ -96,9 +96,9 @@ func TestHoldLiftsWhenTheSeatChanges(t *testing.T) {
 		st := wk.sup.Status()
 		return len(st) == 1 && len(st[0].Seats) == 1 && st[0].Seats[0].Held
 	})
-	if d := wk.state("yuki-helper").Detail; !strings.Contains(d, "held") {
-		t.Errorf("the agent's detail does not say the seat is held: %q", d)
-	}
+	eventually(t, "the agent's detail saying the seat is held", func() bool {
+		return strings.Contains(wk.state("yuki-helper").Detail, "held")
+	})
 	n := polls.Load()
 	time.Sleep(400 * time.Millisecond)
 	if more := polls.Load() - n; more != 0 {
@@ -109,9 +109,9 @@ func TestHoldLiftsWhenTheSeatChanges(t *testing.T) {
 	w.ok(w.fc.SetLevel(own.seat.ID, "grade_read", "denied")) // the seat changes
 	conv, _ := w.ask(0, own, "Are you back?")
 	w.waitAnswers(conv, 1)
-	if d := wk.state("yuki-helper").Detail; strings.Contains(d, "held") {
-		t.Errorf("the agent's detail still says the seat is held: %q", d)
-	}
+	eventually(t, "the agent's detail no longer saying the seat is held", func() bool {
+		return !strings.Contains(wk.state("yuki-helper").Detail, "held")
+	})
 }
 
 // TestUnauthorizedStopsTheAgent: Core refuses the token (401); the agent
