@@ -341,9 +341,10 @@ polling 2 s hot for 120 s, 10 s idle to 30 s, events 45 s, seats 300 s,
 - `fakecore`: the MCP surface and envelope of Core, scriptable: questions,
   follow-ups written during generation, levels changed, seats paused or
   removed, proposals approved, rejected or expired, retractions, 429s and
-  401s. `core/testdata/fixtures` are envelopes recorded from the pinned Core
-  for every row of §2.4 (`go test ./internal/core -record` against a live
-  Core); a test holds the fake to them.
+  401s. `internal/fakecore/testdata/fixtures` are envelopes recorded from
+  the pinned Core for every row of §2.4 and more (`make record-fixtures`
+  against a live Core); a conformance test holds the fake to them, and
+  Core's own client is tested live against the real one.
 - Adapters: golden translations both ways in `testdata/`, every stop reason
   and usage field; `LIVE=1` runs them against the real providers whose keys
   are set, with one request declaring every tool at 16 output tokens.

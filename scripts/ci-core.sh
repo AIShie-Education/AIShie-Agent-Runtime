@@ -28,6 +28,9 @@
 #   CORE_DIR     where the env file, the log and the files go
 #   CORE_RATE_LIMIT_PER_MINUTE  Core's per-actor limit (0, none; the rate-limit
 #                test sets its own)
+#   CORE_RATE_LIMIT_BURST, CORE_PROPOSAL_TTL  Core's RATE_LIMIT_BURST and
+#                PROPOSAL_TTL, when set (recording the fake Core's fixtures of
+#                a 429 and of a proposal that expires needs both)
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")/.." && pwd)
@@ -160,6 +163,10 @@ start() {
     JOBS_INTERVAL=5s
     "BLOB_FS_ROOT=$DIR/blobs"
   )
+  # Passed on only when set: Core's own defaults stand otherwise, in both
+  # modes (docker passes nothing it is not told to).
+  [ -z "${CORE_RATE_LIMIT_BURST:-}" ] || settings+=("RATE_LIMIT_BURST=$CORE_RATE_LIMIT_BURST")
+  [ -z "${CORE_PROPOSAL_TTL:-}" ] || settings+=("PROPOSAL_TTL=$CORE_PROPOSAL_TTL")
   if [ "$mode" = binary ]; then
     # Its output goes to the log, not to the step's: GitHub Actions would
     # otherwise wait for it to end before ending the step.

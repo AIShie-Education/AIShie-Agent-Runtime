@@ -41,6 +41,10 @@ live: ## the adapters against the real providers whose keys are set (OPENAI_API_
 	LIVE=1 go test -count=1 -run Live ./internal/llm/...
 
 .PHONY: record-fixtures
+# Record against a Core started with CORE_RATE_LIMIT_PER_MINUTE=600 and
+# CORE_PROPOSAL_TTL=20s (scripts/ci-core.sh), and RECORD_PROPOSAL_TTL=20s
+# here: without them the 429 and the expired proposal are not recorded again,
+# and keep their old fixtures.
 record-fixtures: ## record the fake Core's fixtures from a live Core (E2E_CORE_URL, E2E_ROOT_TOKEN)
 	RECORD_FIXTURES=1 go test -count=1 -run TestRecordFixtures ./internal/fakecore/
 
