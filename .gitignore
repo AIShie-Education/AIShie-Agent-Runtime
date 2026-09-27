@@ -19,3 +19,6 @@ cover.out
 
 # Local agent state (review worktrees)
 /.claude/
+
+# A binary built at the root with go build ./cmd/aishie-runtime
+/aishie-runtime
