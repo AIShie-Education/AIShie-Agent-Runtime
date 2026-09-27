@@ -245,7 +245,11 @@ func (a *Adapter) fail(err error) error {
 //	New(CallTool("grade_list", `{}`), Then(writeFollowUp), Reply("…"))
 //
 // answers two calls, and writeFollowUp runs during the second. f sees the
-// request as the model did.
+// request as the model did. A Then and the step after it are taken one
+// after the other, not at once, so a call made concurrently may take the
+// step between them; a script with Then is meant for calls made one at a
+// time, as one answer's loop makes them. Step.Then is the form that cannot
+// be split.
 func Then(f func(req *llm.Request)) Step {
 	return func(_ context.Context, req *llm.Request) (*llm.Response, error) {
 		if f != nil {
@@ -261,7 +265,9 @@ func Then(f func(req *llm.Request)) Step {
 func (s Step) Then(f func(req *llm.Request)) Step {
 	return func(ctx context.Context, req *llm.Request) (*llm.Response, error) {
 		resp, err := s(ctx, req)
-		f(req)
+		if f != nil {
+			f(req)
+		}
 		return resp, err
 	}
 }

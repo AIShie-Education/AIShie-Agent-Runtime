@@ -88,13 +88,17 @@ type FunctionCall struct {
 
 // Tool is a declared tool.
 type Tool struct {
-	Type     string `json:"type"`
-	Function struct {
-		Name        string          `json:"name"`
-		Description string          `json:"description,omitempty"`
-		Parameters  json.RawMessage `json:"parameters,omitempty"`
-		Strict      bool            `json:"strict,omitempty"`
-	} `json:"function"`
+	Type     string       `json:"type"`
+	Function ToolFunction `json:"function"`
+}
+
+// ToolFunction is a declared tool's function: its name, description and
+// JSON Schema.
+type ToolFunction struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Parameters  json.RawMessage `json:"parameters,omitempty"`
+	Strict      bool            `json:"strict,omitempty"`
 }
 
 // ChatResponse is one answer. The server fills what is left empty: the
@@ -349,10 +353,10 @@ func (s *Server) next(req ChatRequest) (ChatResponse, bool) {
 }
 
 // Validate is what the fake refuses, as OpenAI refuses it: a request with
-// no model or no messages, a stream, tool_choice without tools, and a
-// conversation whose tool messages do not answer, one each, the calls of
-// the assistant message just before them. It returns "" for a request it
-// takes.
+// no model or no messages, a stream, tool_choice or parallel_tool_calls
+// without tools, and a conversation whose tool messages do not answer, one
+// each, the calls of the assistant message just before them. It returns ""
+// for a request it takes.
 func Validate(req ChatRequest) string {
 	switch {
 	case req.Model == "":
@@ -363,6 +367,8 @@ func Validate(req ChatRequest) string {
 		return "the fake does not stream"
 	case len(req.ToolChoice) > 0 && string(req.ToolChoice) != "null" && len(req.Tools) == 0:
 		return "tool_choice is only allowed when tools are given"
+	case req.ParallelToolCalls != nil && len(req.Tools) == 0:
+		return "parallel_tool_calls is only allowed when tools are given"
 	}
 	pending := map[string]bool{}
 	for i, m := range req.Messages {

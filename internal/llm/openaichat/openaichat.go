@@ -93,7 +93,7 @@ func New(cfg llm.Config) (*Adapter, error) {
 		provider: provider,
 		model:    model,
 		endpoint: endpoint,
-		maker:    llm.MakerOf(llm.AdapterOpenAIChat, base, model),
+		maker:    llm.MakerOf(llm.AdapterOpenAIChat, withoutQuery(base), model),
 		headers:  authHeaders(provider, cfg.APIKey, cfg.Headers),
 		caps:     caps,
 		dialect:  dialect,
@@ -116,10 +116,28 @@ func endpointURL(base string) (string, error) {
 	if u.User != nil {
 		return "", errors.New("openaichat: the base URL holds credentials; the key belongs in key_ref")
 	}
-	u.Path = strings.TrimRight(u.Path, "/") + "/chat/completions"
+	// A base given as the whole endpoint, as operators often paste it, is
+	// taken as it is rather than made …/chat/completions/chat/completions.
+	u.Path = strings.TrimRight(u.Path, "/")
+	if !strings.HasSuffix(u.Path, "/chat/completions") {
+		u.Path += "/chat/completions"
+	}
 	u.RawPath = ""
 	u.Fragment = ""
 	return u.String(), nil
+}
+
+// withoutQuery is base without its query string or fragment: the endpoint
+// a Maker names. Makers are stamped on every reasoning part the runtime
+// keeps, and a query string is where an operator might have put something
+// secret. base has been parsed by endpointURL already.
+func withoutQuery(base string) string {
+	u, err := url.Parse(base)
+	if err != nil {
+		return ""
+	}
+	u.RawQuery, u.ForceQuery, u.Fragment, u.RawFragment = "", false, "", ""
+	return u.String()
 }
 
 // authHeaders are the configured extra headers, then the key: Azure takes
@@ -174,26 +192,99 @@ func (a *Adapter) Call(ctx context.Context, req *llm.Request) (*llm.Response, er
 	}
 	resp, err := httpx.PostJSON(ctx, a.client, a.endpoint, a.headers, body)
 	if err != nil {
-		return nil, a.scrub(err)
+		return nil, a.refused(err)
 	}
 	out, err := a.response(resp, req)
 	if err != nil {
-		return nil, a.scrub(err)
+		return nil, a.refused(err)
 	}
 	return out, nil
 }
 
-// scrub removes the key from an error's text. Errors are built from
-// response bodies only, but a server that echoes the key it was given would
-// otherwise carry it into logs.
-func (a *Adapter) scrub(err error) error {
+// refused is a refusal of the call as the runtime acts on it: its kind
+// corrected for what the provider says in its own words (refine), and the
+// key removed from its text.
+func (a *Adapter) refused(err error) error {
 	var e *llm.Error
-	if len(a.key) < 8 || !errors.As(err, &e) {
+	if !errors.As(err, &e) {
 		return err
 	}
-	e.Message = strings.ReplaceAll(e.Message, a.key, "[redacted]")
-	e.Code = strings.ReplaceAll(e.Code, a.key, "[redacted]")
+	refine(a.provider, e)
+	if len(a.key) >= minRedacted {
+		e.Message = redactKey(e.Message, a.key)
+		e.Code = redactKey(e.Code, a.key)
+	}
 	return err
+}
+
+// minRedacted is the shortest key, and the shortest piece of one, that is
+// redacted: anything shorter would match ordinary text.
+const minRedacted = 8
+
+// redactKey removes key from s. Errors are built from response bodies only,
+// but a server that echoes the key it was given would otherwise carry it
+// into logs; and where s was clipped (llm.Clip) in the middle of the key,
+// the part left before the cut is removed too.
+func redactKey(s, key string) string {
+	s = strings.ReplaceAll(s, key, "[redacted]")
+	body := strings.TrimSuffix(s, "…")
+	for i := 0; len(body)-i >= minRedacted; i++ {
+		if strings.HasPrefix(key, body[i:]) {
+			return body[:i] + "[redacted]" + s[len(body):]
+		}
+	}
+	return s
+}
+
+// refine corrects the kind of a refusal whose provider says what it is in
+// words of its own that httpx, which reads OpenAI's, takes for something
+// else: a prompt its moderation flagged (a content filter, which the loop
+// answers with the refusal text, not a failure), an account out of credit
+// (which no retry mends), a prompt too long (which a shorter history
+// mends). Each rule is its provider's documented code or message.
+func refine(provider string, e *llm.Error) {
+	code := strings.ToLower(e.Code)
+	msg := strings.ToLower(e.Message)
+	switch provider {
+	case llm.ProviderOpenAI, llm.ProviderAzure:
+		// A reasoning model refuses a prompt its safety checks flag.
+		if code == "invalid_prompt" && (strings.Contains(msg, "flagged") || strings.Contains(msg, "usage policy")) {
+			e.Kind = llm.ErrContentFilter
+		}
+	case llm.ProviderOpenRouter:
+		// A model that requires moderation refuses flagged input with a
+		// 403, which is no fault of the key.
+		if e.Kind == llm.ErrAuth && (strings.Contains(msg, "moderation") || strings.Contains(msg, "flagged")) {
+			e.Kind = llm.ErrContentFilter
+		}
+	case llm.ProviderDeepSeek:
+		if strings.Contains(msg, "content exists risk") {
+			e.Kind = llm.ErrContentFilter
+		}
+	case llm.ProviderQwen:
+		switch code {
+		case "data_inspection_failed", "datainspectionfailed":
+			e.Kind = llm.ErrContentFilter
+		case "arrearage":
+			e.Kind = llm.ErrAuth
+		}
+	case llm.ProviderGLM:
+		switch code {
+		case "1301": // unsafe or sensitive content
+			e.Kind = llm.ErrContentFilter
+		case "1113": // no balance, sent as a 429
+			e.Kind = llm.ErrAuth
+		case "1261": // prompt too long
+			e.Kind = llm.ErrContextOverflow
+		}
+	case llm.ProviderMoonshot:
+		switch {
+		case code == "exceeded_current_quota_error": // no balance, sent as a 429
+			e.Kind = llm.ErrAuth
+		case e.Kind == llm.ErrBadRequest && strings.Contains(msg, "exceeded model token limit"):
+			e.Kind = llm.ErrContextOverflow
+		}
+	}
 }
 
 // isOpenAI reports whether the provider is OpenAI's own API or Azure's,

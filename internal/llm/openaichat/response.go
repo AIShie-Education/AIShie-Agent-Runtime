@@ -123,19 +123,18 @@ func (a *Adapter) parts(m wireMessage, text string) []llm.Part {
 
 // stop maps finish_reason (§3.4), and the Anthropic-style reasons some
 // proxies pass through. A tool call is told from the content (rule 3), so
-// tool_calls said without one is treated as a malformed call the loop
-// retries once, or as the end when there is text; and a reason nobody
-// documented is the end when there is text, else an error.
+// tool_calls said without one is a call the server lost or could not
+// parse: a malformed call, which the loop retries once. Any text beside it
+// is the model's preamble to the call ("Let me check.") or the call itself
+// written out, never an answer to post. A reason nobody documented is the
+// end when there is text, else an error.
 func stop(finish string, hasText, hasCalls bool) llm.Stop {
 	switch finish {
 	case "stop", "end_turn", "stop_sequence":
 		return llm.StopEnd
 	case "tool_calls", "function_call", "tool_use":
-		switch {
-		case hasCalls:
+		if hasCalls {
 			return llm.StopToolCalls
-		case hasText:
-			return llm.StopEnd
 		}
 		return llm.StopToolError
 	case "length", "max_tokens":
@@ -296,6 +295,7 @@ func errorIn200(resp *httpx.Response) *llm.Error {
 type wireUsage struct {
 	PromptTokens        *count `json:"prompt_tokens"`
 	CompletionTokens    *count `json:"completion_tokens"`
+	TotalTokens         *count `json:"total_tokens"`
 	PromptTokensDetails *struct {
 		CachedTokens     *count `json:"cached_tokens"`
 		CacheWriteTokens *count `json:"cache_write_tokens"`
@@ -339,6 +339,16 @@ func (a *Adapter) usage(raw json.RawMessage, req *llm.Request, parts []llm.Part)
 	}
 	if w.CompletionTokensDetails != nil {
 		u.Reasoning = w.CompletionTokensDetails.ReasoningTokens.value()
+	}
+	if a.provider == llm.ProviderGemini {
+		// Gemini's compatible endpoint leaves the model's thinking out of
+		// completion_tokens and counts it only in total_tokens, though it
+		// bills it as output (§3.5: candidates and thoughts). What total
+		// holds beyond prompt and completion is that thinking.
+		if gap := w.TotalTokens.value() - u.Input - u.Output; gap > 0 {
+			u.Output += gap
+			u.Reasoning = max(u.Reasoning, gap)
+		}
 	}
 	return u
 }

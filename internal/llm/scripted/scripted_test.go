@@ -141,7 +141,7 @@ func TestThenRunsItsSideEffect(t *testing.T) {
 		return func(req *llm.Request) { seen = append(seen, tag+":"+req.Messages[0].Parts[0].Text) }
 	}
 	a := New(
-		Reply("first").Then(note("after")),
+		Reply("first").Then(note("after")).Then(nil),
 		Then(note("before")), Then(nil), Reply("second"),
 		Then(note("dangling")),
 	)

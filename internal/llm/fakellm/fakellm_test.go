@@ -93,15 +93,31 @@ func TestDefaultResponderAnswersWithoutTools(t *testing.T) {
 		{"a long question is cut", &llm.Request{Messages: []llm.Message{llm.UserText(long)}},
 			"Answer: " + strings.Repeat("é", 200)},
 		// ForceAnswer against a server of unknown capabilities: the adapter
-		// leaves the tools out and gives the history as text.
+		// leaves the tools out and gives the history as text, and the
+		// question is still the asker's, not the results'.
 		{"a forced answer", &llm.Request{
 			Messages: []llm.Message{
 				llm.UserText("Which assignment is next?"),
-				{Role: llm.RoleAssistant, Parts: []llm.Part{{Type: llm.PartToolCall, ID: "c1", Name: "assignment_list", Args: json.RawMessage(`{}`)}}},
-				{Role: llm.RoleTool, Parts: []llm.Part{{Type: llm.PartToolResult, CallID: "c1", Name: "assignment_list", Content: `{"status":"executed"}`}}},
+				{Role: llm.RoleAssistant, Parts: []llm.Part{
+					{Type: llm.PartToolCall, ID: "c1", Name: "assignment_list", Args: json.RawMessage(`{}`)},
+					{Type: llm.PartToolCall, ID: "c2", Name: "document_get", Args: json.RawMessage(`{"document_id":"d1"}`)}}},
+				{Role: llm.RoleTool, Parts: []llm.Part{
+					{Type: llm.PartToolResult, CallID: "c1", Name: "assignment_list", Content: `{"status":"executed"}`},
+					{Type: llm.PartToolResult, CallID: "c2", Name: "document_get", Content: `{"status":"error"}`, IsError: true}}},
 			},
 			Tools: []llm.Tool{assignmentList}, ToolMode: llm.ToolNone},
-			"Answer: [result of assignment_list]\n{\"status\":\"executed\"}"},
+			"Answer: Which assignment is next? (from 2 tool results)"},
+		// Files that came with the results follow them as a user message.
+		{"files after the results", &llm.Request{
+			Messages: []llm.Message{
+				llm.UserText("What does the HW3 handout say?"),
+				{Role: llm.RoleAssistant, Parts: []llm.Part{{Type: llm.PartToolCall, ID: "c1", Name: "assignment_list", Args: json.RawMessage(`{}`)}}},
+				{Role: llm.RoleTool, Parts: []llm.Part{
+					{Type: llm.PartToolResult, CallID: "c1", Name: "assignment_list", Content: `{"status":"executed"}`},
+					{Type: llm.PartFile, File: &llm.File{Name: "hw3.md", MIME: "text/markdown", Data: []byte("# HW3")}}}},
+			},
+			Tools: []llm.Tool{assignmentList}, ToolMode: llm.ToolAuto},
+			"Answer: What does the HW3 handout say? (from 1 tool result)"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			s := fakellm.New(fakellm.DefaultResponder)
@@ -119,6 +135,27 @@ func TestDefaultResponderAnswersWithoutTools(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestDefaultResponderKnowsAnAssignment holds which questions make the
+// default model look the assignments up.
+func TestDefaultResponderKnowsAnAssignment(t *testing.T) {
+	for q, calls := range map[string]bool{
+		"Why did I lose marks on HW3?":       true,
+		"when is hw 2 due":                   true,
+		"Is the homework graded yet?":        true,
+		"Which Assignments are left?":        true,
+		"How do I write a for loop?":         false,
+		"What does the word 'shwa' mean?":    false,
+		"Is the show on Friday? (HWY 3 map)": false,
+	} {
+		resp := fakellm.DefaultResponder(fakellm.ChatRequest{Model: "m",
+			Messages: []fakellm.ChatMessage{{Role: "user", Content: q}},
+			Tools:    []fakellm.Tool{{Type: "function", Function: fakellm.ToolFunction{Name: "assignment_list"}}}})
+		if got := len(resp.Choices[0].Message.ToolCalls) == 1; got != calls {
+			t.Errorf("%q: calls assignment_list = %v, want %v", q, got, calls)
+		}
 	}
 }
 
@@ -218,6 +255,8 @@ func TestValidate(t *testing.T) {
 		{"no messages", fakellm.ChatRequest{Model: "m"}, false},
 		{"stream", fakellm.ChatRequest{Model: "m", Messages: []fakellm.ChatMessage{user}, Stream: true}, false},
 		{"tool_choice without tools", fakellm.ChatRequest{Model: "m", Messages: []fakellm.ChatMessage{user}, ToolChoice: json.RawMessage(`"none"`)}, false},
+		{"parallel_tool_calls without tools", fakellm.ChatRequest{Model: "m", Messages: []fakellm.ChatMessage{user}, ParallelToolCalls: new(bool)}, false},
+		{"parallel_tool_calls with tools", fakellm.ChatRequest{Model: "m", Messages: []fakellm.ChatMessage{user}, ParallelToolCalls: new(bool), Tools: []fakellm.Tool{tool}}, true},
 		{"tool_choice with tools", fakellm.ChatRequest{Model: "m", Messages: []fakellm.ChatMessage{user}, ToolChoice: json.RawMessage(`"none"`), Tools: []fakellm.Tool{tool}}, true},
 		{"a call unanswered", fakellm.ChatRequest{Model: "m", Messages: []fakellm.ChatMessage{user, call, result("c1"), user}}, false},
 		{"a call unanswered at the end", fakellm.ChatRequest{Model: "m", Messages: []fakellm.ChatMessage{user, call, result("c1")}}, false},

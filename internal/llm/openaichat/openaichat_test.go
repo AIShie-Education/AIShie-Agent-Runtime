@@ -47,6 +47,8 @@ func TestNewDerivesProviderCapabilitiesAndDialect(t *testing.T) {
 		{"strict_tools leaves DeepSeek's dialect to be named", llm.Config{Model: "deepseek-chat", BaseURL: deepseekBase,
 			Capabilities: llm.CapabilityOverrides{StrictTools: yes()}},
 			llm.ProviderDeepSeek, llm.Capabilities{ParallelToolCalls: true, StrictTools: true}, toolschema.OpenAI, ""},
+		{"a query string is not part of the maker", llm.Config{Model: "m", BaseURL: "https://proxy.school.example/v1/?api_key=secret-in-query#x"},
+			llm.ProviderOpenAICompat, llm.Capabilities{}, toolschema.FullCommon, "openai_chat|https://proxy.school.example/v1|m"},
 		{"a named dialect wins", llm.Config{Model: "gpt-4.1", Dialect: toolschema.FullCommon, Capabilities: llm.CapabilityOverrides{StrictTools: yes()}},
 			llm.ProviderOpenAI, llm.Capabilities{ParallelToolCalls: true, ToolChoiceNone: true, FileInput: true, StrictTools: true},
 			toolschema.FullCommon, ""},
@@ -101,6 +103,7 @@ func TestEndpointKeepsAQueryString(t *testing.T) {
 		"https://school.openai.azure.com/openai/v1/":          "https://school.openai.azure.com/openai/v1/chat/completions",
 		"https://proxy.example/v1?api-version=preview#ignore": "https://proxy.example/v1/chat/completions?api-version=preview",
 		"http://localhost:11434":                              "http://localhost:11434/chat/completions",
+		"https://api.deepseek.com/chat/completions/":          "https://api.deepseek.com/chat/completions",
 	} {
 		got, err := endpointURL(base)
 		if err != nil || got != want {
@@ -139,12 +142,14 @@ func TestModelFamilies(t *testing.T) {
 		{"gpt-5-chat-latest", true, true},
 		{"omni-moderation", false, true},
 		{"tutor-deployment", false, true},
+		{"ft:gpt-4.1-mini:school::abc123", false, true},
+		{"ft:o4-mini-2025-04-16:school::abc123", true, false},
 	} {
 		if got := developerRole(c.model); got != c.developer {
 			t.Errorf("developerRole(%q) = %v", c.model, got)
 		}
-		if got := !fixedSampling(c.model); got != c.samples {
-			t.Errorf("fixedSampling(%q) = %v", c.model, !got)
+		if got := !reasoningModel(c.model); got != c.samples {
+			t.Errorf("reasoningModel(%q) = %v", c.model, !got)
 		}
 	}
 }
@@ -182,7 +187,7 @@ func TestStop(t *testing.T) {
 		{"stop", false, false, llm.StopEnd},
 		{"tool_calls", false, true, llm.StopToolCalls},
 		{"function_call", false, true, llm.StopToolCalls},
-		{"tool_calls", true, false, llm.StopEnd},
+		{"tool_calls", true, false, llm.StopToolError},
 		{"tool_calls", false, false, llm.StopToolError},
 		{"length", true, false, llm.StopMaxTokens},
 		{"content_filter", false, false, llm.StopContentFilter},
@@ -292,16 +297,16 @@ func TestCallWithoutARequest(t *testing.T) {
 }
 
 // server is an httptest server that answers every call with status, headers
-// and body, and keeps each request's headers and body.
-func server(t *testing.T, status int, header http.Header, body string) (*httptest.Server, *[]*http.Request, *[][]byte) {
+// and body. seen returns a copy of each request so far, with its body.
+func server(t *testing.T, status int, header http.Header, body string) (ts *httptest.Server, seen func() ([]*http.Request, [][]byte)) {
 	t.Helper()
 	var mu sync.Mutex
 	var reqs []*http.Request
 	var bodies [][]byte
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		mu.Lock()
-		reqs = append(reqs, r)
+		reqs = append(reqs, r.Clone(context.Background()))
 		bodies = append(bodies, b)
 		mu.Unlock()
 		for k, v := range header {
@@ -312,11 +317,15 @@ func server(t *testing.T, status int, header http.Header, body string) (*httptes
 		_, _ = io.WriteString(w, body)
 	}))
 	t.Cleanup(ts.Close)
-	return ts, &reqs, &bodies
+	return ts, func() ([]*http.Request, [][]byte) {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]*http.Request(nil), reqs...), append([][]byte(nil), bodies...)
+	}
 }
 
 func TestHTTPEndToEnd(t *testing.T) {
-	ts, reqs, bodies := server(t, http.StatusOK, nil, textReply("stop", "Hello."))
+	ts, seen := server(t, http.StatusOK, nil, textReply("stop", "Hello."))
 	c := cfg(ts.URL+"/v1/", "gpt-4.1")
 	c.Provider = llm.ProviderOpenAI
 	c.Headers = map[string]string{"X-Title": "AIShie"}
@@ -331,7 +340,8 @@ func TestHTTPEndToEnd(t *testing.T) {
 	if resp.Text() != "Hello." || resp.Stop != llm.StopEnd || resp.Usage.Input != 40 || resp.Usage.Output != 9 {
 		t.Errorf("resp = %+v", resp)
 	}
-	r := (*reqs)[0]
+	reqs, bodies := seen()
+	r := reqs[0]
 	if r.Method != http.MethodPost || r.URL.Path != "/v1/chat/completions" || r.Header.Get("Authorization") != "Bearer "+testKey ||
 		r.Header.Get("Content-Type") != "application/json" || r.Header.Get("X-Title") != "AIShie" {
 		t.Errorf("request %s %s %v", r.Method, r.URL, r.Header)
@@ -342,11 +352,11 @@ func TestHTTPEndToEnd(t *testing.T) {
 		Tools    []json.RawMessage `json:"tools"`
 		Messages []json.RawMessage `json:"messages"`
 	}
-	if err := json.Unmarshal((*bodies)[0], &sent); err != nil {
+	if err := json.Unmarshal(bodies[0], &sent); err != nil {
 		t.Fatal(err)
 	}
 	if sent.Model != "gpt-4.1" || sent.Stream == nil || *sent.Stream || len(sent.Tools) != 2 || len(sent.Messages) != 2 {
-		t.Errorf("body = %s", (*bodies)[0])
+		t.Errorf("body = %s", bodies[0])
 	}
 }
 
@@ -397,7 +407,7 @@ func TestHTTPErrorsAreClassified(t *testing.T) {
 		{"a 200 with a plain error", 200, nil, `{"error":"model not loaded"}`, llm.ErrServer, "", 0, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			ts, _, _ := server(t, c.status, c.header, c.body)
+			ts, _ := server(t, c.status, c.header, c.body)
 			a, err := New(cfg(ts.URL+"/v1", "gpt-4.1"))
 			if err != nil {
 				t.Fatal(err)
@@ -419,7 +429,7 @@ func TestHTTPErrorsAreClassified(t *testing.T) {
 }
 
 func TestTheKeyNeverReachesAnError(t *testing.T) {
-	ts, _, _ := server(t, 401, nil, fmt.Sprintf(`{"error":{"message":"Bad key %s","code":"%s"}}`, testKey, testKey))
+	ts, _ := server(t, 401, nil, fmt.Sprintf(`{"error":{"message":"Bad key %s","code":"%s"}}`, testKey, testKey))
 	a, err := New(cfg(ts.URL+"/v1", "gpt-4.1"))
 	if err != nil {
 		t.Fatal(err)
@@ -461,7 +471,7 @@ func TestACallEndsWithItsContext(t *testing.T) {
 }
 
 func TestConcurrentCalls(t *testing.T) {
-	ts, reqs, _ := server(t, http.StatusOK, nil, textReply("stop", "Hello."))
+	ts, seen := server(t, http.StatusOK, nil, textReply("stop", "Hello."))
 	a, err := New(cfg(ts.URL, "gpt-4.1"))
 	if err != nil {
 		t.Fatal(err)
@@ -486,8 +496,8 @@ func TestConcurrentCalls(t *testing.T) {
 			t.Error(err)
 		}
 	}
-	if len(*reqs) != 16 {
-		t.Errorf("%d requests", len(*reqs))
+	if reqs, _ := seen(); len(reqs) != 16 {
+		t.Errorf("%d requests", len(reqs))
 	}
 }
 
@@ -511,7 +521,7 @@ func TestStringifyStatus(t *testing.T) {
 
 func TestStatusFixLeavesOtherAnswersAlone(t *testing.T) {
 	big := `{"error":{"status":400,"message":"` + strings.Repeat("x", maxErrorBody) + `"}}`
-	ts, _, _ := server(t, http.StatusBadRequest, nil, big)
+	ts, _ := server(t, http.StatusBadRequest, nil, big)
 	a, err := New(cfg(ts.URL, "gpt-4.1"))
 	if err != nil {
 		t.Fatal(err)

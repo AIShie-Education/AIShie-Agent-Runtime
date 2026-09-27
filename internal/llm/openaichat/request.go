@@ -194,7 +194,7 @@ func (a *Adapter) request(req *llm.Request) *chatRequest {
 	// OpenAI's reasoning models refuse any temperature or top_p but the
 	// default with a 400, so a sampling setting meant for another model
 	// would stop every answer; it is left out for them instead.
-	if !isOpenAI(a.provider) || !fixedSampling(a.model) {
+	if !isOpenAI(a.provider) || !reasoningModel(a.model) {
 		out.Temperature = a.params.Temperature
 		out.TopP = a.params.TopP
 	}
@@ -202,11 +202,16 @@ func (a *Adapter) request(req *llm.Request) *chatRequest {
 	// Reasoning effort has a field only on OpenAI and Azure, and on
 	// OpenRouter, which maps it to each upstream. DeepSeek, Kimi, GLM and
 	// Qwen choose thinking by model or by parameters of their own that an
-	// effort does not translate to, and a local server would ignore it or,
-	// if strict, refuse the call; so nothing is sent elsewhere.
+	// effort does not translate to; what Gemini's compatible endpoint makes
+	// of an effort differs by model family, which the gemini adapter maps
+	// itself; a local server would ignore it or, if strict, refuse the
+	// call. So nothing is sent elsewhere. OpenAI refuses the field from a
+	// model that does not reason, so an effort configured for one is left
+	// out rather than stop every answer; an Azure deployment's name need
+	// not name its model, so Azure gets the effort its operator configured.
 	if a.effort != "" {
 		switch {
-		case isOpenAI(a.provider):
+		case a.provider == llm.ProviderAzure, a.provider == llm.ProviderOpenAI && reasoningModel(a.model):
 			out.ReasoningEffort = a.effort
 		case a.provider == llm.ProviderOpenRouter:
 			out.Reasoning = &reasoningParam{Effort: a.effort}
@@ -238,15 +243,23 @@ func (a *Adapter) systemRole() string {
 // developerRole reports whether model is an o-series reasoning model (o1,
 // o3, o4-mini, …) or of the GPT-5 family.
 func developerRole(model string) bool {
-	m := strings.ToLower(model)
+	m := family(model)
 	return oSeries(m) || strings.HasPrefix(m, "gpt-5")
 }
 
-// fixedSampling reports whether model takes only the default temperature
-// and top_p: the reasoning models, which GPT-5's chat variants are not.
-func fixedSampling(model string) bool {
-	m := strings.ToLower(model)
+// reasoningModel reports whether model reasons: it then takes a
+// reasoning_effort, and only the default temperature and top_p. GPT-5's
+// chat variants do not reason.
+func reasoningModel(model string) bool {
+	m := family(model)
 	return oSeries(m) || (strings.HasPrefix(m, "gpt-5") && !strings.Contains(m, "-chat"))
+}
+
+// family is a model id as its family names it: lower case, without the
+// ft: of a fine-tuned model (ft:gpt-4.1-mini:org::id), which behaves as its
+// base model does.
+func family(model string) string {
+	return strings.TrimPrefix(strings.ToLower(strings.TrimSpace(model)), "ft:")
 }
 
 func oSeries(m string) bool {
@@ -322,14 +335,14 @@ func (a *Adapter) assistant(parts []llm.Part) (chatMessage, bool) {
 				texts = append(texts, p.Text)
 			}
 		case llm.PartToolCall:
-			call := chatToolCall{ID: p.ID, Type: "function", Function: chatFunction{Name: p.Name, Arguments: arguments(p)}}
+			call := chatToolCall{ID: p.ID, Type: "function", Function: chatFunction{Name: p.Name, Arguments: a.arguments(p)}}
 			if p.Maker == a.maker {
-				call.Extra = fragment(p.Opaque)
+				call.Extra = fragment(p.Opaque, callFields)
 			}
 			calls = append(calls, call)
 		case llm.PartReasoning:
 			if p.Maker == a.maker {
-				extra = mergeFragments(extra, fragment(p.Opaque))
+				extra = mergeFragments(extra, fragment(p.Opaque, reasoningFields))
 			}
 		}
 	}
@@ -347,14 +360,19 @@ func (a *Adapter) assistant(parts []llm.Part) (chatMessage, bool) {
 	return msg, true
 }
 
-// arguments is a call's arguments as the string the API carries: the raw
-// text the model wrote when it did not parse, so that the model sees its own
-// mistake beside the error it caused.
-func arguments(p llm.Part) string {
+// arguments is a call's arguments as the string the API carries. Arguments
+// that did not parse go back to OpenAI and Azure as the model wrote them,
+// since they keep arguments as an opaque string, so that the model sees its
+// own mistake beside the error it caused. Everywhere else they go back as
+// {}: Ollama parses the arguments of the history and refuses the whole
+// request when they do not parse (as vLLM did before it learnt to coerce
+// them), and the endpoints that translate to another API (Gemini's,
+// OpenRouter's) need an object there. The tool result says what was wrong.
+func (a *Adapter) arguments(p llm.Part) string {
 	switch {
-	case p.ArgsError != "":
+	case p.ArgsError != "" && isOpenAI(a.provider):
 		return p.ArgsError
-	case len(p.Args) == 0:
+	case p.ArgsError != "", len(p.Args) == 0:
 		return "{}"
 	}
 	return string(p.Args)
@@ -464,9 +482,20 @@ func hasToolHistory(msgs []llm.Message) bool {
 	return false
 }
 
+// The wire fields an Opaque may put back: on an assistant message, the
+// reasoning of §3.6; on a tool call, what Gemini rode on it. They are the
+// only fields this adapter writes into an Opaque, and the only ones read
+// back, so that a fragment can never add tool calls, a name or anything
+// else to a message.
+var (
+	reasoningFields = []string{"reasoning_content", "reasoning_details"}
+	callFields      = []string{"extra_content"}
+)
+
 // fragment reads an Opaque this adapter wrote: a JSON object of the wire
-// fields to put back on the object they came on. Anything else is ignored.
-func fragment(opaque json.RawMessage) map[string]json.RawMessage {
+// fields to put back on the object they came on, of which only allowed are
+// kept. Anything else is ignored.
+func fragment(opaque json.RawMessage, allowed []string) map[string]json.RawMessage {
 	if len(opaque) == 0 {
 		return nil
 	}
@@ -474,7 +503,16 @@ func fragment(opaque json.RawMessage) map[string]json.RawMessage {
 	if json.Unmarshal(opaque, &fields) != nil {
 		return nil
 	}
-	return fields
+	kept := make(map[string]json.RawMessage, len(allowed))
+	for _, k := range allowed {
+		if v, ok := fields[k]; ok {
+			kept[k] = v
+		}
+	}
+	if len(kept) == 0 {
+		return nil
+	}
+	return kept
 }
 
 // mergeFragments adds b's fields to a. Two reasoning parts on one message

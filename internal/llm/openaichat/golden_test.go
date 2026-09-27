@@ -226,6 +226,13 @@ func goldenCases() []goldenCase {
 				"finish_reason":"tool_calls"}],
 			"usage":{"prompt_tokens":150,"completion_tokens":30,"total_tokens":180}}`},
 
+		// Ollama refuses a history whose arguments do not parse: {} goes back.
+		{name: "unparseable_arguments_ollama", cfg: ollama, req: withTools(
+			question(),
+			assistant(llm.Part{Type: llm.PartToolCall, ID: "call_bad", Name: "grade_list", Args: json.RawMessage("{}"), ArgsError: `{"assignment_id": "hw3`}),
+			toolMsg(result("call_bad", "grade_list", `{"status":"error","error":{"code":"invalid_argument","message":"the arguments are not a JSON object"}}`, true)),
+		), reply: textReply("stop", "Which assignment do you mean?")},
+
 		{name: "deepseek_reasoning_replay", cfg: deepseek, req: withTools(
 			question(),
 			assistant(
@@ -323,6 +330,11 @@ func goldenCases() []goldenCase {
 			"choices":[{"index":0,"message":{"role":"assistant","content":"Done."},"finish_reason":"stop"}],
 			"usage":{"prompt_tokens":1000,"completion_tokens":20,"total_tokens":1020,"prompt_cache_hit_tokens":896,"prompt_cache_miss_tokens":104}}`},
 
+		// Gemini's thinking is billed as output but counted only in the total.
+		{name: "usage_gemini_thinking", cfg: gemini, req: simple(), reply: `{"id":"g-u","object":"chat.completion","model":"gemini-3.1-pro",
+			"choices":[{"index":0,"message":{"role":"assistant","content":"Done."},"finish_reason":"stop"}],
+			"usage":{"prompt_tokens":27,"completion_tokens":8,"total_tokens":135}}`},
+
 		{name: "usage_none", cfg: cfg(ollamaBase, "llama3.2"), req: simple(), reply: `{"id":"u3","model":"llama3.2",
 			"choices":[{"index":0,"message":{"role":"assistant","content":"You lost 3 marks on question 2, as the rubric says."},"finish_reason":"stop"}]}`},
 
@@ -355,11 +367,12 @@ func goldenCases() []goldenCase {
 		{"finish_unknown_without_text", cfg(ollamaBase, "llama3.2"), textReply("abort", "")},
 		{"finish_null_with_text", cfg(ollamaBase, "llama3.2"), `{"id":"n","model":"llama3.2","choices":[{"index":0,"message":{"role":"assistant","content":"Done."},"finish_reason":null}],"usage":{"prompt_tokens":40,"completion_tokens":2}}`},
 		{"finish_tool_calls_without_calls", glm, textReply("tool_calls", "")},
+		{"finish_tool_calls_with_only_a_preamble", glm, textReply("tool_calls", "Let me check your grades.")},
 		{"finish_function_call", cfg(ollamaBase, "llama3.2"), `{"id":"fc","model":"llama3.2","choices":[{"index":0,"message":{"role":"assistant","content":null,"function_call":{"name":"grade_list","arguments":"{\"assignment_id\":\"hw3\"}"}},"finish_reason":"function_call"}],"usage":{"prompt_tokens":40,"completion_tokens":12}}`},
 		{"finish_openrouter_error", cfg(openrouterBase, "openai/gpt-4.1"), `{"id":"gen-e","model":"openai/gpt-4.1","choices":[{"index":0,"message":{"role":"assistant","content":""},"finish_reason":"error","native_finish_reason":"server_error","error":{"code":502,"message":"upstream failed"}}],"usage":{"prompt_tokens":40,"completion_tokens":0}}`},
 	} {
 		req := simple()
-		if f.name == "finish_function_call" || f.name == "finish_tool_calls_without_calls" {
+		if f.name == "finish_function_call" || strings.HasPrefix(f.name, "finish_tool_calls_") {
 			req = withTools(question())
 		}
 		cases = append(cases, goldenCase{name: f.name, cfg: f.cfg, req: req, reply: f.reply})
@@ -433,6 +446,7 @@ type replay struct {
 }
 
 func (r *replay) RoundTrip(req *http.Request) (*http.Response, error) {
+	defer func() { _ = req.Body.Close() }()
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
 		return nil, err

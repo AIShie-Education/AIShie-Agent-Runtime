@@ -1,0 +1,25 @@
+{
+  "model": "gemini-3.1-pro",
+  "parts": [
+    {
+      "text": "Done.",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "stop",
+  "request_id": "g-u",
+  "stop": "end",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 27,
+    "output": 108,
+    "raw": {
+      "completion_tokens": 8,
+      "prompt_tokens": 27,
+      "total_tokens": 135
+    },
+    "reasoning": 100
+  }
+}

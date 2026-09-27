@@ -2,6 +2,7 @@ package fakellm
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 )
@@ -9,23 +10,21 @@ import (
 // DefaultResponder is a model with two rules, enough for an answer to go
 // all the way through the runtime and Core:
 //
-//   - asked a question that mentions an assignment, with assignment_list
+//   - asked a question that mentions an assignment ("assignment",
+//     "homework", or one by its short name, HW3), with assignment_list
 //     offered and no tool result yet, it calls assignment_list with {};
 //   - otherwise it answers "Answer: " and the question's first 200
 //     characters, saying how many tool results it was given.
 //
-// Every answer carries usage, counted at four bytes a token.
+// The question is the asker's newest message, however the results that
+// followed it came: as tool messages, as the text the adapter makes of them
+// for a server it cannot tell to stop calling tools (ForceAnswer), or with
+// the files that came with them. Every answer carries usage, counted at
+// four bytes a token.
 func DefaultResponder(req ChatRequest) ChatResponse {
-	question := lastUserText(req.Messages)
-	results := 0
-	for _, m := range req.Messages {
-		if m.Role == "tool" {
-			results++
-		}
-	}
+	question, results := read(req.Messages)
 	lastIsUser := len(req.Messages) > 0 && req.Messages[len(req.Messages)-1].Role == "user"
-	if lastIsUser && results == 0 && offered(req, "assignment_list") &&
-		strings.Contains(strings.ToLower(question), "assignment") {
+	if lastIsUser && results == 0 && offered(req, "assignment_list") && mentionsAssignment.MatchString(question) {
 		call := ToolCall{ID: "call_assignment_list", Type: "function", Function: FunctionCall{Name: "assignment_list", Arguments: "{}"}}
 		return ChatResponse{
 			Choices: []Choice{{Message: ChatMessage{Role: "assistant", ToolCalls: []ToolCall{call}}, FinishReason: "tool_calls"}},
@@ -44,6 +43,45 @@ func DefaultResponder(req ChatRequest) ChatResponse {
 		Choices: []Choice{{Message: ChatMessage{Role: "assistant", Content: answer}, FinishReason: "stop"}},
 		Usage:   usage(req, answer),
 	}
+}
+
+var mentionsAssignment = regexp.MustCompile(`(?i)assignment|homework|\bhw ?\d`)
+
+// read finds the question in a conversation, and counts the tool results
+// given since. A user message is not the question when it holds results as
+// text (each "[result of …]" or "[error from …]", as llm.FlattenToolHistory
+// writes them) or comes straight after tool messages (the files that came
+// with the results).
+func read(msgs []ChatMessage) (question string, results int) {
+	prev := ""
+	for _, m := range msgs {
+		switch m.Role {
+		case "tool":
+			results++
+		case "user":
+			text := m.Text()
+			switch n := flattenedResults(text); {
+			case n > 0:
+				results += n
+			case prev == "tool":
+			default:
+				question = text
+			}
+		}
+		prev = m.Role
+	}
+	return question, results
+}
+
+// flattenedResults counts the tool results a message gives as text.
+func flattenedResults(text string) int {
+	n := 0
+	for _, line := range strings.Split(text, "\n") {
+		if strings.HasPrefix(line, "[result of ") || strings.HasPrefix(line, "[error from ") {
+			n++
+		}
+	}
+	return n
 }
 
 // Reply is a response that answers text and stops.
@@ -83,17 +121,6 @@ func offered(req ChatRequest, tool string) bool {
 		}
 	}
 	return false
-}
-
-// lastUserText is the newest user message's text: the question, even
-// after the tool results that followed it.
-func lastUserText(msgs []ChatMessage) string {
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == "user" {
-			return msgs[i].Text()
-		}
-	}
-	return ""
 }
 
 // prefix is s's first n characters.
