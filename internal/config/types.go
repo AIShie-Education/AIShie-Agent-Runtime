@@ -41,7 +41,7 @@ type Agent struct {
 	File string `yaml:"-"`
 	// merged is the agent's configuration as a generic map, after the
 	// defaults, for ForCourse to merge a course into.
-	merged map[string]any //nolint:unused // set by the loader, read by ForCourse
+	merged map[string]any
 }
 
 // Core is how the agent reaches Core.
