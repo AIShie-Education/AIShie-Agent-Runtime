@@ -1,0 +1,59 @@
+{
+  "id": "resp_parallel",
+  "object": "response",
+  "created_at": 1790000000,
+  "status": "completed",
+  "background": false,
+  "error": null,
+  "incomplete_details": null,
+  "instructions": "You are a tutor.",
+  "max_output_tokens": 2000,
+  "model": "gpt-test-2026-06-01",
+  "output": [
+    {
+      "id": "fc_parallel_1",
+      "type": "function_call",
+      "status": "completed",
+      "arguments": "{\"assignment_id\": \"0192f3c1-7a2b-7c3d-8e4f-5a6b7c8d9e0f\"}",
+      "call_id": "call_grades",
+      "name": "grade_list"
+    },
+    {
+      "id": "fc_parallel_2",
+      "type": "function_call",
+      "status": "completed",
+      "arguments": "{\"assignment_id\": \"0192f3c1-7a2b-7c3d-8e4f-5a6b7c8d9e0f\"}",
+      "call_id": "call_assignment",
+      "name": "assignment_get"
+    }
+  ],
+  "parallel_tool_calls": true,
+  "previous_response_id": null,
+  "reasoning": {
+    "effort": null,
+    "summary": null
+  },
+  "store": false,
+  "temperature": 1.0,
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": "medium"
+  },
+  "tool_choice": "auto",
+  "tools": [],
+  "top_p": 1.0,
+  "truncation": "disabled",
+  "usage": {
+    "input_tokens": 412,
+    "input_tokens_details": {
+      "cached_tokens": 0
+    },
+    "output_tokens": 61,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 473
+  }
+}

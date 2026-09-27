@@ -1,0 +1,68 @@
+{
+  "id": "resp_unknown",
+  "object": "response",
+  "status": "completed",
+  "error": "not an object",
+  "model": "gpt-test-2026-06-01",
+  "output": [
+    {
+      "id": "ws_1",
+      "type": "web_search_call",
+      "status": "completed",
+      "action": {
+        "type": "search",
+        "query": "HW3"
+      }
+    },
+    {
+      "id": "cmp_1",
+      "type": "compaction",
+      "content": "an opaque string",
+      "encrypted_content": "gAAAAcmp"
+    },
+    {
+      "id": "rs_two",
+      "type": "reasoning",
+      "summary": [
+        {
+          "type": "summary_text",
+          "text": "**First**\n\nOne."
+        },
+        {
+          "type": "summary_text",
+          "text": "**Second**\n\nTwo."
+        }
+      ],
+      "encrypted_content": "gAAAAtwo"
+    },
+    {
+      "id": "msg_unknown",
+      "type": "message",
+      "status": "completed",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "annotations": [],
+          "text": "First part. "
+        },
+        {
+          "type": "output_audio",
+          "data": "…"
+        },
+        {
+          "type": "output_text",
+          "annotations": [],
+          "text": "Second part."
+        }
+      ]
+    }
+  ],
+  "usage": {
+    "input_tokens": 20,
+    "input_tokens_details": null,
+    "output_tokens": 30,
+    "output_tokens_details": null,
+    "total_tokens": 50
+  }
+}

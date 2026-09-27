@@ -1,0 +1,31 @@
+{
+  "id": "resp_queued",
+  "object": "response",
+  "created_at": 1790000000,
+  "status": "queued",
+  "background": false,
+  "error": null,
+  "incomplete_details": null,
+  "instructions": "You are a tutor.",
+  "max_output_tokens": 2000,
+  "model": "gpt-test-2026-06-01",
+  "output": [],
+  "parallel_tool_calls": true,
+  "previous_response_id": null,
+  "reasoning": {
+    "effort": null,
+    "summary": null
+  },
+  "store": false,
+  "temperature": 1.0,
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": "medium"
+  },
+  "tool_choice": "auto",
+  "tools": [],
+  "top_p": 1.0,
+  "truncation": "disabled"
+}

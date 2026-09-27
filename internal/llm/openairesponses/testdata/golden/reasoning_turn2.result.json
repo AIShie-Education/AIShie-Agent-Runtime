@@ -1,0 +1,45 @@
+{
+  "model": "gpt-test-2026-06-01",
+  "parts": [
+    {
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "opaque": {
+        "encrypted_content": "gAAAAABoEncryptedTurnTwo==",
+        "id": "rs_turn2",
+        "summary": [],
+        "type": "reasoning"
+      },
+      "type": "reasoning"
+    },
+    {
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "opaque": {
+        "phase": "final_answer"
+      },
+      "text": "You lost two marks on question 3: the loop never ends.",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "completed",
+  "request_id": "resp_rs_2",
+  "stop": "end",
+  "usage": {
+    "cache_read": 512,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 900,
+    "output": 90,
+    "raw": {
+      "input_tokens": 900,
+      "input_tokens_details": {
+        "cached_tokens": 512
+      },
+      "output_tokens": 90,
+      "output_tokens_details": {
+        "reasoning_tokens": 40
+      },
+      "total_tokens": 990
+    },
+    "reasoning": 40
+  }
+}

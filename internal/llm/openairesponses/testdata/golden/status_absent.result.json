@@ -1,0 +1,20 @@
+{
+  "model": "gpt-test",
+  "parts": [
+    {
+      "text": "An answer from a server that says no status.",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "",
+  "request_id": "resp_nostatus",
+  "stop": "end",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 0,
+    "output": 0,
+    "reasoning": 0
+  }
+}

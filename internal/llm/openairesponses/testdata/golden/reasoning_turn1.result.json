@@ -1,0 +1,67 @@
+{
+  "model": "gpt-test-2026-06-01",
+  "parts": [
+    {
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "opaque": {
+        "encrypted_content": "gAAAAABoEncryptedTurnOne==",
+        "id": "rs_turn1",
+        "summary": [
+          {
+            "text": "**Checking the grade**\n\nThe student asks about HW3; I should read the grades and the assignment.",
+            "type": "summary_text"
+          }
+        ],
+        "type": "reasoning"
+      },
+      "text": "**Checking the grade**\n\nThe student asks about HW3; I should read the grades and the assignment.",
+      "type": "reasoning"
+    },
+    {
+      "args": {
+        "assignment_id": "0192f3c1-7a2b-7c3d-8e4f-5a6b7c8d9e0f"
+      },
+      "id": "call_rs_grades",
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "name": "grade_list",
+      "opaque": {
+        "id": "fc_rs_1"
+      },
+      "type": "tool_call"
+    },
+    {
+      "args": {
+        "assignment_id": "0192f3c1-7a2b-7c3d-8e4f-5a6b7c8d9e0f"
+      },
+      "id": "call_rs_assignment",
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "name": "assignment_get",
+      "opaque": {
+        "id": "fc_rs_2"
+      },
+      "type": "tool_call"
+    }
+  ],
+  "raw_stop": "completed",
+  "request_id": "resp_rs_1",
+  "stop": "tool_calls",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 512,
+    "output": 180,
+    "raw": {
+      "input_tokens": 512,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 180,
+      "output_tokens_details": {
+        "reasoning_tokens": 128
+      },
+      "total_tokens": 692
+    },
+    "reasoning": 128
+  }
+}

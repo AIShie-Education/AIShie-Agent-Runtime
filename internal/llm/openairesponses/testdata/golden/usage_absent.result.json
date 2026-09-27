@@ -1,0 +1,20 @@
+{
+  "model": "gpt-test-2026-06-01",
+  "parts": [
+    {
+      "text": "Done.",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "completed",
+  "request_id": "resp_nousage",
+  "stop": "end",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 0,
+    "output": 0,
+    "reasoning": 0
+  }
+}

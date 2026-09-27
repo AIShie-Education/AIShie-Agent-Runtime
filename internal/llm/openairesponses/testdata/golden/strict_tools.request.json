@@ -1,0 +1,57 @@
+{
+  "input": [
+    {
+      "content": [
+        {
+          "text": "Why did I lose marks on HW3?",
+          "type": "input_text"
+        }
+      ],
+      "role": "user",
+      "type": "message"
+    }
+  ],
+  "instructions": "You are a tutor.",
+  "max_output_tokens": 2000,
+  "model": "gpt-test",
+  "parallel_tool_calls": true,
+  "store": false,
+  "tool_choice": "auto",
+  "tools": [
+    {
+      "description": "Lists the grades the seat may read.",
+      "name": "grade_list",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "assignment_id": {
+            "description": "Only this assignment's grades (optional; omit or null)",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "strict": true,
+      "type": "function"
+    },
+    {
+      "description": "Reads one assignment.",
+      "name": "assignment_get",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "assignment_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "assignment_id"
+        ],
+        "type": "object"
+      },
+      "strict": true,
+      "type": "function"
+    }
+  ]
+}

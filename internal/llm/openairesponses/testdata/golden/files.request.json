@@ -1,0 +1,93 @@
+{
+  "input": [
+    {
+      "content": [
+        {
+          "text": "Here are my essay and its chart.",
+          "type": "input_text"
+        },
+        {
+          "detail": "auto",
+          "image_url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==",
+          "type": "input_image"
+        },
+        {
+          "file_data": "data:application/pdf;base64,JVBERi0xLjcKMSAwIG9iago8PD4+CmVuZG9iago=",
+          "filename": "essay.pdf",
+          "type": "input_file"
+        }
+      ],
+      "role": "user",
+      "type": "message"
+    },
+    {
+      "arguments": "{\"document_id\":\"0192f3c1-7a2b-7c3d-8e4f-5a6b7c8d9e0f\"}",
+      "call_id": "call_doc",
+      "name": "document_get",
+      "type": "function_call"
+    },
+    {
+      "call_id": "call_doc",
+      "output": "{\"status\":\"executed\",\"result\":{\"title\":\"Syllabus\",\"file\":\"given below\"}}",
+      "type": "function_call_output"
+    },
+    {
+      "content": [
+        {
+          "file_data": "data:application/pdf;base64,JVBERi0xLjcKMSAwIG9iago8PD4+CmVuZG9iago=",
+          "filename": "syllabus.pdf",
+          "type": "input_file"
+        },
+        {
+          "file_data": "data:application/octet-stream;base64,cGxhaW4gYnl0ZXM=",
+          "filename": "file",
+          "type": "input_file"
+        }
+      ],
+      "role": "user",
+      "type": "message"
+    }
+  ],
+  "instructions": "You are a tutor.",
+  "model": "gpt-test",
+  "parallel_tool_calls": true,
+  "store": false,
+  "tool_choice": "auto",
+  "tools": [
+    {
+      "description": "Lists the grades the seat may read.",
+      "name": "grade_list",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "assignment_id": {
+            "description": "Only this assignment's grades (optional; omit or null)",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "strict": false,
+      "type": "function"
+    },
+    {
+      "description": "Reads one assignment.",
+      "name": "assignment_get",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "assignment_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "assignment_id"
+        ],
+        "type": "object"
+      },
+      "strict": false,
+      "type": "function"
+    }
+  ]
+}

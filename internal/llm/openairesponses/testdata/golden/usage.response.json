@@ -1,0 +1,58 @@
+{
+  "id": "resp_usage",
+  "object": "response",
+  "created_at": 1790000000,
+  "status": "completed",
+  "background": false,
+  "error": null,
+  "incomplete_details": null,
+  "instructions": "You are a tutor.",
+  "max_output_tokens": 2000,
+  "model": "gpt-test-2026-06-01",
+  "output": [
+    {
+      "id": "msg_usage",
+      "type": "message",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "annotations": [],
+          "logprobs": [],
+          "text": "Done."
+        }
+      ],
+      "role": "assistant"
+    }
+  ],
+  "parallel_tool_calls": true,
+  "previous_response_id": null,
+  "reasoning": {
+    "effort": null,
+    "summary": null
+  },
+  "store": false,
+  "temperature": 1.0,
+  "text": {
+    "format": {
+      "type": "text"
+    },
+    "verbosity": "medium"
+  },
+  "tool_choice": "auto",
+  "tools": [],
+  "top_p": 1.0,
+  "truncation": "disabled",
+  "usage": {
+    "input_tokens": 1234,
+    "input_tokens_details": {
+      "cached_tokens": 1000,
+      "cache_write_tokens": 200
+    },
+    "output_tokens": 210,
+    "output_tokens_details": {
+      "reasoning_tokens": 64
+    },
+    "total_tokens": 1444
+  }
+}
