@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"time"
 
@@ -109,7 +110,15 @@ func (s *Seat) readEvents(ctx context.Context) {
 			return
 		}
 		for _, ev := range evs.Events {
-			s.onEvent(ctx, ev, acts)
+			if err := s.onEvent(ctx, ev, acts); err != nil {
+				// The cursor stays before this page: its events are read,
+				// and acted on, again next time. Acting on one twice does
+				// no harm.
+				if ctx.Err() == nil {
+					s.log.Warn("an event could not be acted on; it is read again next time", "type", ev.Type, "seq", ev.Seq, "err", err)
+				}
+				return
+			}
 		}
 		if evs.NextSeq <= since {
 			return
@@ -134,28 +143,33 @@ func (s *Seat) markEventsRead() {
 // onEvent acts on one event. Only what concerns an attempt the store
 // holds, the agent's own conversations, or its answers is acted on, so
 // that a seat reading its whole history on its first read does no harm.
-func (s *Seat) onEvent(ctx context.Context, ev core.Event, acts *actionLookup) {
+// Its error is the store failing, when the event must be read again.
+func (s *Seat) onEvent(ctx context.Context, ev core.Event, acts *actionLookup) error {
 	switch ev.Type {
 	case core.EventActionApproved, core.EventActionRejected, core.EventActionCancelled:
 		if ev.ActionID == nil {
-			return
+			return nil
 		}
 		at, err := s.a.store().AttemptByAction(ctx, s.a.id, *ev.ActionID)
-		if err != nil || at.State != store.AttemptProposed {
-			return
+		switch {
+		case errors.Is(err, store.ErrNotFound):
+			return nil
+		case err != nil:
+			return err
+		case at.State != store.AttemptProposed:
+			return nil
 		}
 		if act, ok := acts.find(ctx, *ev.ActionID); ok && act.Status != actionProposed {
-			s.settleProposal(at, act)
-			return
+			return s.settleProposal(at, act)
 		}
-		s.settleProposal(at, actionFromEvent(ev))
+		return s.settleProposal(at, actionFromEvent(ev))
 	case core.EventConversationMessageRetracted:
 		var p struct {
 			ConversationID string `json:"conversation_id"`
 			MessageID      string `json:"message_id"`
 		}
 		if json.Unmarshal(ev.Payload, &p) == nil && p.ConversationID != "" && p.MessageID != "" {
-			s.retracted(ctx, p.ConversationID, p.MessageID)
+			return s.retracted(ctx, p.ConversationID, p.MessageID)
 		}
 	case core.EventConversationMessagePosted:
 		var p struct {
@@ -163,7 +177,7 @@ func (s *Seat) onEvent(ctx context.Context, ev core.Event, acts *actionLookup) {
 			OpenerMemberID string `json:"opener_member_id"`
 		}
 		if json.Unmarshal(ev.Payload, &p) != nil || p.AuthorMemberID != p.OpenerMemberID || p.AuthorMemberID == s.id {
-			return
+			return nil
 		}
 		// The opener writing makes the course hot, if it is news.
 		if at, err := time.Parse(time.RFC3339Nano, ev.OccurredAt); err == nil &&
@@ -171,6 +185,7 @@ func (s *Seat) onEvent(ctx context.Context, ev core.Event, acts *actionLookup) {
 			s.markHot()
 		}
 	}
+	return nil
 }
 
 // actionFromEvent is what an event says of a proposal's fate, for when
@@ -203,8 +218,8 @@ func actionFromEvent(ev core.Event) core.Action {
 // the reason goes into the conversation's memory for the next attempt;
 // cancelled (expired, most often), memory notes why; failed, nothing was
 // posted. Whatever did not post puts the conversation back in the inbox,
-// for the next attempt.
-func (s *Seat) settleProposal(at *store.Attempt, act core.Action) {
+// for the next attempt. Its error is the store failing to record it.
+func (s *Seat) settleProposal(at *store.Attempt, act core.Action) error {
 	o := store.Outcome{ActionID: act.ID}
 	var note *store.Note
 	base := store.Note{AgentID: s.a.id, MemberID: s.id, ConversationID: at.ConversationID, MessageID: at.MessageID}
@@ -230,13 +245,13 @@ func (s *Seat) settleProposal(at *store.Attempt, act core.Action) {
 	case actionFailed:
 		o.State, o.ErrorCode = store.AttemptFailed, actionErrorCode(act)
 	default:
-		return
+		return nil
 	}
 	ctx, cancel := bookkeeping()
 	defer cancel()
 	if err := s.a.store().FinishAttempt(ctx, s.a.id, at.Key, o); err != nil {
 		s.log.Error("proposal not settled", "key", at.Key, "err", err)
-		return
+		return err
 	}
 	if note != nil {
 		addNote(s.a, s.config(), *note)
@@ -247,6 +262,7 @@ func (s *Seat) settleProposal(at *store.Attempt, act core.Action) {
 	} else {
 		poke(s.wakeInbox)
 	}
+	return nil
 }
 
 // actionMessageID is the message an executed answer's action made.
@@ -289,32 +305,35 @@ func actionErrorReason(act core.Action) string {
 
 // retracted forgets what memory holds about a retracted message; when it
 // was the agent's own answer, memory notes not to repeat it, and the owner
-// is told (§6.3).
-func (s *Seat) retracted(ctx context.Context, conv, msg string) {
+// is told (§6.3). A retraction read again, its note written already, is
+// left as it is. Its error is the store failing.
+func (s *Seat) retracted(ctx context.Context, conv, msg string) error {
 	st := s.a.store()
 	notes, err := st.Notes(ctx, s.a.id, s.id, conv, memoryNotes)
 	if err != nil {
-		if ctx.Err() == nil {
-			s.log.Warn("memory not read for a retraction", "conversation", conv, "err", err)
-		}
-		return
+		return err
 	}
 	own := false
 	for _, n := range notes {
-		if n.Kind == store.NoteAnswered && n.MessageID == msg {
+		switch {
+		case n.MessageID != msg:
+		case n.Kind == store.NoteRetractedOwn:
+			return nil
+		case n.Kind == store.NoteAnswered:
 			own = true
 		}
 	}
-	if err := st.ForgetMessage(ctx, s.a.id, s.id, conv, msg); err != nil && ctx.Err() == nil {
-		s.log.Warn("a retracted message not forgotten", "conversation", conv, "message", msg, "err", err)
+	if err := st.ForgetMessage(ctx, s.a.id, s.id, conv, msg); err != nil {
+		return err
 	}
 	if !own {
-		return
+		return nil
 	}
 	addNote(s.a, s.config(), store.Note{AgentID: s.a.id, MemberID: s.id, ConversationID: conv, Kind: store.NoteRetractedOwn,
 		Text: "An answer of yours here was retracted.", MessageID: msg})
 	s.log.Warn("an answer of the agent's was retracted", "conversation", conv, "message", msg)
 	s.a.tell("an answer of the agent's was retracted (conversation " + conv + ", message " + msg + ")")
+	return nil
 }
 
 // actionLookup finds the agent's own actions in the seat's course, paging
@@ -422,7 +441,7 @@ func (s *Seat) recover(ctx context.Context) {
 	defer acts.save(ctx)
 	for _, at := range proposed {
 		if act, ok := acts.find(ctx, at.ActionID); ok && act.Status != actionProposed {
-			s.settleProposal(&at, act)
+			_ = s.settleProposal(&at, act) // logged; the event, or the next start, settles it
 		}
 	}
 }
@@ -449,7 +468,7 @@ func (s *Seat) resendAtStart(ctx context.Context, at store.Attempt) {
 	} else {
 		d = Classify(env, err)
 	}
-	settle(s.a, at.Key, env, d)
+	settle(s.a, c.eff, at, env, d)
 	switch d.Next {
 	case NextDone:
 		if at.Tool == toolAnswer {

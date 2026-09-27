@@ -226,3 +226,30 @@ func TestRowsWaitingForASlotAreWork(t *testing.T) {
 		t.Errorf("rows held back: %d empty polls, want 2", n)
 	}
 }
+
+// TestRetractionReadTwice: the retraction of an answer of the agent's,
+// read a second time (the events cursor was not saved), keeps the note
+// the first reading left.
+func TestRetractionReadTwice(t *testing.T) {
+	ctx := context.Background()
+	st := memstore.New()
+	sup, err := NewSupervisor(Options{Config: &config.Config{}, Store: st, WorkerID: "w"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Seat{a: newAgent(sup, &config.Agent{ID: "a"}), id: "m", course: "c", log: discardLog(),
+		eff: &config.Effective{Agent: config.Agent{Memory: config.Memory{Enabled: true}}}}
+	if err := st.AddNote(ctx, store.Note{AgentID: "a", MemberID: "m", ConversationID: "x", Kind: store.NoteAnswered,
+		Text: answeredNote("p"), MessageID: "p"}); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := s.retracted(ctx, "x", "p"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	notes, err := st.Notes(ctx, "a", "m", "x", 10)
+	if err != nil || len(notes) != 1 || notes[0].Kind != store.NoteRetractedOwn || notes[0].MessageID != "p" {
+		t.Errorf("memory after the retraction read twice: %+v, %v", notes, err)
+	}
+}
