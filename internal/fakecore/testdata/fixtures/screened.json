@@ -1,0 +1,57 @@
+{
+ "scenario": "screened",
+ "steps": [
+  {
+   "body": {
+    "error": {
+     "code": -32600,
+     "message": "one message per request; a batch is not taken"
+    },
+    "id": null,
+    "jsonrpc": "2.0"
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "step": "batch"
+  },
+  {
+   "body": {
+    "error": {
+     "code": -32600,
+     "message": "the id is longer than 256 bytes"
+    },
+    "id": null,
+    "jsonrpc": "2.0"
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "step": "long_id"
+  },
+  {
+   "body": {
+    "error": {
+     "code": -32601,
+     "message": "nothing is pushed from here; poll event_list with the next_seq it last returned"
+    },
+    "id": 9,
+    "jsonrpc": "2.0"
+   },
+   "content_type": "application/json",
+   "http_status": 404,
+   "step": "listen"
+  },
+  {
+   "body": {
+    "error": {
+     "code": -32700,
+     "message": "the request is not JSON"
+    },
+    "id": null,
+    "jsonrpc": "2.0"
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "step": "not_json"
+  }
+ ]
+}

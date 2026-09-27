@@ -1,0 +1,390 @@
+{
+ "scenario": "rest",
+ "steps": [
+  {
+   "body": {
+    "result": {
+     "conversations": [
+      {
+       "created_at": "<time>",
+       "id": "<id:1>",
+       "last_author_member_id": "<id:2>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:3>",
+       "opener": {
+        "display_name": "Yuki",
+        "kind": "human",
+        "member_id": "<id:2>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:4>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "GET",
+   "path": "/v1/courses/<id:5>/conversations/inbox",
+   "step": "inbox"
+  },
+  {
+   "body": {
+    "result": {
+     "conversations": [
+      {
+       "created_at": "<time>",
+       "id": "<id:1>",
+       "last_author_member_id": "<id:2>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:3>",
+       "opener": {
+        "display_name": "Yuki",
+        "kind": "human",
+        "member_id": "<id:2>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:4>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "GET",
+   "path": "/v1/courses/<id:5>/conversations/inbox?limit=1",
+   "step": "inbox_limit"
+  },
+  {
+   "body": {
+    "result": {
+     "conversation": {
+      "created_at": "<time>",
+      "id": "<id:1>",
+      "last_author_member_id": "<id:2>",
+      "last_message_at": "<time>",
+      "latest_opener_message_id": "<id:3>",
+      "opener": {
+       "display_name": "Yuki",
+       "kind": "human",
+       "member_id": "<id:2>"
+      },
+      "respondent": {
+       "answer_level": "autonomous",
+       "display_name": "CS101 Tutor",
+       "is_delegate_of_opener": false,
+       "kind": "agent",
+       "last_seen_at": "<time>",
+       "member_id": "<id:4>",
+       "owner_name": "Sato",
+       "role": "assistant",
+       "seat_status": "active"
+      },
+      "state": "awaiting_answer",
+      "status": "open"
+     },
+     "messages": [
+      {
+       "author_member_id": "<id:2>",
+       "body": "Where are the notes?",
+       "created_at": "<time>",
+       "id": "<id:3>",
+       "seq": 1
+      }
+     ],
+     "more": false
+    },
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "GET",
+   "path": "/v1/courses/<id:5>/conversations/<id:1>/messages?after_seq=0",
+   "step": "messages"
+  },
+  {
+   "body": {
+    "action_id": "<id:6>",
+    "result": {
+     "message_id": "<id:7>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "POST",
+   "path": "/v1/courses/<id:5>/conversations/<id:1>/answer",
+   "request": {
+    "body": "On the course page.",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "step": "answer"
+  },
+  {
+   "body": {
+    "action_id": "<id:6>",
+    "replayed": true,
+    "result": {
+     "message_id": "<id:7>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "POST",
+   "path": "/v1/courses/<id:5>/conversations/<id:1>/answer",
+   "replayed_header": "true",
+   "request": {
+    "body": "On the course page.",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "step": "replay"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "idempotency_conflict",
+     "details": {
+      "action_id": "<id:6>"
+     },
+     "message": "this idempotency key was already used for a different conversation.answer call; use a new key for a new request"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 409,
+   "method": "POST",
+   "path": "/v1/courses/<id:5>/conversations/<id:1>/answer",
+   "request": {
+    "body": "Elsewhere.",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "step": "conflict"
+  },
+  {
+   "body": {
+    "action_id": "<id:8>",
+    "error": {
+     "code": "conflict",
+     "details": {
+      "reason": "already_answered"
+     },
+     "message": "the latest message is answered already"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "content_type": "application/json",
+   "http_status": 409,
+   "method": "POST",
+   "path": "/v1/courses/<id:5>/conversations/<id:1>/answer",
+   "request": {
+    "body": "On the course page.",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "step": "already_answered"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "conversation.answer changes state, so it needs an idempotency key"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "method": "POST",
+   "path": "/v1/courses/<id:5>/conversations/<id:1>/answer",
+   "request": {
+    "body": "On the course page.",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "step": "no_key"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "not_found",
+     "message": "no such conversation in this course"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 404,
+   "method": "GET",
+   "path": "/v1/courses/<id:5>/conversations/<id:9>",
+   "step": "not_found"
+  },
+  {
+   "body": {
+    "result": {
+     "memberships": [
+      {
+       "answers_course": true,
+       "assignment_scope": "all",
+       "code": "CS101",
+       "course_id": "<id:5>",
+       "course_status": "active",
+       "member_id": "<id:4>",
+       "perms": {
+        "action_decide": "denied",
+        "agent_delegate": "denied",
+        "assignment_write": "denied",
+        "conversation_answer": "autonomous",
+        "conversation_ask": "denied",
+        "document_read": "autonomous",
+        "document_read_draft": "denied",
+        "document_write": "denied",
+        "grade_post": "denied",
+        "grade_read": "denied",
+        "grade_submit": "denied",
+        "member_manage": "denied",
+        "member_read": "denied",
+        "rubric_read": "denied",
+        "submission_read": "denied",
+        "submission_write": "denied"
+       },
+       "principal_member_id": "<id:10>",
+       "role": "assistant",
+       "section": "A",
+       "status": "active",
+       "student_scope": "listed",
+       "title": "CS101"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "GET",
+   "path": "/v1/me/memberships",
+   "step": "memberships"
+  },
+  {
+   "body": {
+    "action_id": "<id:11>",
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "content_type": "application/json",
+   "http_status": 202,
+   "method": "POST",
+   "path": "/v1/courses/<id:5>/conversations/<id:12>/answer",
+   "request": {
+    "body": "Ask the lab coordinator.",
+    "in_reply_to_message_id": "<id:13>"
+   },
+   "step": "proposed"
+  },
+  {
+   "body": {
+    "action_id": "<id:14>",
+    "error": {
+     "code": "conflict",
+     "details": {
+      "reason": "answer_pending"
+     },
+     "message": "an answer of yours to that message already waits for a decision"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "content_type": "application/json",
+   "http_status": 409,
+   "method": "POST",
+   "path": "/v1/courses/<id:5>/conversations/<id:12>/answer",
+   "request": {
+    "body": "Ask the lab coordinator.",
+    "in_reply_to_message_id": "<id:13>"
+   },
+   "step": "answer_pending"
+  },
+  {
+   "body": {
+    "action_id": "<id:11>",
+    "replayed": true,
+    "result": {
+     "decision": {
+      "by_action_id": "<id:15>",
+      "decision": "reject",
+      "reason": "Point them to the form."
+     }
+    },
+    "review_state": "none",
+    "status": "rejected"
+   },
+   "content_type": "application/json",
+   "http_status": 409,
+   "method": "POST",
+   "path": "/v1/courses/<id:5>/conversations/<id:12>/answer",
+   "replayed_header": "true",
+   "request": {
+    "body": "Ask the lab coordinator.",
+    "in_reply_to_message_id": "<id:13>"
+   },
+   "step": "replayed_rejected"
+  },
+  {
+   "body": {
+    "action_id": "<id:16>",
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "permission_denied"
+     },
+     "message": "not permitted"
+    },
+    "review_state": "none",
+    "status": "denied"
+   },
+   "content_type": "application/json",
+   "http_status": 403,
+   "method": "POST",
+   "path": "/v1/courses/<id:5>/conversations/<id:12>/answer",
+   "request": {
+    "body": "Ask the lab coordinator.",
+    "in_reply_to_message_id": "<id:13>"
+   },
+   "step": "denied"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "unauthenticated",
+     "message": "the credential is missing or not valid"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 401,
+   "method": "GET",
+   "path": "/v1/me",
+   "step": "unauthenticated",
+   "www_authenticate": "Bearer realm=\"aishiteru\""
+  }
+ ]
+}

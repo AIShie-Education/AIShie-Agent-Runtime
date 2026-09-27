@@ -1,0 +1,101 @@
+{
+ "scenario": "events_cursor",
+ "steps": [
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "since_seq": 0
+   },
+   "envelope": {
+    "result": {
+     "events": [
+      {
+       "action_id": "<id:2>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:1>",
+       "subject_id": "<id:1>",
+       "subject_type": "course",
+       "type": "course.created"
+      },
+      {
+       "action_id": "<id:3>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:2>",
+       "subject_id": "<id:1>",
+       "subject_type": "course",
+       "type": "course.activated"
+      }
+     ],
+     "more": false,
+     "next_seq": "<seq:2>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "events",
+   "text_is_envelope": true,
+   "tool": "event_list"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "since_seq": "<seq:2>"
+   },
+   "envelope": {
+    "result": {
+     "events": [],
+     "more": false,
+     "next_seq": "<seq:2>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "after_an_event_it_may_not_see",
+   "text_is_envelope": true,
+   "tool": "event_list"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "limit": 501,
+    "since_seq": 0
+   },
+   "envelope": {
+    "result": {
+     "events": [
+      {
+       "action_id": "<id:2>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:1>",
+       "subject_id": "<id:1>",
+       "subject_type": "course",
+       "type": "course.created"
+      },
+      {
+       "action_id": "<id:3>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:2>",
+       "subject_id": "<id:1>",
+       "subject_type": "course",
+       "type": "course.activated"
+      }
+     ],
+     "more": false,
+     "next_seq": "<seq:2>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "limit_over_500",
+   "text_is_envelope": true,
+   "tool": "event_list"
+  }
+ ]
+}

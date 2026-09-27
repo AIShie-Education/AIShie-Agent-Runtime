@@ -1,0 +1,113 @@
+{
+ "scenario": "tutor_removed",
+ "steps": [
+  {
+   "args": {
+    "body": "Ask your instructor.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "action_id": "<id:4>",
+    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed.",
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "answer",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "Ask your instructor.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "action_id": "<id:4>",
+    "error": {
+     "code": "failed_precondition",
+     "details": {
+      "member_reason": "removed",
+      "reason": "member_removed"
+     },
+     "message": "the proposal can no longer be carried out"
+    },
+    "replayed": true,
+    "review_state": "none",
+    "status": "cancelled"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "replay",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "Ask your instructor.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:2",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "action_id": "<id:5>",
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "not_a_member"
+     },
+     "message": "not permitted"
+    },
+    "review_state": "none",
+    "status": "denied"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "answer_again",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {},
+   "envelope": {
+    "result": {
+     "memberships": []
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "memberships",
+   "text_is_envelope": true,
+   "tool": "me_memberships"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "not_a_member"
+     },
+     "message": "not permitted"
+    },
+    "status": "denied"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "inbox",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  }
+ ]
+}

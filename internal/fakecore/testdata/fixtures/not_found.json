@@ -1,0 +1,98 @@
+{
+ "scenario": "not_found",
+ "steps": [
+  {
+   "args": {
+    "body": "Hello.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "message": "no such conversation in this course"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "answer",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "message": "no such conversation in this course"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "get",
+   "text_is_envelope": true,
+   "tool": "conversation_get"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "message": "no such conversation in this course"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "messages",
+   "text_is_envelope": true,
+   "tool": "conversation_messages"
+  },
+  {
+   "args": {
+    "course_id": "<id:4>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "message": "course <id:4> does not exist"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "inbox_other_course",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "idempotency_key": "retract:<id:1>",
+    "message_id": "<id:1>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "message": "no such message in this course"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "retract_nothing",
+   "text_is_envelope": true,
+   "tool": "conversation_retract"
+  }
+ ]
+}
