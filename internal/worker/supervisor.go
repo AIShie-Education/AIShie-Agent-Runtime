@@ -47,6 +47,9 @@ type Supervisor struct {
 	paused map[string]bool
 	// cats are Core's catalogues, fetched once per base URL.
 	cats map[string]*catEntry
+	// actors are the Core actors this worker's agents run as, by base URL
+	// and actor id, and the agent that runs as each.
+	actors map[string]string
 }
 
 // runner is one configured agent that is not paused, and the instance of
@@ -84,7 +87,7 @@ func NewSupervisor(o Options) (*Supervisor, error) {
 		o: o, log: o.Log.With("worker", o.WorkerID), coreHTTP: coreClient(o.HTTPClient),
 		files: toolset.NewHTTPFetcher(o.HTTPClient), schemas: toolschema.NewCache(),
 		kick: make(chan struct{}, 1), runners: map[string]*runner{}, paused: map[string]bool{},
-		cats: map[string]*catEntry{}, pending: o.Config,
+		cats: map[string]*catEntry{}, actors: map[string]string{}, pending: o.Config,
 	}
 	s.prices.Store(o.Prices)
 	return s, nil
@@ -240,11 +243,13 @@ func (s *Supervisor) apply(ctx context.Context) {
 		holds := c.r.holds
 		c.r.holds = false
 		s.mu.Unlock()
-		if holds {
-			s.releaseLease(c.r.id)
-		}
+		// The state is written before the lease goes, so that a worker
+		// taking the agent up reads a handover, not a lapse.
 		if c.why != "" && holds {
 			s.writeState(ctx, c.r.id, store.AgentStopped, c.why)
+		}
+		if holds {
+			s.releaseLease(c.r.id)
 		}
 		s.o.Metrics.Forget(c.r.id)
 	}
@@ -279,7 +284,7 @@ func (s *Supervisor) leaseTick(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		ok, err := s.o.Store.AcquireLease(ctx, leaseName(r.id), s.o.WorkerID, s.o.Timing.LeaseTTL)
+		ok, err := s.acquire(ctx, r.id)
 		s.mu.Lock()
 		held := r.holds
 		running := r.agent != nil
@@ -312,9 +317,21 @@ func (s *Supervisor) leaseTick(ctx context.Context) {
 
 func leaseName(agentID string) string { return "agent:" + agentID }
 
+// acquire takes or renews the agent's lease. A store that does not answer
+// within storeTimeout, or a third of the lease's life if that is less, has
+// failed to renew it: the agent is stopped rather than run on while its
+// lease may be lapsing, and the ticks of the other agents are not held up.
+func (s *Supervisor) acquire(ctx context.Context, id string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, min(storeTimeout, s.o.Timing.LeaseTTL/3))
+	defer cancel()
+	return s.o.Store.AcquireLease(ctx, leaseName(id), s.o.WorkerID, s.o.Timing.LeaseTTL)
+}
+
 // checkTakeover counts a takeover when the agent's last recorded state
 // names another worker that did not stop it on purpose: its lease lapsed.
 func (s *Supervisor) checkTakeover(ctx context.Context, id string) {
+	ctx, cancel := context.WithTimeout(ctx, storeTimeout)
+	defer cancel()
 	states, err := s.o.Store.AgentStates(ctx)
 	if err != nil {
 		return
@@ -430,9 +447,10 @@ func (s *Supervisor) shutdown() {
 			if !holds {
 				return
 			}
+			// Written before the lease goes: see apply.
+			s.writeState(context.Background(), r.id, store.AgentStopped, "the worker stopped")
 			s.releaseLease(r.id)
 			s.o.Metrics.Forget(r.id)
-			s.writeState(context.Background(), r.id, store.AgentStopped, "the worker stopped")
 		})
 	}
 	wg.Wait()
@@ -497,6 +515,31 @@ func (s *Supervisor) updateGauge() {
 	s.mu.Unlock()
 	for _, st := range states {
 		s.o.Metrics.AgentStates.WithLabelValues(st).Set(float64(counts[st]))
+	}
+}
+
+// claimActor records that agent id runs as the Core actor actorID at
+// baseURL, and returns ""; or, when another of this worker's agents runs
+// as that actor already (two agents configured with one token), that
+// agent's id, and records nothing.
+func (s *Supervisor) claimActor(baseURL, actorID, id string) string {
+	key := baseURL + "\x00" + actorID
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if other, ok := s.actors[key]; ok && other != id {
+		return other
+	}
+	s.actors[key] = id
+	return ""
+}
+
+// releaseActor undoes claimActor, when id holds the actor.
+func (s *Supervisor) releaseActor(baseURL, actorID, id string) {
+	key := baseURL + "\x00" + actorID
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.actors[key] == id {
+		delete(s.actors, key)
 	}
 }
 

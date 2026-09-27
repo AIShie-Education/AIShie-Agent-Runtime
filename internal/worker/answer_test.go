@@ -2,6 +2,8 @@ package worker
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -9,6 +11,7 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/scripted"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/prompt"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
 )
 
@@ -219,5 +222,30 @@ func TestRESTTransport(t *testing.T) {
 	}
 	if len(w.calls(own.actor.ID, "assignment_list")) != 1 {
 		t.Error("the model's call did not reach Core")
+	}
+}
+
+// TestPromptFiles: the agent's system_ref replaces the built-in prompt, and
+// the course's prompt_append_ref follows it, both read relative to the
+// agent's file, with {{agent}}, {{asker}} and {{course}} filled in.
+func TestPromptFiles(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("yuki-helper", 0)
+	w.ok(os.MkdirAll(filepath.Join(w.dir, "prompts"), 0o700))
+	w.ok(os.WriteFile(filepath.Join(w.dir, "prompts", "own.md"), []byte("You are {{agent}}, helping {{asker}} in {{course}}. CUSTOM-BASE."), 0o600))
+	w.ok(os.WriteFile(filepath.Join(w.dir, "prompts", "style.md"), []byte("Answer in haiku. COURSE-STYLE."), 0o600))
+	model := scripted.New(scripted.Reply("Five seven five."))
+	over := map[string]any{"prompt": map[string]any{"system_ref": "prompts/own.md"}}
+	courses := map[string]any{w.co.ID: map[string]any{"prompt_append_ref": "prompts/style.md"}}
+	w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", over, courses)), models{"m1": model}, workerOpts{})
+	conv, _ := w.ask(0, own, "A poem, please.")
+	w.waitAnswers(conv, 1)
+	sys := lastRequest(t, model).System
+	base, style := strings.Index(sys, "CUSTOM-BASE."), strings.Index(sys, "COURSE-STYLE.")
+	if base < 0 || style < base || !strings.Contains(sys, "helping Yuki in CS101") || strings.Contains(sys, "{{") {
+		t.Errorf("the system prompt:\n%s", sys)
+	}
+	if !strings.Contains(prompt.Builtin(false), "the personal assistant of") || strings.Contains(sys, "the personal assistant of") {
+		t.Errorf("the built-in prompt is still there:\n%s", sys)
 	}
 }

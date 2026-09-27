@@ -65,11 +65,25 @@ func (c *claim) quota(ctx context.Context) (string, error) {
 			}
 			next, predicted = p95(costs), true
 		}
-		if spent.CostPUSD > pricing.PUSD(*q.quota.USD)-next {
+		if overUSD(spent.CostPUSD, pricing.PUSD(*q.quota.USD), next) {
 			return q.name + "_usd", nil
 		}
 	}
 	return "", nil
+}
+
+// overUSD reports whether a quota of quota pico-dollars, of which spent is
+// spent, cannot take an answer predicted to cost predicted: it is spent
+// already, or what is spent and the prediction pass it. A scope that has
+// spent nothing today is never refused on the prediction alone: were the
+// p95 of the agent's answers above the whole quota, every asker would
+// otherwise be refused for ever, since a refusal is never a billable answer
+// and the p95 would never come down.
+func overUSD(spent, quota, predicted int64) bool {
+	if spent >= quota {
+		return true
+	}
+	return spent > 0 && spent > quota-predicted
 }
 
 // p95 is the 95th percentile of costs, by the nearest rank; 0 for none.

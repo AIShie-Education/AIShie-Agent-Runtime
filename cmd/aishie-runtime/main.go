@@ -48,7 +48,8 @@ Usage:
   aishie-runtime help                         this text
 
 run takes SIGHUP to read its configuration again, and SIGINT or SIGTERM to
-stop, giving answers in progress SHUTDOWN_GRACE.
+stop, giving answers in progress SHUTDOWN_GRACE; a second SIGINT or SIGTERM
+stops it at once.
 
 Exit status: 0 ok, 1 failure, 2 usage.
 
@@ -56,9 +57,27 @@ Environment:
 `
 
 func main() {
-	sigs := make(chan os.Signal, 4)
-	signal.Notify(sigs, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
-	os.Exit(run(context.Background(), os.Args[1:], os.Getenv, os.Stdout, os.Stderr, sigs))
+	ctx, sigs := signals(os.Args[1:])
+	os.Exit(run(ctx, os.Args[1:], os.Getenv, os.Stdout, os.Stderr, sigs))
+}
+
+// signals is how the command args names takes signals. run reads SIGHUP,
+// SIGINT and SIGTERM itself, from the channel. Any other command runs in a
+// context that ends at the first SIGINT or SIGTERM, so that an operator can
+// stop a check or a fetch that hangs; a second one ends the process as it
+// would without this.
+func signals(args []string) (context.Context, <-chan os.Signal) {
+	if len(args) > 0 && args[0] == "run" {
+		sigs := make(chan os.Signal, 4)
+		signal.Notify(sigs, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+		return context.Background(), sigs
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
+	return ctx, nil
 }
 
 // run is the command args names, with the environment of getenv, writing

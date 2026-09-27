@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -165,7 +167,7 @@ func TestWriteAheadResendsWhatACrashLeft(t *testing.T) {
 		t.Fatal(err)
 	}
 	model := scripted.New()
-	w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": model}, workerOpts{store: st})
+	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": model}, workerOpts{store: st})
 	got := w.waitAnswers(conv, 1)
 	if got[0].Body != "Written before the crash." || got[0].IdempotencyKey != key {
 		t.Errorf("answer %+v", got[0])
@@ -177,4 +179,163 @@ func TestWriteAheadResendsWhatACrashLeft(t *testing.T) {
 		at, err := st.Attempt(context.Background(), "yuki-helper", key)
 		return err == nil && at.State == store.AttemptExecuted
 	})
+	// The claim the crash cut short left no row in the ledger: the resend
+	// does, and the answer counts against the day's quotas.
+	eventually(t, "the answer's row in the ledger", func() bool { return len(wk.st.outcomes(conv)) == 1 })
+	_, recs := wk.st.ledger()
+	if r := recs[0]; r.Outcome != store.OutcomePosted || !r.Billable || r.Key != key || r.MessageID != msg {
+		t.Errorf("the ledger's row %+v", r)
+	}
+	eventually(t, "memory noting the answer", func() bool {
+		notes, _ := st.Notes(context.Background(), "yuki-helper", own.seat.ID, conv, 10)
+		return len(notes) == 1 && notes[0].Kind == store.NoteAnswered && notes[0].MessageID == got[0].ID
+	})
+}
+
+// leaseSwitch is a store whose agent leases can be made to belong to
+// someone else.
+type leaseSwitch struct {
+	store.Store
+	taken atomic.Bool
+}
+
+func (s *leaseSwitch) AcquireLease(ctx context.Context, name, holder string, ttl time.Duration) (bool, error) {
+	if s.taken.Load() && strings.HasPrefix(name, "agent:") {
+		return false, nil
+	}
+	return s.Store.AcquireLease(ctx, name, holder, ttl)
+}
+
+// TestLeaseLostStopsTheAgentAtOnce: when a renewal of the agent's lease
+// fails, the agent stops at once and calls Core no more; when the lease is
+// had again, it starts again and answers.
+func TestLeaseLostStopsTheAgentAtOnce(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("yuki-helper", 0)
+	st := &leaseSwitch{Store: memstore.New()}
+	model := scripted.New(scripted.Reply("Back with the lease."))
+	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": model}, workerOpts{store: st})
+	eventually(t, "the inbox polled", func() bool { return len(w.calls(own.actor.ID, "conversation_inbox")) > 0 })
+
+	st.taken.Store(true)
+	eventually(t, "the agent stopped", func() bool {
+		s := wk.sup.Status()
+		return len(s) == 1 && !s[0].Running && !s[0].Leased
+	})
+	n := len(w.calls(own.actor.ID, ""))
+	time.Sleep(200 * time.Millisecond) // ten lease ticks, many inbox intervals
+	if more := len(w.calls(own.actor.ID, "")) - n; more != 0 {
+		t.Errorf("%d calls to Core after the lease was lost", more)
+	}
+
+	st.taken.Store(false)
+	conv, _ := w.ask(0, own, "Are you back?")
+	w.waitAnswers(conv, 1)
+}
+
+// TestConversationLeasedElsewhereIsLeft: a conversation whose lease another
+// worker holds is left alone, with no model call, until the lease is free.
+func TestConversationLeasedElsewhereIsLeft(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("yuki-helper", 0)
+	st := memstore.New()
+	conv, msg := w.ask(0, own, "Who has this one?")
+	if ok, err := st.AcquireLease(context.Background(), "conv:yuki-helper:"+conv, "another-worker", time.Minute); err != nil || !ok {
+		t.Fatalf("lease: %v %v", ok, err)
+	}
+	model := scripted.New(scripted.Reply("Mine now."))
+	w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": model}, workerOpts{store: st})
+	eventually(t, "the inbox polled a few times", func() bool { return len(w.calls(own.actor.ID, "conversation_inbox")) > 3 })
+	if n := len(model.Requests()); n != 0 {
+		t.Fatalf("the model was called %d times for a conversation leased elsewhere", n)
+	}
+	if n := len(w.calls(own.actor.ID, "conversation_messages")); n != 0 {
+		t.Errorf("the conversation was read %d times", n)
+	}
+	w.ok(st.ReleaseLease(context.Background(), "conv:yuki-helper:"+conv, "another-worker"))
+	got := w.waitAnswers(conv, 1)
+	if got[0].IdempotencyKey != core.AnswerKey(conv, msg, 1) {
+		t.Errorf("answer %+v", got[0])
+	}
+}
+
+// releaseWatch is a store that notes the agent's state each time an agent
+// lease is released.
+type releaseWatch struct {
+	store.Store
+	mu     sync.Mutex
+	states []string
+}
+
+func (s *releaseWatch) ReleaseLease(ctx context.Context, name, holder string) error {
+	if strings.HasPrefix(name, "agent:") {
+		sts, _ := s.AgentStates(ctx)
+		for _, st := range sts {
+			if "agent:"+st.AgentID == name {
+				s.mu.Lock()
+				s.states = append(s.states, st.State)
+				s.mu.Unlock()
+			}
+		}
+	}
+	return s.Store.ReleaseLease(ctx, name, holder)
+}
+
+// TestHandoverIsNotATakeover: a worker that stops, or stops running an
+// agent removed from its configuration, records the agent stopped before
+// it lets the lease go, so that a worker taking the agent up at once reads
+// a handover and counts no takeover.
+func TestHandoverIsNotATakeover(t *testing.T) {
+	w := newWorld(t)
+	w.ownAgent("yuki-helper", 0)
+	w.tutor("cs101-tutor")
+	st := &releaseWatch{Store: memstore.New()}
+	cfg := w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil), w.agentDoc("cs101-tutor", "m1", nil, nil))
+	wk := w.start(cfg, models{"m1": scripted.New()}, workerOpts{store: st})
+	wk.waitState("yuki-helper", store.AgentRunning)
+	wk.waitState("cs101-tutor", store.AgentRunning)
+	wk.sup.Reload(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)))
+	wk.waitState("cs101-tutor", store.AgentStopped)
+	wk.stop()
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if len(st.states) != 2 || st.states[0] != store.AgentStopped || st.states[1] != store.AgentStopped {
+		t.Errorf("the agents' states when their leases went: %v", st.states)
+	}
+}
+
+// hangingLeases is a store whose agent leases, once hung, are never
+// answered until the caller gives up.
+type hangingLeases struct {
+	store.Store
+	hung atomic.Bool
+}
+
+func (s *hangingLeases) AcquireLease(ctx context.Context, name, holder string, ttl time.Duration) (bool, error) {
+	if s.hung.Load() && strings.HasPrefix(name, "agent:") {
+		<-ctx.Done()
+		return false, ctx.Err()
+	}
+	return s.Store.AcquireLease(ctx, name, holder, ttl)
+}
+
+// TestLeaseRenewalThatHangsStopsTheAgent: a store that stops answering
+// the renewal of an agent's lease has failed to renew it; the agent stops
+// well within the lease's life, not when the store answers.
+func TestLeaseRenewalThatHangsStopsTheAgent(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("yuki-helper", 0)
+	st := &hangingLeases{Store: memstore.New()}
+	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": scripted.New()}, workerOpts{store: st})
+	eventually(t, "the inbox polled", func() bool { return len(w.calls(own.actor.ID, "conversation_inbox")) > 0 })
+	st.hung.Store(true)
+	hungAt := time.Now()
+	eventually(t, "the agent stopped", func() bool {
+		s := wk.sup.Status()
+		return len(s) == 1 && !s[0].Running
+	})
+	// The harness's lease lasts 1 s: a renewal waits a third of it.
+	if took := time.Since(hungAt); took > time.Second {
+		t.Errorf("the agent stopped %s after the store hung", took)
+	}
 }

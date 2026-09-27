@@ -2,13 +2,19 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/fakecore"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/scripted"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/memstore"
 )
 
 // confirmedTutor is Sato's tutor, whose answers wait for a person's
@@ -237,4 +243,107 @@ func TestAgentFailsThenStarts(t *testing.T) {
 	wk.waitState("yuki-helper", store.AgentRunning)
 	conv, _ := w.ask(0, own, "Are you up?")
 	w.waitAnswers(conv, 1)
+}
+
+// TestRejectedWhileLeftSending: an answer Core took as a proposal, whose
+// attempt a crash left sending, is rejected while no worker runs. Sent
+// again at the seat's start, it replays as rejected; the rejection's
+// reason is kept on the attempt and reaches the next attempt's prompt, as
+// when the events poller reads the decision.
+func TestRejectedWhileLeftSending(t *testing.T) {
+	w := newWorld(t)
+	tu := w.tutor("cs101-tutor")
+	w.ok(w.fc.SetLevel(tu.seat.ID, "conversation_answer", "confirm_required"))
+	conv, msg := w.ask(0, tu, "Proposed before the crash.")
+	key := core.AnswerKey(conv, msg, 1)
+	args, err := json.Marshal(core.AnswerArgs{CourseID: w.co.ID, ConversationID: conv, InReplyToMessageID: msg,
+		Body: "Written before the crash.", IdempotencyKey: key})
+	w.ok(err)
+	caller := core.NewMCPCaller(core.MCPOptions{BaseURL: w.srv.URL, Token: tu.actor.Token, HTTPClient: &http.Client{Timeout: 5 * time.Second}})
+	env, err := caller.Call(context.Background(), toolAnswer, args)
+	if err != nil || env.Status != core.StatusProposed {
+		t.Fatalf("the answer sent before the crash: %+v, %v", env, err)
+	}
+	w.ok(w.fc.Reject(env.ActionID, "Cite the syllabus."))
+	st := memstore.New()
+	if _, err := st.PutAttempt(context.Background(), store.Attempt{Key: key, AgentID: "cs101-tutor", MemberID: tu.seat.ID, CourseID: w.co.ID,
+		ConversationID: conv, MessageID: msg, No: 1, Tool: toolAnswer, Args: args, Kind: kindModel, State: store.AttemptSending}); err != nil {
+		t.Fatal(err)
+	}
+
+	model := scripted.New(scripted.Reply("Second try, citing the syllabus."))
+	wk := w.start(w.config(nil, w.agentDoc("cs101-tutor", "m1", nil, nil)), models{"m1": model}, workerOpts{store: st})
+	at := wk.waitAttempt("cs101-tutor", key, store.AttemptRejected)
+	if at.Reason != "Cite the syllabus." || at.ActionID != env.ActionID {
+		t.Errorf("the attempt settled as %+v", at)
+	}
+	w.waitProposal(core.AnswerKey(conv, msg, 2))
+	if !strings.Contains(lastRequest(t, model).System, "Cite the syllabus.") {
+		t.Errorf("the second attempt's prompt lacks the rejection's reason:\n%s", lastRequest(t, model).System)
+	}
+}
+
+// flakyActions is a store whose AttemptByAction fails once for one action.
+type flakyActions struct {
+	store.Store
+	action atomic.Value // string
+	failed atomic.Bool
+}
+
+func (s *flakyActions) AttemptByAction(ctx context.Context, agentID, actionID string) (*store.Attempt, error) {
+	if id, _ := s.action.Load().(string); id == actionID && s.failed.CompareAndSwap(false, true) {
+		return nil, errors.New("the store blinked")
+	}
+	return s.Store.AttemptByAction(ctx, agentID, actionID)
+}
+
+// TestEventReadAgainAfterAStoreFailure: when the store fails while an
+// event is acted on, the events cursor stays before it, and the next read
+// settles the proposal.
+func TestEventReadAgainAfterAStoreFailure(t *testing.T) {
+	w := newWorld(t)
+	tu := w.tutor("cs101-tutor")
+	w.ok(w.fc.SetLevel(tu.seat.ID, "conversation_answer", "confirm_required"))
+	st := &flakyActions{Store: memstore.New()}
+	model := scripted.New(scripted.Reply("An answer approved at the second reading."))
+	wk := w.start(w.config(nil, w.agentDoc("cs101-tutor", "m1", nil, nil)), models{"m1": model}, workerOpts{store: st})
+	conv, msg := w.ask(0, tu, "Will the approval be found?")
+	key := core.AnswerKey(conv, msg, 1)
+	p := w.waitProposal(key)
+	wk.waitAttempt("cs101-tutor", key, store.AttemptProposed)
+	st.action.Store(p.ActionID)
+	if _, err := w.fc.Approve(p.ActionID); err != nil {
+		t.Fatal(err)
+	}
+	wk.waitAttempt("cs101-tutor", key, store.AttemptExecuted)
+	if !st.failed.Load() {
+		t.Error("the store never failed: the test tested nothing")
+	}
+	w.waitAnswers(conv, 1)
+}
+
+// TestAttemptsExhaustedSkip: with on_attempts_exhausted skip, a question
+// whose attempts are spent is held back until the next UTC day, and the
+// conversation is not closed.
+func TestAttemptsExhaustedSkip(t *testing.T) {
+	w := newWorld(t)
+	model := scripted.New(scripted.Reply("The one try."))
+	tu, wk := confirmedTutor(t, w, model, map[string]any{"answer": map[string]any{"max_attempts": 1, "on_attempts_exhausted": "skip"}})
+	conv, msg := w.ask(0, tu, "Only one try?")
+	p := w.waitProposal(core.AnswerKey(conv, msg, 1))
+	w.ok(w.fc.Reject(p.ActionID, "No."))
+	eventually(t, "the question skipped", func() bool {
+		o := wk.st.outcomes(conv)
+		return len(o) > 0 && o[len(o)-1] == store.OutcomeSkipped
+	})
+	eventually(t, "the conversation held back", func() bool {
+		st := wk.sup.Status()
+		return len(st) == 1 && len(st[0].Seats) == 1 && st[0].Seats[0].HeldBack == 1
+	})
+	if n := len(w.calls(tu.actor.ID, toolClose)); n != 0 {
+		t.Errorf("conversation_close was called %d times", n)
+	}
+	if n := len(model.Requests()); n != 1 {
+		t.Errorf("the model was called %d times", n)
+	}
 }

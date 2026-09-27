@@ -9,10 +9,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/prompt"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/memstore"
 )
 
 func TestSchedulerBoundsAnswers(t *testing.T) {
@@ -168,5 +170,104 @@ func TestSnapshotCatalogueHash(t *testing.T) {
 	cat, err := core.ParseCatalogue(raw)
 	if err != nil || cat.Hash() != SnapshotCatalogueHash {
 		t.Errorf("the snapshot hashes %v, %v", cat, err)
+	}
+}
+
+// TestRowsWaitingForASlotAreWork: a poll whose rows all wait for a slot is
+// not an empty poll, and does not put the next poll off; one whose rows
+// are all held back, or all being answered already, is.
+func TestRowsWaitingForASlotAreWork(t *testing.T) {
+	sup, err := NewSupervisor(Options{Config: &config.Config{}, Store: memstore.New(), WorkerID: "w"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := `{"conversations":[{"id":"x1","latest_opener_message_id":"m1"},{"id":"x2","latest_opener_message_id":"m2"}]}`
+	a := newAgent(sup, &config.Agent{ID: "a"})
+	a.client = core.NewClient(callerFunc(func(context.Context, string, json.RawMessage) (*core.Envelope, error) {
+		return &core.Envelope{Status: core.StatusExecuted, Result: json.RawMessage(rows)}, nil
+	}))
+	a.sched = newScheduler(1)
+	a.answerCtx = context.Background()
+	s := &Seat{a: a, id: "m", course: "c", log: discardLog(), heldBack: map[string]heldBack{}, failures: map[string]int{},
+		eff: &config.Effective{Agent: config.Agent{Answer: config.Answer{MaxConcurrentPerCourse: 4}}}}
+	empties := func() int {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.emptyPolls
+	}
+
+	// Another course's answer takes the agent's one slot: both rows wait.
+	if !a.sched.tryStart("elsewhere", "x0", 4) {
+		t.Fatal("no slot")
+	}
+	s.pollInboxOnce(context.Background())
+	s.pollInboxOnce(context.Background())
+	if n := empties(); n != 0 {
+		t.Errorf("rows waiting for a slot counted as %d empty polls", n)
+	}
+	a.sched.done("elsewhere", "x0")
+
+	// Both being answered here already: nothing new, an empty poll.
+	a.sched = newScheduler(4)
+	a.sched.tryStart("c", "x1", 4)
+	a.sched.tryStart("c", "x2", 4)
+	s.pollInboxOnce(context.Background())
+	if n := empties(); n != 1 {
+		t.Errorf("rows being answered already: %d empty polls, want 1", n)
+	}
+
+	// Both held back: an empty poll too.
+	a.sched = newScheduler(4)
+	later := time.Now().Add(time.Hour)
+	s.holdBack("x1", later, "test")
+	s.holdBack("x2", later, "test")
+	s.pollInboxOnce(context.Background())
+	if n := empties(); n != 2 {
+		t.Errorf("rows held back: %d empty polls, want 2", n)
+	}
+}
+
+// TestRetractionReadTwice: the retraction of an answer of the agent's,
+// read a second time (the events cursor was not saved), keeps the note
+// the first reading left.
+func TestRetractionReadTwice(t *testing.T) {
+	ctx := context.Background()
+	st := memstore.New()
+	sup, err := NewSupervisor(Options{Config: &config.Config{}, Store: st, WorkerID: "w"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Seat{a: newAgent(sup, &config.Agent{ID: "a"}), id: "m", course: "c", log: discardLog(),
+		eff: &config.Effective{Agent: config.Agent{Memory: config.Memory{Enabled: true}}}}
+	if err := st.AddNote(ctx, store.Note{AgentID: "a", MemberID: "m", ConversationID: "x", Kind: store.NoteAnswered,
+		Text: answeredNote("p"), MessageID: "p"}); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := s.retracted(ctx, "x", "p"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	notes, err := st.Notes(ctx, "a", "m", "x", 10)
+	if err != nil || len(notes) != 1 || notes[0].Kind != store.NoteRetractedOwn || notes[0].MessageID != "p" {
+		t.Errorf("memory after the retraction read twice: %+v, %v", notes, err)
+	}
+}
+
+// TestBasePromptFollowsTheSeat: the built-in prompt is the one for the
+// seat's kind as me_memberships last showed it, and a system_ref file's
+// text replaces it whatever the kind.
+func TestBasePromptFollowsTheSeat(t *testing.T) {
+	s := &Seat{}
+	if got := s.basePrompt(core.Membership{AnswersCourse: true}); got != prompt.Builtin(true) {
+		t.Error("a course tutor's seat is not given the tutor's prompt")
+	}
+	if got := s.basePrompt(core.Membership{AnswersCourse: false}); got != prompt.Builtin(false) {
+		t.Error("a seat that answers only its principal is given the tutor's prompt")
+	}
+	custom := "You are {{agent}}."
+	s.custom = &custom
+	if got := s.basePrompt(core.Membership{AnswersCourse: true}); got != custom {
+		t.Errorf("system_ref's prompt replaced by %q", got)
 	}
 }

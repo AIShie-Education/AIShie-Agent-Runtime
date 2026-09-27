@@ -259,3 +259,37 @@ func TestUnauthorizedAtStart(t *testing.T) {
 		t.Errorf("Core refused %d calls; the agent should have stopped at the first", refused)
 	}
 }
+
+// TestOneActorOneAgent: two agents configured with one agent's token; the
+// worker runs one of them, and holds the other in error, saying why,
+// rather than answer every question twice over.
+func TestOneActorOneAgent(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("yuki-helper", 0)
+	w.env.Store(tokenVar("yuki-twin"), own.actor.Token)
+	model := scripted.New(scripted.Reply("Answered once."))
+	cfg := w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil), w.agentDoc("yuki-twin", "m1", nil, nil))
+	wk := w.start(cfg, models{"m1": model}, workerOpts{})
+	var running, refused string
+	eventually(t, "one agent running, the other refused", func() bool {
+		a, b := wk.state("yuki-helper"), wk.state("yuki-twin")
+		switch {
+		case a.State == store.AgentRunning && b.State == store.AgentError:
+			running, refused = "yuki-helper", b.Detail
+		case b.State == store.AgentRunning && a.State == store.AgentError:
+			running, refused = "yuki-twin", a.Detail
+		default:
+			return false
+		}
+		return true
+	})
+	if !strings.Contains(refused, running) || !strings.Contains(refused, "token") {
+		t.Errorf("the refused agent's detail: %q", refused)
+	}
+	conv, _ := w.ask(0, own, "How many of you are there?")
+	w.waitAnswers(conv, 1)
+	time.Sleep(100 * time.Millisecond)
+	if n := len(model.Requests()); n != 1 {
+		t.Errorf("the model was called %d times", n)
+	}
+}

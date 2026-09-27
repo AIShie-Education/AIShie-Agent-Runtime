@@ -91,6 +91,9 @@ func (a *Agent) run(pollCtx, answerCtx context.Context) error {
 	a.answers.Wait()
 	a.cancelAnswers(nil)
 	fail(nil)
+	if err == nil {
+		a.s.releaseActor(a.cfg.Core.BaseURL, a.me.ID, a.id)
+	}
 	if err != nil {
 		return err
 	}
@@ -131,8 +134,14 @@ func (a *Agent) start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("me_get: %w", err)
 	}
+	// One actor in Core is one agent here: two agents on one token would
+	// answer every question twice over, and spend its rate limit twice.
+	if other := a.s.claimActor(a.cfg.Core.BaseURL, me.ID, a.id); other != "" {
+		return fmt.Errorf("its token is agent %q's too: one agent in Core is one agent here, with a token of its own", other)
+	}
 	primary, _, err := a.models(ctx, a.cfg.Model)
 	if err != nil {
+		a.s.releaseActor(a.cfg.Core.BaseURL, me.ID, a.id)
 		return err
 	}
 	// Status reads these from another goroutine; the agent's own

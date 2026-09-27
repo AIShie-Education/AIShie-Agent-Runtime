@@ -142,6 +142,30 @@ prices:
 	})
 }
 
+// TestOverUSD holds the dollar check: spent plus the p95 of recent answers
+// against the quota; a quota spent is spent whatever the p95; and a scope
+// that has spent nothing today is not refused on a prediction alone.
+func TestOverUSD(t *testing.T) {
+	for _, c := range []struct {
+		name                    string
+		spent, quota, predicted int64
+		over                    bool
+	}{
+		{"nothing spent, cheap answers", 0, 100, 10, false},
+		{"room for one more", 50, 100, 40, false},
+		{"exactly room for one more", 60, 100, 40, false},
+		{"one more would pass it", 61, 100, 40, true},
+		{"spent, and no answer to predict with", 100, 100, 0, true},
+		{"past it", 150, 100, 0, true},
+		{"nothing spent, answers dearer than the quota", 0, 100, 250, false},
+		{"something spent, answers dearer than the quota", 1, 100, 250, true},
+	} {
+		if got := overUSD(c.spent, c.quota, c.predicted); got != c.over {
+			t.Errorf("%s: overUSD(%d, %d, %d) = %v", c.name, c.spent, c.quota, c.predicted, got)
+		}
+	}
+}
+
 func TestP95(t *testing.T) {
 	for _, c := range []struct {
 		in   []int64

@@ -98,10 +98,19 @@ func (f *fixture) stop() {
 	<-f.stopped
 }
 
+// get asks h for path as a client on this machine would.
 func get(t *testing.T, h http.Handler, path string) (int, string) {
 	t.Helper()
+	return getFrom(t, h, path, "127.0.0.1:40000")
+}
+
+// getFrom asks h for path as a client at remote would.
+func getFrom(t *testing.T, h http.Handler, path, remote string) (int, string) {
+	t.Helper()
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.RemoteAddr = remote
+	h.ServeHTTP(rec, req)
 	b, _ := io.ReadAll(rec.Result().Body)
 	return rec.Code, string(b)
 }
@@ -188,6 +197,21 @@ func TestStatus(t *testing.T) {
 	_, body := get(t, s.Handler(), "/status")
 	if strings.Contains(body, f.token) || strings.Contains(body, "ais_") || strings.Contains(body, "sk-test") {
 		t.Error("/status holds a secret")
+	}
+
+	// Another machine is told nothing, though /healthz and /metrics answer
+	// it.
+	for _, remote := range []string{"192.0.2.7:5555", "[2001:db8::1]:5555", "10.0.0.1:1"} {
+		code, body := getFrom(t, s.Handler(), "/status", remote)
+		if code != http.StatusForbidden || strings.Contains(body, "yuki-helper") || strings.Contains(body, f.seat) {
+			t.Errorf("/status from %s: %d %s", remote, code, body)
+		}
+	}
+	if code, _ := getFrom(t, s.Handler(), "/status", "[::1]:5555"); code != http.StatusOK {
+		t.Errorf("/status from ::1: %d", code)
+	}
+	if code, _ := getFrom(t, s.Handler(), "/healthz", "192.0.2.7:5555"); code != http.StatusOK {
+		t.Errorf("/healthz from another machine: %d", code)
 	}
 }
 

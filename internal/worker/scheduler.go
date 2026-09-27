@@ -65,6 +65,14 @@ func (s *scheduler) release(conv string) {
 	delete(s.convs, conv)
 }
 
+// has reports whether conv is being answered, or reserved, in this
+// process.
+func (s *scheduler) has(conv string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.convs[conv]
+}
+
 // busy is how many answers are in progress.
 func (s *scheduler) busy() int {
 	s.mu.Lock()

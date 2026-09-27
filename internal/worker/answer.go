@@ -280,7 +280,7 @@ func (c *claim) system(ctx context.Context, read *core.Messages, shorter bool) (
 	}
 	m := c.s.membership()
 	text, hash := prompt.System(prompt.Input{
-		Base: c.s.base, Append: c.s.appended,
+		Base: c.s.basePrompt(m), Append: c.s.appended,
 		Seat: prompt.Seat{
 			AgentName: c.a.name(), Course: prompt.CourseName(m), AnswersCourse: m.AnswersCourse,
 			AskerName: read.Conversation.Opener.DisplayName, AnswerLevel: read.Conversation.Respondent.AnswerLevel,
@@ -341,13 +341,17 @@ func (c *claim) send(ctx context.Context, r passResult, at store.Attempt, rep sa
 	env, err := c.a.client.Send(ctx, at.Tool, at.Args)
 	d := Classify(env, err)
 	r.postAt, r.postedID = c.a.now(), messageID(env)
-	settle(c.a, at.Key, env, d)
+	settle(c.a, c.eff, at, env, d)
 	return c.act(ctx, r, d, rep)
 }
 
 // settle records what became of an attempt, when anything is known to
-// have: a decision with no state leaves it sending, to be sent again.
-func settle(a *Agent, key string, env *core.Envelope, d Decision) {
+// have: a decision with no state leaves it sending, to be sent again. An
+// answer that comes back as a proposal rejected or cancelled (a replay: a
+// person decided while the attempt was left sending) leaves a note in the
+// conversation's memory, the rejection's reason for the next attempt's
+// prompt, as the events poller notes a decision it reads (§2.4).
+func settle(a *Agent, eff *config.Effective, at store.Attempt, env *core.Envelope, d Decision) {
 	if d.State == "" {
 		return
 	}
@@ -355,11 +359,29 @@ func settle(a *Agent, key string, env *core.Envelope, d Decision) {
 	if env != nil {
 		o.ActionID, o.PostedMessageID = env.ActionID, messageID(env)
 	}
+	if d.State == store.AttemptRejected && env != nil {
+		// A rejection's reason is the decision's, in the result.
+		o.Reason = core.Action{Result: env.Result}.DecisionReason()
+	}
 	ctx, cancel := bookkeeping()
 	defer cancel()
-	if err := a.store().FinishAttempt(ctx, a.id, key, o); err != nil {
-		a.log.Error("attempt not settled", "key", key, "state", d.State, "err", err)
+	if err := a.store().FinishAttempt(ctx, a.id, at.Key, o); err != nil {
+		a.log.Error("attempt not settled", "key", at.Key, "state", d.State, "err", err)
+		return
 	}
+	if at.Tool != toolAnswer {
+		return
+	}
+	n := store.Note{AgentID: a.id, MemberID: at.MemberID, ConversationID: at.ConversationID, MessageID: at.MessageID, Text: o.Reason}
+	switch d.State {
+	case store.AttemptRejected:
+		n.Kind = store.NoteRejected
+	case store.AttemptCancelled:
+		n.Kind = store.NoteCancelled
+	default:
+		return
+	}
+	addNote(a, eff, n)
 }
 
 // messageID is the message an executed answer made.
@@ -568,7 +590,7 @@ func (c *claim) exhausted(ctx context.Context, r passResult) passResult {
 	}
 	env, err := c.a.client.Send(ctx, at.Tool, at.Args)
 	d := classifyClose(env, err)
-	settle(c.a, at.Key, env, d)
+	settle(c.a, c.eff, at, env, d)
 	r.outcome = d.Outcome
 	switch d.Next {
 	case NextDone:
