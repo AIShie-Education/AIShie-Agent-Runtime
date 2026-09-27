@@ -1,0 +1,38 @@
+{
+  "input": [
+    {
+      "content": [
+        {
+          "text": "Why did I lose marks on HW3?",
+          "type": "input_text"
+        }
+      ],
+      "role": "user",
+      "type": "message"
+    },
+    {
+      "content": [
+        {
+          "text": "Let me check.\n[called grade_list with {\"assignment_id\":\"0192f3c1-7a2b-7c3d-8e4f-5a6b7c8d9e0f\"}]\n[called assignment_get with {\"assignment_id\":\"0192f3c1-7a2b-7c3d-8e4f-5a6b7c8d9e0f\"}]",
+          "type": "output_text"
+        }
+      ],
+      "role": "assistant",
+      "type": "message"
+    },
+    {
+      "content": [
+        {
+          "text": "[result of grade_list]\n{\"status\":\"executed\",\"result\":{\"grades\":[{\"assignment_id\":\"0192f3c1-7a2b-7c3d-8e4f-5a6b7c8d9e0f\",\"points\":\"8.0\",\"max_points\":\"10.0\"}]}}\n[error from assignment_get]\n{\"status\":\"error\",\"error\":{\"code\":\"not_found\",\"message\":\"no such assignment\",\"details\":{}}}",
+          "type": "input_text"
+        }
+      ],
+      "role": "user",
+      "type": "message"
+    }
+  ],
+  "instructions": "You are a tutor.",
+  "max_output_tokens": 500,
+  "model": "gpt-test",
+  "store": false
+}

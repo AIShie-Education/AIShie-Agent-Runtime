@@ -1,0 +1,59 @@
+{
+  "model": "gpt-test-2026-06-01",
+  "parts": [
+    {
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "opaque": {
+        "encrypted_content": "gAAAAtwo",
+        "id": "rs_two",
+        "summary": [
+          {
+            "text": "**First**\n\nOne.",
+            "type": "summary_text"
+          },
+          {
+            "text": "**Second**\n\nTwo.",
+            "type": "summary_text"
+          }
+        ],
+        "type": "reasoning"
+      },
+      "text": "**First**\n\nOne.\n\n**Second**\n\nTwo.",
+      "type": "reasoning"
+    },
+    {
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "opaque": {
+        "id": "msg_unknown"
+      },
+      "text": "First part. ",
+      "type": "text"
+    },
+    {
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "opaque": {
+        "id": "msg_unknown"
+      },
+      "text": "Second part.",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "completed",
+  "request_id": "resp_unknown",
+  "stop": "end",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 20,
+    "output": 30,
+    "raw": {
+      "input_tokens": 20,
+      "input_tokens_details": null,
+      "output_tokens": 30,
+      "output_tokens_details": null,
+      "total_tokens": 50
+    },
+    "reasoning": 0
+  }
+}

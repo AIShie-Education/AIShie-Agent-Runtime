@@ -1,0 +1,35 @@
+{
+  "model": "gpt-test-2026-06-01",
+  "parts": [
+    {
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "opaque": {
+        "id": "msg_flat"
+      },
+      "text": "From what I found: two marks were lost on question 3.",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "completed",
+  "request_id": "resp_flat",
+  "stop": "end",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 36,
+    "output": 14,
+    "raw": {
+      "input_tokens": 36,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 14,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 50
+    },
+    "reasoning": 0
+  }
+}

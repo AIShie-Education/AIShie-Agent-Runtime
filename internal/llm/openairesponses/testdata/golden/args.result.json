@@ -1,0 +1,85 @@
+{
+  "model": "gpt-test-2026-06-01",
+  "parts": [
+    {
+      "args": {},
+      "args_error": "{\"assignment_id\": \"0192",
+      "id": "call_bad",
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "name": "grade_list",
+      "opaque": {
+        "id": "fc_args_bad"
+      },
+      "type": "tool_call"
+    },
+    {
+      "args": {},
+      "id": "call_empty",
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "name": "course_get",
+      "opaque": {
+        "id": "fc_args_empty"
+      },
+      "type": "tool_call"
+    },
+    {
+      "args": {},
+      "args_error": "[1, 2]",
+      "id": "call_array",
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "name": "document_list",
+      "opaque": {
+        "id": "fc_args_array"
+      },
+      "type": "tool_call"
+    },
+    {
+      "args": {
+        "assignment_id": "0192f3c1-7a2b-7c3d-8e4f-5a6b7c8d9e0f"
+      },
+      "id": "call_spaced",
+      "maker": "openai_responses|https://api.openai.com/v1|gpt-test",
+      "name": "assignment_get",
+      "opaque": {
+        "id": "fc_args_spaced"
+      },
+      "type": "tool_call"
+    },
+    {
+      "args": {
+        "assignment_id": "0192f3c1-7a2b-7c3d-8e4f-5a6b7c8d9e0f"
+      },
+      "id": "call_object",
+      "name": "assignment_get",
+      "type": "tool_call"
+    },
+    {
+      "args": {},
+      "id": "call_6",
+      "name": "assignment_list",
+      "type": "tool_call"
+    }
+  ],
+  "raw_stop": "completed",
+  "request_id": "resp_args",
+  "stop": "tool_calls",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 36,
+    "output": 14,
+    "raw": {
+      "input_tokens": 36,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 14,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 50
+    },
+    "reasoning": 0
+  }
+}

@@ -1,0 +1,92 @@
+{
+  "input": [
+    {
+      "content": [
+        {
+          "text": "Why did I lose marks on HW3?",
+          "type": "input_text"
+        }
+      ],
+      "role": "user",
+      "type": "message"
+    },
+    {
+      "content": [
+        {
+          "text": "Let me check.",
+          "type": "output_text"
+        }
+      ],
+      "id": "msg_A",
+      "phase": "commentary",
+      "role": "assistant",
+      "type": "message"
+    },
+    {
+      "arguments": "{\"assignment_id\":\"0192f3c1-7a2b-7c3d-8e4f-5a6b7c8d9e0f\"}",
+      "call_id": "call_A",
+      "id": "fc_A",
+      "name": "grade_list",
+      "type": "function_call"
+    },
+    {
+      "arguments": "{\"assignment_id\":\"0192f3c1-7a2b-7c3d-8e4f-5a6b7c8d9e0f\"}",
+      "call_id": "call_B",
+      "id": "fc_B",
+      "name": "assignment_get",
+      "type": "function_call"
+    },
+    {
+      "call_id": "call_A",
+      "output": "{\"status\":\"executed\",\"result\":{\"grades\":[{\"assignment_id\":\"0192f3c1-7a2b-7c3d-8e4f-5a6b7c8d9e0f\",\"points\":\"8.0\",\"max_points\":\"10.0\"}]}}",
+      "type": "function_call_output"
+    },
+    {
+      "call_id": "call_B",
+      "output": "{\"status\":\"error\",\"error\":{\"code\":\"not_found\",\"message\":\"no such assignment\",\"details\":{}}}",
+      "type": "function_call_output"
+    }
+  ],
+  "instructions": "You are a tutor.",
+  "model": "gpt-test",
+  "parallel_tool_calls": true,
+  "store": false,
+  "tool_choice": "auto",
+  "tools": [
+    {
+      "description": "Lists the grades the seat may read.",
+      "name": "grade_list",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "assignment_id": {
+            "description": "Only this assignment's grades (optional; omit or null)",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "strict": false,
+      "type": "function"
+    },
+    {
+      "description": "Reads one assignment.",
+      "name": "assignment_get",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "assignment_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "assignment_id"
+        ],
+        "type": "object"
+      },
+      "strict": false,
+      "type": "function"
+    }
+  ]
+}
