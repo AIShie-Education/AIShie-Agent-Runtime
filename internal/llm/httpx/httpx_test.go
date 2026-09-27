@@ -31,6 +31,7 @@ func TestClassify(t *testing.T) {
 		{"aws throttling", 429, nil, `{"message":"Too many requests","__type":"ThrottlingException"}`, llm.ErrRateLimited, "ThrottlingException"},
 		{"ollama plain error", 400, nil, `{"error":"model not found"}`, llm.ErrBadRequest, ""},
 		{"not json", 502, nil, `<html>bad gateway</html>`, llm.ErrServer, ""},
+		{"too large", 413, nil, `{"type":"error","error":{"type":"request_too_large","message":"Request exceeds the maximum size"}}`, llm.ErrContextOverflow, "request_too_large"},
 		{"unauthorized", 401, nil, `{"error":{"message":"Incorrect API key provided"}}`, llm.ErrAuth, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {

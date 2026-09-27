@@ -114,6 +114,10 @@ func Classify(status int, header http.Header, body []byte) *llm.Error {
 		e.Kind = llm.ErrOverloaded
 	case status == http.StatusRequestTimeout || status == http.StatusGatewayTimeout:
 		e.Kind = llm.ErrTimeout
+	case status == http.StatusRequestEntityTooLarge:
+		// The request was too big for the provider: a shorter history is
+		// what fixes it, as for a context window exceeded.
+		e.Kind = llm.ErrContextOverflow
 	case status >= 500:
 		e.Kind = llm.ErrServer
 	case contextOverflow(lower):
@@ -133,7 +137,7 @@ func contextOverflow(lower string) bool {
 	for _, s := range []string{
 		"context_length_exceeded", "maximum context length", "context window",
 		"prompt is too long", "input is too long", "too many tokens", "exceeds the maximum number of tokens",
-		"model_context_window_exceeded", "input length", "reduce the length",
+		"model_context_window_exceeded", "input length", "reduce the length", "exceed context limit",
 	} {
 		if strings.Contains(lower, s) {
 			return true
