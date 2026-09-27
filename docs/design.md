@@ -260,10 +260,12 @@ For an inbox row (conversation X, question M, opener P):
    more; the claim's Core calls stop at the wall clock plus 25 s, inside the
    lease. A provider that cannot be reached is tried up to three times
    with backoff within the wall clock (honouring `Retry-After`), then the
-   fallback model, which an auth or bad-request error also moves to; if all
-   fail, nothing is posted and X is held back for a minute, doubling to ten;
-   after five such failures on M (counted in memory), `on_budget_text` is
-   posted.
+   fallback model, which an auth or bad-request error also moves to. While a
+   fallback remains, a call gets two thirds of the time left, and one that
+   times out moves to the fallback at once, so that a provider that hangs
+   leaves its fallback time to answer. If all fail, nothing is posted and
+   X is held back for a minute, doubling to ten; after five such failures
+   on M (counted in memory), `on_budget_text` is posted.
 8. **Safety** (`safety.Body`, §7 below): links and images whose URLs carry
    context stripped, cut to `max_body_chars` on a paragraph or sentence.
 9. **Post**, written ahead: the attempt is stored (`sending`, the exact

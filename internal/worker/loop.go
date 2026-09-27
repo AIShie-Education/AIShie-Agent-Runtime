@@ -310,6 +310,11 @@ func (l *loop) callModel(ctx context.Context, forced bool) (*llm.Response, error
 		if !errors.As(err, &le) || !le.Retryable() {
 			return nil, err
 		}
+		if le.Kind == llm.ErrTimeout && l.fallback != nil {
+			// A provider that hung once is likely to hang again: the
+			// fallback gets what time is left.
+			return nil, err
+		}
 		wait := Backoff(try, t.ModelBackoff, t.ModelBackoffMax, l.c.a.rand())
 		wait = max(wait, le.RetryAfter)
 		if try == modelTries-1 || !l.c.a.now().Add(wait).Before(l.deadline) {
@@ -324,7 +329,9 @@ func (l *loop) callModel(ctx context.Context, forced bool) (*llm.Response, error
 
 // timeout is a model call's: min(60 s, the wall clock left). A last turn
 // forced by a spent wall clock is given a grace of its own, a sixth of the
-// wall clock and at most 15 s, within the claim's own deadline.
+// wall clock and at most 15 s, within the claim's own deadline. While a
+// fallback remains, the model gets two thirds of what is left, so that a
+// provider that hangs leaves its fallback time to answer.
 func (l *loop) timeout(ctx context.Context, forced bool) time.Duration {
 	left := l.deadline.Sub(l.c.a.now())
 	if forced {
@@ -333,6 +340,9 @@ func (l *loop) timeout(ctx context.Context, forced bool) time.Duration {
 	}
 	if dl, ok := ctx.Deadline(); ok {
 		left = min(left, time.Until(dl))
+	}
+	if l.fallback != nil {
+		left = left * 2 / 3
 	}
 	return min(left, maxCallTimeout)
 }

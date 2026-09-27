@@ -267,6 +267,24 @@ func TestProvidersDown(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
+	t.Run("a primary that hangs leaves its fallback time to answer", func(t *testing.T) {
+		w := newWorld(t)
+		own := w.ownAgent("yuki-helper", 0)
+		// One step: a second call to the primary would be a script error.
+		primary := scripted.New(scripted.Hang())
+		fallback := scripted.New(scripted.Reply("From the fallback.")).WithName("other").WithMaker("other-maker")
+		over := mergeMaps(perAnswer("wall_clock_s", 1.5),
+			map[string]any{"model": map[string]any{"fallback": map[string]any{"adapter": "openai_chat", "model": "fb", "key_ref": "env://MODEL_KEY"}}})
+		w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", over, nil)), models{"m1": primary, "fb": fallback}, workerOpts{})
+		conv, _ := w.ask(0, own, "Anyone there?")
+		got := w.waitAnswers(conv, 1)
+		if got[0].Body != "From the fallback." {
+			t.Errorf("body %q", got[0].Body)
+		}
+		if err := primary.Err(); err != nil {
+			t.Fatal(err)
+		}
+	})
 	t.Run("the fifth failure posts on_budget_text", func(t *testing.T) {
 		model := scripted.New(down(modelTries * maxProviderFailures)...)
 		body, wk, conv := answerOnce(t, model, nil)
