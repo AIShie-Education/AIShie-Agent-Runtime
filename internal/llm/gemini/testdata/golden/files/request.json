@@ -77,6 +77,30 @@
             "mime": "application/octet-stream",
             "data": "V2VlayAxOiB2YXJpYWJsZXMK"
           }
+        },
+        {
+          "type": "file",
+          "file": {
+            "name": "notes.md",
+            "mime": "text/markdown",
+            "data": "IyBMYXRlIHdvcmsKClRlbiBwZXIgY2VudCBhIGRheS4K"
+          }
+        },
+        {
+          "type": "file",
+          "file": {
+            "name": "handout.docx",
+            "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "data": "UEsDBBQAAAAIAA=="
+          }
+        },
+        {
+          "type": "file",
+          "file": {
+            "name": "photo.jpg",
+            "mime": "image/jpg",
+            "data": "/9j/4AAQ"
+          }
         }
       ]
     }

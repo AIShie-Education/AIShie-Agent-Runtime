@@ -75,17 +75,26 @@
             "text": "[file \"diagram.png\" left out: this model is not given files]"
           },
           {
-            "text": "[file \"schedule.txt\" left out: this model is not given files]"
+            "text": "[file \"schedule.txt\"]\nWeek 1: variables\n"
           },
           {
             "text": "[file \"export.bin\" left out: this model is not given files]"
+          },
+          {
+            "text": "[file \"notes.md\"]\n# Late work\n\nTen per cent a day.\n"
+          },
+          {
+            "text": "[file \"handout.docx\" left out: this model is not given files]"
+          },
+          {
+            "text": "[file \"photo.jpg\" left out: this model is not given files]"
           }
         ],
         "role": "user"
       }
     ],
     "generationConfig": {
-      "maxOutputTokens": 1500
+      "maxOutputTokens": 26076
     },
     "systemInstruction": {
       "parts": [

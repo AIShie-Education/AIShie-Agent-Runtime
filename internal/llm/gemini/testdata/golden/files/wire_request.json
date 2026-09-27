@@ -88,13 +88,25 @@
           },
           {
             "text": "[file \"export.bin\" left out: its type is not known]"
+          },
+          {
+            "text": "[file \"notes.md\"]\n# Late work\n\nTen per cent a day.\n"
+          },
+          {
+            "text": "[file \"handout.docx\" left out: Gemini does not take files of its type]"
+          },
+          {
+            "inlineData": {
+              "data": "/9j/4AAQ",
+              "mimeType": "image/jpeg"
+            }
           }
         ],
         "role": "user"
       }
     ],
     "generationConfig": {
-      "maxOutputTokens": 1500
+      "maxOutputTokens": 26076
     },
     "systemInstruction": {
       "parts": [

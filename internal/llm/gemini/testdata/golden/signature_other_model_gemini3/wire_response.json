@@ -1,0 +1,25 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "You got 6.5 of 10: the edge-case tests failed.",
+            "thoughtSignature": "c2lnLTMtYW5zd2Vy"
+          }
+        ]
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 410,
+    "candidatesTokenCount": 16,
+    "thoughtsTokenCount": 120,
+    "totalTokenCount": 546
+  },
+  "modelVersion": "gemini-3.5-flash",
+  "responseId": "resp-g3"
+}

@@ -1,8 +1,8 @@
 {
-  "model": "gemini-3-pro-preview",
+  "model": "gemini-3.1-pro-preview",
   "parts": [
     {
-      "maker": "gemini|https://generativelanguage.googleapis.com|gemini-3-pro-preview",
+      "maker": "gemini|https://generativelanguage.googleapis.com|gemini-3.1-pro-preview",
       "opaque": {
         "thoughtSignature": "c2lnLWczLXRleHQ="
       },

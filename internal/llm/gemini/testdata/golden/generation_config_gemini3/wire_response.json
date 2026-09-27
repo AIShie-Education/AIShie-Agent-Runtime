@@ -19,6 +19,6 @@
     "candidatesTokenCount": 18,
     "totalTokenCount": 138
   },
-  "modelVersion": "gemini-3-pro-preview",
+  "modelVersion": "gemini-3.1-pro-preview",
   "responseId": "resp-gen3"
 }

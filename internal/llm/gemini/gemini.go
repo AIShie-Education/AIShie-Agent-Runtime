@@ -6,10 +6,12 @@
 // Three things set it apart from the other adapters. A thoughtSignature
 // rides on the part it came with (a text or a functionCall part), not in a
 // part of its own, so it is kept in that part's Opaque and sent back on the
-// same part, and only to the adapter that made it. A functionCall's id is
-// optional, so Opaque also records the id Gemini gave, and the call_{n} ids
-// that Normalize makes are never sent. And a tool result is an object, not
-// text: {"output": …}, or {"error": …} for an is_error result.
+// same part, and only to the adapter that made it (Gemini 3, which refuses
+// a call without one, is given Google's stand-in on another model's calls).
+// A functionCall's id is optional, so Opaque also records the id Gemini
+// gave, and the call_{n} ids that Normalize makes are never sent. And a
+// tool result is an object, not text: {"output": …}, or {"error": …} for an
+// is_error result.
 package gemini
 
 import (
@@ -53,6 +55,9 @@ type Adapter struct {
 	effort   string
 	headers  map[string]string
 	client   *http.Client
+	// checksSignatures: the model refuses a step without a thought
+	// signature on its first call (checksSignatures).
+	checksSignatures bool
 }
 
 var _ llm.Adapter = (*Adapter)(nil)
@@ -111,6 +116,8 @@ func New(cfg llm.Config) (*Adapter, error) {
 		effort:   cfg.Reasoning.Effort,
 		headers:  headersOf(cfg.Headers, cfg.APIKey),
 		client:   client,
+
+		checksSignatures: checksSignatures(model),
 	}, nil
 }
 

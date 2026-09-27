@@ -4,7 +4,7 @@
       {
         "parts": [
           {
-            "text": "Explain my HW3 grade."
+            "text": "What did I get on HW3, and why?"
           }
         ],
         "role": "user"
@@ -12,15 +12,7 @@
       {
         "parts": [
           {
-            "text": "Looking at the grade",
-            "thought": true,
-            "thoughtSignature": "dGhvdWdodC0x"
-          },
-          {
-            "executableCode": {
-              "code": "print(6.5 / 10)",
-              "language": "PYTHON"
-            }
+            "text": "Let me look that up."
           },
           {
             "functionCall": {
@@ -28,6 +20,13 @@
                 "assignment_id": "0192f3c1-0000-7000-8000-0000000000a3"
               },
               "name": "grade_list"
+            },
+            "thoughtSignature": "skip_thought_signature_validator"
+          },
+          {
+            "functionCall": {
+              "args": {},
+              "name": "assignment_list"
             }
           }
         ],
@@ -51,17 +50,79 @@
                 }
               }
             }
+          },
+          {
+            "functionResponse": {
+              "name": "assignment_list",
+              "response": {
+                "output": {
+                  "result": {
+                    "assignments": []
+                  },
+                  "status": "executed"
+                }
+              }
+            }
+          }
+        ],
+        "role": "user"
+      },
+      {
+        "parts": [
+          {
+            "functionCall": {
+              "args": {},
+              "name": "course_get"
+            },
+            "thoughtSignature": "c2lnLTMtY2FsbA=="
+          },
+          {
+            "functionCall": {
+              "args": {
+                "limit": 5
+              },
+              "name": "assignment_list"
+            }
+          }
+        ],
+        "role": "model"
+      },
+      {
+        "parts": [
+          {
+            "functionResponse": {
+              "name": "course_get",
+              "response": {
+                "output": {
+                  "result": {
+                    "course": {
+                      "code": "CS101"
+                    }
+                  },
+                  "status": "executed"
+                }
+              }
+            }
+          },
+          {
+            "functionResponse": {
+              "name": "assignment_list",
+              "response": {
+                "output": {
+                  "result": {
+                    "assignments": []
+                  },
+                  "status": "executed"
+                }
+              }
+            }
           }
         ],
         "role": "user"
       }
     ],
     "generationConfig": {
-      "maxOutputTokens": 2524,
-      "thinkingConfig": {
-        "includeThoughts": false,
-        "thinkingBudget": 1024
-      }
+      "maxOutputTokens": 26076
     },
     "systemInstruction": {
       "parts": [
@@ -117,5 +178,5 @@
       }
     ]
   },
-  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent"
 }

@@ -329,6 +329,8 @@ func TestRefusals(t *testing.T) {
 		{name: "an internal error", status: 500, body: google(500, "INTERNAL", "An internal error has occurred."), kind: llm.ErrServer, code: "INTERNAL"},
 		{name: "a deadline", status: 504, body: google(504, "DEADLINE_EXCEEDED", "Deadline expired before operation could complete."), kind: llm.ErrTimeout, code: "DEADLINE_EXCEEDED"},
 		{name: "a proxy's page", status: 502, body: "<html><body>Bad Gateway</body></html>", kind: llm.ErrServer},
+		{name: "a payload too large", status: 400, body: google(400, "INVALID_ARGUMENT", "Request payload size exceeds the limit: 104857600 bytes."), kind: llm.ErrContextOverflow, code: "INVALID_ARGUMENT"},
+		{name: "a payload refused at the door", status: 413, body: "<html><body>413 Request Entity Too Large</body></html>", kind: llm.ErrContextOverflow},
 		{name: "a message that echoes the key", status: 400, body: google(400, "INVALID_ARGUMENT", "Invalid value "+testKey+" for field model."), kind: llm.ErrBadRequest, code: "INVALID_ARGUMENT"},
 	}
 	for _, tc := range tests {
@@ -479,9 +481,15 @@ func TestThinking(t *testing.T) {
 		{"gemini-3-pro-preview", "low", `{"includeThoughts":false,"thinkingLevel":"LOW"}`},
 		{"gemini-3-pro-preview", "medium", `{"includeThoughts":false,"thinkingLevel":"HIGH"}`},
 		{"gemini-3-pro-preview", "high", `{"includeThoughts":false,"thinkingLevel":"HIGH"}`},
+		{"gemini-3-pro-image-preview", "medium", `{"includeThoughts":false,"thinkingLevel":"HIGH"}`},
+		{"gemini-3-flash-preview", "medium", `{"includeThoughts":false,"thinkingLevel":"MEDIUM"}`},
+		{"gemini-3.1-pro-preview", "medium", `{"includeThoughts":false,"thinkingLevel":"MEDIUM"}`},
+		{"gemini-3.8-flash", "minimal", `{"includeThoughts":false,"thinkingLevel":"LOW"}`},
 		{"gemini-3.1-flash", "low", `{"includeThoughts":false,"thinkingLevel":"LOW"}`},
 		{"models/gemini-3-flash", "high", `{"includeThoughts":false,"thinkingLevel":"HIGH"}`},
 		{"gemini-10-ultra", "low", `{"includeThoughts":false,"thinkingLevel":"LOW"}`},
+		{"gemini-1000-ultra", "low", `{"includeThoughts":false,"thinkingBudget":1024}`},
+		{"gemini-3x-pro", "low", `{"includeThoughts":false,"thinkingBudget":1024}`},
 	}
 	for _, tc := range tests {
 		got, err := json.Marshal(thinking(tc.model, tc.effort))
@@ -490,6 +498,64 @@ func TestThinking(t *testing.T) {
 		}
 		if string(got) != tc.want {
 			t.Errorf("%s at %q: %s, want %s", tc.model, tc.effort, got, tc.want)
+		}
+	}
+}
+
+func TestVersionOf(t *testing.T) {
+	tests := []struct {
+		model string
+		want  version
+	}{
+		{"gemini-2.5-flash", version{major: 2, minor: 5, known: true, variant: "-flash"}},
+		{"models/gemini-2.5-flash-lite", version{major: 2, minor: 5, known: true, variant: "-flash-lite"}},
+		{"gemini-3-pro-preview", version{major: 3, known: true, variant: "-pro-preview"}},
+		{"gemini-3.1-pro", version{major: 3, minor: 1, known: true, variant: "-pro"}},
+		{"gemini-2.0-flash-001", version{major: 2, known: true, variant: "-flash-001"}},
+		{"gemini-4", version{major: 4, known: true}},
+		{"gemini-flash-latest", version{}},
+		{"gemini-exp-1206", version{}},
+		{"gemini-2.", version{}},
+		{"gemini-2.5x", version{}},
+		{"gemini-1000", version{}},
+		{"tunedModels/cs101-tutor", version{}},
+		{"gemma-3-27b-it", version{}},
+	}
+	for _, tc := range tests {
+		if got := versionOf(tc.model); got != tc.want {
+			t.Errorf("versionOf(%q) = %+v, want %+v", tc.model, got, tc.want)
+		}
+	}
+}
+
+// maxOutputTokens counts thinking, so a model that thinks is given its
+// allowance beside the answer's cap; one that does not is given the cap.
+func TestOutputCap(t *testing.T) {
+	tests := []struct {
+		model, effort string
+		limit, want   int
+	}{
+		{"gemini-2.5-flash", "", 1500, 1500 + defaultThinkingAllowance},
+		{"gemini-2.5-pro", "", 1500, 1500 + defaultThinkingAllowance},
+		{"gemini-2.5-flash", "minimal", 1500, 2012},
+		{"gemini-2.5-flash", "low", 1500, 2524},
+		{"gemini-2.5-pro", "high", 4000, 28576},
+		{"gemini-2.5-flash-lite", "", 1500, 1500},
+		{"gemini-2.5-flash-lite", "low", 1500, 2524},
+		{"gemini-2.5-flash-image", "", 1500, 1500},
+		{"gemini-2.0-flash", "", 1500, 1500},
+		{"gemini-flash-latest", "", 1500, 1500},
+		{"gemini-flash-latest", "medium", 1500, 9692},
+		{"tunedModels/cs101-tutor", "", 1500, 1500},
+		{"gemini-3-pro-preview", "", 1500, 1500 + defaultThinkingAllowance},
+		{"gemini-3.5-flash", "low", 1500, 1500 + defaultThinkingAllowance},
+		{"gemini-2.5-flash", "", 60000, maxOutputCeiling},
+		{"gemini-2.5-flash", "", 70000, 70000},
+		{"gemini-2.5-flash", "high", 0, 0},
+	}
+	for _, tc := range tests {
+		if got := outputCap(tc.limit, thinkingAllowance(tc.model, tc.effort)); got != tc.want {
+			t.Errorf("%s at %q with a cap of %d: %d, want %d", tc.model, tc.effort, tc.limit, got, tc.want)
 		}
 	}
 }
@@ -524,6 +590,8 @@ func TestMediaType(t *testing.T) {
 		name, mime, want string
 	}{
 		{"syllabus.pdf", "application/pdf", "application/pdf"},
+		{"syllabus.pdf", "Application/PDF", "application/pdf"},
+		{"photo", "image/jpg", "image/jpeg"},
 		{"notes.txt", "text/plain; charset=utf-8", "text/plain"},
 		{"figure.png", "", "image/png"},
 		{"figure.png", "application/octet-stream", "image/png"},
@@ -531,10 +599,61 @@ func TestMediaType(t *testing.T) {
 		{"export", "", ""},
 		{"export", "not a type", ""},
 	}
+	for typ, want := range map[string]bool{
+		"text/markdown": true, "application/json": true, "application/ld+json": true, "image/svg+xml": true,
+		"application/x-yaml": true, "application/pdf": false, "image/png": false, "": false,
+	} {
+		if got := isText(typ); got != want {
+			t.Errorf("isText(%q) = %v, want %v", typ, got, want)
+		}
+	}
 	for _, tc := range tests {
 		if got := mediaType(&llm.File{Name: tc.name, MIME: tc.mime}); got != tc.want {
 			t.Errorf("mediaType(%q, %q) = %q, want %q", tc.name, tc.mime, got, tc.want)
 		}
+	}
+}
+
+// Files are sent in order while the request's allowance lasts; one that
+// does not fit is a line, and a smaller one after it still goes.
+func TestFilesWithinTheirAllowance(t *testing.T) {
+	a, err := New(llm.Config{Model: "gemini-2.5-flash", APIKey: testKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := 20
+	var got []string
+	for _, f := range []llm.File{
+		{Name: "a.pdf", MIME: "application/pdf", Data: []byte("0123456789")}, // 16 in base64
+		{Name: "b.pdf", MIME: "application/pdf", Data: []byte("0123456789")},
+		{Name: "c.md", MIME: "text/markdown", Data: []byte("# ok")},
+		{Name: "d.md", MIME: "text/markdown", Data: []byte("# too long")},
+		{Name: "e.txt", MIME: "text/plain", Data: []byte("x")},
+	} {
+		got = append(got, string(mustJSON(t, a.filePart(&f, &files))))
+	}
+	want := []string{
+		`{"inlineData":{"mimeType":"application/pdf","data":"MDEyMzQ1Njc4OQ=="}}`,
+		`{"text":"[file \"b.pdf\" left out: it is too large to send]"}`,
+		`{"text":"[file \"c.md\"]\n# ok"}`,
+		`{"text":"[file \"d.md\" left out: it is too large to send]"}`,
+		`{"text":"[file \"e.txt\" left out: it is too large to send]"}`,
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("file %d: %s, want %s", i, got[i], want[i])
+		}
+	}
+	if files != 0 {
+		t.Errorf("%d bytes of the allowance left, want 0", files)
+	}
+
+	// Text that is not UTF-8 is not text, and Markdown is not a type
+	// Gemini takes inline.
+	files = maxFileBytes
+	f := llm.File{Name: "f.md", MIME: "text/markdown", Data: []byte{0xff, 0xfe}}
+	if got, want := string(mustJSON(t, a.filePart(&f, &files))), `{"text":"[file \"f.md\" left out: Gemini does not take files of its type]"}`; got != want {
+		t.Errorf("%s, want %s", got, want)
 	}
 }
 
@@ -599,6 +718,7 @@ func TestTokenLimit(t *testing.T) {
 		"the prompt exceeds the context limit.":                                                   false,
 		"max_output_tokens exceeds the limit of 65536 tokens.":                                    false,
 		"unable to submit request because it has a maxoutputtokens value of 70000.":               false,
+		"the thinking budget of 40000 tokens exceeds the limit of 32768.":                         false,
 		"please use a valid role: user, model.":                                                   false,
 	} {
 		if got := tokenLimit(msg); got != want {

@@ -11,10 +11,10 @@
       }
     ],
     "generationConfig": {
-      "maxOutputTokens": 1500,
+      "maxOutputTokens": 26076,
       "thinkingConfig": {
         "includeThoughts": false,
-        "thinkingLevel": "HIGH"
+        "thinkingLevel": "MEDIUM"
       }
     },
     "systemInstruction": {
@@ -25,5 +25,5 @@
       ]
     }
   },
-  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent"
+  "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent"
 }

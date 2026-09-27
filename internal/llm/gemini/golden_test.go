@@ -29,23 +29,25 @@ var goldenCases = []struct {
 	{name: "function_call_no_id", why: "a call without an id: call_1 inside, no id on the wire"},
 	{name: "parallel", why: "two calls and two responses, in call order; the signature stays on the first"},
 	{name: "thought_signature", why: "signatures go back on the same part to the same maker, and never to another"},
+	{name: "signature_other_model_gemini3", change: func(c *llm.Config) { c.Model = "gemini-3.5-flash" },
+		why: "Gemini 3 given another model's calls mid-loop: the stand-in on each step's first call, its own signature on its own"},
 	{name: "thought_parts", change: func(c *llm.Config) { c.Reasoning.Effort = "low" }, why: "thought parts, and parts of kinds the adapter does not read, come back as reasoning, replayed verbatim to their maker only"},
 	{name: "is_error", why: "results under output, errors under error; JSON as JSON, anything else as a string"},
 	{name: "force_answer", why: "ForceAnswer keeps the tools and says NONE"},
 	{name: "force_answer_flattened", change: func(c *llm.Config) { c.Capabilities.ToolChoiceNone = ptr(false) }, why: "without tool_choice none, the tools and the tool history go"},
-	{name: "files", why: "files as inlineData, after every functionResponse"},
-	{name: "files_not_accepted", change: func(c *llm.Config) { c.Capabilities.FileInput = ptr(false) }, why: "a model not given files gets a line instead"},
+	{name: "files", why: "files Gemini takes as inlineData, after every functionResponse; other text as text; other types as a line"},
+	{name: "files_not_accepted", change: func(c *llm.Config) { c.Capabilities.FileInput = ptr(false) }, why: "a model not given files gets text as text, and a line for the rest"},
 	{name: "prompt_blocked", why: "no candidate and a blockReason is content_filter"},
 	{name: "usage", why: "every usage field, and raw verbatim"},
 	{name: "generation_config", change: func(c *llm.Config) {
 		c.Params = llm.Params{MaxOutputTokens: 1500, Temperature: ptr(0.3), TopP: ptr(0.9)}
 		c.Reasoning.Effort = "high"
-	}, why: "the call's cap over the configured one; a thinking budget for 2.5"},
+	}, why: "the call's cap over the configured one, and the thinking budget beside it; a thinking budget for 2.5"},
 	{name: "generation_config_gemini3", change: func(c *llm.Config) {
-		c.Model = "gemini-3-pro-preview"
+		c.Model = "gemini-3.1-pro-preview"
 		c.Params = llm.Params{MaxOutputTokens: 1500}
 		c.Reasoning.Effort = "medium"
-	}, why: "a thinking level for Gemini 3; the configured cap when the call sets none"},
+	}, why: "a thinking level for Gemini 3, with the default allowance; the configured cap when the call sets none"},
 	{name: "tools_openapi", change: func(c *llm.Config) { c.Dialect = toolschema.GeminiOpenAPI }, why: "parameters for the OpenAPI dialect; no schema for a tool without arguments"},
 }
 

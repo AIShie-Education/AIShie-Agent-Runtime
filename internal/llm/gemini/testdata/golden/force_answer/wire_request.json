@@ -49,7 +49,7 @@
       }
     ],
     "generationConfig": {
-      "maxOutputTokens": 1500
+      "maxOutputTokens": 26076
     },
     "systemInstruction": {
       "parts": [

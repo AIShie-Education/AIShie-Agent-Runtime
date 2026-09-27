@@ -97,7 +97,8 @@ func parseGoogleError(body []byte) (googleError, bool) {
 //   - 403 PERMISSION_DENIED, 401 UNAUTHENTICATED, and a 400 about the key
 //     (ErrorInfo reason API_KEY_INVALID and the like) are auth;
 //   - 503 UNAVAILABLE is overloaded, 504 DEADLINE_EXCEEDED a timeout;
-//   - 400 INVALID_ARGUMENT about the input's tokens is context_overflow.
+//   - 400 INVALID_ARGUMENT about the input's tokens, or a payload over
+//     Google's size limit (400 or 413), is context_overflow.
 //
 // The code is Google's status name, and the message never holds the key.
 func (a *Adapter) refine(e *llm.Error, body []byte) {
@@ -138,17 +139,20 @@ func (a *Adapter) refine(e *llm.Error, body []byte) {
 		e.Kind = llm.ErrOverloaded
 	case status == "DEADLINE_EXCEEDED":
 		e.Kind = llm.ErrTimeout
-	case badRequest && tokenLimit(lower):
+	case badRequest && tokenLimit(lower), e.Status == http.StatusRequestEntityTooLarge,
+		badRequest && strings.Contains(lower, "payload size exceeds"):
+		// A request too large in bytes (files, long results) is met as one
+		// too long in tokens: a shorter history is what mends it.
 		e.Kind = llm.ErrContextOverflow
 	}
 }
 
 // tokenLimit reports whether a refusal says the input is longer than the
 // model takes, as in "The input token count (1196265) exceeds the maximum
-// number of tokens allowed (1048575)." A complaint about the output cap is
-// not one: a shorter history would not help it.
+// number of tokens allowed (1048575)." A complaint about the output cap or
+// the thinking budget is not one: a shorter history would not help it.
 func tokenLimit(lower string) bool {
-	for _, s := range []string{"maxoutputtokens", "max_output_tokens", "output token"} {
+	for _, s := range []string{"maxoutputtokens", "max_output_tokens", "output token", "thinking"} {
 		if strings.Contains(lower, s) {
 			return false
 		}

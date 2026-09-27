@@ -8,6 +8,7 @@ import (
 	"mime"
 	"path"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolschema"
@@ -161,6 +162,7 @@ func (a *Adapter) buildRequest(req *llm.Request) (*wireRequest, error) {
 func (a *Adapter) contents(msgs []llm.Message) []wireContent {
 	var out []wireContent
 	calls := map[string]callRef{}
+	files := maxFileBytes
 	for _, m := range msgs {
 		role := "user"
 		var parts []any
@@ -171,7 +173,7 @@ func (a *Adapter) contents(msgs []llm.Message) []wireContent {
 			calls = map[string]callRef{}
 			parts = a.modelParts(m.Parts, calls)
 		} else {
-			parts = a.userParts(m.Parts, calls)
+			parts = a.userParts(m.Parts, calls, &files)
 		}
 		if len(parts) == 0 {
 			continue
@@ -189,8 +191,15 @@ func (a *Adapter) contents(msgs []llm.Message) []wireContent {
 // Signatures and reasoning go back only to the maker that made them; the
 // parts of another maker go without. Results and files never ride in a
 // model turn.
+//
+// A model that checks signatures (Gemini 3) refuses a step whose first
+// functionCall has none, which is every step another model made: a
+// fallback taken in the middle of a loop. That call carries the stand-in
+// Google documents for a history from another model, skipSignature, and
+// not another maker's signature.
 func (a *Adapter) modelParts(parts []llm.Part, calls map[string]callRef) []any {
 	var out []any
+	first := true
 	for _, p := range parts {
 		switch p.Type {
 		case llm.PartText:
@@ -206,6 +215,10 @@ func (a *Adapter) modelParts(parts []llm.Part, calls map[string]callRef) []any {
 		case llm.PartToolCall:
 			o := a.opaqueOf(p)
 			calls[p.ID] = callRef{name: p.Name, id: o.ID}
+			if first && o.ThoughtSignature == "" && a.checksSignatures {
+				o.ThoughtSignature = skipSignature
+			}
+			first = false
 			out = append(out, wirePart{
 				FunctionCall:     &wireFunctionCall{ID: o.ID, Name: p.Name, Args: argsObject(p.Args)},
 				ThoughtSignature: o.ThoughtSignature,
@@ -225,7 +238,7 @@ func (a *Adapter) modelParts(parts []llm.Part, calls map[string]callRef) []any {
 //
 // A functionResponse goes back in a user turn. The handout marks the role
 // [UNVERIFIED]; it is the role Google's documentation and SDKs use.
-func (a *Adapter) userParts(parts []llm.Part, calls map[string]callRef) []any {
+func (a *Adapter) userParts(parts []llm.Part, calls map[string]callRef, files *int) []any {
 	var responses, rest []any
 	for _, p := range parts {
 		switch p.Type {
@@ -238,7 +251,7 @@ func (a *Adapter) userParts(parts []llm.Part, calls map[string]callRef) []any {
 			}
 		case llm.PartFile:
 			if p.File != nil {
-				rest = append(rest, a.filePart(p.File))
+				rest = append(rest, a.filePart(p.File, files))
 			}
 		}
 	}
@@ -280,34 +293,91 @@ func resultValue(content string) json.RawMessage {
 	return b
 }
 
-// filePart is a file as inlineData, or a line saying it was left out:
-// where the model is not given files (the runtime offers such a model text
-// instead, so the line is only a safeguard), and where the file's type is
-// not known, since generateContent refuses inlineData of a type it does
-// not take.
-func (a *Adapter) filePart(f *llm.File) wirePart {
+// maxFileBytes bounds the files one request carries, counted as they are
+// sent (inlineData in base64, text as it is). Google takes 100 MB of inline
+// data in a request; the history, the tools and JSON's own weight need the
+// rest.
+const maxFileBytes = 64 << 20
+
+// inlineTypes are the media types generateContent is documented to take as
+// inlineData: PDF, the text types it reads as text, and its image, audio
+// and video formats. It refuses any other type with a 400 that no retry
+// mends (a Word document, a zip), so no other type is sent inline.
+var inlineTypes = map[string]bool{
+	"application/pdf": true,
+
+	"text/plain": true, "text/html": true, "text/css": true, "text/csv": true,
+	"text/xml": true, "text/rtf": true, "text/javascript": true,
+
+	"image/png": true, "image/jpeg": true, "image/webp": true, "image/heic": true, "image/heif": true,
+
+	"audio/wav": true, "audio/mp3": true, "audio/aiff": true, "audio/aac": true, "audio/ogg": true, "audio/flac": true,
+
+	"video/mp4": true, "video/mpeg": true, "video/mov": true, "video/quicktime": true, "video/avi": true,
+	"video/x-flv": true, "video/mpg": true, "video/webm": true, "video/wmv": true, "video/3gpp": true,
+}
+
+// filePart is a file as the model can take it (rule 6): inlineData where
+// the model is given files and Gemini takes the type; the file's text,
+// under its name, where it is text of another type (Markdown, JSON) or the
+// model is not given files; and otherwise a line saying it was left out.
+// Files are taken in order until the request's allowance is spent, so a
+// file sent on one turn of a loop is sent on every later one.
+func (a *Adapter) filePart(f *llm.File, files *int) wirePart {
 	typ := mediaType(f)
 	var why string
 	switch {
+	case a.caps.FileInput && inlineTypes[typ]:
+		if n := base64.StdEncoding.EncodedLen(len(f.Data)); n <= *files {
+			*files -= n
+			return wirePart{InlineData: &wireBlob{MimeType: typ, Data: base64.StdEncoding.EncodeToString(f.Data)}}
+		}
+		why = "it is too large to send"
+	case isText(typ) && utf8.Valid(f.Data):
+		if len(f.Data) <= *files {
+			*files -= len(f.Data)
+			text := fmt.Sprintf("[file %q]\n%s", f.Name, f.Data)
+			return wirePart{Text: &text}
+		}
+		why = "it is too large to send"
 	case !a.caps.FileInput:
 		why = "this model is not given files"
 	case typ == "":
 		why = "its type is not known"
 	default:
-		return wirePart{InlineData: &wireBlob{MimeType: typ, Data: base64.StdEncoding.EncodeToString(f.Data)}}
+		why = "Gemini does not take files of its type"
 	}
 	note := fmt.Sprintf("[file %q left out: %s]", f.Name, why)
 	return wirePart{Text: &note}
 }
 
-// mediaType is a file's media type without parameters, from its MIME or
-// else from its name's extension; "" when neither says more than
-// application/octet-stream.
+// isText reports whether a media type is text a model can read as it is.
+func isText(typ string) bool {
+	switch {
+	case strings.HasPrefix(typ, "text/"), strings.HasSuffix(typ, "+json"), strings.HasSuffix(typ, "+xml"):
+		return true
+	}
+	switch typ {
+	case "application/json", "application/xml", "application/yaml", "application/x-yaml", "application/javascript":
+		return true
+	}
+	return false
+}
+
+// mediaType is a file's media type without parameters, in lower case, from
+// its MIME or else from its name's extension; "" when neither says more
+// than application/octet-stream. image/jpg, which some servers send, is
+// image/jpeg.
 func mediaType(f *llm.File) string {
 	for _, t := range []string{f.MIME, mime.TypeByExtension(path.Ext(f.Name))} {
-		if mt, _, err := mime.ParseMediaType(t); err == nil && mt != "application/octet-stream" {
-			return mt
+		mt, _, err := mime.ParseMediaType(t)
+		if err != nil || mt == "application/octet-stream" {
+			continue
 		}
+		if mt == "image/jpg" {
+			return "image/jpeg"
+		}
+		return mt
 	}
 	return ""
 }
@@ -374,67 +444,23 @@ func takesArguments(schema json.RawMessage) bool {
 
 // generation is generationConfig, or nil when there is nothing to say. The
 // call's own cap wins over the configured one: the loop raises it to retry
-// a max_tokens stop.
+// a max_tokens stop. maxOutputTokens counts thinking too, so a model that
+// thinks is given the cap and its thinking allowance, as the anthropic
+// adapter gives max_tokens; the tokens it spends are counted in Usage.Output
+// all the same.
 func (a *Adapter) generation(l llm.Limits) *wireGeneration {
 	g := wireGeneration{Temperature: a.params.Temperature, TopP: a.params.TopP, ThinkingConfig: thinking(a.model, a.effort)}
-	if a.params.MaxOutputTokens > 0 {
-		g.MaxOutputTokens = a.params.MaxOutputTokens
-	}
+	limit := a.params.MaxOutputTokens
 	if l.MaxOutputTokens > 0 {
-		g.MaxOutputTokens = l.MaxOutputTokens
+		limit = l.MaxOutputTokens
+	}
+	if limit > 0 {
+		g.MaxOutputTokens = outputCap(limit, thinkingAllowance(a.model, a.effort))
 	}
 	if g == (wireGeneration{}) {
 		return nil
 	}
 	return &g
-}
-
-// budgets are thinkingBudget by effort, for Gemini 2.5 and every model not
-// known to take thinkingLevel. Each lies within what every 2.5 model takes
-// (Pro 128 to 32768, Flash 0 to 24576, Flash-Lite 512 to 24576). minimal is
-// 512, not 0: 0 turns thinking off on Flash, but Pro refuses it with a 400.
-var budgets = map[string]int{"minimal": 512, "low": 1024, "medium": 8192, "high": 24576}
-
-// levels are thinkingLevel by effort, for Gemini 3 and later, which take a
-// level in place of a budget. Which levels each model takes is [UNVERIFIED]:
-// Gemini 3 Pro was documented with LOW and HIGH only, so only those two are
-// sent. minimal rounds to LOW; medium rounds up to HIGH, which is also what
-// these models do when not told.
-var levels = map[string]string{"minimal": "LOW", "low": "LOW", "medium": "HIGH", "high": "HIGH"}
-
-// thinking is thinkingConfig for a reasoning effort, or nil for none: the
-// model's own default then stands.
-func thinking(model, effort string) *wireThinking {
-	if effort == "" {
-		return nil
-	}
-	if takesLevel(model) {
-		return &wireThinking{ThinkingLevel: levels[effort]}
-	}
-	budget := budgets[effort]
-	return &wireThinking{ThinkingBudget: &budget}
-}
-
-// takesLevel reports whether a model takes thinkingLevel: Gemini 3 and
-// later, by the major version in its id. Any other id (2.5, an alias such
-// as gemini-flash-latest, a tuned model) gets thinkingBudget: a level is
-// documented for Gemini 3 only, while Gemini 3 is documented to still take
-// a budget, so a budget is the choice that cannot break a call.
-func takesLevel(model string) bool {
-	id := model[strings.LastIndex(model, "/")+1:]
-	rest, ok := strings.CutPrefix(id, "gemini-")
-	if !ok {
-		return false
-	}
-	major, digits := 0, 0
-	for _, c := range rest {
-		if c < '0' || c > '9' {
-			break
-		}
-		major = major*10 + int(c-'0')
-		digits++
-	}
-	return digits > 0 && digits <= 3 && major >= 3
 }
 
 // opaqueOf reads what the adapter kept on a part, if this adapter made it:
