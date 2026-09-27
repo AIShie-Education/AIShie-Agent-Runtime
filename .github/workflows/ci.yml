@@ -12,7 +12,7 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: "23 3 * * 1" # weekly, so new advisories and Core drift surface without a push
+    - cron: "23 3 * * 1" # weekly, so new advisories surface without a push
 
 # A newer push to a pull request makes the older run moot. Every push to main
 # is checked in a run of its own, which nothing waits for or cancels: waiting
