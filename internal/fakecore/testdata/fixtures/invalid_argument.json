@@ -1,0 +1,341 @@
+{
+ "scenario": "invalid_argument",
+ "steps": [
+  {
+   "args": {
+    "body": "",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "action_id": "<id:4>",
+    "error": {
+     "code": "invalid_argument",
+     "message": "the message is empty"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "empty",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": " \n\t ",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:2",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "action_id": "<id:5>",
+    "error": {
+     "code": "invalid_argument",
+     "message": "the message is empty"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "blank",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "<text:20001 chars>",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:3",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "action_id": "<id:6>",
+    "error": {
+     "code": "invalid_argument",
+     "message": "the message is 20001 characters long; the most is 20000"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "too_long",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "Chapter 2 is about sets.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "conversation.answer changes state, so it needs an idempotency key"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "no_key",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "Chapter 2 is about sets.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "the idempotency key is longer than 200 characters"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "key_too_long",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "Chapter 2 is about sets.",
+    "conversation_id": "not-a-uuid",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:4",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "arguments: invalid UUID length: 10"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "bad_uuid",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "Chapter 2 is about sets.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:4",
+    "in_reply_to_message_id": "<id:3>",
+    "mood": "cheerful"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "arguments do not match the schema of conversation.answer: validating root: unexpected additional properties [\"mood\"]"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "unknown_argument",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "Chapter 2 is about sets.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:other:1",
+    "in_reply_to_message_id": "<id:7>"
+   },
+   "envelope": {
+    "action_id": "<id:8>",
+    "error": {
+     "code": "invalid_argument",
+     "message": "in_reply_to_message_id must name a message of the opener's in this conversation"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "not_the_opener",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "<text:20000 chars>",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:5",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "action_id": "<id:9>",
+    "result": {
+     "message_id": "<id:10>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "at_the_limit",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "exclude_types": [
+     "conversation.ask"
+    ]
+   },
+   "envelope": {
+    "result": {
+     "actions": [
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:11>",
+       "authz_result": "autonomous",
+       "created_at": "<time>",
+       "id": "<id:4>",
+       "member_id": "<id:12>",
+       "payload": {
+        "body": "",
+        "conversation_id": "<id:1>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:3>"
+       },
+       "result": {
+        "error": {
+         "code": "invalid_argument",
+         "message": "the message is empty"
+        }
+       },
+       "review_state": "none",
+       "status": "failed",
+       "target_id": "<id:1>",
+       "target_type": "conversation"
+      },
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:11>",
+       "authz_result": "autonomous",
+       "created_at": "<time>",
+       "id": "<id:5>",
+       "member_id": "<id:12>",
+       "payload": {
+        "body": " \n\t ",
+        "conversation_id": "<id:1>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:3>"
+       },
+       "result": {
+        "error": {
+         "code": "invalid_argument",
+         "message": "the message is empty"
+        }
+       },
+       "review_state": "none",
+       "status": "failed",
+       "target_id": "<id:1>",
+       "target_type": "conversation"
+      },
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:11>",
+       "authz_result": "autonomous",
+       "created_at": "<time>",
+       "id": "<id:6>",
+       "member_id": "<id:12>",
+       "payload": {
+        "body": "<text:20001 chars>",
+        "conversation_id": "<id:1>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:3>"
+       },
+       "result": {
+        "error": {
+         "code": "invalid_argument",
+         "message": "the message is 20001 characters long; the most is 20000"
+        }
+       },
+       "review_state": "none",
+       "status": "failed",
+       "target_id": "<id:1>",
+       "target_type": "conversation"
+      },
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:11>",
+       "authz_result": "autonomous",
+       "created_at": "<time>",
+       "id": "<id:8>",
+       "member_id": "<id:12>",
+       "payload": {
+        "body": "Chapter 2 is about sets.",
+        "conversation_id": "<id:1>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:7>"
+       },
+       "result": {
+        "error": {
+         "code": "invalid_argument",
+         "message": "in_reply_to_message_id must name a message of the opener's in this conversation"
+        }
+       },
+       "review_state": "none",
+       "status": "failed",
+       "target_id": "<id:1>",
+       "target_type": "conversation"
+      },
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:11>",
+       "authz_result": "autonomous",
+       "created_at": "<time>",
+       "executed_at": "<time>",
+       "id": "<id:9>",
+       "member_id": "<id:12>",
+       "payload": {
+        "body": "<text:20000 chars>",
+        "conversation_id": "<id:1>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:3>"
+       },
+       "result": {
+        "message_id": "<id:10>"
+       },
+       "review_state": "none",
+       "status": "executed",
+       "target_id": "<id:1>",
+       "target_type": "conversation"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "mine",
+   "text_is_envelope": true,
+   "tool": "action_list_mine"
+  }
+ ]
+}

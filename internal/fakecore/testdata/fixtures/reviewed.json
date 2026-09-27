@@ -1,0 +1,512 @@
+{
+ "scenario": "reviewed",
+ "steps": [
+  {
+   "args": {
+    "body": "Yes, at noon.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "action_id": "<id:4>",
+    "result": {
+     "message_id": "<id:5>"
+    },
+    "review_state": "pending",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "answer_1",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "action_id": "<id:4>",
+    "course_id": "<id:2>",
+    "idempotency_key": "review:<id:4>",
+    "outcome": "reviewed"
+   },
+   "envelope": {
+    "action_id": "<id:6>",
+    "error": {
+     "code": "forbidden",
+     "message": "nobody reviews their own action, nor their agent's, nor their owner's"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "its_owner_reviews",
+   "text_is_envelope": true,
+   "tool": "action_review"
+  },
+  {
+   "args": {
+    "action_id": "<id:4>",
+    "course_id": "<id:2>",
+    "idempotency_key": "review:<id:4>",
+    "outcome": "reviewed"
+   },
+   "envelope": {
+    "action_id": "<id:7>",
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "permission_denied"
+     },
+     "message": "not permitted"
+    },
+    "review_state": "none",
+    "status": "denied"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "the_agent_reviews",
+   "text_is_envelope": true,
+   "tool": "action_review"
+  },
+  {
+   "args": {
+    "action_id": "<id:4>",
+    "course_id": "<id:2>",
+    "idempotency_key": "review:<id:4>:0",
+    "outcome": "fine"
+   },
+   "envelope": {
+    "action_id": "<id:8>",
+    "error": {
+     "code": "invalid_argument",
+     "message": "outcome must be \"reviewed\" or \"escalated\""
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "not_an_outcome",
+   "text_is_envelope": true,
+   "tool": "action_review"
+  },
+  {
+   "args": {
+    "action_id": "<id:4>",
+    "course_id": "<id:2>",
+    "idempotency_key": "review:<id:4>",
+    "outcome": "escalated"
+   },
+   "envelope": {
+    "action_id": "<id:9>",
+    "result": {
+     "action_id": "<id:4>",
+     "review_state": "escalated"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "escalated",
+   "text_is_envelope": true,
+   "tool": "action_review"
+  },
+  {
+   "args": {
+    "action_id": "<id:4>",
+    "course_id": "<id:2>",
+    "idempotency_key": "review:<id:4>:2",
+    "outcome": "escalated"
+   },
+   "envelope": {
+    "action_id": "<id:10>",
+    "error": {
+     "code": "conflict",
+     "message": "the action is already escalated"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "escalated_again",
+   "text_is_envelope": true,
+   "tool": "action_review"
+  },
+  {
+   "args": {
+    "action_id": "<id:4>",
+    "course_id": "<id:2>",
+    "idempotency_key": "review:<id:4>:3",
+    "outcome": "reviewed"
+   },
+   "envelope": {
+    "action_id": "<id:11>",
+    "error": {
+     "code": "forbidden",
+     "message": "an escalation is for someone else to look at"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "closed_by_who_escalated",
+   "text_is_envelope": true,
+   "tool": "action_review"
+  },
+  {
+   "args": {
+    "body": "Yes, at noon.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "action_id": "<id:4>",
+    "replayed": true,
+    "result": {
+     "message_id": "<id:5>"
+    },
+    "review_state": "escalated",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "replay_1",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "No.",
+    "conversation_id": "<id:12>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:12>:<id:13>:1",
+    "in_reply_to_message_id": "<id:13>"
+   },
+   "envelope": {
+    "action_id": "<id:14>",
+    "result": {
+     "message_id": "<id:15>"
+    },
+    "review_state": "pending",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "answer_2",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "action_id": "<id:14>",
+    "course_id": "<id:2>",
+    "idempotency_key": "review:<id:14>",
+    "outcome": "reviewed"
+   },
+   "envelope": {
+    "action_id": "<id:16>",
+    "result": {
+     "action_id": "<id:14>",
+     "review_state": "reviewed"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "reviewed",
+   "text_is_envelope": true,
+   "tool": "action_review"
+  },
+  {
+   "args": {
+    "action_id": "<id:14>",
+    "course_id": "<id:2>",
+    "idempotency_key": "review:<id:14>:2",
+    "outcome": "reviewed"
+   },
+   "envelope": {
+    "action_id": "<id:17>",
+    "error": {
+     "code": "conflict",
+     "message": "the action is not awaiting review"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "reviewed_again",
+   "text_is_envelope": true,
+   "tool": "action_review"
+  },
+  {
+   "args": {
+    "body": "No.",
+    "conversation_id": "<id:12>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:12>:<id:13>:1",
+    "in_reply_to_message_id": "<id:13>"
+   },
+   "envelope": {
+    "action_id": "<id:14>",
+    "replayed": true,
+    "result": {
+     "message_id": "<id:15>"
+    },
+    "review_state": "reviewed",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "replay_2",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "since_seq": 0
+   },
+   "envelope": {
+    "result": {
+     "events": [
+      {
+       "action_id": "<id:18>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:1>",
+       "subject_id": "<id:2>",
+       "subject_type": "course",
+       "type": "course.created"
+      },
+      {
+       "action_id": "<id:19>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:2>",
+       "subject_id": "<id:2>",
+       "subject_type": "course",
+       "type": "course.activated"
+      },
+      {
+       "action_id": "<id:20>",
+       "occurred_at": "<time>",
+       "payload": {
+        "conversation_id": "<id:1>",
+        "opener_member_id": "<id:21>",
+        "respondent_member_id": "<id:22>"
+       },
+       "seq": "<seq:3>",
+       "subject_id": "<id:1>",
+       "subject_type": "conversation",
+       "type": "conversation.opened"
+      },
+      {
+       "action_id": "<id:20>",
+       "occurred_at": "<time>",
+       "payload": {
+        "author_member_id": "<id:21>",
+        "conversation_id": "<id:1>",
+        "message_id": "<id:3>",
+        "opener_member_id": "<id:21>",
+        "respondent_member_id": "<id:22>"
+       },
+       "seq": "<seq:4>",
+       "subject_id": "<id:1>",
+       "subject_type": "conversation",
+       "type": "conversation.message_posted"
+      },
+      {
+       "action_id": "<id:4>",
+       "occurred_at": "<time>",
+       "payload": {
+        "author_member_id": "<id:22>",
+        "conversation_id": "<id:1>",
+        "message_id": "<id:5>",
+        "opener_member_id": "<id:21>",
+        "respondent_member_id": "<id:22>"
+       },
+       "seq": "<seq:5>",
+       "subject_id": "<id:1>",
+       "subject_type": "conversation",
+       "type": "conversation.message_posted"
+      },
+      {
+       "action_id": "<id:4>",
+       "occurred_at": "<time>",
+       "payload": {
+        "action_type": "conversation.answer",
+        "by_action_id": "<id:9>"
+       },
+       "seq": "<seq:6>",
+       "subject_id": "<id:4>",
+       "subject_type": "action",
+       "type": "action.escalated"
+      },
+      {
+       "action_id": "<id:23>",
+       "occurred_at": "<time>",
+       "payload": {
+        "conversation_id": "<id:12>",
+        "opener_member_id": "<id:24>",
+        "respondent_member_id": "<id:22>"
+       },
+       "seq": "<seq:7>",
+       "subject_id": "<id:12>",
+       "subject_type": "conversation",
+       "type": "conversation.opened"
+      },
+      {
+       "action_id": "<id:23>",
+       "occurred_at": "<time>",
+       "payload": {
+        "author_member_id": "<id:24>",
+        "conversation_id": "<id:12>",
+        "message_id": "<id:13>",
+        "opener_member_id": "<id:24>",
+        "respondent_member_id": "<id:22>"
+       },
+       "seq": "<seq:8>",
+       "subject_id": "<id:12>",
+       "subject_type": "conversation",
+       "type": "conversation.message_posted"
+      },
+      {
+       "action_id": "<id:14>",
+       "occurred_at": "<time>",
+       "payload": {
+        "author_member_id": "<id:22>",
+        "conversation_id": "<id:12>",
+        "message_id": "<id:15>",
+        "opener_member_id": "<id:24>",
+        "respondent_member_id": "<id:22>"
+       },
+       "seq": "<seq:9>",
+       "subject_id": "<id:12>",
+       "subject_type": "conversation",
+       "type": "conversation.message_posted"
+      },
+      {
+       "action_id": "<id:14>",
+       "occurred_at": "<time>",
+       "payload": {
+        "action_type": "conversation.answer",
+        "by_action_id": "<id:16>"
+       },
+       "seq": "<seq:10>",
+       "subject_id": "<id:14>",
+       "subject_type": "action",
+       "type": "action.reviewed"
+      }
+     ],
+     "more": false,
+     "next_seq": "<seq:10>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "events",
+   "text_is_envelope": true,
+   "tool": "event_list"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "actions": [
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:25>",
+       "authz_result": "pending_review",
+       "created_at": "<time>",
+       "executed_at": "<time>",
+       "id": "<id:4>",
+       "member_id": "<id:22>",
+       "payload": {
+        "body": "Yes, at noon.",
+        "conversation_id": "<id:1>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:3>"
+       },
+       "result": {
+        "message_id": "<id:5>"
+       },
+       "review_state": "escalated",
+       "reviewed_at": "<time>",
+       "reviewed_by_member_id": "<id:26>",
+       "status": "executed",
+       "target_id": "<id:1>",
+       "target_type": "conversation"
+      },
+      {
+       "action_type": "action.review",
+       "actor_id": "<id:25>",
+       "authz_result": "denied",
+       "created_at": "<time>",
+       "id": "<id:7>",
+       "member_id": "<id:22>",
+       "payload": {
+        "action_id": "<id:4>",
+        "course_id": "<id:2>",
+        "outcome": "reviewed"
+       },
+       "result": {
+        "error": {
+         "code": "forbidden",
+         "details": {
+          "reason": "permission_denied"
+         },
+         "message": "not permitted"
+        }
+       },
+       "review_state": "none",
+       "status": "denied",
+       "target_type": "action"
+      },
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:25>",
+       "authz_result": "pending_review",
+       "created_at": "<time>",
+       "executed_at": "<time>",
+       "id": "<id:14>",
+       "member_id": "<id:22>",
+       "payload": {
+        "body": "No.",
+        "conversation_id": "<id:12>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:13>"
+       },
+       "result": {
+        "message_id": "<id:15>"
+       },
+       "review_state": "reviewed",
+       "reviewed_at": "<time>",
+       "reviewed_by_member_id": "<id:26>",
+       "status": "executed",
+       "target_id": "<id:12>",
+       "target_type": "conversation"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "mine",
+   "text_is_envelope": true,
+   "tool": "action_list_mine"
+  }
+ ]
+}

@@ -1,0 +1,20 @@
+{
+ "scenario": "protocol_revisions",
+ "steps": [
+  {
+   "http_status": 200,
+   "protocol_version": "2024-11-05",
+   "step": "initialize 2024-11-05"
+  },
+  {
+   "http_status": 200,
+   "protocol_version": "2025-06-18",
+   "step": "initialize 2025-06-18"
+  },
+  {
+   "http_status": 200,
+   "protocol_version": "2025-11-25",
+   "step": "initialize 2026-07-28"
+  }
+ ]
+}

@@ -1,0 +1,113 @@
+{
+ "scenario": "executed_pending",
+ "steps": [
+  {
+   "args": {
+    "body": "It asks for a proof by induction.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "action_id": "<id:4>",
+    "result": {
+     "message_id": "<id:5>"
+    },
+    "review_state": "pending",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "answer",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "actions": [
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:6>",
+       "authz_result": "pending_review",
+       "created_at": "<time>",
+       "executed_at": "<time>",
+       "id": "<id:4>",
+       "member_id": "<id:7>",
+       "payload": {
+        "body": "It asks for a proof by induction.",
+        "conversation_id": "<id:1>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:3>"
+       },
+       "result": {
+        "message_id": "<id:5>"
+       },
+       "review_state": "pending",
+       "status": "executed",
+       "target_id": "<id:1>",
+       "target_type": "conversation"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "mine",
+   "text_is_envelope": true,
+   "tool": "action_list_mine"
+  },
+  {
+   "args": {},
+   "envelope": {
+    "result": {
+     "memberships": [
+      {
+       "answers_course": true,
+       "assignment_scope": "all",
+       "code": "CS101",
+       "course_id": "<id:2>",
+       "course_status": "active",
+       "member_id": "<id:7>",
+       "perms": {
+        "action_decide": "denied",
+        "agent_delegate": "denied",
+        "assignment_write": "denied",
+        "conversation_answer": "pending_review",
+        "conversation_ask": "denied",
+        "document_read": "autonomous",
+        "document_read_draft": "denied",
+        "document_write": "denied",
+        "grade_post": "denied",
+        "grade_read": "denied",
+        "grade_submit": "denied",
+        "member_manage": "denied",
+        "member_read": "denied",
+        "rubric_read": "denied",
+        "submission_read": "denied",
+        "submission_write": "denied"
+       },
+       "principal_member_id": "<id:8>",
+       "role": "assistant",
+       "section": "A",
+       "status": "active",
+       "student_scope": "listed",
+       "title": "CS101"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "memberships",
+   "text_is_envelope": true,
+   "tool": "me_memberships"
+  }
+ ]
+}

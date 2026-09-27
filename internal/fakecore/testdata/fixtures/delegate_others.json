@@ -1,0 +1,203 @@
+{
+ "scenario": "delegate_others",
+ "steps": [
+  {
+   "args": {
+    "body": "Hi, can you help me too?",
+    "course_id": "<id:1>",
+    "idempotency_key": "open:<id:2>",
+    "respondent_member_id": "<id:2>"
+   },
+   "envelope": {
+    "action_id": "<id:3>",
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "not_addressable"
+     },
+     "message": "you may not address that member: the respondent is someone else's own agent, and answers only them"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "another_student_asks_it",
+   "text_is_envelope": true,
+   "tool": "conversation_open"
+  },
+  {
+   "args": {
+    "body": "Hello, how is Yuki doing?",
+    "course_id": "<id:1>",
+    "idempotency_key": "open:<id:2>",
+    "respondent_member_id": "<id:2>"
+   },
+   "envelope": {
+    "action_id": "<id:4>",
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "not_addressable"
+     },
+     "message": "you may not address that member: the respondent is someone else's own agent, and answers only them"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "an_instructor_asks_it",
+   "text_is_envelope": true,
+   "tool": "conversation_open"
+  },
+  {
+   "args": {
+    "body": "I will.",
+    "conversation_id": "<id:5>",
+    "course_id": "<id:1>",
+    "idempotency_key": "answer:<id:5>:<id:6>:1",
+    "in_reply_to_message_id": "<id:6>"
+   },
+   "envelope": {
+    "action_id": "<id:7>",
+    "error": {
+     "code": "forbidden",
+     "message": "only the member a conversation is addressed to answers in it"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "own_agent_answers_the_tutors",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "conversations": []
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "own_agent_inbox",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  },
+  {
+   "args": {
+    "body": "I will.",
+    "conversation_id": "<id:8>",
+    "course_id": "<id:1>",
+    "idempotency_key": "answer:<id:8>:<id:9>:1",
+    "in_reply_to_message_id": "<id:9>"
+   },
+   "envelope": {
+    "action_id": "<id:10>",
+    "error": {
+     "code": "forbidden",
+     "message": "only the member a conversation is addressed to answers in it"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "tutor_answers_the_own_agents",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "conversations": [
+      {
+       "created_at": "<time>",
+       "id": "<id:5>",
+       "last_author_member_id": "<id:11>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:6>",
+       "opener": {
+        "display_name": "Yuki",
+        "kind": "human",
+        "member_id": "<id:11>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:12>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "tutor_inbox",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:5>",
+    "course_id": "<id:1>",
+    "idempotency_key": "close:<id:5>"
+   },
+   "envelope": {
+    "action_id": "<id:13>",
+    "error": {
+     "code": "forbidden",
+     "message": "only the two who take part in a conversation close it"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "own_agent_closes_the_tutors",
+   "text_is_envelope": true,
+   "tool": "conversation_close"
+  },
+  {
+   "args": {
+    "body": "Wrong question.",
+    "conversation_id": "<id:8>",
+    "course_id": "<id:1>",
+    "idempotency_key": "answer:<id:8>:<id:6>:1",
+    "in_reply_to_message_id": "<id:6>"
+   },
+   "envelope": {
+    "action_id": "<id:14>",
+    "error": {
+     "code": "invalid_argument",
+     "message": "in_reply_to_message_id must name a message of the opener's in this conversation"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "own_agent_in_reply_to_its_own",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  }
+ ]
+}

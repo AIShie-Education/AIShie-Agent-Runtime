@@ -1,0 +1,196 @@
+{
+ "scenario": "tutor_scope",
+ "steps": [
+  {
+   "args": {
+    "body": "Can you check my lab report?",
+    "course_id": "<id:1>",
+    "idempotency_key": "open:<id:2>",
+    "respondent_member_id": "<id:2>"
+   },
+   "envelope": {
+    "action_id": "<id:3>",
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "not_addressable"
+     },
+     "message": "you may not address that member: the respondent can see or do what you cannot"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "outside_its_scope",
+   "text_is_envelope": true,
+   "tool": "conversation_open"
+  },
+  {
+   "args": {
+    "body": "Can you check my lab report?",
+    "course_id": "<id:1>",
+    "idempotency_key": "open:<id:2>",
+    "respondent_member_id": "<id:2>"
+   },
+   "envelope": {
+    "action_id": "<id:4>",
+    "result": {
+     "conversation_id": "<id:5>",
+     "message_id": "<id:6>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "within_its_scope",
+   "text_is_envelope": true,
+   "tool": "conversation_open"
+  },
+  {
+   "args": {},
+   "envelope": {
+    "result": {
+     "memberships": [
+      {
+       "answers_course": true,
+       "assignment_scope": "all",
+       "code": "CS101",
+       "course_id": "<id:1>",
+       "course_status": "active",
+       "member_id": "<id:2>",
+       "perms": {
+        "action_decide": "denied",
+        "agent_delegate": "denied",
+        "assignment_write": "denied",
+        "conversation_answer": "autonomous",
+        "conversation_ask": "denied",
+        "document_read": "autonomous",
+        "document_read_draft": "denied",
+        "document_write": "denied",
+        "grade_post": "denied",
+        "grade_read": "autonomous",
+        "grade_submit": "denied",
+        "member_manage": "denied",
+        "member_read": "denied",
+        "rubric_read": "denied",
+        "submission_read": "autonomous",
+        "submission_write": "denied"
+       },
+       "principal_member_id": "<id:7>",
+       "role": "assistant",
+       "section": "A",
+       "status": "active",
+       "student_scope": "listed",
+       "title": "CS101"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "memberships",
+   "text_is_envelope": true,
+   "tool": "me_memberships"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "conversations": [
+      {
+       "created_at": "<time>",
+       "id": "<id:5>",
+       "last_author_member_id": "<id:8>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:6>",
+       "opener": {
+        "display_name": "Yuki",
+        "kind": "human",
+        "member_id": "<id:8>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "Lab Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:2>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "inbox",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "student_member_id": "<id:8>"
+   },
+   "envelope": {
+    "result_fields": [
+     "components",
+     "student_member_id"
+    ],
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "gradebook_in_scope",
+   "text_is_envelope": true,
+   "tool": "gradebook_get"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "student_member_id": "<id:9>"
+   },
+   "envelope": {
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "student_out_of_scope"
+     },
+     "message": "not permitted"
+    },
+    "status": "denied"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "gradebook_out_of_scope",
+   "text_is_envelope": true,
+   "tool": "gradebook_get"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "submissions": []
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "submissions",
+   "text_is_envelope": true,
+   "tool": "submission_list"
+  }
+ ]
+}

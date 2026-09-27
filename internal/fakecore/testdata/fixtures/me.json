@@ -1,0 +1,187 @@
+{
+ "scenario": "me",
+ "steps": [
+  {
+   "args": {},
+   "envelope": {
+    "result": {
+     "display_name": "CS101 Tutor",
+     "id": "<id:1>",
+     "kind": "agent",
+     "status": "active"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "me_get",
+   "text_is_envelope": true,
+   "tool": "me_get"
+  },
+  {
+   "args": {},
+   "envelope": {
+    "result": {
+     "memberships": [
+      {
+       "answers_course": true,
+       "assignment_scope": "all",
+       "code": "CS101",
+       "course_id": "<id:2>",
+       "course_status": "active",
+       "member_id": "<id:3>",
+       "perms": {
+        "action_decide": "denied",
+        "agent_delegate": "denied",
+        "assignment_write": "denied",
+        "conversation_answer": "autonomous",
+        "conversation_ask": "denied",
+        "document_read": "autonomous",
+        "document_read_draft": "denied",
+        "document_write": "denied",
+        "grade_post": "denied",
+        "grade_read": "denied",
+        "grade_submit": "denied",
+        "member_manage": "denied",
+        "member_read": "denied",
+        "rubric_read": "denied",
+        "submission_read": "denied",
+        "submission_write": "denied"
+       },
+       "principal_member_id": "<id:4>",
+       "role": "assistant",
+       "section": "A",
+       "status": "active",
+       "student_scope": "listed",
+       "title": "CS101"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "me_memberships",
+   "text_is_envelope": true,
+   "tool": "me_memberships"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "code": "CS101",
+     "created_at": "<time>",
+     "dept_id": "<id:5>",
+     "id": "<id:2>",
+     "section": "A",
+     "status": "active",
+     "term_id": "<id:6>",
+     "title": "CS101"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "course_get",
+   "text_is_envelope": true,
+   "tool": "course_get"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "permission_denied"
+     },
+     "message": "not permitted"
+    },
+    "status": "denied"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "submissions_not_its_to_read",
+   "text_is_envelope": true,
+   "tool": "submission_list"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "student_member_id": "<id:7>"
+   },
+   "envelope": {
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "permission_denied"
+     },
+     "message": "not permitted"
+    },
+    "status": "denied"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "gradebook_not_its_to_read",
+   "text_is_envelope": true,
+   "tool": "gradebook_get"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "since_seq": 0
+   },
+   "envelope": {
+    "result": {
+     "events": [
+      {
+       "action_id": "<id:8>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:1>",
+       "subject_id": "<id:2>",
+       "subject_type": "course",
+       "type": "course.created"
+      },
+      {
+       "action_id": "<id:9>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:2>",
+       "subject_id": "<id:2>",
+       "subject_type": "course",
+       "type": "course.activated"
+      }
+     ],
+     "more": false,
+     "next_seq": "<seq:2>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "events",
+   "text_is_envelope": true,
+   "tool": "event_list"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "actions": []
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "mine",
+   "text_is_envelope": true,
+   "tool": "action_list_mine"
+  }
+ ]
+}

@@ -1,0 +1,23 @@
+{
+ "scenario": "unauthenticated",
+ "steps": [
+  {
+   "body": "no bearer token\n",
+   "content_type": "text/plain; charset=utf-8",
+   "http_status": 401,
+   "step": "no_token"
+  },
+  {
+   "body": "invalid token: the credential is missing or not valid\n",
+   "content_type": "text/plain; charset=utf-8",
+   "http_status": 401,
+   "step": "unknown_token"
+  },
+  {
+   "body": "invalid token: the credential is missing or not valid\n",
+   "content_type": "text/plain; charset=utf-8",
+   "http_status": 401,
+   "step": "revoked_token"
+  }
+ ]
+}

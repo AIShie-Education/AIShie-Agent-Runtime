@@ -1,0 +1,175 @@
+{
+ "scenario": "retracted_pending",
+ "steps": [
+  {
+   "args": {
+    "body": "One sheet of notes.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "action_id": "<id:4>",
+    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed.",
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "propose",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "conversations": []
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "inbox",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "created_at": "<time>",
+     "id": "<id:1>",
+     "last_author_member_id": "<id:5>",
+     "last_message_at": "<time>",
+     "last_retracted_at": "<time>",
+     "latest_opener_message_id": "<id:3>",
+     "opener": {
+      "display_name": "Yuki",
+      "kind": "human",
+      "member_id": "<id:5>"
+     },
+     "pending_reply_action_id": "<id:4>",
+     "respondent": {
+      "answer_level": "confirm_required",
+      "display_name": "CS101 Tutor",
+      "is_delegate_of_opener": false,
+      "kind": "agent",
+      "last_seen_at": "<time>",
+      "member_id": "<id:6>",
+      "owner_name": "Sato",
+      "role": "assistant",
+      "seat_status": "active"
+     },
+     "state": "reply_pending_approval",
+     "status": "open",
+     "visible_to": [
+      "participants",
+      "overseers",
+      "action_record",
+      "respondent_answers_others"
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "get",
+   "text_is_envelope": true,
+   "tool": "conversation_get"
+  },
+  {
+   "args": {
+    "body": "One sheet of notes.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "action_id": "<id:4>",
+    "replayed": true,
+    "result": {
+     "message_id": "<id:7>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "replay",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "conversation": {
+      "created_at": "<time>",
+      "id": "<id:1>",
+      "last_author_member_id": "<id:6>",
+      "last_message_at": "<time>",
+      "last_retracted_at": "<time>",
+      "latest_opener_message_id": "<id:3>",
+      "opener": {
+       "display_name": "Yuki",
+       "kind": "human",
+       "member_id": "<id:5>"
+      },
+      "respondent": {
+       "answer_level": "confirm_required",
+       "display_name": "CS101 Tutor",
+       "is_delegate_of_opener": false,
+       "kind": "agent",
+       "last_seen_at": "<time>",
+       "member_id": "<id:6>",
+       "owner_name": "Sato",
+       "role": "assistant",
+       "seat_status": "active"
+      },
+      "state": "answered",
+      "status": "open"
+     },
+     "messages": [
+      {
+       "author_member_id": "<id:5>",
+       "created_at": "<time>",
+       "id": "<id:3>",
+       "retracted": {
+        "at": "<time>",
+        "by_member_id": "<id:5>",
+        "reason": "Found it in the syllabus"
+       },
+       "seq": 1
+      },
+      {
+       "author_member_id": "<id:6>",
+       "body": "One sheet of notes.",
+       "created_at": "<time>",
+       "id": "<id:7>",
+       "in_reply_to_message_id": "<id:3>",
+       "seq": 2
+      }
+     ],
+     "more": false
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "messages",
+   "text_is_envelope": true,
+   "tool": "conversation_messages"
+  }
+ ]
+}
