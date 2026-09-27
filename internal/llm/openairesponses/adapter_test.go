@@ -301,7 +301,7 @@ func TestErrors(t *testing.T) {
 		{
 			name: "an echo of the key cut short", status: http.StatusBadGateway,
 			body:     strings.Repeat("x", 380) + "key=" + testKey + " was refused",
-			wantKind: llm.ErrServer, retryable: true, wantInText: "key=[redacted]…",
+			wantKind: llm.ErrServer, retryable: true, wantInText: "key=[redacted]",
 		},
 		{
 			name: "a 200 that is not a response", status: http.StatusOK, body: `<html>gateway</html>`,

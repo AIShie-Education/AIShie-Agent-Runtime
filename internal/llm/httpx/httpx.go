@@ -107,14 +107,12 @@ func withoutCredentials(body []byte, headers map[string]string) []byte {
 		if !slices.Contains(credentialHeaders, strings.ToLower(name)) {
 			continue
 		}
-		secrets := []string{value}
+		secret := value
 		if _, token, ok := strings.Cut(value, " "); ok {
-			secrets = append(secrets, token) // "Bearer <token>"
+			secret = token // "Bearer <token>": the scheme is no secret
 		}
-		for _, secret := range secrets {
-			if len(secret) >= 8 {
-				body = bytes.ReplaceAll(body, []byte(secret), []byte("[redacted]"))
-			}
+		if len(secret) >= 8 {
+			body = bytes.ReplaceAll(body, []byte(secret), []byte("[redacted]"))
 		}
 	}
 	return body
