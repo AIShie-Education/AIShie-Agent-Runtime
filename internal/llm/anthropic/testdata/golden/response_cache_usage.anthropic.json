@@ -1,0 +1,20 @@
+{
+  "id": "msg_01Cach3Cach3Cach3",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-opus-4-7",
+  "content": [
+    {"type": "text", "text": "Question 2 lost the marks."}
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 57,
+    "cache_creation_input_tokens": 1290,
+    "cache_read_input_tokens": 10240,
+    "cache_creation": {"ephemeral_5m_input_tokens": 1290, "ephemeral_1h_input_tokens": 0},
+    "output_tokens": 12,
+    "server_tool_use": null,
+    "service_tier": "standard"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "model": "claude-opus-4-7",
+  "parts": [
+    {
+      "text": "I'll look up",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "refusal",
+  "request_id": "req_011CSHoEeqs5C35K2UUqR7Fy",
+  "stop": "refusal",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 900,
+    "output": 9,
+    "raw": {
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "input_tokens": 900,
+      "output_tokens": 9
+    },
+    "reasoning": 0
+  }
+}

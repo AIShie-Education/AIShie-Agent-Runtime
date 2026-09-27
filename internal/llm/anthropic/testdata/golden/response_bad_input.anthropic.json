@@ -1,0 +1,14 @@
+{
+  "id": "msg_deepseek_0001",
+  "type": "message",
+  "role": "assistant",
+  "model": "deepseek-chat",
+  "content": [
+    {"type": "tool_use", "id": "call_00_abc", "name": "grade_list", "input": "{\"assignment_id\": \"0192"},
+    {"type": "tool_use", "id": "call_01_def", "name": "assignment_get", "input": "{\"assignment_id\": \"0192f3c1-0000-7000-8000-000000000003\"}"},
+    {"type": "tool_use", "id": "call_02_ghi", "name": "document_list", "input": ["not", "an", "object"]},
+    {"type": "tool_use", "id": "", "name": "course_get"}
+  ],
+  "stop_reason": "tool_use",
+  "usage": {"input_tokens": 700, "output_tokens": 20}
+}

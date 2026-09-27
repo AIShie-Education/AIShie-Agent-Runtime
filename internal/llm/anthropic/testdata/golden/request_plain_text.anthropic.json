@@ -1,0 +1,25 @@
+{
+  "max_tokens": 1500,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "Why did I lose marks on HW3?",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-sonnet-4-5",
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "You are CS101's tutor.",
+      "type": "text"
+    }
+  ],
+  "temperature": 0.3
+}

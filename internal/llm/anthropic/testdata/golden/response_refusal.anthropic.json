@@ -1,0 +1,14 @@
+{
+  "id": "msg_01Refu5alRefu5al",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-opus-4-7",
+  "content": [
+    {"type": "text", "text": "I'll look up"},
+    {"type": "tool_use", "id": "toolu_01F54v45vb45qv462380qv4", "name": "submission_get", "input": {}}
+  ],
+  "stop_reason": "refusal",
+  "stop_details": {"type": "refusal", "category": "cyber", "explanation": null},
+  "stop_sequence": null,
+  "usage": {"input_tokens": 900, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 9}
+}

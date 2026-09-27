@@ -1,0 +1,102 @@
+{
+  "max_tokens": 4096,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "Why did I lose marks on HW3?",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    },
+    {
+      "content": [
+        {
+          "id": "toolu_01",
+          "input": {},
+          "name": "grade_list",
+          "type": "tool_use"
+        },
+        {
+          "id": "functions_assignment_get_1",
+          "input": {
+            "assignment_id": "hw3"
+          },
+          "name": "assignment_get",
+          "type": "tool_use"
+        }
+      ],
+      "role": "assistant"
+    },
+    {
+      "content": [
+        {
+          "content": "the arguments are not a JSON object",
+          "is_error": true,
+          "tool_use_id": "toolu_01",
+          "type": "tool_result"
+        },
+        {
+          "content": "{\"status\":\"error\",\"error\":{\"code\":\"invalid_argument\",\"message\":\"assignment_id: not a UUID\"}}",
+          "is_error": true,
+          "tool_use_id": "functions_assignment_get_1",
+          "type": "tool_result"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-sonnet-4-5",
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "You are CS101's tutor.",
+      "type": "text"
+    }
+  ],
+  "tool_choice": {
+    "disable_parallel_tool_use": true,
+    "type": "auto"
+  },
+  "tools": [
+    {
+      "description": "List the grades of an assignment.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "assignment_id": {
+            "description": "the assignment (UUID)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "assignment_id"
+        ],
+        "type": "object"
+      },
+      "name": "grade_list"
+    },
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "description": "Read one assignment.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "assignment_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "assignment_id"
+        ],
+        "type": "object"
+      },
+      "name": "assignment_get"
+    }
+  ]
+}
