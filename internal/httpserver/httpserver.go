@@ -2,7 +2,9 @@
 // default (docs/deploying.md): /healthz for the deploy script and whoever
 // watches the runtime, /metrics for Prometheus, and /status, the owner's
 // page's data. None of them holds what anyone wrote, a token or a key:
-// /status is ids, states and numbers, every string redacted.
+// /status is ids, states and numbers, every string redacted. /status names
+// agents, courses and members, so it answers only this machine, even when
+// HTTP_ADDR listens wider (for a Prometheus elsewhere, say).
 package httpserver
 
 import (
@@ -54,7 +56,7 @@ func New(addr string, sup *worker.Supervisor, reg *prometheus.Registry, st store
 	s := &Server{addr: addr, sup: sup, st: st, log: log, mux: http.NewServeMux(), Now: time.Now}
 	s.mux.HandleFunc("GET /healthz", s.healthz)
 	s.mux.Handle("GET /metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{Registry: reg}))
-	s.mux.HandleFunc("GET /status", s.status)
+	s.mux.HandleFunc("GET /status", localOnly(s.status))
 	return s
 }
 
@@ -69,7 +71,8 @@ func (s *Server) Listen() error {
 	}
 	s.mu.Lock()
 	s.ln = ln
-	s.srv = &http.Server{Handler: s.mux, ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 30 * time.Second}
+	s.srv = &http.Server{Handler: s.mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
+		WriteTimeout: 30 * time.Second, IdleTimeout: time.Minute}
 	s.mu.Unlock()
 	return nil
 }
@@ -148,6 +151,19 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 		h.Status, h.Reason, code = "unavailable", "the worker is not running", http.StatusServiceUnavailable
 	}
 	writeJSON(w, code, h)
+}
+
+// localOnly serves h to requests from a loopback address alone, and
+// answers 403 to any other.
+func localOnly(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if ip := net.ParseIP(host); err != nil || ip == nil || !ip.IsLoopback() {
+			writeJSON(w, http.StatusForbidden, map[string]string{"status": "forbidden", "reason": "/status answers this machine alone"})
+			return
+		}
+		h(w, r)
+	}
 }
 
 // Status is /status's answer.
