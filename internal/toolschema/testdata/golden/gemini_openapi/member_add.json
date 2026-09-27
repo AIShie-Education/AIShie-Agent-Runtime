@@ -1,0 +1,60 @@
+{
+  "properties": {
+    "actor_id": {
+      "description": "(UUID)",
+      "type": "string"
+    },
+    "assignment_scope": {
+      "description": "all or listed (optional; omit or null)",
+      "nullable": true,
+      "type": "string"
+    },
+    "expires_at": {
+      "description": "the membership removes itself at this moment (optional; omit or null)",
+      "nullable": true,
+      "type": "string"
+    },
+    "listed_assignments": {
+      "description": "(optional; omit or null)",
+      "items": {
+        "description": "(UUID)",
+        "type": "string"
+      },
+      "nullable": true,
+      "type": "array"
+    },
+    "listed_students": {
+      "description": "member ids of the students in scope; listed with none means nobody (optional; omit or null)",
+      "items": {
+        "description": "(UUID)",
+        "type": "string"
+      },
+      "nullable": true,
+      "type": "array"
+    },
+    "preset": {
+      "description": "a preset by name: student, observer, ta, instructor, tutor, grader, delegate, course_tutor, or one of the department's own (optional; omit or null)",
+      "nullable": true,
+      "type": "string"
+    },
+    "preset_id": {
+      "description": "or a preset by id (UUID) (optional; omit or null)",
+      "nullable": true,
+      "type": "string"
+    },
+    "role": {
+      "description": "(optional; omit or null)",
+      "nullable": true,
+      "type": "string"
+    },
+    "student_scope": {
+      "description": "all or listed (optional; omit or null)",
+      "nullable": true,
+      "type": "string"
+    }
+  },
+  "required": [
+    "actor_id"
+  ],
+  "type": "object"
+}
