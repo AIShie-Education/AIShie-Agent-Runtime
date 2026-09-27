@@ -82,6 +82,15 @@ func TestLiveCore(t *testing.T) {
 		return up["upload_token"].(string)
 	}
 	textDoc := document("Syllabus", map[string]any{"body_md": "# Syllabus\nWeekly labs."})
+
+	// Another course of Sato's, with a document of its own that Yuki's
+	// agent must not reach from this one, whatever course it names.
+	elsewhere := c.result(admin, "POST", "/v1/courses", map[string]any{"dept_id": dept, "term_id": term, "code": "EL" + run[len(run)-4:], "section": "B", "title": "Elsewhere"})["course_id"].(string)
+	E := "/v1/courses/" + elsewhere
+	c.result(admin, "POST", E+"/activate", nil)
+	c.result(admin, "POST", E+"/instructors", map[string]any{"actor_id": satoID})
+	otherDoc := c.result(sato, "POST", E+"/documents", map[string]any{"kind": "material", "title": "Answers", "body_md": "not for CS"})["document_id"].(string)
+	c.result(sato, "POST", E+"/documents/"+otherDoc+"/publish", nil)
 	mdDoc := document("Week 1 notes", map[string]any{"upload_token": upload("text/markdown", []byte(markdown))})
 	pdfDoc := document("Lab sheet", map[string]any{"upload_token": upload("application/pdf", pdf)})
 
@@ -165,6 +174,26 @@ func TestLiveCore(t *testing.T) {
 	if len(parts) != len(calls)+1 || parts[len(calls)].File == nil || !bytes.Equal(parts[len(calls)].File.Data, pdf) ||
 		parts[len(calls)].File.Name != "Lab sheet.pdf" {
 		t.Errorf("the PDF is not the file part after the results")
+	}
+
+	// Another course's document, with that course named: the call goes to
+	// the conversation's course, where Core finds no such document.
+	before := mcp.calls.Load()
+	parts, err = set.Run(ctx, r, courseID, []llm.Part{
+		call("x", "document_get", `{"course_id":"`+elsewhere+`","document_id":"`+otherDoc+`","version_id":null}`),
+		call("y", "document_get", `{"Course_Id":"`+elsewhere+`","document_id":"`+otherDoc+`"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := errorOf(t, parts[0]); !parts[0].IsError || code != core.CodeNotFound || strings.Contains(parts[0].Content, "not for CS") {
+		t.Errorf("another course's document: %s", parts[0].Content)
+	}
+	if code, _ := errorOf(t, parts[1]); !parts[1].IsError || code != core.CodeInvalidArgument {
+		t.Errorf("a course named under another key: %s", parts[1].Content)
+	}
+	if n := mcp.calls.Load() - before; n != 1 {
+		t.Errorf("%d calls to Core, want 1: the second is refused before Core", n)
 	}
 }
 

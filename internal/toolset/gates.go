@@ -79,8 +79,15 @@ var BuiltinDeny = []string{
 }
 
 // BuiltinDenied reports whether name is on the built-in deny list.
-func BuiltinDenied(name string) bool {
-	return slices.ContainsFunc(BuiltinDeny, func(pattern string) bool {
+func BuiltinDenied(name string) bool { return denied(name, BuiltinDeny) }
+
+// denied reports whether a deny list covers name: an entry ending in *
+// covers every name it begins, any other only itself. Core's names never
+// hold a *, so an entry cannot mean both. A configured list is read the same
+// way as the built-in one: an operator's grade_* must take the grade tools
+// away, not match nothing and leave them offered.
+func denied(name string, list []string) bool {
+	return slices.ContainsFunc(list, func(pattern string) bool {
 		if prefix, ok := strings.CutSuffix(pattern, "*"); ok {
 			return strings.HasPrefix(name, prefix)
 		}

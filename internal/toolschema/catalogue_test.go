@@ -240,13 +240,16 @@ func TestCatalogueModelRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			args := modelWrites(mustDecode(t, shown).(map[string]any))
-			got, err := Reverse(tool.InputSchema, mustJSON(t, args), bound)
-			if err != nil {
-				t.Fatalf("%s/%s: Reverse: %v", tool.mcpName(), d, err)
-			}
-			if err := Validate(tool.InputSchema, got); err != nil {
-				t.Errorf("%s/%s: %v\nshown %s\nwrote %s\nsent  %s", tool.mcpName(), d, err, shown, mustJSON(t, args), got)
+			shownSchema := mustDecode(t, shown).(map[string]any)
+			for _, all := range []bool{false, true} {
+				args := modelWrites(shownSchema, all)
+				got, err := Reverse(tool.InputSchema, mustJSON(t, args), bound)
+				if err != nil {
+					t.Fatalf("%s/%s: Reverse: %v", tool.mcpName(), d, err)
+				}
+				if err := Validate(tool.InputSchema, got); err != nil {
+					t.Errorf("%s/%s (every property %v): %v\nshown %s\nwrote %s\nsent  %s", tool.mcpName(), d, all, err, shown, mustJSON(t, args), got)
+				}
 			}
 		}
 	}
@@ -254,27 +257,36 @@ func TestCatalogueModelRoundTrip(t *testing.T) {
 
 // modelWrites is what a model following a sanitised object schema writes:
 // every required property, null where a strict schema takes null (what it
-// leaves out), and values that do what the descriptions say.
-func modelWrites(m map[string]any) map[string]any {
+// leaves out), and values that do what the descriptions say. With all, it
+// writes every property it was shown, with a value, never null: the model
+// that fills in everything it may.
+func modelWrites(m map[string]any, all bool) map[string]any {
 	out := map[string]any{}
 	props, _ := m["properties"].(map[string]any)
-	for _, name := range stringList(m["required"]) {
-		out[name] = modelValue(props[name])
+	names := stringList(m["required"])
+	if all {
+		names = sortedKeys(props)
+	}
+	for _, name := range names {
+		out[name] = modelValue(props[name], all)
 	}
 	return out
 }
 
-func modelValue(v any) any {
+func modelValue(v any, all bool) any {
 	m, ok := v.(map[string]any)
 	if !ok {
 		return "x"
 	}
 	ts, _ := types(m)
 	if slices.Contains(ts, "null") {
-		return nil
+		if !all {
+			return nil
+		}
+		ts = slices.DeleteFunc(slices.Clone(ts), func(s string) bool { return s == "null" })
 	}
-	if enum, ok := m["enum"].([]any); ok && len(enum) > 0 {
-		return enum[0]
+	if enum, ok := m["enum"].([]any); ok && slices.ContainsFunc(enum, func(e any) bool { return e != nil }) {
+		return enum[slices.IndexFunc(enum, func(e any) bool { return e != nil })]
 	}
 	desc := str(m["description"])
 	if len(ts) == 0 {
@@ -296,9 +308,12 @@ func modelValue(v any) any {
 	case "boolean":
 		return true
 	case "array":
+		if all && m["items"] != nil {
+			return []any{modelValue(m["items"], all)}
+		}
 		return []any{}
 	case "object":
-		return modelWrites(m)
+		return modelWrites(m, all)
 	}
 	return "x"
 }

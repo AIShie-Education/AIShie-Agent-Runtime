@@ -37,6 +37,9 @@ type Catalogue struct {
 // catalogue's hash changes, and refuses a catalogue that fails: a gate
 // kept by hand is only safe while it still describes Core.
 func (c *Catalogue) Check() error {
+	if c == nil {
+		c = &Catalogue{}
+	}
 	var errs []error
 	for _, name := range sortedKeys(Gates) {
 		t, ok := c.Tools[name]
@@ -69,14 +72,19 @@ func (c *Catalogue) Check() error {
 
 // Build is the toolset of a seat (§4): the tools of allow (DefaultAllow
 // when cfg.Allow is empty) whose gate perms allow, that cfg.Deny and the
-// built-in list do not deny, and that the catalogue has as reads. Mode none
-// offers nothing; an empty toolset is fine, the model then answers from the
+// built-in list do not deny, and that the catalogue has as reads. Allow
+// names tools exactly; a deny entry ending in * denies every tool it begins,
+// as the built-in list's do, since a deny list only narrows. Mode none offers
+// nothing; an empty toolset is fine, the model then answers from the
 // conversation alone. Each tool is declared with Core's description and its
 // schema sanitised for dialect, with course_id and idempotency_key bound,
 // made once per catalogue through cache (which may be nil).
 func (c *Catalogue) Build(perms map[string]string, cfg config.Tools, dialect toolschema.Dialect, cache *toolschema.Cache) (*Set, error) {
 	if !dialect.Valid() {
 		return nil, fmt.Errorf("toolset: unknown schema dialect %q", string(dialect))
+	}
+	if c == nil {
+		c = &Catalogue{}
 	}
 	s := &Set{tools: map[string]*offered{}}
 	switch cfg.Mode {
@@ -105,6 +113,7 @@ func (c *Catalogue) Build(perms map[string]string, cfg config.Tools, dialect too
 		s.tools[name] = &offered{
 			decl:  llm.Tool{Name: name, Description: t.Description, Schema: schema},
 			input: t.InputSchema,
+			kind:  t.Kind,
 		}
 	}
 	s.names = sortedKeys(s.tools)
@@ -112,10 +121,11 @@ func (c *Catalogue) Build(perms map[string]string, cfg config.Tools, dialect too
 }
 
 // offerable is the part of §4's formula that needs no catalogue: a gate
-// perms allow, not denied by configuration, not denied by the runtime.
+// perms allow, not denied by configuration (whose entries may end in *, as
+// the built-in list's do), not denied by the runtime.
 func offerable(name string, perms map[string]string, deny []string) bool {
 	gate, ok := Gates[name]
-	return ok && gate.Allowed(perms) && !slices.Contains(deny, name) && !BuiltinDenied(name)
+	return ok && gate.Allowed(perms) && !denied(name, deny) && !BuiltinDenied(name)
 }
 
 func sortedKeys[V any](m map[string]V) []string {

@@ -1,9 +1,12 @@
 //go:build core_catalogue
 
-// core.Catalogue (internal/core/catalogue.go) is built on another branch at
-// the same time as this package. Until both are in one tree this file is
-// behind the core_catalogue tag; once they are, the tag line comes off and
-// the functions below are the package's API as the worker calls it.
+// core.Catalogue (internal/core/catalogue.go) is built on branch
+// wt/core-client at the same time as this package, so until both are in one
+// tree this file and its test build only with the core_catalogue tag. At the
+// merge, delete the first two lines of both (the tag and the blank line
+// after it) and this comment: the functions below are then the package's API
+// as the worker calls it. They were checked against that branch's
+// catalogue.go, and the plain build keeps the same logic on Catalogue.
 
 package toolset
 

@@ -73,13 +73,14 @@ const codeUnavailable = "unavailable"
 //
 // A call is checked before it reaches Core, and any failure is an is_error
 // result the model can correct itself from, with no call to Core: a tool
-// not offered here ("no such tool", naming those that are); arguments that
-// are not a JSON object (rule 1); arguments Core's schema refuses once
-// course_id is set to courseID, the conversation's course, whatever the
-// model wrote (toolschema.Reverse, Validate); a tool on the built-in deny
-// list, checked again whatever built the set. Core's answer is Core's
-// envelope as JSON, is_error unless executed, with every download_url
-// taken out and cut to MaxResultBytes keeping status and error whole.
+// not offered here ("no such tool here", naming those that are); a tool on
+// the built-in deny list or not a read, checked again whatever built the
+// set; arguments that are not a JSON object (rule 1); arguments Core's
+// schema refuses once course_id is set to courseID, the conversation's
+// course, whatever the model wrote (toolschema.Reverse, Validate). Core's
+// answer is Core's envelope as JSON, is_error unless executed, with every
+// download_url taken out and cut to MaxResultBytes keeping status and error
+// whole.
 //
 // A call Core did not answer is one of two things. Fatal: a 401
 // (core.ErrUnauthenticated: the agent must stop) or ctx done (the answer's
@@ -174,6 +175,11 @@ func (s *Set) runOne(ctx context.Context, r Runner, courseID string, call llm.Pa
 	if !ok {
 		return refuse(res, core.CodeNotFound, s.noSuchTool(call.Name)), nil, nil
 	}
+	// The deny list and reads only hold at every stage (§6.1), whatever
+	// built this set, and before anything of the call is looked at.
+	if BuiltinDenied(call.Name) || t.kind != KindRead {
+		return refuse(res, core.CodeForbidden, call.Name+" is not offered to the model"), nil, nil
+	}
 	if call.ArgsError != "" || !isObject(call.Args) {
 		return refuse(res, core.CodeInvalidArgument, fmt.Sprintf(
 			"the arguments to %s are not a JSON object; call it again with its parameters as one JSON object", call.Name)), nil, nil
@@ -184,10 +190,6 @@ func (s *Set) runOne(ctx context.Context, r Runner, courseID string, call llm.Pa
 	}
 	if err != nil {
 		return refuse(res, core.CodeInvalidArgument, argumentMessage(call.Name, err)), nil, nil
-	}
-	// The deny list holds at every stage (§6.1), whatever built this set.
-	if BuiltinDenied(call.Name) {
-		return refuse(res, core.CodeForbidden, call.Name+" is not offered to the model"), nil, nil
 	}
 	env, err := r.Client.Call(ctx, call.Name, args)
 	switch {
@@ -213,8 +215,13 @@ func (s *Set) lookup(name string) (*offered, bool) {
 	return t, ok
 }
 
+// maxNameInMessage bounds how much of a name the model made up is quoted
+// back to it: every API's names are at most 128 characters, and a longer one
+// must not push the result past its size.
+const maxNameInMessage = 128
+
 func (s *Set) noSuchTool(name string) string {
-	msg := fmt.Sprintf("there is no tool named %q here", name)
+	msg := fmt.Sprintf("no such tool here: %q", cut(name, maxNameInMessage))
 	if s.Len() == 0 {
 		return msg + "; no tools are offered here"
 	}

@@ -22,6 +22,9 @@ type offered struct {
 	// input is Core's own input schema: calls are reversed and validated
 	// against it, not against what the model was shown.
 	input json.RawMessage
+	// kind is the catalogue's. Run refuses anything but a read, whatever
+	// built the set.
+	kind string
 }
 
 // Names are the offered tools' names, sorted.

@@ -57,6 +57,17 @@ func TestBuild(t *testing.T) {
 				"document_list", "grade_list", "gradebook_get", "submission_get", "submission_list"},
 		},
 		{
+			name: "a deny entry ending in * takes every tool it begins", perms: delegatePerms,
+			cfg: config.Tools{Deny: []string{"grade_*", "submission_*", "gradebook"}},
+			want: []string{"assignment_get", "assignment_list", "component_tree", "course_get", "document_get",
+				"document_list", "gradebook_get"},
+		},
+		{
+			name: "allow names tools exactly", perms: delegatePerms,
+			cfg:  config.Tools{Allow: []string{"grade_*", "course_get"}},
+			want: []string{"course_get"},
+		},
+		{
 			name: "allow narrows, and names gated reads beyond the default", perms: tutorPerms,
 			cfg:  config.Tools{Mode: "derived", Allow: []string{"course_get", "event_list", "action_list_mine", "grade_list", "course_get"}},
 			want: []string{"action_list_mine", "course_get", "event_list"},
@@ -87,6 +98,11 @@ func TestBuild(t *testing.T) {
 			}
 			if s.Len() != len(tc.want) {
 				t.Errorf("Len %d, want %d", s.Len(), len(tc.want))
+			}
+			for _, name := range s.Names() {
+				if k := s.tools[name].kind; k != KindRead {
+					t.Errorf("%s is held as kind %q, which Run refuses", name, k)
+				}
 			}
 		})
 	}
@@ -179,6 +195,17 @@ func TestDeclarations(t *testing.T) {
 	}
 	if cache.Len() != 11*len(toolschema.Dialects) {
 		t.Errorf("the cache holds %d schemas, want one per tool and dialect", cache.Len())
+	}
+}
+
+func TestNilCatalogue(t *testing.T) {
+	var c *Catalogue
+	if err := c.Check(); err == nil {
+		t.Error("a nil catalogue passes Check")
+	}
+	s, err := c.Build(delegatePerms, config.Tools{}, toolschema.OpenAI, nil)
+	if err != nil || s.Len() != 0 {
+		t.Errorf("a nil catalogue offers %v, %v", s.Names(), err)
 	}
 }
 

@@ -92,7 +92,7 @@ func TestRunRefusesBeforeCore(t *testing.T) {
 	}{
 		{
 			name: "a tool not offered", call: call("c", "member_add", `{}`), code: core.CodeNotFound,
-			messages: []string{`no tool named "member_add"`, "the tools offered are: assignment_get, assignment_list,"},
+			messages: []string{`no such tool here: "member_add"`, "the tools offered are: assignment_get, assignment_list,"},
 		},
 		{
 			name: "arguments that did not parse",
@@ -165,21 +165,58 @@ func TestRunEmptySet(t *testing.T) {
 	}
 }
 
-// TestRunDeniedAgain checks the built-in deny list in Run itself, for a set
-// that holds a denied tool however it came to.
+// TestRunDeniedAgain checks the built-in deny list and reads only in Run
+// itself, for a set that holds a denied tool or a write however it came to:
+// each is refused before its arguments are looked at, and Core never sees
+// it.
 func TestRunDeniedAgain(t *testing.T) {
 	cat := snapshot(t)
-	s := &Set{tools: map[string]*offered{"member_list": {input: cat.Tools["member_list"].InputSchema}}, names: []string{"member_list"}}
+	held := func(name, kind string) *offered {
+		return &offered{input: cat.Tools[name].InputSchema, kind: kind}
+	}
+	s := &Set{tools: map[string]*offered{
+		"member_list":  held("member_list", KindRead),
+		"grade_submit": held("grade_submit", KindWrite),
+		"grade_list":   held("grade_list", ""),
+		"course_get":   held("course_get", KindRead),
+	}, names: []string{"course_get", "grade_list", "grade_submit", "member_list"}}
 	f := &fakeCore{}
-	parts, err := s.Run(context.Background(), runner(f), courseID, []llm.Part{call("c", "member_list", `{}`)})
+	parts, err := s.Run(context.Background(), runner(f), courseID, []llm.Part{
+		call("a", "member_list", `{}`),
+		call("b", "member_list", `["not an object"]`),
+		call("c", "grade_submit", `{"submission_id":"`+docID+`","score":"87.5"}`),
+		call("d", "grade_list", `{}`),
+		call("e", "course_get", `{}`),
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if code, _ := errorOf(t, parts[0]); code != core.CodeForbidden || !parts[0].IsError {
-		t.Errorf("code %q, want forbidden", code)
+	for _, p := range parts[:4] {
+		if code, msg := errorOf(t, p); code != core.CodeForbidden || !p.IsError || !strings.Contains(msg, "not offered") {
+			t.Errorf("%s: code %q (%s), want forbidden", p.CallID, code, msg)
+		}
 	}
-	if len(f.recorded()) != 0 {
-		t.Error("Core was called")
+	if parts[4].IsError {
+		t.Errorf("a read in the same set was refused: %s", parts[4].Content)
+	}
+	if calls := f.recorded(); len(calls) != 1 || calls[0].tool != "course_get" {
+		t.Errorf("Core was called with %v, want course_get alone", calls)
+	}
+}
+
+// TestRunUnknownNameClipped checks that a name the model made up is quoted
+// back short: a long one must not make the result long.
+func TestRunUnknownNameClipped(t *testing.T) {
+	name := strings.Repeat("x", 100000)
+	parts, err := delegateSet(t).Run(context.Background(), runner(&fakeCore{}), courseID, []llm.Part{call("c", name, `{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(parts[0].Content); n > 1024 {
+		t.Errorf("%d bytes for an unknown name", n)
+	}
+	if _, msg := errorOf(t, parts[0]); !strings.Contains(msg, "no such tool here") {
+		t.Errorf("message %q", msg)
 	}
 }
 
@@ -461,5 +498,64 @@ func TestFitString(t *testing.T) {
 				t.Fatalf("fitString(%q, %d) = %q is not a prefix", s, room, got)
 			}
 		}
+	}
+}
+
+// TestRunTruncatesOversizedErrors checks the last resorts of rule 5: an
+// error whose details alone pass the limit loses them, and one whose message
+// does is cut, so that the result still fits and still says what happened.
+func TestRunTruncatesOversizedErrors(t *testing.T) {
+	result := json.RawMessage(`{"body_md":"` + strings.Repeat("r", 5000) + `"}`)
+	tests := []struct {
+		name        string
+		err         *core.Error
+		wantDetails bool
+		wantMessage string
+	}{
+		{
+			name:        "details that fit are kept",
+			err:         &core.Error{Code: core.CodeConflict, Message: "moved on", Details: map[string]any{"reason": "moved_on"}},
+			wantDetails: true, wantMessage: "moved on",
+		},
+		{
+			name:        "details too large for the limit are dropped, the message kept",
+			err:         &core.Error{Code: core.CodeInvalidArgument, Message: "too long", Details: map[string]any{"echo": strings.Repeat("d", 4000)}},
+			wantMessage: "too long",
+		},
+		{
+			name:        "a message too large for the limit is cut",
+			err:         &core.Error{Code: core.CodeInternal, Message: strings.Repeat("m", 3000)},
+			wantMessage: strings.Repeat("m", 197) + "…",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			env := &core.Envelope{Status: core.StatusFailed, ActionID: "act-1", Result: result, Error: tc.err}
+			f := &fakeCore{respond: func(context.Context, string, json.RawMessage) (*core.Envelope, error) { return env, nil }}
+			r := runner(f)
+			r.MaxResultBytes = minResultBytes
+			parts, err := delegateSet(t).Run(context.Background(), r, courseID, []llm.Part{call("c", "course_get", `{}`)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := parts[0].Content
+			if len(got) > minResultBytes {
+				t.Fatalf("%d bytes, over the limit of %d", len(got), minResultBytes)
+			}
+			m := contentOf(t, parts[0])
+			e, _ := m["error"].(map[string]any)
+			if m["status"] != "failed" || e["code"] != tc.err.Code || e["message"] != tc.wantMessage {
+				t.Errorf("status %v, error %v", m["status"], e)
+			}
+			if _, has := e["details"]; has != tc.wantDetails {
+				t.Errorf("details kept %v, want %v", has, tc.wantDetails)
+			}
+			if rt, _ := m["result_truncated"].(string); !strings.HasSuffix(rt, fmt.Sprintf("…[truncated, %d bytes]", len(result))) {
+				t.Errorf("result_truncated %q", rt)
+			}
+			if !parts[0].IsError {
+				t.Error("a failed envelope is not an error")
+			}
+		})
 	}
 }

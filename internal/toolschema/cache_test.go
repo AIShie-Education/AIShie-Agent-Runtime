@@ -81,6 +81,33 @@ func TestNilCache(t *testing.T) {
 	if err != nil || string(got) != `{"properties":{},"type":"object"}` {
 		t.Fatalf("got %s, %v", got, err)
 	}
+	if c.Len() != 0 {
+		t.Fatal("a nil cache holds something")
+	}
+}
+
+func TestZeroCache(t *testing.T) {
+	var c Cache
+	for range 2 {
+		got, err := c.Sanitise("h", "t", json.RawMessage(`{"type":"object"}`), OpenAI, nil)
+		if err != nil || string(got) != `{"properties":{},"type":"object"}` {
+			t.Fatalf("got %s, %v", got, err)
+		}
+	}
+	if c.Len() != 1 {
+		t.Fatalf("%d entries, want 1", c.Len())
+	}
+}
+
+// TestCacheWithoutHash checks that a catalogue with no hash is not cached:
+// nothing then says that two schemas of one tool are the same.
+func TestCacheWithoutHash(t *testing.T) {
+	c := NewCache()
+	a, _ := c.Sanitise("", "t", json.RawMessage(`{"type":"object","properties":{"a":{"type":"string"}}}`), OpenAI, nil)
+	b, _ := c.Sanitise("", "t", json.RawMessage(`{"type":"object","properties":{"b":{"type":"string"}}}`), OpenAI, nil)
+	if string(a) == string(b) || c.Len() != 0 {
+		t.Fatalf("got %s and %s, %d entries", a, b, c.Len())
+	}
 }
 
 func TestCacheConcurrent(t *testing.T) {
