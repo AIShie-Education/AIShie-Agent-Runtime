@@ -13,9 +13,10 @@ import (
 
 // The test controls: the people and the world around the agents under test.
 // Writes a person makes (asking, following up, retracting, closing,
-// deciding) go through the same pipeline and rules as a call would, so a
-// test cannot script what Core would refuse; what an administrator does
-// (seating, levels, pausing, archiving) is applied directly.
+// deciding, reviewing) go through the same pipeline and rules as a call
+// would, so a test cannot script what Core would refuse; what an
+// administrator does (seating, levels, pausing, archiving) is applied
+// directly.
 
 // Actor is a person or an agent in the fake.
 type Actor struct {
@@ -309,7 +310,11 @@ func (c *Core) Seat(actorID, courseID string, o SeatOptions) (Member, error) {
 	}
 	c.members[m.id] = m
 	c.memberList = append(c.memberList, m)
-	c.flushStamped([]*event{memberEvent("member.added", m, nil)})
+	added := map[string]any{"actor_id": a.id, "role": m.role}
+	if principal != nil {
+		added["delegate"], added["principal_member_id"], added["answers_course"] = true, principal.id, m.answersCourse
+	}
+	c.flushStamped([]*event{memberEvent("member.added", m, added)})
 	return Member{ID: m.id, CourseID: co.id, ActorID: a.id}, nil
 }
 
@@ -357,7 +362,9 @@ func (c *Core) scopeSeat(m *member, pr preset, o SeatOptions) error {
 	} else {
 		m.studentScope, m.assignmentScope = students, assignments
 		m.students, m.assignments = own(o.ListedStudents), own(o.ListedAssignments)
-		if o.ListedStudents == nil && o.Preset == "student" {
+		// A student listed with nobody lists itself, as Core seats one: it
+		// sees its own work for the reason a tutor listed for it does.
+		if o.ListedStudents == nil && m.role == "student" && m.studentScope == scopeListed {
 			m.students = map[string]bool{m.id: true}
 		}
 	}
@@ -636,18 +643,19 @@ func (c *Core) ArchiveCourse(courseID string) error {
 	return nil
 }
 
-// decider is who decides a proposal: the first seat in the course, in the
-// order seated, that counts, decides actions, and is not of the proposer's
-// party. Nobody decides their own proposal, their agent's or their owner's.
-func (c *Core) decider(prop *action) (*member, error) {
+// judge is who decides or reviews an action: the first seat in the
+// course, in the order seated, that counts, decides actions, is not of the
+// actor's party, and passes also. Nobody judges their own action, their
+// agent's or their owner's.
+func (c *Core) judge(a *action, also func(*member) bool) (*member, error) {
 	now := c.now()
 	for _, m := range c.memberList {
-		if m.course == prop.course && m != prop.member && m.counts(now) && m.perm(permActionDecide).allowed() &&
-			!sameParty(prop.actor, m.actor) {
+		if m.course == a.course && m != a.member && m.counts(now) && m.perm(permActionDecide).allowed() &&
+			!sameParty(a.actor, m.actor) && also(m) {
 			return m, nil
 		}
 	}
-	return nil, errors.New("fakecore: nobody in the course may decide that proposal: seat someone who decides actions and is not of the proposer's party")
+	return nil, errors.New("fakecore: nobody in the course may judge that action: seat someone who decides actions and is not of its actor's party")
 }
 
 func (c *Core) decideAs(control, actionID, decision string, reason *string) (string, error) {
@@ -657,7 +665,7 @@ func (c *Core) decideAs(control, actionID, decision string, reason *string) (str
 	if prop == nil || prop.course == nil {
 		return "", fmt.Errorf("fakecore: %s: no action %s in a course", control, actionID)
 	}
-	m, err := c.decider(prop)
+	m, err := c.judge(prop, func(*member) bool { return true })
 	if err != nil {
 		return "", err
 	}
@@ -692,6 +700,26 @@ func (c *Core) Reject(actionID, reason string) error {
 		why = &reason
 	}
 	_, err := c.decideAs("Reject", actionID, "reject", why)
+	return err
+}
+
+// Review records a person's look at an action that executed pending
+// review, as action.review does: outcome reviewed or escalated. It is done
+// by someone who may: the first seat that decides actions, is not of the
+// actor's party, and did not escalate it. Its actor sees action.reviewed or
+// action.escalated in event_list.
+func (c *Core) Review(actionID, outcome string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	row := c.actions[actionID]
+	if row == nil || row.course == nil {
+		return fmt.Errorf("fakecore: Review: no action %s in a course", actionID)
+	}
+	m, err := c.judge(row, func(m *member) bool { return !c.escalatedBy(row, m.actor) })
+	if err != nil {
+		return err
+	}
+	_, err = c.actAs(m, toolActionReview, map[string]any{"course_id": row.course.id, "action_id": row.id, "outcome": outcome})
 	return err
 }
 

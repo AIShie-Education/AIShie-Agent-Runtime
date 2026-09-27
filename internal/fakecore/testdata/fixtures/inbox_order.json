@@ -1,0 +1,760 @@
+{
+ "scenario": "inbox_order",
+ "steps": [
+  {
+   "args": {
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "conversations": [
+      {
+       "created_at": "<time>",
+       "id": "<id:2>",
+       "last_author_member_id": "<id:3>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:4>",
+       "opener": {
+        "display_name": "Yuki",
+        "kind": "human",
+        "member_id": "<id:3>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:5>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      },
+      {
+       "created_at": "<time>",
+       "id": "<id:6>",
+       "last_author_member_id": "<id:7>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:8>",
+       "opener": {
+        "display_name": "Ken",
+        "kind": "human",
+        "member_id": "<id:7>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:5>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      },
+      {
+       "created_at": "<time>",
+       "id": "<id:9>",
+       "last_author_member_id": "<id:3>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:10>",
+       "opener": {
+        "display_name": "Yuki",
+        "kind": "human",
+        "member_id": "<id:3>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:5>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "inbox",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "limit": 2
+   },
+   "envelope": {
+    "result": {
+     "conversations": [
+      {
+       "created_at": "<time>",
+       "id": "<id:2>",
+       "last_author_member_id": "<id:3>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:4>",
+       "opener": {
+        "display_name": "Yuki",
+        "kind": "human",
+        "member_id": "<id:3>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:5>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      },
+      {
+       "created_at": "<time>",
+       "id": "<id:6>",
+       "last_author_member_id": "<id:7>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:8>",
+       "opener": {
+        "display_name": "Ken",
+        "kind": "human",
+        "member_id": "<id:7>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:5>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "inbox_limit_2",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "conversations": [
+      {
+       "created_at": "<time>",
+       "id": "<id:6>",
+       "last_author_member_id": "<id:7>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:8>",
+       "opener": {
+        "display_name": "Ken",
+        "kind": "human",
+        "member_id": "<id:7>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:5>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      },
+      {
+       "created_at": "<time>",
+       "id": "<id:9>",
+       "last_author_member_id": "<id:3>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:10>",
+       "opener": {
+        "display_name": "Yuki",
+        "kind": "human",
+        "member_id": "<id:3>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:5>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      },
+      {
+       "created_at": "<time>",
+       "id": "<id:2>",
+       "last_author_member_id": "<id:3>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:11>",
+       "opener": {
+        "display_name": "Yuki",
+        "kind": "human",
+        "member_id": "<id:3>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:5>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "inbox_after_a_follow_up",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  },
+  {
+   "args": {
+    "body": "Yes, on the course page.",
+    "conversation_id": "<id:6>",
+    "course_id": "<id:1>",
+    "idempotency_key": "answer:<id:6>:<id:8>:1",
+    "in_reply_to_message_id": "<id:8>"
+   },
+   "envelope": {
+    "action_id": "<id:12>",
+    "result": {
+     "message_id": "<id:13>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "answer_b",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "conversations": [
+      {
+       "created_at": "<time>",
+       "id": "<id:9>",
+       "last_author_member_id": "<id:3>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:10>",
+       "opener": {
+        "display_name": "Yuki",
+        "kind": "human",
+        "member_id": "<id:3>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:5>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      },
+      {
+       "created_at": "<time>",
+       "id": "<id:2>",
+       "last_author_member_id": "<id:3>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:11>",
+       "opener": {
+        "display_name": "Yuki",
+        "kind": "human",
+        "member_id": "<id:3>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:5>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "inbox_after_an_answer",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "conversations": [
+      {
+       "created_at": "<time>",
+       "id": "<id:9>",
+       "last_author_member_id": "<id:3>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:10>",
+       "opener": {
+        "display_name": "Yuki",
+        "kind": "human",
+        "member_id": "<id:3>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:5>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      },
+      {
+       "created_at": "<time>",
+       "id": "<id:2>",
+       "last_author_member_id": "<id:3>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:11>",
+       "opener": {
+        "display_name": "Yuki",
+        "kind": "human",
+        "member_id": "<id:3>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:5>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      },
+      {
+       "created_at": "<time>",
+       "id": "<id:6>",
+       "last_author_member_id": "<id:7>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:14>",
+       "opener": {
+        "display_name": "Ken",
+        "kind": "human",
+        "member_id": "<id:7>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:5>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "inbox_after_b2",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "limit": 1
+   },
+   "envelope": {
+    "result": {
+     "conversations": [
+      {
+       "created_at": "<time>",
+       "id": "<id:9>",
+       "last_author_member_id": "<id:3>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:10>",
+       "opener": {
+        "display_name": "Yuki",
+        "kind": "human",
+        "member_id": "<id:3>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:5>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "inbox_limit_1",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "limit": 0
+   },
+   "envelope": {
+    "result": {
+     "conversations": [
+      {
+       "created_at": "<time>",
+       "id": "<id:9>",
+       "last_author_member_id": "<id:3>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:10>",
+       "opener": {
+        "display_name": "Yuki",
+        "kind": "human",
+        "member_id": "<id:3>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:5>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      },
+      {
+       "created_at": "<time>",
+       "id": "<id:2>",
+       "last_author_member_id": "<id:3>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:11>",
+       "opener": {
+        "display_name": "Yuki",
+        "kind": "human",
+        "member_id": "<id:3>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:5>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      },
+      {
+       "created_at": "<time>",
+       "id": "<id:6>",
+       "last_author_member_id": "<id:7>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:14>",
+       "opener": {
+        "display_name": "Ken",
+        "kind": "human",
+        "member_id": "<id:7>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:5>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "inbox_limit_0",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "limit": -1
+   },
+   "envelope": {
+    "result": {
+     "conversations": [
+      {
+       "created_at": "<time>",
+       "id": "<id:9>",
+       "last_author_member_id": "<id:3>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:10>",
+       "opener": {
+        "display_name": "Yuki",
+        "kind": "human",
+        "member_id": "<id:3>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:5>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      },
+      {
+       "created_at": "<time>",
+       "id": "<id:2>",
+       "last_author_member_id": "<id:3>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:11>",
+       "opener": {
+        "display_name": "Yuki",
+        "kind": "human",
+        "member_id": "<id:3>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:5>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      },
+      {
+       "created_at": "<time>",
+       "id": "<id:6>",
+       "last_author_member_id": "<id:7>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:14>",
+       "opener": {
+        "display_name": "Ken",
+        "kind": "human",
+        "member_id": "<id:7>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:5>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "inbox_limit_negative",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "limit": 101
+   },
+   "envelope": {
+    "result": {
+     "conversations": [
+      {
+       "created_at": "<time>",
+       "id": "<id:9>",
+       "last_author_member_id": "<id:3>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:10>",
+       "opener": {
+        "display_name": "Yuki",
+        "kind": "human",
+        "member_id": "<id:3>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:5>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      },
+      {
+       "created_at": "<time>",
+       "id": "<id:2>",
+       "last_author_member_id": "<id:3>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:11>",
+       "opener": {
+        "display_name": "Yuki",
+        "kind": "human",
+        "member_id": "<id:3>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:5>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      },
+      {
+       "created_at": "<time>",
+       "id": "<id:6>",
+       "last_author_member_id": "<id:7>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:14>",
+       "opener": {
+        "display_name": "Ken",
+        "kind": "human",
+        "member_id": "<id:7>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:5>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "inbox_limit_over_100",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  }
+ ]
+}

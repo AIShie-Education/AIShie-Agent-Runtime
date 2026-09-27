@@ -203,6 +203,9 @@ func (c *Core) decide(ec *execCtx, in decideIn) (any, error) {
 	if prop.member == ec.member || sameParty(prop.actor, ec.actor) {
 		return nil, forbid("nobody decides their own proposal, nor their agent's, nor their owner's")
 	}
+	if c.judgesOwn(prop, ec.member, ec.actor) {
+		return nil, forbid("nobody decides their own proposal, even at one remove: this one decides or reviews an action of yours")
+	}
 	if ttl := c.proposalTTL(); ttl > 0 && prop.createdAt.Add(ttl).Before(ec.now) {
 		return c.cancelProposal(ec, prop, cancelExpired, nil), nil
 	}
@@ -256,6 +259,120 @@ func (c *Core) decide(ec *execCtx, in decideIn) (any, error) {
 		ec.emit(e)
 	}
 	return decideOut{ActionID: prop.id, Outcome: actExecuted, Result: full}, nil
+}
+
+// judgesOwn reports whether a is a decision or a review about an action of
+// m's, or of act's party, at any remove: approving it would carry out what
+// they proposed, with four eyes that are their own two. The chain runs back
+// in time, so it ends.
+func (c *Core) judgesOwn(a *action, m *member, act *actor) bool {
+	for (a.actionType == toolActionDecide || a.actionType == toolActionReview) && a.targetID != nil {
+		about := c.actions[*a.targetID]
+		if about == nil {
+			return false
+		}
+		if about.member == m || sameParty(about.actor, act) {
+			return true
+		}
+		a = about
+	}
+	return false
+}
+
+const (
+	toolActionDecide = "action.decide"
+	toolActionReview = "action.review"
+)
+
+type reviewIn struct {
+	inCourse
+	ActionID uuid.UUID `json:"action_id"`
+	Outcome  string    `json:"outcome"`
+	Note     *string   `json:"note,omitempty"`
+}
+
+func actionReview() *impl {
+	return define(spec[reviewIn]{
+		gate: gate{perms: []string{permActionDecide}},
+		resolve: func(c *Core, co *course, in reviewIn) (target, error) {
+			a := c.actions[in.ActionID.String()]
+			if a == nil || a.course != co {
+				return target{}, missing("no such action in this course")
+			}
+			return target{typ: "action", id: &a.id}, nil
+		},
+		execute: func(c *Core, ec *execCtx, in reviewIn) (any, error) {
+			return c.review(ec, in)
+		},
+	})
+}
+
+// canReview reports whether a review may move from one state to another:
+// pending to reviewed or escalated, escalated to reviewed.
+func canReview(from, to string) bool {
+	switch from {
+	case reviewPending:
+		return to == reviewReviewed || to == reviewEscalated
+	case reviewEscalated:
+		return to == reviewReviewed
+	}
+	return false
+}
+
+// review records that a person looked at an action that executed pending
+// review, as Core's pipeline.Review does. It undoes nothing.
+func (c *Core) review(ec *execCtx, in reviewIn) (any, error) {
+	if in.Outcome != reviewReviewed && in.Outcome != reviewEscalated {
+		return nil, invalid("outcome must be %q or %q", reviewReviewed, reviewEscalated)
+	}
+	row := c.actions[in.ActionID.String()]
+	if row == nil || row.course != ec.course {
+		return nil, missing("no such action in this course")
+	}
+	from := row.reviewState
+	if !canReview(from, in.Outcome) {
+		if from == reviewEscalated {
+			return nil, conflicts("the action is already escalated")
+		}
+		return nil, conflicts("the action is not awaiting review")
+	}
+	if ec.member == nil {
+		return nil, forbid("only a course member reviews")
+	}
+	if row.member == ec.member || sameParty(row.actor, ec.actor) {
+		return nil, forbid("nobody reviews their own action, nor their agent's, nor their owner's")
+	}
+	if c.judgesOwn(row, ec.member, ec.actor) {
+		return nil, forbid("nobody reviews their own action, even at one remove: this one decides or reviews an action of yours")
+	}
+	if from == reviewEscalated && c.escalatedBy(row, ec.actor) {
+		return nil, forbid("an escalation is for someone else to look at")
+	}
+	at := ec.now
+	row.reviewState, row.reviewedBy, row.reviewedAt = in.Outcome, ec.member, &at
+	typ := "action.reviewed"
+	if in.Outcome == reviewEscalated {
+		typ = "action.escalated"
+	}
+	ec.emit(proposalEvent(typ, row, ec.actionID, nil))
+	return struct {
+		ActionID    string `json:"action_id"`
+		ReviewState string `json:"review_state"`
+	}{row.id, in.Outcome}, nil
+}
+
+// escalatedBy reports whether act, or anyone of its party, escalated a: an
+// executed review of it with outcome escalated. (Core also counts whoever
+// approved such a review when it was a proposal; the fake's reviews of the
+// tests' own making are not proposed.)
+func (c *Core) escalatedBy(a *action, act *actor) bool {
+	for _, r := range c.actionList {
+		if r.actionType == toolActionReview && r.status == actExecuted && r.targetID != nil && *r.targetID == a.id &&
+			payloadString(r.payload, "outcome") == reviewEscalated && sameParty(r.actor, act) {
+			return true
+		}
+	}
+	return false
 }
 
 // finish moves a proposal to its end state.

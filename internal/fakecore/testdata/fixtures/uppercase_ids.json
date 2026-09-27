@@ -1,0 +1,281 @@
+{
+ "scenario": "uppercase_ids",
+ "steps": [
+  {
+   "args": {
+    "body": "Yes, on Thursday.",
+    "conversation_id": "<ID:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<ID:3>"
+   },
+   "envelope": {
+    "action_id": "<id:4>",
+    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed.",
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "propose",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "Yes, on Thursday.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "error": {
+     "code": "idempotency_conflict",
+     "details": {
+      "action_id": "<id:4>"
+     },
+     "message": "this idempotency key was already used for a different conversation.answer call; use a new key for a new request"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "same_key_lower_case",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "Yes, Thursday.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:2",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "action_id": "<id:5>",
+    "error": {
+     "code": "conflict",
+     "details": {
+      "reason": "answer_pending"
+     },
+     "message": "an answer of yours to that message already waits for a decision"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "second",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "conversations": []
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "inbox",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "created_at": "<time>",
+     "id": "<id:1>",
+     "last_author_member_id": "<id:6>",
+     "last_message_at": "<time>",
+     "latest_opener_message_id": "<id:3>",
+     "opener": {
+      "display_name": "Yuki",
+      "kind": "human",
+      "member_id": "<id:6>"
+     },
+     "pending_reply_action_id": "<id:4>",
+     "respondent": {
+      "answer_level": "confirm_required",
+      "display_name": "CS101 Tutor",
+      "is_delegate_of_opener": false,
+      "kind": "agent",
+      "last_seen_at": "<time>",
+      "member_id": "<id:7>",
+      "owner_name": "Sato",
+      "role": "assistant",
+      "seat_status": "active"
+     },
+     "state": "reply_pending_approval",
+     "status": "open",
+     "visible_to": [
+      "participants",
+      "overseers",
+      "action_record",
+      "respondent_answers_others"
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "get",
+   "text_is_envelope": true,
+   "tool": "conversation_get"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "actions": [
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:8>",
+       "authz_result": "confirm_required",
+       "created_at": "<time>",
+       "id": "<id:4>",
+       "member_id": "<id:7>",
+       "payload": {
+        "body": "Yes, on Thursday.",
+        "conversation_id": "<id:1>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:3>"
+       },
+       "review_state": "none",
+       "status": "proposed",
+       "target_id": "<id:1>",
+       "target_type": "conversation"
+      },
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:8>",
+       "authz_result": "confirm_required",
+       "created_at": "<time>",
+       "id": "<id:5>",
+       "member_id": "<id:7>",
+       "payload": {
+        "body": "Yes, Thursday.",
+        "conversation_id": "<id:1>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:3>"
+       },
+       "result": {
+        "error": {
+         "code": "conflict",
+         "details": {
+          "reason": "answer_pending"
+         },
+         "message": "an answer of yours to that message already waits for a decision"
+        }
+       },
+       "review_state": "none",
+       "status": "failed",
+       "target_id": "<id:1>",
+       "target_type": "conversation"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "mine",
+   "text_is_envelope": true,
+   "tool": "action_list_mine"
+  },
+  {
+   "args": {
+    "body": "Yes, on Thursday.",
+    "conversation_id": "<ID:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<ID:3>"
+   },
+   "envelope": {
+    "action_id": "<id:4>",
+    "replayed": true,
+    "result": {
+     "message_id": "<id:9>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "replay",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "conversation_id": "<ID:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "conversation": {
+      "created_at": "<time>",
+      "id": "<id:1>",
+      "last_author_member_id": "<id:7>",
+      "last_message_at": "<time>",
+      "latest_opener_message_id": "<id:3>",
+      "opener": {
+       "display_name": "Yuki",
+       "kind": "human",
+       "member_id": "<id:6>"
+      },
+      "respondent": {
+       "answer_level": "confirm_required",
+       "display_name": "CS101 Tutor",
+       "is_delegate_of_opener": false,
+       "kind": "agent",
+       "last_seen_at": "<time>",
+       "member_id": "<id:7>",
+       "owner_name": "Sato",
+       "role": "assistant",
+       "seat_status": "active"
+      },
+      "state": "answered",
+      "status": "open"
+     },
+     "messages": [
+      {
+       "author_member_id": "<id:6>",
+       "body": "Is there a seminar this week?",
+       "created_at": "<time>",
+       "id": "<id:3>",
+       "seq": 1
+      },
+      {
+       "author_member_id": "<id:7>",
+       "body": "Yes, on Thursday.",
+       "created_at": "<time>",
+       "id": "<id:9>",
+       "in_reply_to_message_id": "<id:3>",
+       "seq": 2
+      }
+     ],
+     "more": false
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "messages",
+   "text_is_envelope": true,
+   "tool": "conversation_messages"
+  }
+ ]
+}

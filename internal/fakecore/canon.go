@@ -7,15 +7,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
 	"sort"
+	"strconv"
 	"strings"
 )
 
 // checkJSON refuses what Core's canon.Check refuses before anything parses
 // the arguments into a map: an object that names a key twice, which a map
-// would keep the last of without a word. Malformed JSON is left for the
-// parse that follows to report.
+// would keep the last of without a word, and a number out of canon's
+// bounds. Malformed JSON is left for the parse that follows to report.
 func checkJSON(raw []byte) error {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
@@ -45,7 +45,7 @@ func checkJSON(raw []byte) error {
 			}
 			k, _ := tok.(string)
 			if o.keys[k] {
-				return fmt.Errorf("the key %q is given twice", clip(k))
+				return fmt.Errorf("%q is given twice in one object", clipLiteral(k))
 			}
 			o.keys[k] = true
 			o.wantKey = false
@@ -60,6 +60,11 @@ func checkJSON(raw []byte) error {
 			continue
 		case json.Delim(']'):
 			stack = stack[:len(stack)-1]
+		}
+		if n, ok := tok.(json.Number); ok {
+			if _, err := plainNumber(string(n)); err != nil {
+				return err
+			}
 		}
 		if o := top(); o != nil && o.keys != nil {
 			o.wantKey = true
@@ -156,29 +161,69 @@ func writeString(buf *bytes.Buffer, s string) error {
 	return nil
 }
 
-// maxPlaces bounds how far a decimal is expanded, as Core bounds numbers.
-const maxPlaces = 400
+// Numbers are bounded as Core's canon bounds them: an exponent within 400
+// either way, and at most 400 digits as written and as written out. Past
+// them a literal is refused before anything expands it (1e2000000000 is
+// twelve bytes), so a call that Core refuses is refused here too.
+const (
+	maxExponent = 400
+	maxDigits   = 400
+)
 
-// plainNumber writes a JSON number with no exponent and no leading or
-// trailing zeros: 1, 1.0, 1e0 and 10e-1 are all "1".
+// plainNumber writes a JSON number literal as a plain decimal, working on
+// its digits so that nothing is rounded: 1, 1.0, 1e0 and 10e-1 are all "1".
 func plainNumber(lit string) (string, error) {
-	r, ok := new(big.Rat).SetString(lit)
-	if !ok {
-		return "", fmt.Errorf("%q is not a number", clip(lit))
-	}
-	if r.IsInt() {
-		return r.Num().String(), nil
-	}
-	ten := big.NewInt(10)
-	scale := big.NewInt(1)
-	for places := 1; places <= maxPlaces; places++ {
-		scale.Mul(scale, ten)
-		if new(big.Int).Mod(scale, r.Denom()).Sign() == 0 {
-			s := r.FloatString(places)
-			return strings.TrimRight(strings.TrimRight(s, "0"), "."), nil
+	s := lit
+	neg := strings.HasPrefix(s, "-")
+	s = strings.TrimPrefix(s, "-")
+	exp := 0
+	if i := strings.IndexAny(s, "eE"); i >= 0 {
+		e, err := strconv.Atoi(s[i+1:])
+		if err != nil || e > maxExponent || e < -maxExponent {
+			return "", fmt.Errorf("number %q is out of range", clipLiteral(lit))
 		}
+		exp, s = e, s[:i]
 	}
-	return "", fmt.Errorf("%q has too many digits", clip(lit))
+	intPart, fracPart, _ := strings.Cut(s, ".")
+	digits := intPart + fracPart
+	if len(digits) > maxDigits {
+		return "", fmt.Errorf("number %q has too many digits", clipLiteral(lit))
+	}
+	scale := len(fracPart) - exp // value = digits × 10^-scale
+	digits = strings.TrimLeft(digits, "0")
+	if digits == "" {
+		return "0", nil
+	}
+	for scale > 0 && strings.HasSuffix(digits, "0") {
+		digits = digits[:len(digits)-1]
+		scale--
+	}
+	var out string
+	switch {
+	case scale <= 0:
+		out = digits + strings.Repeat("0", -scale)
+	case len(digits) <= scale:
+		out = "0." + strings.Repeat("0", scale-len(digits)) + digits
+	default:
+		out = digits[:len(digits)-scale] + "." + digits[len(digits)-scale:]
+	}
+	if written := len(out) - strings.Count(out, "."); written > maxDigits {
+		return "", fmt.Errorf("number %q has too many digits written out", clipLiteral(lit))
+	}
+	if neg {
+		out = "-" + out
+	}
+	return out, nil
+}
+
+// clipLiteral shortens what an error repeats of the caller's input, as
+// Core's canon does.
+func clipLiteral(s string) string {
+	const keep = 40
+	if len(s) <= keep {
+		return s
+	}
+	return fmt.Sprintf("%s… (%d bytes)", s[:keep], len(s))
 }
 
 // payloadHash is hex(SHA-256(tool name, "\n", canonical arguments)).

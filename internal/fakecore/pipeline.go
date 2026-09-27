@@ -103,8 +103,10 @@ func errorOutcome(e *apiError) outcome { return outcome{Status: "error", Error: 
 
 // Review states.
 const (
-	reviewNone    = "none"
-	reviewPending = "pending"
+	reviewNone      = "none"
+	reviewPending   = "pending"
+	reviewReviewed  = "reviewed"
+	reviewEscalated = "escalated"
 )
 
 // gate is what a tool's authorization asks for.
@@ -489,6 +491,10 @@ func (c *Core) invokeWrite(caller *actor, t *toolDef, in any, raw []byte, key st
 	if !lvl.allowed() {
 		failure = denial(a.decision.reason)
 	}
+	// A proposal is kept as its tool pins it: the arguments as the tool
+	// read them, not as they were written (an id in upper case comes back
+	// in lower), which is what answer_pending and the views compare with.
+	// The hash stays the call's as made, which is what a retry presents.
 	if status == actProposed && t.impl.pin != nil {
 		if err := t.impl.pin(c, a.decision.member, in); err != nil {
 			e, ok := asAPI(err)
@@ -496,6 +502,8 @@ func (c *Core) invokeWrite(caller *actor, t *toolDef, in any, raw []byte, key st
 				return outcome{}, err
 			}
 			status, failure = actFailed, e
+		} else if canonical, err = pinned(in); err != nil {
+			return outcome{}, fmt.Errorf("%s: pinned arguments: %w", t.Name, err)
 		}
 	}
 	now := c.now()
@@ -545,6 +553,15 @@ func (c *Core) invokeWrite(caller *actor, t *toolDef, in any, raw []byte, key st
 	act.status, act.executedAt, act.reviewState, act.result = actExecuted, &now, out.ReviewState, full
 	out.Status, out.Result = actExecuted, full
 	return out, nil
+}
+
+// pinned is a proposal's arguments as its tool read them, canonical.
+func pinned(in any) ([]byte, error) {
+	raw, err := json.Marshal(in)
+	if err != nil {
+		return nil, err
+	}
+	return canonicalize(raw)
 }
 
 // checkKey holds a write's idempotency key to 1 to 200 characters of text.

@@ -194,32 +194,42 @@
    "args": {
     "course_id": "<id:2>",
     "limit": 2,
-    "since_seq": 0
+    "since_seq": "<seq:2>"
    },
    "envelope": {
     "result": {
      "events": [
       {
-       "action_id": "<id:6>",
+       "action_id": "<id:8>",
        "occurred_at": "<time>",
-       "payload": {},
-       "seq": "<seq:1>",
-       "subject_id": "<id:2>",
-       "subject_type": "course",
-       "type": "course.created"
+       "payload": {
+        "conversation_id": "<id:1>",
+        "opener_member_id": "<id:9>",
+        "respondent_member_id": "<id:10>"
+       },
+       "seq": "<seq:3>",
+       "subject_id": "<id:1>",
+       "subject_type": "conversation",
+       "type": "conversation.opened"
       },
       {
-       "action_id": "<id:7>",
+       "action_id": "<id:8>",
        "occurred_at": "<time>",
-       "payload": {},
-       "seq": "<seq:2>",
-       "subject_id": "<id:2>",
-       "subject_type": "course",
-       "type": "course.activated"
+       "payload": {
+        "author_member_id": "<id:9>",
+        "conversation_id": "<id:1>",
+        "message_id": "<id:3>",
+        "opener_member_id": "<id:9>",
+        "respondent_member_id": "<id:10>"
+       },
+       "seq": "<seq:4>",
+       "subject_id": "<id:1>",
+       "subject_type": "conversation",
+       "type": "conversation.message_posted"
       }
      ],
      "more": true,
-     "next_seq": "<seq:2>"
+     "next_seq": "<seq:4>"
     },
     "status": "executed"
    },

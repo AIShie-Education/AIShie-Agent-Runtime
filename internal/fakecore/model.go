@@ -281,6 +281,8 @@ type action struct {
 	decidedBy   *member
 	decidedAt   *time.Time
 	reviewState string
+	reviewedBy  *member
+	reviewedAt  *time.Time
 	executedAt  *time.Time
 	createdAt   time.Time
 }

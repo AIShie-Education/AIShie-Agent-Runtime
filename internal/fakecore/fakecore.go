@@ -15,11 +15,11 @@
 // action_list_mine) are carried out with Core's semantics: authorization,
 // idempotency, proposals and their decisions, the inbox, events and who sees
 // them; so are the writes people make that the test controls go through
-// (conversation_open, conversation_ask, action_decide). The model's read
-// tools read canned material per course, under Core's gates and scope
-// rules. Any other tool is refused as never attempted: status error, code
-// not_found for a course that does not exist, forbidden (details.reason
-// not_implemented) otherwise.
+// (conversation_open, conversation_ask, action_decide, action_review). The
+// model's read tools read canned material per course, under Core's gates
+// and scope rules. Any other tool is refused as never attempted: status
+// error, code not_found for a course that does not exist, forbidden
+// (details.reason not_implemented) otherwise.
 //
 // State is in memory, behind one lock, as Core's transactions would have
 // it. The test controls (AddCourse, Seat, Ask, Approve, …) act as the people
@@ -103,6 +103,7 @@ func implemented() map[string]*impl {
 		"conversation.open":     conversationOpen(),
 		"conversation.ask":      conversationAsk(),
 		"action.decide":         actionDecide(),
+		"action.review":         actionReview(),
 		"action.list_mine":      actionListMine(),
 		"event.list":            eventList(),
 		"course.get":            courseGet(),

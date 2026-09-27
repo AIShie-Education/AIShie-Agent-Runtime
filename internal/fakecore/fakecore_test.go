@@ -150,6 +150,16 @@ func TestCanonicalize(t *testing.T) {
 	if _, err := canonicalize([]byte(`[1]`)); err == nil {
 		t.Error("an array canonicalized")
 	}
+	for _, lit := range []string{`{"n":1e401}`, `{"n":1e-401}`, `{"n":1` + strings.Repeat("0", 400) + `}`, `{"n":1e400}`} {
+		if err := checkJSON([]byte(lit)); err == nil {
+			t.Errorf("%.40s: a number out of canon's bounds passed", lit)
+		}
+	}
+	for lit, want := range map[string]string{`{"n":1e2}`: `{"n":100}`, `{"n":-0.0}`: `{"n":0}`, `{"n":12.340e-3}`: `{"n":0.01234}`} {
+		if got, err := canonicalize([]byte(lit)); err != nil || string(got) != want {
+			t.Errorf("%s: %s %v, want %s", lit, got, err, want)
+		}
+	}
 	if err := checkJSON([]byte(`{"a":1,"b":{"c":2,"c":3}}`)); err == nil {
 		t.Error("a key given twice passed")
 	}
@@ -421,7 +431,7 @@ func TestProposals(t *testing.T) {
 		if out.Status != "proposed" {
 			t.Fatalf("%+v", out)
 		}
-		if _, err := fc.Approve(out.ActionID); err == nil || !strings.Contains(err.Error(), "nobody in the course may decide") {
+		if _, err := fc.Approve(out.ActionID); err == nil || !strings.Contains(err.Error(), "nobody in the course may judge") {
 			t.Errorf("approved by its owner's party: %v", err)
 		}
 	})
@@ -910,7 +920,7 @@ func TestControlsFollowCoresRules(t *testing.T) {
 	if _, _, err := w.fc.Ask(w.co.ID, w.seats[0].ID, w.mori.ID, "Q"); !errors.As(err, &refused) || refused.Reason != "not_addressable" {
 		t.Errorf("a student asking an instructor, who sees what they cannot: %v", err)
 	}
-	if _, _, err := w.fc.Ask(w.co.ID, w.seats[1].ID, w.ownAgentSeat(), "Q"); !errors.As(err, &refused) || refused.Reason != "not_addressable" {
+	if _, _, err := w.fc.Ask(w.co.ID, w.seats[1].ID, w.ownSeat(), "Q"); !errors.As(err, &refused) || refused.Reason != "not_addressable" {
 		t.Errorf("Ken asking Yuki's own agent: %v", err)
 	}
 	for _, c := range []struct {
@@ -1029,5 +1039,162 @@ func TestMessagesPaging(t *testing.T) {
 		if first != c.first || last != c.last || n != c.n || more != c.more {
 			t.Errorf("%s: seq %d to %d, %d messages, more %v; want %d to %d, %d, %v", c.name, first, last, n, more, c.first, c.last, c.n, c.more)
 		}
+	}
+}
+
+func TestReview(t *testing.T) {
+	w := newFakeWorld(t, Options{})
+	w.setTutorLevel("pending_review")
+	conv, m1 := w.ask(0, "Q")
+	args := answer(w, conv, m1, "A", 1)
+	a := mustCall(t, w.agentC, "conversation_answer", args)
+	if a.status() != "executed" || a.str("review_state") != "pending" {
+		t.Fatalf("an answer at pending_review: %s", a.Text)
+	}
+	id := a.str("action_id")
+	replayed := func() string {
+		t.Helper()
+		return mustCall(t, w.agentC, "conversation_answer", args).str("review_state")
+	}
+	if err := w.fc.Review(id, "escalated"); err != nil {
+		t.Fatal(err)
+	}
+	if got := replayed(); got != "escalated" {
+		t.Errorf("replayed after an escalation: %s", got)
+	}
+	// Mori escalated it, and Sato owns the agent: nobody is left to close it.
+	var refused *RefusedError
+	if err := w.fc.Review(id, "reviewed"); err == nil || errors.As(err, &refused) {
+		t.Errorf("an escalation closed by whoever raised it, or by the agent's owner: %v", err)
+	}
+	third := w.fc.AddPerson("Tanaka")
+	if _, err := w.fc.Seat(third.ID, w.co.ID, SeatOptions{Preset: "instructor"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.fc.Review(id, "reviewed"); err != nil {
+		t.Fatal(err)
+	}
+	if got := replayed(); got != "reviewed" {
+		t.Errorf("replayed after a review: %s", got)
+	}
+	if err := w.fc.Review(id, "reviewed"); !errors.As(err, &refused) || refused.Code != codeConflict {
+		t.Errorf("reviewed twice: %v", err)
+	}
+	var seen []string
+	for _, e := range list(mustCall(t, w.agentC, "event_list", inCourseArgs(w, "since_seq", 0)), "events") {
+		if e := e.(map[string]any); e["action_id"] == id && strings.HasPrefix(e["type"].(string), "action.") {
+			seen = append(seen, e["type"].(string))
+		}
+	}
+	if fmt.Sprint(seen) != "[action.escalated action.reviewed]" {
+		t.Errorf("the agent's own feed: %v", seen)
+	}
+	mine := list(mustCall(t, w.agentC, "action_list_mine", inCourseArgs(w)), "actions")
+	if row := mine[0].(map[string]any); row["review_state"] != "reviewed" || row["reviewed_by_member_id"] == nil || row["reviewed_at"] == nil {
+		t.Errorf("action_list_mine: %v", row)
+	}
+}
+
+func TestNobodyDecidesTheirOwnAtOneRemove(t *testing.T) {
+	w := newFakeWorld(t, Options{})
+	w.setTutorLevel("confirm_required")
+	conv, m1 := w.ask(0, "Q")
+	p := mustCall(t, w.agentC, "conversation_answer", answer(w, conv, m1, "A", 1))
+	wantEnvelope(t, p, "proposed", "", "")
+	// A TA whose decisions a person confirms approves the tutor's answer.
+	ta := w.fc.AddPerson("Ito")
+	if _, err := w.fc.Seat(ta.ID, w.co.ID, SeatOptions{Preset: "ta", Perms: map[string]string{permActionDecide: "confirm_required"}}); err != nil {
+		t.Fatal(err)
+	}
+	taC := w.client(ta.Token)
+	d := mustCall(t, taC, "action_decide", inCourseArgs(w, "action_id", p.str("action_id"), "decision", "approve", "idempotency_key", "d1"))
+	wantEnvelope(t, d, "proposed", "", "")
+	// Sato owns the tutor, so confirming the approval would carry out his
+	// own agent's proposal.
+	c := mustCall(t, w.as("sato"), "action_decide", inCourseArgs(w, "action_id", d.str("action_id"), "decision", "approve", "idempotency_key", "d2"))
+	wantEnvelope(t, c, "failed", codeForbidden, "")
+	if !strings.Contains(c.str("error", "message"), "at one remove") {
+		t.Errorf("the refusal: %s", c.Text)
+	}
+	// Mori may; the decision is carried out, and with it the answer.
+	c = mustCall(t, w.as("mori"), "action_decide", inCourseArgs(w, "action_id", d.str("action_id"), "decision", "approve", "idempotency_key", "d3"))
+	if c.status() != "executed" || c.str("result", "outcome") != "executed" {
+		t.Fatalf("Mori confirms the TA's approval: %s", c.Text)
+	}
+	if n := len(w.fc.Answers(conv)); n != 1 {
+		t.Errorf("%d answers posted", n)
+	}
+}
+
+func TestDocumentRules(t *testing.T) {
+	w := newFakeWorld(t, Options{})
+	t.Run("kind must be a course's", func(t *testing.T) {
+		wantEnvelope(t, mustCall(t, w.agentC, "document_list", inCourseArgs(w, "kind", "submission")), "error", codeInvalidArgument, "")
+	})
+	t.Run("document_read governs the list, or the named kind's permission", func(t *testing.T) {
+		p := w.fc.AddPerson("Rubric reader")
+		if _, err := w.fc.Seat(p.ID, w.co.ID, SeatOptions{Perms: map[string]string{permRubricRead: "autonomous"}}); err != nil {
+			t.Fatal(err)
+		}
+		c := w.client(p.Token)
+		wantEnvelope(t, mustCall(t, c, "document_list", inCourseArgs(w)), "denied", codeForbidden, reasonPermDenied)
+		if docs := list(mustCall(t, c, "document_list", inCourseArgs(w, "kind", "rubric")), "documents"); len(docs) != 0 {
+			t.Errorf("rubrics: %v", docs)
+		}
+	})
+	t.Run("instructions follow their assignment", func(t *testing.T) {
+		p := w.fc.AddPerson("Grader for nothing")
+		if _, err := w.fc.Seat(p.ID, w.co.ID, SeatOptions{Preset: "grader", AssignmentScope: scopeListed}); err != nil {
+			t.Fatal(err)
+		}
+		c := w.client(p.Token)
+		for _, d := range list(mustCall(t, c, "document_list", inCourseArgs(w)), "documents") {
+			if d.(map[string]any)["kind"] == kindInstructions {
+				t.Errorf("instructions of an assignment out of scope listed: %v", d)
+			}
+		}
+		wantEnvelope(t, mustCall(t, c, "document_get", inCourseArgs(w, "document_id", w.co.InstructionsID)), "error", codeNotFound, "")
+		wantEnvelope(t, mustCall(t, c, "document_get", inCourseArgs(w, "document_id", w.co.SyllabusID)), "executed", "", "")
+		wantEnvelope(t, mustCall(t, w.agentC, "document_get", inCourseArgs(w, "document_id", w.co.InstructionsID)), "executed", "", "")
+	})
+	t.Run("a submission's body comes with submission_get, not the list", func(t *testing.T) {
+		work, err := w.fc.AddWork(w.co.ID, w.seats[0].ID, "My answers", "90")
+		if err != nil {
+			t.Fatal(err)
+		}
+		own := w.ownAgent()
+		subs := list(mustCall(t, own, "submission_list", inCourseArgs(w)), "submissions")
+		if len(subs) != 1 || subs[0].(map[string]any)["body"] != nil {
+			t.Errorf("submission_list: %v", subs)
+		}
+		if a := mustCall(t, own, "submission_get", inCourseArgs(w, "submission_id", work.SubmissionID)); a.str("result", "body") != "My answers" {
+			t.Errorf("submission_get: %s", a.Text)
+		}
+	})
+}
+
+func TestAStudentSeatListsItself(t *testing.T) {
+	fc := New(Options{})
+	co := fc.AddCourse("CS101")
+	sato := fc.AddPerson("Sato")
+	if _, err := fc.Seat(sato.ID, co.ID, SeatOptions{Preset: "instructor"}); err != nil {
+		t.Fatal(err)
+	}
+	p := fc.AddPerson("Auditor")
+	// No preset: a student's role and listed scope, every level denied but
+	// those named.
+	m, err := fc.Seat(p.ID, co.ID, SeatOptions{Perms: map[string]string{permDocumentRead: "autonomous", permSubmissionRead: "autonomous"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fc.AddWork(co.ID, m.ID, "mine", "50"); err != nil {
+		t.Fatal(err)
+	}
+	c := newMCPClient(httptestServer(t, fc), p.Token, nil)
+	if h, err := c.initialize(context.Background()); err != nil || h.Status != http.StatusOK {
+		t.Fatalf("initialize: %v %d %s", err, h.Status, h.Body)
+	}
+	if subs := list(mustCall(t, c, "submission_list", map[string]any{"course_id": co.ID}), "submissions"); len(subs) != 1 {
+		t.Errorf("a student's own work: %v", subs)
 	}
 }

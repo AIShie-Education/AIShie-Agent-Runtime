@@ -1,0 +1,191 @@
+{
+ "scenario": "malformed",
+ "steps": [
+  {
+   "args": {
+    "body": "No.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "\"body\" is given twice in one object"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "write_key_twice",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "arguments: \"course_id\" is given twice in one object"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "read_key_twice",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "since_seq": "<seq:1>"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "arguments: number \"1e500\" is out of range"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "number_out_of_range",
+   "text_is_envelope": true,
+   "tool": "event_list"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "close:<id:1>",
+    "reason": null,
+    "x": 1e-500
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "number \"1e-500\" is out of range"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "write_number_out_of_range",
+   "text_is_envelope": true,
+   "tool": "conversation_close"
+  },
+  {
+   "args": {
+    "body": "Yes.\u0000",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:2",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "arguments cannot contain U+0000"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "nul",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": [
+    1
+   ],
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "arguments must be a JSON object"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "write_not_an_object",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": [
+    1
+   ],
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "arguments do not match the schema of conversation.inbox: validating root: type: [1] has type \"array\", want \"object\""
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "read_not_an_object",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  },
+  {
+   "args": null,
+   "envelope": {
+    "result": {
+     "display_name": "CS101 Tutor",
+     "id": "<id:4>",
+     "kind": "agent",
+     "status": "active"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "read_null",
+   "text_is_envelope": true,
+   "tool": "me_get"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "since_seq": "<seq:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "arguments do not match the schema of event.list: validating root: validating /properties/since_seq: type: 1.5 has type \"number\", want \"integer\""
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "integer_as_fraction",
+   "text_is_envelope": true,
+   "tool": "event_list"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "limit": 1e1,
+    "since_seq": "<seq:3>"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "arguments: json: cannot unmarshal number 1.0 into Go struct field <type>.since_seq of type int64"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "integer_written_as_a_float",
+   "text_is_envelope": true,
+   "tool": "event_list"
+  }
+ ]
+}

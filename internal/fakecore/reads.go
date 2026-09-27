@@ -173,27 +173,29 @@ func eventList() *impl {
 }
 
 type actionView struct {
-	ID                string          `json:"id"`
-	ActorID           string          `json:"actor_id"`
-	MemberID          *string         `json:"member_id,omitempty"`
-	ActionType        string          `json:"action_type"`
-	TargetType        string          `json:"target_type"`
-	TargetID          *string         `json:"target_id,omitempty"`
-	Payload           json.RawMessage `json:"payload"`
-	AuthzResult       string          `json:"authz_result"`
-	Status            string          `json:"status"`
-	DecidedByMemberID *string         `json:"decided_by_member_id,omitempty"`
-	DecidedAt         *time.Time      `json:"decided_at,omitempty"`
-	ReviewState       string          `json:"review_state"`
-	ExecutedAt        *time.Time      `json:"executed_at,omitempty"`
-	Result            json.RawMessage `json:"result,omitempty"`
-	CreatedAt         time.Time       `json:"created_at"`
+	ID                 string          `json:"id"`
+	ActorID            string          `json:"actor_id"`
+	MemberID           *string         `json:"member_id,omitempty"`
+	ActionType         string          `json:"action_type"`
+	TargetType         string          `json:"target_type"`
+	TargetID           *string         `json:"target_id,omitempty"`
+	Payload            json.RawMessage `json:"payload"`
+	AuthzResult        string          `json:"authz_result"`
+	Status             string          `json:"status"`
+	DecidedByMemberID  *string         `json:"decided_by_member_id,omitempty"`
+	DecidedAt          *time.Time      `json:"decided_at,omitempty"`
+	ReviewState        string          `json:"review_state"`
+	ReviewedByMemberID *string         `json:"reviewed_by_member_id,omitempty"`
+	ReviewedAt         *time.Time      `json:"reviewed_at,omitempty"`
+	ExecutedAt         *time.Time      `json:"executed_at,omitempty"`
+	Result             json.RawMessage `json:"result,omitempty"`
+	CreatedAt          time.Time       `json:"created_at"`
 }
 
 func viewAction(a *action) actionView {
 	v := actionView{ID: a.id, ActorID: a.actor.id, ActionType: a.actionType, TargetType: a.targetType, TargetID: a.targetID,
 		Payload: a.payload, AuthzResult: a.authz.String(), Status: a.status, DecidedAt: a.decidedAt, ReviewState: a.reviewState,
-		ExecutedAt: a.executedAt, Result: a.result, CreatedAt: a.createdAt}
+		ReviewedAt: a.reviewedAt, ExecutedAt: a.executedAt, Result: a.result, CreatedAt: a.createdAt}
 	if a.member != nil {
 		id := a.member.id
 		v.MemberID = &id
@@ -201,6 +203,10 @@ func viewAction(a *action) actionView {
 	if a.decidedBy != nil {
 		id := a.decidedBy.id
 		v.DecidedByMemberID = &id
+	}
+	if a.reviewedBy != nil {
+		id := a.reviewedBy.id
+		v.ReviewedByMemberID = &id
 	}
 	return v
 }
@@ -343,11 +349,36 @@ type documentListIn struct {
 	pageIn
 }
 
+// withheld reports whether a course's instructions or rubric are out of
+// m's reach: they follow their assignment, so to anyone who does not write
+// assignments they are there only while a published assignment in their
+// scope refers to them.
+func withheld(doc *document, m *member) bool {
+	if doc.kind == kindMaterial || !courseLevel(doc.kind) || m.perm(permAssignmentWrite).allowed() {
+		return false
+	}
+	for _, a := range doc.course.assignments {
+		if a.instructions == doc && a.publishedAt != nil && inScope(m, "", a.id) {
+			return false
+		}
+	}
+	return true
+}
+
 func documentList() *impl {
 	return define(spec[documentListIn]{
 		gate: gate{any: true, perms: []string{permDocumentRead, permRubricRead}},
-		resolve: func(*Core, *course, documentListIn) (target, error) {
-			return target{typ: "document", perms: []string{}}, nil
+		// Core's gate takes either permission, and then the target names the
+		// one that governs: document_read, or the named kind's.
+		resolve: func(_ *Core, _ *course, in documentListIn) (target, error) {
+			t := target{typ: "document", perms: []string{permDocumentRead}}
+			if in.Kind != nil {
+				if !courseLevel(*in.Kind) {
+					return t, invalid("kind must be material, instructions or rubric")
+				}
+				t.perms = []string{readPerm(*in.Kind)}
+			}
+			return t, nil
 		},
 		query: func(_ *Core, rc *readCtx, in documentListIn) (any, error) {
 			limit, after := pageLimit(in.Limit), in.after()
@@ -360,7 +391,7 @@ func documentList() *impl {
 					break
 				}
 				if !courseLevel(doc.kind) || !rc.member.perm(readPerm(doc.kind)).allowed() || doc.id <= after ||
-					(in.Kind != nil && *in.Kind != doc.kind) {
+					(in.Kind != nil && *in.Kind != doc.kind) || withheld(doc, rc.member) {
 					continue
 				}
 				out.Documents = append(out.Documents, summarize(doc))
@@ -427,6 +458,12 @@ func documentGet() *impl {
 		},
 		query: func(c *Core, rc *readCtx, in documentGetIn) (any, error) {
 			doc := c.findDocument(rc.course, in.DocumentID)
+			if withheld(doc, rc.member) {
+				if in.VersionID == nil {
+					return nil, missing("no such document in this course")
+				}
+				return nil, missing("no such version of this document")
+			}
 			if in.VersionID != nil && in.VersionID.String() != doc.versionID {
 				return nil, missing("no such version of this document")
 			}
@@ -557,10 +594,17 @@ type submissionView struct {
 	CreatedAt       time.Time  `json:"created_at"`
 }
 
-func viewSubmission(s *submission) submissionView {
-	body, at := s.body, s.submittedAt
-	return submissionView{ID: s.id, AssignmentID: s.assignment.id, StudentMemberID: s.student.id, Attempt: 1, Body: &body,
+// viewSubmission is a submission as submission_get shows it, body and all;
+// submission_list leaves the body out, as Core's does.
+func viewSubmission(s *submission, withBody bool) submissionView {
+	at := s.submittedAt
+	v := submissionView{ID: s.id, AssignmentID: s.assignment.id, StudentMemberID: s.student.id, Attempt: 1,
 		State: "submitted", SubmittedAt: &at, CreatedAt: s.createdAt}
+	if withBody {
+		body := s.body
+		v.Body = &body
+	}
+	return v
 }
 
 type workListIn struct {
@@ -588,7 +632,7 @@ func submissionList() *impl {
 			for _, s := range rc.course.submissions {
 				if len(out.Submissions) < limit && s.id > after && in.matches(s.student.id, s.assignment.id) &&
 					inScope(rc.member, s.student.id, s.assignment.id) {
-					out.Submissions = append(out.Submissions, viewSubmission(s))
+					out.Submissions = append(out.Submissions, viewSubmission(s, false))
 				}
 			}
 			if n := len(out.Submissions); n > 0 && n == limit {
@@ -624,7 +668,7 @@ func submissionGet() *impl {
 			return target{typ: "submission", id: &s.id, scope: scope{students: []string{s.student.id}, assignments: []string{s.assignment.id}}}, nil
 		},
 		query: func(_ *Core, rc *readCtx, in submissionGetIn) (any, error) {
-			return viewSubmission(findSubmission(rc.course, in.SubmissionID)), nil
+			return viewSubmission(findSubmission(rc.course, in.SubmissionID), true), nil
 		},
 	})
 }

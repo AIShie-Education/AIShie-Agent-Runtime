@@ -56,9 +56,22 @@ type world interface {
 	revokeTutorToken()
 
 	// Yuki's own agent, seated as her delegate (preset delegate): its MCP
-	// client, and Yuki asking it.
+	// client, its seat, and Yuki asking it.
 	ownAgent() *mcpClient
+	ownSeat() string
 	askOwn(body string) (conversationID, messageID string)
+
+	// as is a person over MCP, initialized: "sato", "mori", "yuki" or "ken".
+	// A real Core's recording seats the same Mori, Yuki and Ken in every
+	// world, and a key is unique per actor, so a key of theirs must name
+	// something of this world's.
+	as(who string) *mcpClient
+	// listedTutor seats a second agent of Sato's with the tutor preset,
+	// listed for the one student and answering the course, as an
+	// instructor's tutor for some students is seated: its seat and client.
+	listedTutor(student int) (seat string, c *mcpClient)
+	// pausePrincipal pauses Sato's seat, which the tutor is the delegate of.
+	pausePrincipal()
 }
 
 // steps is what a scenario recorded, in order.
@@ -144,12 +157,52 @@ func answer(w world, conv, msg, body string, attempt int) map[string]any {
 // call makes a tool call as the tutor and records it.
 func call(t *testing.T, w world, s *steps, name, tool string, args map[string]any) toolAnswer {
 	t.Helper()
-	a, err := w.agent().call(context.Background(), tool, args)
+	return callAs(t, w.agent(), s, name, tool, args)
+}
+
+// callAs makes a tool call as whoever c is, and records it.
+func callAs(t *testing.T, c *mcpClient, s *steps, name, tool string, args map[string]any) toolAnswer {
+	t.Helper()
+	a, err := c.call(context.Background(), tool, args)
 	if err != nil {
 		t.Fatalf("%s: %s: %v", name, tool, err)
 	}
 	s.tool(name, tool, args, a)
 	return a
+}
+
+// callShape makes a call whose result the fake answers from canned
+// material, and records it without what the result holds: the envelope,
+// with the names of the result's fields in place of the result. Who may
+// read it, and what comes back when they may not, are Core's; the material
+// is the fake's.
+func callShape(t *testing.T, c *mcpClient, s *steps, name, tool string, args map[string]any) toolAnswer {
+	t.Helper()
+	a := callAs(t, c, s, name, tool, args)
+	step := s.list[len(s.list)-1]
+	if env, ok := step["envelope"].(map[string]any); ok {
+		if res, ok := env["result"].(map[string]any); ok {
+			keys := make([]string, 0, len(res))
+			for k := range res {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			shaped := make(map[string]any, len(env))
+			for k, v := range env {
+				shaped[k] = v
+			}
+			delete(shaped, "result")
+			shaped["result_fields"] = keys
+			step["envelope"] = shaped
+		}
+	}
+	return a
+}
+
+// resultOf is a field of an envelope's result.
+func resultOf(a toolAnswer, field string) any {
+	res, _ := a.Structured["result"].(map[string]any)
+	return res[field]
 }
 
 func inCourseArgs(w world, more ...any) map[string]any {
@@ -371,13 +424,18 @@ var scenarios = []scenario{
 		wantStatus(t, call(t, w, s, "answer", "conversation_answer", answer(w, conv, m1, "Ask your instructor.", 1)), "proposed")
 		call(t, w, s, "second", "conversation_answer", answer(w, conv, m1, "Ask your instructor, please.", 2))
 	}},
-	{name: "denied_level", about: "§2.4 denied: conversation_answer lowered to denied", run: func(t *testing.T, w world, s *steps) {
+	{name: "denied_level", about: "§2.4 denied: conversation_answer lowered to denied; a target is not looked up for a denied caller; a denial replays as it was", run: func(t *testing.T, w world, s *steps) {
 		conv, m1 := w.ask(0, "Is there a lecture on Monday?")
 		w.setTutorLevel("denied")
-		call(t, w, s, "answer", "conversation_answer", answer(w, conv, m1, "Yes.", 1))
+		args := answer(w, conv, m1, "Yes.", 1)
+		call(t, w, s, "answer", "conversation_answer", args)
+		call(t, w, s, "no_such_conversation", "conversation_answer", answer(w, uuid.NewString(), m1, "Yes.", 1))
 		call(t, w, s, "inbox", "conversation_inbox", inCourseArgs(w))
 		call(t, w, s, "memberships", "me_memberships", map[string]any{})
 		call(t, w, s, "mine", "action_list_mine", inCourseArgs(w))
+		w.setTutorLevel("autonomous")
+		call(t, w, s, "replay_after_restored", "conversation_answer", args)
+		wantStatus(t, call(t, w, s, "next_attempt", "conversation_answer", answer(w, conv, m1, "Yes.", 2)), "executed")
 	}},
 	{name: "denied_paused", about: "§2.4 denied: the seat paused, every call denied and every perm shown denied", run: func(t *testing.T, w world, s *steps) {
 		conv, m1 := w.ask(0, "Is there a lecture on Monday?")
@@ -481,7 +539,10 @@ var scenarios = []scenario{
 		call(t, w, s, "replay", "conversation_answer", args)
 		call(t, w, s, "events", "event_list", inCourseArgs(w, "since_seq", 0))
 		page := call(t, w, s, "events_page_1", "event_list", inCourseArgs(w, "since_seq", 0, "limit", 2))
-		next, _ := page.Structured["next_seq"].(json.Number)
+		next, ok := resultOf(page, "next_seq").(json.Number)
+		if !ok || next == "0" {
+			t.Fatalf("events_page_1 gave no next_seq: %s", page.Body)
+		}
 		call(t, w, s, "events_page_2", "event_list", inCourseArgs(w, "since_seq", next, "limit", 2))
 		call(t, w, s, "mine", "action_list_mine", inCourseArgs(w))
 		call(t, w, s, "messages", "conversation_messages", inCourseArgs(w, "conversation_id", conv))
@@ -533,7 +594,7 @@ var scenarios = []scenario{
 		}
 		s.http("revoked_token", a)
 	}},
-	{name: "rate_limited", about: "429 with Retry-After and details.retry_after_seconds, at Core's default limit (600 a minute, bursts of 100)", rateLimited: true,
+	{name: "rate_limited", about: "429 with Retry-After and details.retry_after_seconds, at Core's default limit (600 a minute, bursts of 100); REST shares the allowance", rateLimited: true,
 		run: func(t *testing.T, w world, s *steps) {
 			ctx := context.Background()
 			for i := range 300 {
@@ -543,6 +604,11 @@ var scenarios = []scenario{
 				}
 				if a.Status == http.StatusTooManyRequests {
 					s.http("limited", a.httpAnswer)
+					r, err := w.rest().do(ctx, "GET", "/v1/me", nil, "")
+					if err != nil {
+						t.Fatal(err)
+					}
+					s.rest("limited_over_rest", "GET", "/v1/me", nil, r)
 					return
 				}
 				if i == 299 {
@@ -600,6 +666,269 @@ var scenarios = []scenario{
 			t.Fatal(err)
 		}
 		s.rest("unauthenticated", "GET", "/v1/me", nil, a)
+	}},
+	{name: "inbox_order", about: "the inbox over several conversations: longest waiting first by the opener's last message, limits, and a conversation leaving and coming back", run: func(t *testing.T, w world, s *steps) {
+		a, _ := w.ask(0, "A1: when is the first lab?")
+		b, b1 := w.ask(1, "B1: is there a reading list?")
+		w.ask(0, "C1: a separate question: may I audit the course?")
+		call(t, w, s, "inbox", "conversation_inbox", inCourseArgs(w))
+		call(t, w, s, "inbox_limit_2", "conversation_inbox", inCourseArgs(w, "limit", 2))
+		w.followUp(a, "A2: and the second one?")
+		call(t, w, s, "inbox_after_a_follow_up", "conversation_inbox", inCourseArgs(w))
+		wantStatus(t, call(t, w, s, "answer_b", "conversation_answer", answer(w, b, b1, "Yes, on the course page.", 1)), "executed")
+		call(t, w, s, "inbox_after_an_answer", "conversation_inbox", inCourseArgs(w))
+		w.followUp(b, "B2: thanks; and is the exam open book?")
+		call(t, w, s, "inbox_after_b2", "conversation_inbox", inCourseArgs(w))
+		call(t, w, s, "inbox_limit_1", "conversation_inbox", inCourseArgs(w, "limit", 1))
+		call(t, w, s, "inbox_limit_0", "conversation_inbox", inCourseArgs(w, "limit", 0))
+		call(t, w, s, "inbox_limit_negative", "conversation_inbox", inCourseArgs(w, "limit", -1))
+		call(t, w, s, "inbox_limit_over_100", "conversation_inbox", inCourseArgs(w, "limit", 101))
+	}},
+	{name: "mine_paging", about: "action_list_mine: the seat's own actions oldest first, a page of limit with next, after, exclude_types", run: func(t *testing.T, w world, s *steps) {
+		c1, m1 := w.ask(0, "Q1: is the lab at nine?")
+		c2, m2 := w.ask(1, "Q2: is the lab at ten?")
+		wantStatus(t, call(t, w, s, "answer_1", "conversation_answer", answer(w, c1, m1, "Yes.", 1)), "executed")
+		wantStatus(t, call(t, w, s, "answer_2", "conversation_answer", answer(w, c2, m2, "No, at nine.", 1)), "executed")
+		wantStatus(t, call(t, w, s, "close_1", "conversation_close", inCourseArgs(w, "conversation_id", c1, "idempotency_key", "close:"+c1)), "executed")
+		w.setTutorLevel("denied")
+		wantStatus(t, call(t, w, s, "denied_2", "conversation_answer", answer(w, c2, m2, "At nine.", 2)), "denied")
+		w.setTutorLevel("autonomous")
+		all := call(t, w, s, "all", "action_list_mine", inCourseArgs(w))
+		page := call(t, w, s, "page_1", "action_list_mine", inCourseArgs(w, "limit", 2))
+		next, _ := resultOf(page, "next").(string)
+		if next == "" {
+			t.Fatalf("a full page without next: %s", page.Body)
+		}
+		page = call(t, w, s, "page_2", "action_list_mine", inCourseArgs(w, "limit", 2, "after", next))
+		if next, _ = resultOf(page, "next").(string); next == "" {
+			t.Fatalf("a full page without next: %s", page.Body)
+		}
+		call(t, w, s, "page_3", "action_list_mine", inCourseArgs(w, "limit", 2, "after", next))
+		actions, _ := resultOf(all, "actions").([]any)
+		if len(actions) != 4 {
+			t.Fatalf("%d actions, want 4: %s", len(actions), all.Body)
+		}
+		last, _ := actions[3].(map[string]any)["id"].(string)
+		call(t, w, s, "after_the_last", "action_list_mine", inCourseArgs(w, "after", last))
+		call(t, w, s, "exclude_answers", "action_list_mine", inCourseArgs(w, "exclude_types", []string{"conversation.answer"}))
+		call(t, w, s, "limit_over_200", "action_list_mine", inCourseArgs(w, "limit", 201))
+	}},
+	{name: "approved_after_moving_on", about: "proposals to a question and to its follow-up: the old one refused when proposed again, failed when approved, the new one executed; replays of both", run: func(t *testing.T, w world, s *steps) {
+		w.setTutorLevel("confirm_required")
+		conv, m1 := w.ask(0, "Is the essay due on Monday?")
+		old := answer(w, conv, m1, "Yes, Monday.", 1)
+		p1 := call(t, w, s, "propose_old", "conversation_answer", old)
+		wantStatus(t, p1, "proposed")
+		m2 := w.followUp(conv, "Sorry: the long essay, not the short one?")
+		call(t, w, s, "inbox_after_follow_up", "conversation_inbox", inCourseArgs(w))
+		call(t, w, s, "get_after_follow_up", "conversation_get", inCourseArgs(w, "conversation_id", conv))
+		call(t, w, s, "propose_old_again", "conversation_answer", answer(w, conv, m1, "Yes, Monday, I said.", 2))
+		newer := answer(w, conv, m2, "The long one is due on Friday.", 1)
+		p2 := call(t, w, s, "propose_new", "conversation_answer", newer)
+		wantStatus(t, p2, "proposed")
+		call(t, w, s, "get_with_new_pending", "conversation_get", inCourseArgs(w, "conversation_id", conv))
+		call(t, w, s, "inbox_with_new_pending", "conversation_inbox", inCourseArgs(w))
+		w.approve(p1.str("action_id"))
+		call(t, w, s, "replay_old", "conversation_answer", old)
+		w.approve(p2.str("action_id"))
+		call(t, w, s, "replay_new", "conversation_answer", newer)
+		call(t, w, s, "replay_old_again", "conversation_answer", old)
+		call(t, w, s, "events", "event_list", inCourseArgs(w, "since_seq", 0))
+		call(t, w, s, "mine", "action_list_mine", inCourseArgs(w))
+		call(t, w, s, "messages", "conversation_messages", inCourseArgs(w, "conversation_id", conv))
+	}},
+	{name: "closed_pending", about: "a proposal whose conversation its opener closed: the approval fails closed, and so does its replay", run: func(t *testing.T, w world, s *steps) {
+		w.setTutorLevel("confirm_required")
+		conv, m1 := w.ask(0, "Can I swap my lab slot?")
+		args := answer(w, conv, m1, "Yes, through the form.", 1)
+		p := call(t, w, s, "propose", "conversation_answer", args)
+		wantStatus(t, p, "proposed")
+		w.closeAsOpener(conv, "Sorted it out")
+		call(t, w, s, "get_closed", "conversation_get", inCourseArgs(w, "conversation_id", conv))
+		w.approve(p.str("action_id"))
+		call(t, w, s, "replay", "conversation_answer", args)
+		call(t, w, s, "events", "event_list", inCourseArgs(w, "since_seq", 0))
+	}},
+	{name: "staff_retract", about: "a message retracted by staff who oversee the opener: the question and the agent's answer; an answer to a retracted question; refusals to others", run: func(t *testing.T, w world, s *steps) {
+		conv, m1 := w.ask(0, "Is HW1 marked on style?")
+		a := call(t, w, s, "answer", "conversation_answer", answer(w, conv, m1, "Partly.", 1))
+		wantStatus(t, a, "executed")
+		mine := a.str("result", "message_id")
+		m2 := w.followUp(conv, "And on comments?")
+		mori, ken := w.as("mori"), w.as("ken")
+		wantStatus(t, callAs(t, mori, s, "staff_retracts_the_question", "conversation_retract",
+			inCourseArgs(w, "message_id", m2, "reason", "Posted in the wrong course", "idempotency_key", "retract:"+m2)), "executed")
+		call(t, w, s, "inbox", "conversation_inbox", inCourseArgs(w))
+		wantStatus(t, callAs(t, mori, s, "staff_retracts_the_answer", "conversation_retract",
+			inCourseArgs(w, "message_id", mine, "reason", "Inaccurate", "idempotency_key", "retract:"+mine)), "executed")
+		call(t, w, s, "messages", "conversation_messages", inCourseArgs(w, "conversation_id", conv))
+		call(t, w, s, "get", "conversation_get", inCourseArgs(w, "conversation_id", conv))
+		call(t, w, s, "events", "event_list", inCourseArgs(w, "since_seq", 0))
+		call(t, w, s, "answer_the_retracted_question", "conversation_answer", answer(w, conv, m2, "Comments count too.", 1))
+		callAs(t, ken, s, "another_student_retracts", "conversation_retract", inCourseArgs(w, "message_id", m1, "idempotency_key", "retract:"+m1))
+		callAs(t, ken, s, "another_student_reads", "conversation_get", inCourseArgs(w, "conversation_id", conv))
+		callAs(t, mori, s, "staff_reads", "conversation_messages", inCourseArgs(w, "conversation_id", conv))
+	}},
+	{name: "retracted_pending", about: "the question an answer waits on is retracted: the inbox leaves it out, the view still waits, and approval posts the answer", run: func(t *testing.T, w world, s *steps) {
+		w.setTutorLevel("confirm_required")
+		conv, m1 := w.ask(0, "Can I bring notes to the exam?")
+		args := answer(w, conv, m1, "One sheet of notes.", 1)
+		p := call(t, w, s, "propose", "conversation_answer", args)
+		wantStatus(t, p, "proposed")
+		w.retract(m1, "Found it in the syllabus")
+		call(t, w, s, "inbox", "conversation_inbox", inCourseArgs(w))
+		call(t, w, s, "get", "conversation_get", inCourseArgs(w, "conversation_id", conv))
+		w.approve(p.str("action_id"))
+		call(t, w, s, "replay", "conversation_answer", args)
+		call(t, w, s, "messages", "conversation_messages", inCourseArgs(w, "conversation_id", conv))
+	}},
+	{name: "events_visibility", about: "event_list for those who do not take part: a student, a decider, the agents; conversations read by others", run: func(t *testing.T, w world, s *steps) {
+		x, x1 := w.ask(0, "X: when are office hours?")
+		wantStatus(t, call(t, w, s, "answer_x", "conversation_answer", answer(w, x, x1, "Tuesdays at two.", 1)), "executed")
+		y, y1 := w.ask(1, "Y: is the lab compulsory?")
+		w.setTutorLevel("confirm_required")
+		wantStatus(t, call(t, w, s, "propose_y", "conversation_answer", answer(w, y, y1, "Yes.", 1)), "proposed")
+		ken, mori := w.as("ken"), w.as("mori")
+		callAs(t, ken, s, "student_events", "event_list", inCourseArgs(w, "since_seq", 0))
+		callAs(t, mori, s, "decider_events", "event_list", inCourseArgs(w, "since_seq", 0))
+		tutor := call(t, w, s, "tutor_events", "event_list", inCourseArgs(w, "since_seq", 0))
+		callAs(t, ken, s, "student_reads_another", "conversation_messages", inCourseArgs(w, "conversation_id", x))
+		callAs(t, ken, s, "student_inbox", "conversation_inbox", inCourseArgs(w))
+		own := w.ownAgent()
+		z, _ := w.askOwn("Z: what did I get on HW1?")
+		callAs(t, own, s, "own_agent_events", "event_list", inCourseArgs(w, "since_seq", 0))
+		callAs(t, own, s, "own_agent_reads_the_tutors", "conversation_get", inCourseArgs(w, "conversation_id", x))
+		call(t, w, s, "tutor_events_after", "event_list", inCourseArgs(w, "since_seq", resultOf(tutor, "next_seq")))
+		call(t, w, s, "tutor_reads_the_own_agents", "conversation_get", inCourseArgs(w, "conversation_id", z))
+	}},
+	{name: "delegate_others", about: "a student's own agent asked by someone other than its principal, and each agent at a conversation not addressed to it", run: func(t *testing.T, w world, s *steps) {
+		own, seat := w.ownAgent(), w.ownSeat()
+		callAs(t, w.as("ken"), s, "another_student_asks_it", "conversation_open",
+			inCourseArgs(w, "respondent_member_id", seat, "body", "Hi, can you help me too?", "idempotency_key", "open:"+seat))
+		callAs(t, w.as("mori"), s, "an_instructor_asks_it", "conversation_open",
+			inCourseArgs(w, "respondent_member_id", seat, "body", "Hello, how is Yuki doing?", "idempotency_key", "open:"+seat))
+		x, x1 := w.ask(0, "X: for the tutor")
+		callAs(t, own, s, "own_agent_answers_the_tutors", "conversation_answer", answer(w, x, x1, "I will.", 1))
+		callAs(t, own, s, "own_agent_inbox", "conversation_inbox", inCourseArgs(w))
+		z, z1 := w.askOwn("Z: for my own agent")
+		call(t, w, s, "tutor_answers_the_own_agents", "conversation_answer", answer(w, z, z1, "I will.", 1))
+		call(t, w, s, "tutor_inbox", "conversation_inbox", inCourseArgs(w))
+		callAs(t, own, s, "own_agent_closes_the_tutors", "conversation_close", inCourseArgs(w, "conversation_id", x, "idempotency_key", "close:"+x))
+		callAs(t, own, s, "own_agent_in_reply_to_its_own", "conversation_answer", answer(w, z, x1, "Wrong question.", 1))
+	}},
+	{name: "tutor_scope", about: "an instructor's tutor listed for one student: another student may not address it, the listed one may; what it may read", run: func(t *testing.T, w world, s *steps) {
+		seat, lab := w.listedTutor(0)
+		callAs(t, w.as("ken"), s, "outside_its_scope", "conversation_open",
+			inCourseArgs(w, "respondent_member_id", seat, "body", "Can you check my lab report?", "idempotency_key", "open:"+seat))
+		opened := callAs(t, w.as("yuki"), s, "within_its_scope", "conversation_open",
+			inCourseArgs(w, "respondent_member_id", seat, "body", "Can you check my lab report?", "idempotency_key", "open:"+seat))
+		wantStatus(t, opened, "executed")
+		callAs(t, lab, s, "memberships", "me_memberships", map[string]any{})
+		callAs(t, lab, s, "inbox", "conversation_inbox", inCourseArgs(w))
+		callShape(t, lab, s, "gradebook_in_scope", "gradebook_get", inCourseArgs(w, "student_member_id", w.studentSeat(0)))
+		callAs(t, lab, s, "gradebook_out_of_scope", "gradebook_get", inCourseArgs(w, "student_member_id", w.studentSeat(1)))
+		callAs(t, lab, s, "submissions", "submission_list", inCourseArgs(w))
+	}},
+	{name: "principal_paused", about: "§2.4 denied: the agent's principal paused, every call of the seat denied (principal_not_active); its opener may no longer address it", run: func(t *testing.T, w world, s *steps) {
+		conv, m1 := w.ask(0, "Is the library open on Sunday?")
+		w.pausePrincipal()
+		call(t, w, s, "answer", "conversation_answer", answer(w, conv, m1, "Yes.", 1))
+		call(t, w, s, "inbox", "conversation_inbox", inCourseArgs(w))
+		call(t, w, s, "memberships", "me_memberships", map[string]any{})
+		call(t, w, s, "me", "me_get", map[string]any{})
+		callAs(t, w.as("yuki"), s, "opener_asks_again", "conversation_ask",
+			inCourseArgs(w, "conversation_id", conv, "body", "Hello?", "idempotency_key", "ask:"+conv))
+	}},
+	{name: "uppercase_ids", about: "ids sent in upper case: a proposal is kept as Core pins it, so answer_pending and the inbox still see it; a key reused in lower case is another call", run: func(t *testing.T, w world, s *steps) {
+		w.setTutorLevel("confirm_required")
+		conv, m1 := w.ask(0, "Is there a seminar this week?")
+		args := answer(w, conv, m1, "Yes, on Thursday.", 1)
+		args["conversation_id"], args["in_reply_to_message_id"] = strings.ToUpper(conv), strings.ToUpper(m1)
+		p := call(t, w, s, "propose", "conversation_answer", args)
+		wantStatus(t, p, "proposed")
+		call(t, w, s, "same_key_lower_case", "conversation_answer", answer(w, conv, m1, "Yes, on Thursday.", 1))
+		call(t, w, s, "second", "conversation_answer", answer(w, conv, m1, "Yes, Thursday.", 2))
+		call(t, w, s, "inbox", "conversation_inbox", inCourseArgs(w))
+		call(t, w, s, "get", "conversation_get", inCourseArgs(w, "conversation_id", conv))
+		call(t, w, s, "mine", "action_list_mine", inCourseArgs(w))
+		w.approve(p.str("action_id"))
+		call(t, w, s, "replay", "conversation_answer", args)
+		call(t, w, s, "messages", "conversation_messages", inCourseArgs(w, "conversation_id", strings.ToUpper(conv)))
+	}},
+	{name: "decide_own_party", about: "nobody decides their own agent's proposal: its owner is refused, the agent is denied, another instructor decides once", run: func(t *testing.T, w world, s *steps) {
+		w.setTutorLevel("confirm_required")
+		conv, m1 := w.ask(0, "May I submit HW1 late?")
+		args := answer(w, conv, m1, "Ask your instructor.", 1)
+		p := call(t, w, s, "propose", "conversation_answer", args)
+		wantStatus(t, p, "proposed")
+		id := p.str("action_id")
+		decide := func(decision string, key string, more ...any) map[string]any {
+			return inCourseArgs(w, append([]any{"action_id", id, "decision", decision, "idempotency_key", key}, more...)...)
+		}
+		sato, mori := w.as("sato"), w.as("mori")
+		callAs(t, sato, s, "its_owner_approves", "action_decide", decide("approve", "decide:"+id))
+		call(t, w, s, "the_agent_approves", "action_decide", decide("approve", "decide:"+id))
+		callAs(t, mori, s, "not_a_decision", "action_decide", decide("maybe", "decide:"+id+":0"))
+		wantStatus(t, callAs(t, mori, s, "another_rejects", "action_decide", decide("reject", "decide:"+id, "reason", "Say when the deadline is.")), "executed")
+		callAs(t, mori, s, "decided_again", "action_decide", decide("approve", "decide:"+id+":2"))
+		callAs(t, mori, s, "no_such_action", "action_decide", inCourseArgs(w, "action_id", uuid.NewString(), "decision", "approve",
+			"idempotency_key", "decide:"+id+":3"))
+		call(t, w, s, "replay", "conversation_answer", args)
+		call(t, w, s, "events", "event_list", inCourseArgs(w, "since_seq", 0))
+	}},
+	{name: "reviewed", about: "answers at pending_review reviewed after: escalated, reviewed, the refusals, and what the agent sees of it", run: func(t *testing.T, w world, s *steps) {
+		w.setTutorLevel("pending_review")
+		c1, m1 := w.ask(0, "Is the quiz on Friday?")
+		first := answer(w, c1, m1, "Yes, at noon.", 1)
+		a1 := call(t, w, s, "answer_1", "conversation_answer", first)
+		wantStatus(t, a1, "executed")
+		id1 := a1.str("action_id")
+		review := func(id, outcome, key string) map[string]any {
+			return inCourseArgs(w, "action_id", id, "outcome", outcome, "idempotency_key", key)
+		}
+		sato, mori := w.as("sato"), w.as("mori")
+		callAs(t, sato, s, "its_owner_reviews", "action_review", review(id1, "reviewed", "review:"+id1))
+		call(t, w, s, "the_agent_reviews", "action_review", review(id1, "reviewed", "review:"+id1))
+		callAs(t, mori, s, "not_an_outcome", "action_review", review(id1, "fine", "review:"+id1+":0"))
+		wantStatus(t, callAs(t, mori, s, "escalated", "action_review", review(id1, "escalated", "review:"+id1)), "executed")
+		callAs(t, mori, s, "escalated_again", "action_review", review(id1, "escalated", "review:"+id1+":2"))
+		callAs(t, mori, s, "closed_by_who_escalated", "action_review", review(id1, "reviewed", "review:"+id1+":3"))
+		call(t, w, s, "replay_1", "conversation_answer", first)
+		c2, m2 := w.ask(1, "Is the quiz open book?")
+		second := answer(w, c2, m2, "No.", 1)
+		a2 := call(t, w, s, "answer_2", "conversation_answer", second)
+		wantStatus(t, a2, "executed")
+		id2 := a2.str("action_id")
+		wantStatus(t, callAs(t, mori, s, "reviewed", "action_review", review(id2, "reviewed", "review:"+id2)), "executed")
+		callAs(t, mori, s, "reviewed_again", "action_review", review(id2, "reviewed", "review:"+id2+":2"))
+		call(t, w, s, "replay_2", "conversation_answer", second)
+		call(t, w, s, "events", "event_list", inCourseArgs(w, "since_seq", 0))
+		call(t, w, s, "mine", "action_list_mine", inCourseArgs(w))
+	}},
+	{name: "malformed", about: "arguments refused before anything is attempted: a key given twice, a number out of range, U+0000, not an object", run: func(t *testing.T, w world, s *steps) {
+		conv, m1 := w.ask(0, "Is the lab report due today?")
+		raw := func(format string, args ...any) json.RawMessage { return json.RawMessage(fmt.Sprintf(format, args...)) }
+		rawCall := func(name, tool string, args json.RawMessage) {
+			t.Helper()
+			a, err := w.agent().call(context.Background(), tool, args)
+			if err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			s.tool(name, tool, args, a)
+		}
+		rawCall("write_key_twice", "conversation_answer", raw(`{"course_id":%q,"conversation_id":%q,"in_reply_to_message_id":%q,"body":"Yes.","body":"No.","idempotency_key":"answer:%s:%s:1"}`,
+			w.course(), conv, m1, conv, m1))
+		rawCall("read_key_twice", "conversation_inbox", raw(`{"course_id":%q,"course_id":%q}`, w.course(), w.course()))
+		rawCall("number_out_of_range", "event_list", raw(`{"course_id":%q,"since_seq":1e500}`, w.course()))
+		rawCall("write_number_out_of_range", "conversation_close", raw(`{"course_id":%q,"conversation_id":%q,"reason":null,"x":1e-500,"idempotency_key":"close:%s"}`,
+			w.course(), conv, conv))
+		rawCall("nul", "conversation_answer", raw(`{"course_id":%q,"conversation_id":%q,"in_reply_to_message_id":%q,"body":"Yes.\u0000","idempotency_key":"answer:%s:%s:2"}`,
+			w.course(), conv, m1, conv, m1))
+		rawCall("write_not_an_object", "conversation_answer", raw(`[1]`))
+		rawCall("read_not_an_object", "conversation_inbox", raw(`[1]`))
+		rawCall("read_null", "me_get", raw(`null`))
+		rawCall("integer_as_fraction", "event_list", raw(`{"course_id":%q,"since_seq":1.5}`, w.course()))
+		rawCall("integer_written_as_a_float", "event_list", raw(`{"course_id":%q,"since_seq":1.0,"limit":1e1}`, w.course()))
 	}},
 }
 

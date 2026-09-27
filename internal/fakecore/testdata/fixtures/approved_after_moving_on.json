@@ -1,0 +1,614 @@
+{
+ "scenario": "approved_after_moving_on",
+ "steps": [
+  {
+   "args": {
+    "body": "Yes, Monday.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "action_id": "<id:4>",
+    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed.",
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "propose_old",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "conversations": [
+      {
+       "created_at": "<time>",
+       "id": "<id:1>",
+       "last_author_member_id": "<id:5>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:6>",
+       "opener": {
+        "display_name": "Yuki",
+        "kind": "human",
+        "member_id": "<id:5>"
+       },
+       "respondent": {
+        "answer_level": "confirm_required",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:7>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "inbox_after_follow_up",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "created_at": "<time>",
+     "id": "<id:1>",
+     "last_author_member_id": "<id:5>",
+     "last_message_at": "<time>",
+     "latest_opener_message_id": "<id:6>",
+     "opener": {
+      "display_name": "Yuki",
+      "kind": "human",
+      "member_id": "<id:5>"
+     },
+     "respondent": {
+      "answer_level": "confirm_required",
+      "display_name": "CS101 Tutor",
+      "is_delegate_of_opener": false,
+      "kind": "agent",
+      "last_seen_at": "<time>",
+      "member_id": "<id:7>",
+      "owner_name": "Sato",
+      "role": "assistant",
+      "seat_status": "active"
+     },
+     "state": "awaiting_answer",
+     "status": "open",
+     "visible_to": [
+      "participants",
+      "overseers",
+      "action_record",
+      "respondent_answers_others"
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "get_after_follow_up",
+   "text_is_envelope": true,
+   "tool": "conversation_get"
+  },
+  {
+   "args": {
+    "body": "Yes, Monday, I said.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:2",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "action_id": "<id:8>",
+    "error": {
+     "code": "conflict",
+     "details": {
+      "latest_opener_message_id": "<id:6>",
+      "reason": "moved_on"
+     },
+     "message": "the conversation moved on; answer the latest message"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "propose_old_again",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "The long one is due on Friday.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:6>:1",
+    "in_reply_to_message_id": "<id:6>"
+   },
+   "envelope": {
+    "action_id": "<id:9>",
+    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed.",
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "propose_new",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "created_at": "<time>",
+     "id": "<id:1>",
+     "last_author_member_id": "<id:5>",
+     "last_message_at": "<time>",
+     "latest_opener_message_id": "<id:6>",
+     "opener": {
+      "display_name": "Yuki",
+      "kind": "human",
+      "member_id": "<id:5>"
+     },
+     "pending_reply_action_id": "<id:9>",
+     "respondent": {
+      "answer_level": "confirm_required",
+      "display_name": "CS101 Tutor",
+      "is_delegate_of_opener": false,
+      "kind": "agent",
+      "last_seen_at": "<time>",
+      "member_id": "<id:7>",
+      "owner_name": "Sato",
+      "role": "assistant",
+      "seat_status": "active"
+     },
+     "state": "reply_pending_approval",
+     "status": "open",
+     "visible_to": [
+      "participants",
+      "overseers",
+      "action_record",
+      "respondent_answers_others"
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "get_with_new_pending",
+   "text_is_envelope": true,
+   "tool": "conversation_get"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "conversations": []
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "inbox_with_new_pending",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  },
+  {
+   "args": {
+    "body": "Yes, Monday.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "action_id": "<id:4>",
+    "error": {
+     "code": "conflict",
+     "details": {
+      "latest_opener_message_id": "<id:6>",
+      "reason": "moved_on"
+     },
+     "message": "the conversation moved on; answer the latest message"
+    },
+    "replayed": true,
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "replay_old",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "The long one is due on Friday.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:6>:1",
+    "in_reply_to_message_id": "<id:6>"
+   },
+   "envelope": {
+    "action_id": "<id:9>",
+    "replayed": true,
+    "result": {
+     "message_id": "<id:10>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "replay_new",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "Yes, Monday.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "action_id": "<id:4>",
+    "error": {
+     "code": "conflict",
+     "details": {
+      "latest_opener_message_id": "<id:6>",
+      "reason": "moved_on"
+     },
+     "message": "the conversation moved on; answer the latest message"
+    },
+    "replayed": true,
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "replay_old_again",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "since_seq": 0
+   },
+   "envelope": {
+    "result": {
+     "events": [
+      {
+       "action_id": "<id:11>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:1>",
+       "subject_id": "<id:2>",
+       "subject_type": "course",
+       "type": "course.created"
+      },
+      {
+       "action_id": "<id:12>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:2>",
+       "subject_id": "<id:2>",
+       "subject_type": "course",
+       "type": "course.activated"
+      },
+      {
+       "action_id": "<id:13>",
+       "occurred_at": "<time>",
+       "payload": {
+        "conversation_id": "<id:1>",
+        "opener_member_id": "<id:5>",
+        "respondent_member_id": "<id:7>"
+       },
+       "seq": "<seq:3>",
+       "subject_id": "<id:1>",
+       "subject_type": "conversation",
+       "type": "conversation.opened"
+      },
+      {
+       "action_id": "<id:13>",
+       "occurred_at": "<time>",
+       "payload": {
+        "author_member_id": "<id:5>",
+        "conversation_id": "<id:1>",
+        "message_id": "<id:3>",
+        "opener_member_id": "<id:5>",
+        "respondent_member_id": "<id:7>"
+       },
+       "seq": "<seq:4>",
+       "subject_id": "<id:1>",
+       "subject_type": "conversation",
+       "type": "conversation.message_posted"
+      },
+      {
+       "action_id": "<id:4>",
+       "occurred_at": "<time>",
+       "payload": {
+        "action_type": "conversation.answer",
+        "target_id": "<id:1>",
+        "target_type": "conversation"
+       },
+       "seq": "<seq:5>",
+       "subject_id": "<id:4>",
+       "subject_type": "action",
+       "type": "action.proposed"
+      },
+      {
+       "action_id": "<id:14>",
+       "occurred_at": "<time>",
+       "payload": {
+        "author_member_id": "<id:5>",
+        "conversation_id": "<id:1>",
+        "message_id": "<id:6>",
+        "opener_member_id": "<id:5>",
+        "respondent_member_id": "<id:7>"
+       },
+       "seq": "<seq:6>",
+       "subject_id": "<id:1>",
+       "subject_type": "conversation",
+       "type": "conversation.message_posted"
+      },
+      {
+       "action_id": "<id:9>",
+       "occurred_at": "<time>",
+       "payload": {
+        "action_type": "conversation.answer",
+        "target_id": "<id:1>",
+        "target_type": "conversation"
+       },
+       "seq": "<seq:7>",
+       "subject_id": "<id:9>",
+       "subject_type": "action",
+       "type": "action.proposed"
+      },
+      {
+       "action_id": "<id:4>",
+       "occurred_at": "<time>",
+       "payload": {
+        "action_type": "conversation.answer",
+        "by_action_id": "<id:15>",
+        "error": "conflict",
+        "outcome": "failed"
+       },
+       "seq": "<seq:8>",
+       "subject_id": "<id:4>",
+       "subject_type": "action",
+       "type": "action.approved"
+      },
+      {
+       "action_id": "<id:9>",
+       "occurred_at": "<time>",
+       "payload": {
+        "action_type": "conversation.answer",
+        "by_action_id": "<id:16>",
+        "outcome": "executed"
+       },
+       "seq": "<seq:9>",
+       "subject_id": "<id:9>",
+       "subject_type": "action",
+       "type": "action.approved"
+      },
+      {
+       "action_id": "<id:9>",
+       "occurred_at": "<time>",
+       "payload": {
+        "author_member_id": "<id:7>",
+        "conversation_id": "<id:1>",
+        "message_id": "<id:10>",
+        "opener_member_id": "<id:5>",
+        "respondent_member_id": "<id:7>"
+       },
+       "seq": "<seq:10>",
+       "subject_id": "<id:1>",
+       "subject_type": "conversation",
+       "type": "conversation.message_posted"
+      }
+     ],
+     "more": false,
+     "next_seq": "<seq:10>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "events",
+   "text_is_envelope": true,
+   "tool": "event_list"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "actions": [
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:17>",
+       "authz_result": "confirm_required",
+       "created_at": "<time>",
+       "decided_at": "<time>",
+       "decided_by_member_id": "<id:18>",
+       "id": "<id:4>",
+       "member_id": "<id:7>",
+       "payload": {
+        "body": "Yes, Monday.",
+        "conversation_id": "<id:1>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:3>"
+       },
+       "result": {
+        "error": {
+         "code": "conflict",
+         "details": {
+          "latest_opener_message_id": "<id:6>",
+          "reason": "moved_on"
+         },
+         "message": "the conversation moved on; answer the latest message"
+        }
+       },
+       "review_state": "none",
+       "status": "failed",
+       "target_id": "<id:1>",
+       "target_type": "conversation"
+      },
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:17>",
+       "authz_result": "confirm_required",
+       "created_at": "<time>",
+       "id": "<id:8>",
+       "member_id": "<id:7>",
+       "payload": {
+        "body": "Yes, Monday, I said.",
+        "conversation_id": "<id:1>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:3>"
+       },
+       "result": {
+        "error": {
+         "code": "conflict",
+         "details": {
+          "latest_opener_message_id": "<id:6>",
+          "reason": "moved_on"
+         },
+         "message": "the conversation moved on; answer the latest message"
+        }
+       },
+       "review_state": "none",
+       "status": "failed",
+       "target_id": "<id:1>",
+       "target_type": "conversation"
+      },
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:17>",
+       "authz_result": "confirm_required",
+       "created_at": "<time>",
+       "decided_at": "<time>",
+       "decided_by_member_id": "<id:18>",
+       "executed_at": "<time>",
+       "id": "<id:9>",
+       "member_id": "<id:7>",
+       "payload": {
+        "body": "The long one is due on Friday.",
+        "conversation_id": "<id:1>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:6>"
+       },
+       "result": {
+        "message_id": "<id:10>"
+       },
+       "review_state": "none",
+       "status": "executed",
+       "target_id": "<id:1>",
+       "target_type": "conversation"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "mine",
+   "text_is_envelope": true,
+   "tool": "action_list_mine"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "conversation": {
+      "created_at": "<time>",
+      "id": "<id:1>",
+      "last_author_member_id": "<id:7>",
+      "last_message_at": "<time>",
+      "latest_opener_message_id": "<id:6>",
+      "opener": {
+       "display_name": "Yuki",
+       "kind": "human",
+       "member_id": "<id:5>"
+      },
+      "respondent": {
+       "answer_level": "confirm_required",
+       "display_name": "CS101 Tutor",
+       "is_delegate_of_opener": false,
+       "kind": "agent",
+       "last_seen_at": "<time>",
+       "member_id": "<id:7>",
+       "owner_name": "Sato",
+       "role": "assistant",
+       "seat_status": "active"
+      },
+      "state": "answered",
+      "status": "open"
+     },
+     "messages": [
+      {
+       "author_member_id": "<id:5>",
+       "body": "Is the essay due on Monday?",
+       "created_at": "<time>",
+       "id": "<id:3>",
+       "seq": 1
+      },
+      {
+       "author_member_id": "<id:5>",
+       "body": "Sorry: the long essay, not the short one?",
+       "created_at": "<time>",
+       "id": "<id:6>",
+       "seq": 2
+      },
+      {
+       "author_member_id": "<id:7>",
+       "body": "The long one is due on Friday.",
+       "created_at": "<time>",
+       "id": "<id:10>",
+       "in_reply_to_message_id": "<id:6>",
+       "seq": 3
+      }
+     ],
+     "more": false
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "messages",
+   "text_is_envelope": true,
+   "tool": "conversation_messages"
+  }
+ ]
+}

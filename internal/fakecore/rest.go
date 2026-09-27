@@ -26,6 +26,10 @@ const (
 	maxRESTBody          = 1 << 20
 )
 
+// schemaVersion is the database schema of the Core the catalogue was taken
+// from, which Core's /healthz reports.
+const schemaVersion = 8
+
 // blobPath is where the files document_get points at are served, as Core's
 // own file store serves them.
 const blobPath = "/v1/blobs/"
@@ -33,7 +37,8 @@ const blobPath = "/v1/blobs/"
 func (c *Core) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "version": Version, "commit": Version})
+		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "version": Version, "commit": Version,
+			"schema_version": schemaVersion, "schema_latest": schemaVersion})
 	})
 	mux.HandleFunc("GET /v1/tools", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

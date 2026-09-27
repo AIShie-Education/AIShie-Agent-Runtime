@@ -24,21 +24,24 @@ var showFake = flag.Bool("show-fake", false, "print the fake's normalized record
 // Core: Sato (instructor, the tutor's owner), Mori (a second instructor),
 // Yuki and Ken (students), and Sato's course tutor.
 type fakeWorld struct {
-	t      *testing.T
-	fc     *Core
-	srv    *httptest.Server
-	co     Course
-	sato   Member
-	mori   Member
-	tutorA Actor
-	tutorM Member
-	agentC *mcpClient
-	opener map[string]int
-	author map[string]int
-	people []Actor
-	seats  []Member
-	own    *mcpClient
-	ownM   Member
+	t       *testing.T
+	fc      *Core
+	srv     *httptest.Server
+	co      Course
+	satoA   Actor
+	moriA   Actor
+	sato    Member
+	mori    Member
+	tutorA  Actor
+	tutorM  Member
+	agentC  *mcpClient
+	opener  map[string]int
+	author  map[string]int
+	people  []Actor
+	seats   []Member
+	own     *mcpClient
+	ownM    Member
+	clients map[string]*mcpClient
 }
 
 func newFakeWorld(t *testing.T, o Options) *fakeWorld {
@@ -46,7 +49,7 @@ func newFakeWorld(t *testing.T, o Options) *fakeWorld {
 	fc := New(o)
 	srv := httptest.NewServer(fc.Handler())
 	t.Cleanup(srv.Close)
-	w := &fakeWorld{t: t, fc: fc, srv: srv, opener: map[string]int{}, author: map[string]int{}}
+	w := &fakeWorld{t: t, fc: fc, srv: srv, opener: map[string]int{}, author: map[string]int{}, clients: map[string]*mcpClient{}}
 	w.co = fc.AddCourse("CS101")
 	must := func(m Member, err error) Member {
 		t.Helper()
@@ -55,17 +58,17 @@ func newFakeWorld(t *testing.T, o Options) *fakeWorld {
 		}
 		return m
 	}
-	sato := fc.AddPerson("Sato")
-	w.sato = must(fc.Seat(sato.ID, w.co.ID, SeatOptions{Preset: "instructor"}))
-	mori := fc.AddPerson("Mori")
-	w.mori = must(fc.Seat(mori.ID, w.co.ID, SeatOptions{Preset: "instructor"}))
+	w.satoA = fc.AddPerson("Sato")
+	w.sato = must(fc.Seat(w.satoA.ID, w.co.ID, SeatOptions{Preset: "instructor"}))
+	w.moriA = fc.AddPerson("Mori")
+	w.mori = must(fc.Seat(w.moriA.ID, w.co.ID, SeatOptions{Preset: "instructor"}))
 	for _, name := range []string{"Yuki", "Ken"} {
 		p := fc.AddPerson(name)
 		w.people = append(w.people, p)
 		w.seats = append(w.seats, must(fc.Seat(p.ID, w.co.ID, SeatOptions{Preset: "student"})))
 	}
 	var err error
-	if w.tutorA, err = fc.AddAgent("CS101 Tutor", sato.ID); err != nil {
+	if w.tutorA, err = fc.AddAgent("CS101 Tutor", w.satoA.ID); err != nil {
 		t.Fatal(err)
 	}
 	w.tutorM = must(fc.Seat(w.tutorA.ID, w.co.ID, SeatOptions{Preset: "course_tutor", Principal: w.sato.ID}))
@@ -147,10 +150,46 @@ func (w *fakeWorld) ownAgent() *mcpClient {
 	return w.own
 }
 
-func (w *fakeWorld) ownAgentSeat() string {
+func (w *fakeWorld) ownSeat() string {
 	w.ownAgent()
 	return w.ownM.ID
 }
+
+func (w *fakeWorld) client(token string) *mcpClient {
+	w.t.Helper()
+	c := newMCPClient(w.srv.URL, token, w.srv.Client())
+	if h, err := c.initialize(context.Background()); err != nil || h.Status != 200 {
+		w.t.Fatalf("initialize: %v %d %s", err, h.Status, h.Body)
+	}
+	return c
+}
+
+func (w *fakeWorld) as(who string) *mcpClient {
+	w.t.Helper()
+	if c := w.clients[who]; c != nil {
+		return c
+	}
+	actors := map[string]Actor{"sato": w.satoA, "mori": w.moriA, "yuki": w.people[0], "ken": w.people[1]}
+	a, ok := actors[who]
+	if !ok {
+		w.t.Fatalf("nobody called %q in this world", who)
+	}
+	w.clients[who] = w.client(a.Token)
+	return w.clients[who]
+}
+
+func (w *fakeWorld) listedTutor(student int) (string, *mcpClient) {
+	w.t.Helper()
+	a, err := w.fc.AddAgent("Lab Tutor", w.satoA.ID)
+	w.ok(err)
+	yes := true
+	m, err := w.fc.Seat(a.ID, w.co.ID, SeatOptions{Preset: "tutor", Principal: w.sato.ID, StudentScope: scopeListed,
+		ListedStudents: []string{w.seats[student].ID}, AnswersCourse: &yes})
+	w.ok(err)
+	return m.ID, w.client(a.Token)
+}
+
+func (w *fakeWorld) pausePrincipal() { w.t.Helper(); w.ok(w.fc.PauseSeat(w.sato.ID)) }
 
 func (w *fakeWorld) askOwn(body string) (string, string) {
 	w.t.Helper()
@@ -254,4 +293,12 @@ func TestFixturesAreNormalized(t *testing.T) {
 			t.Errorf("%s: %v", f, err)
 		}
 	}
+}
+
+// httptestServer serves fc for the length of the test, and says where.
+func httptestServer(t *testing.T, fc *Core) string {
+	t.Helper()
+	srv := httptest.NewServer(fc.Handler())
+	t.Cleanup(srv.Close)
+	return srv.URL
 }

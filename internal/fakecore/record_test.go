@@ -161,6 +161,7 @@ type liveWorld struct {
 	lc       *liveCore
 	courseID string
 	sato     person
+	satoM    string
 	tutor    person
 	tokenID  string
 	tutorM   string
@@ -171,12 +172,14 @@ type liveWorld struct {
 	author   map[string]int
 	own      *mcpClient
 	ownM     string
+	clients  map[string]*mcpClient
 }
 
 func (lc *liveCore) newWorld(t *testing.T) *liveWorld {
 	lc.n++
 	lc.t = t
-	w := &liveWorld{t: t, lc: lc, opener: map[string]int{}, author: map[string]int{}, people: []person{lc.yuki, lc.ken}}
+	w := &liveWorld{t: t, lc: lc, opener: map[string]int{}, author: map[string]int{}, people: []person{lc.yuki, lc.ken},
+		clients: map[string]*mcpClient{}}
 	term := str(lc.result(lc.admin, "POST", "/v1/terms", map[string]any{"name": fmt.Sprintf("Recording %d %s", lc.n, uuid.NewString()[:8]),
 		"starts_on": "2026-09-01", "ends_on": "2026-12-20"}), "id")
 	w.courseID = str(lc.result(lc.admin, "POST", "/v1/courses", map[string]any{"dept_id": lc.dept, "term_id": term, "code": "CS101",
@@ -184,7 +187,7 @@ func (lc *liveCore) newWorld(t *testing.T) *liveWorld {
 	c := "/v1/courses/" + w.courseID
 	lc.result(lc.admin, "POST", c+"/activate", map[string]any{})
 	w.sato = lc.register("Sato")
-	lc.result(lc.admin, "POST", c+"/instructors", map[string]any{"actor_id": w.sato.id})
+	w.satoM = str(lc.result(lc.admin, "POST", c+"/instructors", map[string]any{"actor_id": w.sato.id}), "member_id")
 	lc.result(lc.admin, "POST", c+"/instructors", map[string]any{"actor_id": lc.mori.id})
 	for _, p := range w.people {
 		w.seats = append(w.seats, str(lc.result(w.sato.token, "POST", c+"/members", map[string]any{"actor_id": p.id, "preset": "student"}), "member_id"))
@@ -300,6 +303,51 @@ func (w *liveWorld) ownAgent() *mcpClient {
 		w.t.Fatalf("initialize: %v %d %s", err, h.Status, h.Body)
 	}
 	return w.own
+}
+
+func (w *liveWorld) ownSeat() string {
+	w.ownAgent()
+	return w.ownM
+}
+
+// as is a person of the world over MCP, with their own token.
+func (w *liveWorld) as(who string) *mcpClient {
+	w.t.Helper()
+	if c := w.clients[who]; c != nil {
+		return c
+	}
+	tokens := map[string]string{"sato": w.sato.token, "mori": w.lc.mori.token, "yuki": w.people[0].token, "ken": w.people[1].token}
+	token, ok := tokens[who]
+	if !ok {
+		w.t.Fatalf("nobody called %q in this world", who)
+	}
+	c := newMCPClient(w.lc.base, token, w.lc.hc)
+	if h, err := c.initialize(context.Background()); err != nil || h.Status != http.StatusOK {
+		w.t.Fatalf("initialize as %s: %v %d %s", who, err, h.Status, h.Body)
+	}
+	w.clients[who] = c
+	return c
+}
+
+// listedTutor is a second agent of Sato's, seated with member.add_delegate
+// as an instructor seats a tutor for some students.
+func (w *liveWorld) listedTutor(student int) (string, *mcpClient) {
+	w.t.Helper()
+	id := str(w.lc.result(w.sato.token, "POST", "/v1/me/agents", map[string]any{"display_name": "Lab Tutor"}), "actor_id")
+	token := str(w.lc.result(w.sato.token, "POST", "/v1/me/agents/"+id+"/tokens", map[string]any{"label": "runtime"}), "token")
+	seat := str(w.lc.result(w.sato.token, "POST", w.path("/delegates"), map[string]any{"actor_id": id, "preset": "tutor",
+		"student_scope": "listed", "listed_students": []string{w.seats[student]}, "answers_course": true}), "member_id")
+	c := newMCPClient(w.lc.base, token, w.lc.hc)
+	if h, err := c.initialize(context.Background()); err != nil || h.Status != http.StatusOK {
+		w.t.Fatalf("initialize: %v %d %s", err, h.Status, h.Body)
+	}
+	return seat, c
+}
+
+// pausePrincipal is Mori, the other instructor, pausing Sato's seat.
+func (w *liveWorld) pausePrincipal() {
+	w.t.Helper()
+	w.lc.result(w.lc.mori.token, "POST", w.path("/members/"+w.satoM+"/pause"), map[string]any{})
 }
 
 func (w *liveWorld) askOwn(body string) (string, string) {

@@ -195,9 +195,12 @@ func decodeNumbers(b []byte, v any) error {
 // ---------------------------------------------------------------------------
 
 var (
-	uuidRE  = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
+	uuidRE  = regexp.MustCompile(`(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
 	timeRE  = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$`)
 	tokenRE = regexp.MustCompile(`ais_[A-Za-z0-9_-]+`)
+	// goTypeRE is the name of a Go type that encoding/json puts in the
+	// message of a value it cannot decode: Core's input type, or the fake's.
+	goTypeRE = regexp.MustCompile(`Go struct field [A-Za-z0-9_]+\.`)
 )
 
 // longText is where a string is too long to keep in a fixture as it is:
@@ -206,10 +209,11 @@ const longText = 16384
 
 // normalizer replaces what differs between two runs of one scenario with
 // placeholders stable within one file: every UUID by <id:n> in the order
-// first met, timestamps by <time>, tokens by <token>, the feed's sequence
-// numbers by <seq:n>, and long text by its length. Objects are walked in
-// the order of their sorted keys, so the numbering depends only on what the
-// file holds.
+// first met (written in upper case, <ID:n> with its lower case's n),
+// timestamps by <time>, tokens by <token>, the feed's sequence numbers by
+// <seq:n>, long text by its length, and the Go type a message names by
+// <type>. Objects are walked in the order of their sorted keys, so the
+// numbering depends only on what the file holds.
 type normalizer struct {
 	ids  map[string]string
 	seqs map[string]string
@@ -260,12 +264,17 @@ func (z *normalizer) text(s string) string {
 		return fmt.Sprintf("<text:%d chars>", utf8.RuneCountInString(s))
 	}
 	s = tokenRE.ReplaceAllString(s, "<token>")
+	s = goTypeRE.ReplaceAllString(s, "Go struct field <type>.")
 	return uuidRE.ReplaceAllStringFunc(s, func(id string) string {
-		if p, ok := z.ids[id]; ok {
-			return p
+		lower := strings.ToLower(id)
+		p, ok := z.ids[lower]
+		if !ok {
+			p = fmt.Sprintf("<id:%d>", len(z.ids)+1)
+			z.ids[lower] = p
 		}
-		p := fmt.Sprintf("<id:%d>", len(z.ids)+1)
-		z.ids[id] = p
+		if id != lower {
+			return strings.Replace(p, "<id:", "<ID:", 1)
+		}
 		return p
 	})
 }
