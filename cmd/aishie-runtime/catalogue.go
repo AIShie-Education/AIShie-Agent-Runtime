@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/version"
@@ -36,9 +38,21 @@ func cmdCatalogue(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	if err := fs.Parse(args); err != nil || fs.NArg() > 0 || *base == "" {
 		return usageError(stderr, "catalogue takes --core URL, and --check FILE and --write FILE")
 	}
+	if err := coreURL(*base); err != nil {
+		return usageError(stderr, "--core: %v", err)
+	}
+	// The snapshot is read before anything is written, so that --check and
+	// --write of one file compare with what the file held.
+	var want string
+	if *check != "" {
+		var err error
+		if want, err = snapshotHash(*check); err != nil {
+			return failure(stderr, "--check: %s", printable(err.Error()))
+		}
+	}
 	raw, cat, err := fetchCatalogue(ctx, strings.TrimRight(*base, "/"))
 	if err != nil {
-		return failure(stderr, "%v", err)
+		return failure(stderr, "%s", printable(err.Error()))
 	}
 	_, _ = fmt.Fprintf(stdout, "%s  %d tools, %s\n", cat.Hash(), cat.Len(), *base)
 	if *write != "" {
@@ -48,10 +62,6 @@ func cmdCatalogue(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	}
 	if *check == "" {
 		return exitOK
-	}
-	want, err := snapshotHash(*check)
-	if err != nil {
-		return failure(stderr, "--check: %v", err)
 	}
 	if want != cat.Hash() {
 		return failure(stderr, "Core's catalogue has changed: its hash is %s, and %s's is %s. "+
@@ -92,6 +102,35 @@ func fetchCatalogue(ctx context.Context, base string) ([]byte, *core.Catalogue, 
 		return nil, nil, err
 	}
 	return raw, cat, nil
+}
+
+// coreURL checks that base is the base URL of a Core: http or https, a
+// host, and no user, query or fragment, which a path is appended to.
+func coreURL(base string) error {
+	u, err := url.Parse(base)
+	switch {
+	case err != nil:
+		return errors.New("not a URL")
+	case u.Scheme != "http" && u.Scheme != "https":
+		return errors.New("not an http or https URL")
+	case u.Host == "":
+		return errors.New("no host")
+	case u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.ForceQuery:
+		return errors.New("a base URL has no user, query or fragment")
+	}
+	return nil
+}
+
+// printable is s with every control character (a server's terminal escape
+// sequences among them) replaced by "?": an error may quote what a server
+// sent.
+func printable(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || r == unicode.ReplacementChar {
+			return '?'
+		}
+		return r
+	}, s)
 }
 
 // snapshotHash is the hash a file gives: a catalogue's, or a hash written

@@ -11,7 +11,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -33,9 +32,8 @@ const childArgs = "AISHIE_RUNTIME_TEST_ARGS"
 
 func TestMain(m *testing.M) {
 	if args := os.Getenv(childArgs); args != "" {
-		sigs := make(chan os.Signal, 4)
-		signal.Notify(sigs, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
-		os.Exit(run(context.Background(), strings.Fields(args), os.Getenv, os.Stdout, os.Stderr, sigs))
+		ctx, sigs := signals(strings.Fields(args))
+		os.Exit(run(ctx, strings.Fields(args), os.Getenv, os.Stdout, os.Stderr, sigs))
 	}
 	os.Exit(m.Run())
 }
@@ -186,6 +184,7 @@ type liveWorld struct {
 	config  string
 	secrets string
 	llm     *fakellm.Server
+	coreURL string
 }
 
 func newLiveWorld(t *testing.T) *liveWorld {
@@ -193,7 +192,7 @@ func newLiveWorld(t *testing.T) *liveWorld {
 	fc, srv := fakeCore(t)
 	model := fakellm.New(fakellm.DefaultResponder).Start()
 	t.Cleanup(model.Close)
-	w := &liveWorld{fc: fc, co: fc.AddCourse("CS101"), llm: model}
+	w := &liveWorld{fc: fc, co: fc.AddCourse("CS101"), llm: model, coreURL: srv.URL}
 	must := func(m fakecore.Member, err error) fakecore.Member {
 		t.Helper()
 		if err != nil {
@@ -443,5 +442,171 @@ func TestMigrate(t *testing.T) {
 	}
 	if code, out, errs := runCmd(t, getenv, "migrate", "down", "--yes"); code != exitOK || !strings.Contains(out, "schema version 0 (older") {
 		t.Errorf("migrate down: %d\n%s%s", code, out, errs)
+	}
+}
+
+// TestCatalogueMeetsWhatIsNotACore: --core must be a Core's base URL; an
+// answer that is not a catalogue, or too large to be one, fails without
+// letting the server write to the terminal; and --check and --write of one
+// file compare with what it held before.
+func TestCatalogueMeetsWhatIsNotACore(t *testing.T) {
+	for _, u := range []string{"ftp://core.example", "core.example", "https://", "https://u:p@core.example",
+		"https://core.example/?x=1", "https://core.example/#f"} {
+		if code, out, errs := runCmd(t, env(), "catalogue", "--core", u); code != exitUsage {
+			t.Errorf("--core %s: %d\n%s%s", u, code, out, errs)
+		}
+	}
+
+	hostile := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"tools":[{"name":"x\u001b[2Jy","kind":"read"},{"name":"x\u001b[2Jy","kind":"read"}]}`)
+	}))
+	t.Cleanup(hostile.Close)
+	code, out, errs := runCmd(t, env(), "catalogue", "--core", hostile.URL)
+	if code != exitFailure || strings.ContainsRune(out+errs, 0x1b) || !strings.Contains(errs, "twice") {
+		t.Errorf("a hostile catalogue: %d %q %q", code, out, errs)
+	}
+
+	huge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"tools":[`)
+		chunk := strings.Repeat(" ", 1<<20)
+		for range maxCatalogueBytes>>20 + 1 {
+			if _, err := io.WriteString(w, chunk); err != nil {
+				return
+			}
+		}
+	}))
+	t.Cleanup(huge.Close)
+	if code, out, errs := runCmd(t, env(), "catalogue", "--core", huge.URL); code != exitFailure || !strings.Contains(errs, "larger than a catalogue") {
+		t.Errorf("a huge answer: %d %s%s", code, out, errs)
+	}
+
+	_, srv := fakeCore(t)
+	same := filepath.Join(t.TempDir(), "catalogue.sha256")
+	if err := os.WriteFile(same, []byte(strings.Repeat("0", 64)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errs = runCmd(t, env(), "catalogue", "--core", srv.URL, "--check", same, "--write", same)
+	if code != exitFailure || !strings.Contains(errs, "Core's catalogue has changed") {
+		t.Errorf("--check and --write of one file: %d\n%s%s", code, out, errs)
+	}
+	if h, err := snapshotHash(same); err != nil || h != worker.SnapshotCatalogueHash {
+		t.Errorf("the file written hashes %s, %v", h, err)
+	}
+}
+
+// child runs the test binary as the runtime, with args, and collects its
+// standard error.
+func child(t *testing.T, args string, extraEnv ...string) (*exec.Cmd, *lines, <-chan error) {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	cmd.Env = append(append(os.Environ(), childArgs+"="+args), extraEnv...)
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	out := &lines{}
+	exited := make(chan error, 1)
+	go func() {
+		out.read(stderr)
+		exited <- cmd.Wait()
+	}()
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
+	return cmd, out, exited
+}
+
+// hanging is a server that takes every request and never answers it, and
+// says when one arrives.
+func hanging(t *testing.T) (*httptest.Server, <-chan struct{}) {
+	t.Helper()
+	reached := make(chan struct{}, 16)
+	done := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case reached <- struct{}{}:
+		default:
+		}
+		select {
+		case <-r.Context().Done():
+		case <-done:
+		}
+	}))
+	t.Cleanup(srv.Close)
+	t.Cleanup(func() { close(done) })
+	return srv, reached
+}
+
+func waitExit(t *testing.T, exited <-chan error, within time.Duration, out *lines) error {
+	t.Helper()
+	select {
+	case err := <-exited:
+		return err
+	case <-time.After(within):
+		t.Fatalf("the runtime did not exit within %s:\n%s", within, out.text())
+	}
+	return nil
+}
+
+// TestInterruptStopsACommand: SIGINT stops a command other than run that
+// waits on a server that never answers, as it would a program without
+// handlers of its own.
+func TestInterruptStopsACommand(t *testing.T) {
+	srv, reached := hanging(t)
+	cmd, out, exited := child(t, "catalogue --core "+srv.URL)
+	select {
+	case <-reached:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the catalogue was never asked for")
+	}
+	if err := cmd.Process.Signal(os.Interrupt); err != nil {
+		t.Fatal(err)
+	}
+	err := waitExit(t, exited, 5*time.Second, out)
+	if code := cmd.ProcessState.ExitCode(); err == nil || code != exitFailure {
+		t.Errorf("exit %d (%v):\n%s", code, err, out.text())
+	}
+}
+
+// TestSecondSignalStopsAtOnce: run, stopping, gives an answer in progress
+// SHUTDOWN_GRACE; a second SIGTERM stops it at once, exiting 1.
+func TestSecondSignalStopsAtOnce(t *testing.T) {
+	w := newLiveWorld(t)
+	model, reached := hanging(t)
+	yaml := fmt.Sprintf(`agent:
+  id: own
+  display_name: "Yuki's helper"
+  core: {base_url: %q, token_ref: "secret://agents/own/token"}
+  model: {adapter: openai_chat, model: fake-model, base_url: %q}
+  polling: {inbox_hot_s: 0.02, inbox_idle_s: 0.05, inbox_max_s: 0.1, events_s: 0.1, memberships_s: 1, assumed_core_rate_per_min: 600000}
+`, w.coreURL, model.URL+"/v1")
+	if err := os.WriteFile(filepath.Join(w.config, "own.yaml"), []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(w.config, "tutor.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	cmd, out, exited := child(t, "run", "CONFIG="+w.config, "SECRETS_DIR="+w.secrets, "HTTP_ADDR=127.0.0.1:0",
+		"LOG_FORMAT=json", "SHUTDOWN_GRACE=60s", "DATABASE_URL=", "WORKER_ID=child")
+	out.wait(t, `"msg":"aishie-runtime started"`)
+	if _, _, err := w.fc.Ask(w.co.ID, w.yuki.ID, w.own.ID, "Will you finish?"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-reached:
+	case <-time.After(20 * time.Second):
+		t.Fatalf("the model was never called:\n%s", out.text())
+	}
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	out.wait(t, `"msg":"stopping"`)
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	err := waitExit(t, exited, 5*time.Second, out)
+	if code := cmd.ProcessState.ExitCode(); err == nil || code != exitFailure || !strings.Contains(out.text(), "stopping at once") {
+		t.Errorf("exit %d (%v):\n%s", code, err, out.text())
 	}
 }

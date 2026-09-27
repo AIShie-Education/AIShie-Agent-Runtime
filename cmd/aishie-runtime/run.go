@@ -24,8 +24,10 @@ import (
 const stopMargin = 5 * time.Second
 
 // cmdRun is `aishie-runtime run`: the worker, and its HTTP endpoints,
-// until SIGINT or SIGTERM. SIGHUP reads the configuration again; a
-// configuration that does not load is logged, and the one running stays.
+// until SIGINT or SIGTERM, after which answers in progress are given
+// SHUTDOWN_GRACE (and a second SIGINT or SIGTERM stops it at once). SIGHUP
+// reads the configuration again; a configuration that does not load is
+// logged, and the one running stays.
 func cmdRun(ctx context.Context, args []string, getenv func(string) string, stderr io.Writer, sigs <-chan os.Signal) int {
 	if len(args) > 0 {
 		return usageError(stderr, "run takes no arguments; it is configured by its environment")
@@ -109,11 +111,25 @@ wait:
 		}
 	}
 	cancel()
-	select {
-	case <-supDone:
-	case <-time.After(env.ShutdownGrace + stopMargin):
-		log.Error("the worker did not stop within SHUTDOWN_GRACE", "grace", env.ShutdownGrace.String())
-		return exitFailure
+	deadline := time.NewTimer(env.ShutdownGrace + stopMargin)
+	defer deadline.Stop()
+stopping:
+	for {
+		select {
+		case <-supDone:
+			break stopping
+		case sig := <-sigs:
+			if sig == syscall.SIGHUP {
+				continue
+			}
+			// Answers still in progress are cut short; what they wrote
+			// ahead is sent again by the worker that runs them next.
+			log.Error("stopping at once: a second signal", "signal", sig.String())
+			return exitFailure
+		case <-deadline.C:
+			log.Error("the worker did not stop within SHUTDOWN_GRACE", "grace", env.ShutdownGrace.String())
+			return exitFailure
+		}
 	}
 	if err := <-srvDone; err != nil && code == exitOK {
 		log.Error("the HTTP server did not stop cleanly", "err", err)
