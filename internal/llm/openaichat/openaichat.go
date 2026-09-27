@@ -99,7 +99,7 @@ func New(cfg llm.Config) (*Adapter, error) {
 		dialect:  dialect,
 		params:   cfg.Params,
 		effort:   strings.TrimSpace(cfg.Reasoning.Effort),
-		client:   withStatusFix(cfg.HTTPClient),
+		client:   cfg.HTTPClient,
 		key:      cfg.APIKey,
 	}, nil
 }

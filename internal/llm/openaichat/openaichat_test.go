@@ -500,38 +500,3 @@ func TestConcurrentCalls(t *testing.T) {
 		t.Errorf("%d requests", len(reqs))
 	}
 }
-
-func TestStringifyStatus(t *testing.T) {
-	for _, c := range []struct {
-		in, out string
-		ok      bool
-	}{
-		{`{"error":{"code":"x","status":400}}`, `{"error":{"code":"x","status":"400"}}`, true},
-		{`{"error":{"code":"x","status":"400"}}`, ``, false},
-		{`{"error":{"code":"x"}}`, ``, false},
-		{`{"error":"text"}`, ``, false},
-		{`not json`, ``, false},
-	} {
-		out, ok := stringifyStatus([]byte(c.in))
-		if ok != c.ok || string(out) != c.out {
-			t.Errorf("stringifyStatus(%s) = %s, %v", c.in, out, ok)
-		}
-	}
-}
-
-func TestStatusFixLeavesOtherAnswersAlone(t *testing.T) {
-	big := `{"error":{"status":400,"message":"` + strings.Repeat("x", maxErrorBody) + `"}}`
-	ts, _ := server(t, http.StatusBadRequest, nil, big)
-	a, err := New(cfg(ts.URL, "gpt-4.1"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = a.Call(context.Background(), &llm.Request{Messages: []llm.Message{question()}})
-	var e *llm.Error
-	if !errors.As(err, &e) || e.Kind != llm.ErrBadRequest || e.Status != 400 {
-		t.Errorf("a large error body: %v", err)
-	}
-	if c := withStatusFix(&http.Client{Timeout: time.Second}); c.Timeout != time.Second || c.Transport == nil {
-		t.Errorf("the client's settings were not kept: %+v", c)
-	}
-}
