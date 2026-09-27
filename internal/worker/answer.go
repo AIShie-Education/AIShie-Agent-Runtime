@@ -255,6 +255,10 @@ func (c *claim) generate(ctx context.Context, r passResult, read *core.Messages,
 	case end.fatal != nil:
 		if isUnauthenticated(end.fatal) {
 			c.a.stop(core.ErrUnauthenticated)
+		} else {
+			// The claim's time ran out, or the agent is stopping: the
+			// next claim, if any, is not at once.
+			c.s.holdBack(c.conv, c.a.now().Add(c.a.s.o.Timing.RetryLater), "the answer ran out of time")
 		}
 		r.outcome = store.OutcomeError
 		return r

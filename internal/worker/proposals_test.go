@@ -210,7 +210,9 @@ func TestActionsCursorWaitsForProposals(t *testing.T) {
 		w.ok(err)
 		return c
 	}
-	if c := cursor(); c == "" || c >= p3.ActionID {
+	// The cursor is saved when the round of events that read it ends.
+	eventually(t, "the actions cursor saved", func() bool { return cursor() != "" })
+	if c := cursor(); c >= p3.ActionID {
 		t.Errorf("the cursor %q is not before the proposal waiting, %s", c, p3.ActionID)
 	}
 	_, err := w.fc.Approve(p3.ActionID)

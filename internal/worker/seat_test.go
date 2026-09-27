@@ -210,8 +210,14 @@ func TestRateLimitedSlowsTheAgent(t *testing.T) {
 	if until := *wk.sup.Status()[0].SlowUntil; time.Until(until) < Slowdown-time.Minute {
 		t.Errorf("slowed until %s", until)
 	}
+	// Retrying tells the agent before it waits.
+	eventually(t, "the wait", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(waits) > 0
+	})
 	mu.Lock()
-	if len(waits) == 0 || waits[0] < 7*time.Second {
+	if waits[0] < 7*time.Second {
 		t.Errorf("waited %v, want Retry-After's 7 s", waits)
 	}
 	mu.Unlock()

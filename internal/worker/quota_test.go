@@ -71,6 +71,7 @@ func TestQuotaSilent(t *testing.T) {
 		st := wk.sup.Status()
 		return len(st) == 1 && len(st[0].Seats) == 1 && st[0].Seats[0].HeldBack == 1
 	})
+	eventually(t, "the question's row in the ledger", func() bool { return len(wk.st.outcomes(c2)) == 1 })
 	time.Sleep(100 * time.Millisecond)
 	if n := len(w.answers(c2)); n != 0 {
 		t.Errorf("%d answers posted", n)
