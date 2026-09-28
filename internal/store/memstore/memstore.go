@@ -49,6 +49,7 @@ type Store struct {
 	rev      int64
 	audit    []store.AuditEvent
 	auditID  int64
+	ocr      map[string]store.OCRText
 }
 
 type lease struct {
@@ -99,6 +100,7 @@ func New() *Store {
 		people:   map[string]store.Person{},
 		hosted:   map[string]store.HostedAgent{},
 		courses:  map[seatKey]store.HostedCourse{},
+		ocr:      map[string]store.OCRText{},
 	}
 }
 

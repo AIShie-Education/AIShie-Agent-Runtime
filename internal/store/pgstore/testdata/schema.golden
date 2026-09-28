@@ -122,6 +122,18 @@ note.kind text not null
 note.text text not null
 note.message_id text
 note.created_at timestamp with time zone not null
+ocr_text.sum text not null
+ocr_text.status text not null
+ocr_text.kind text not null
+ocr_text.text text not null default ''::text
+ocr_text.pages integer not null default 0
+ocr_text.pages_of integer not null default 0
+ocr_text.sections jsonb not null default '[]'::jsonb
+ocr_text.notes jsonb not null default '[]'::jsonb
+ocr_text.reason text not null default ''::text
+ocr_text.engine text not null default ''::text
+ocr_text.duration_ms bigint not null default 0
+ocr_text.created_at timestamp with time zone not null default now()
 person.core_actor_id text not null
 person.display_name text not null
 person.platform_role text not null
@@ -174,6 +186,12 @@ hosted_course hosted_course_settings_object CHECK ((jsonb_typeof(settings) = 'ob
 lease lease_pkey PRIMARY KEY (name)
 llm_call llm_call_pkey PRIMARY KEY (agent_id, id)
 note note_pkey PRIMARY KEY (id)
+ocr_text ocr_text_kind_check CHECK ((kind = ANY (ARRAY['pdf'::text, 'image'::text])))
+ocr_text ocr_text_pages_check CHECK ((pages >= 0))
+ocr_text ocr_text_pages_of_check CHECK ((pages_of >= 0))
+ocr_text ocr_text_pkey PRIMARY KEY (sum)
+ocr_text ocr_text_status_check CHECK ((status = ANY (ARRAY['done'::text, 'failed'::text])))
+ocr_text ocr_text_sum_check CHECK ((sum ~ '^sha256:[0-9a-f]{64}$'::text))
 person person_pkey PRIMARY KEY (core_actor_id)
 registry_rev registry_rev_one_row CHECK (one)
 registry_rev registry_rev_pkey PRIMARY KEY (one)
@@ -213,6 +231,8 @@ CREATE UNIQUE INDEX llm_call_pkey ON public.llm_call USING btree (agent_id, id)
 CREATE INDEX llm_call_tenant_idx ON public.llm_call USING btree (tenant_id, at)
 CREATE INDEX note_conversation_idx ON public.note USING btree (agent_id, member_id, conversation_id, created_at)
 CREATE UNIQUE INDEX note_pkey ON public.note USING btree (id)
+CREATE INDEX ocr_text_by_age ON public.ocr_text USING btree (status, created_at)
+CREATE UNIQUE INDEX ocr_text_pkey ON public.ocr_text USING btree (sum)
 CREATE UNIQUE INDEX person_pkey ON public.person USING btree (core_actor_id)
 CREATE UNIQUE INDEX registry_rev_pkey ON public.registry_rev USING btree (one)
 CREATE INDEX seat_gone_idx ON public.seat USING btree (gone_at) WHERE (gone_at IS NOT NULL)
