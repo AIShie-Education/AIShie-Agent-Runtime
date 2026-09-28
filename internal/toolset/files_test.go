@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/doctext"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/doctext/doctexttest"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
 )
 
@@ -23,6 +25,37 @@ const signature = "X-Amz-Signature=5ecre7"
 const markdown = "# Week 1\n\nRead chapter 2 <before> the lab & bring \"questions\".\n"
 
 var pdf = append([]byte("%PDF-1.7\n"), bytes.Repeat([]byte{0xE2, 0x00, 0x9F}, 100)...)
+
+// Course documents as the model's reads find them, each at a path of the
+// file server, with the content type it serves: slides, a handout, a
+// workbook, PDFs that read and PDFs that do not.
+var (
+	deck = doctexttest.PPTX(
+		doctexttest.Slide{Title: "Week 3: Sorting", Body: []doctexttest.Bullet{{Text: "Merge sort splits the list in two"}}, Images: 1},
+		doctexttest.Slide{Title: "Complexity", Chart: "n log n", Notes: "Draw the recursion tree."},
+	)
+	handout = doctexttest.DOCX(doctexttest.Doc{Blocks: []doctexttest.Block{{Text: "Lab 3", Heading: 1}, {Text: "Bring a laptop.", List: "bullet"}}})
+	grades  = doctexttest.XLSX(doctexttest.Sheet{Name: "Quiz", Rows: [][]any{{"Question", "Points"}, {"Q1", 5}}})
+	reading = doctexttest.PDF(doctexttest.PDFPage{Lines: []string{"Reading 3: sorting"}, CJK: []string{"第三週：排序"}},
+		doctexttest.PDFPage{Lines: []string{"Merge sort is stable."}})
+	scanned  = doctexttest.PDF(doctexttest.PDFPage{Image: true}, doctexttest.PDFPage{Image: true})
+	garbled  = doctexttest.PDFWith(doctexttest.PDFOptions{BrokenToUnicode: true}, doctexttest.PDFPage{CJK: []string{"期中考範圍：第一章到第五章，含習題"}})
+	locked   = doctexttest.PDFWith(doctexttest.PDFOptions{Encrypt: "aes256", UserPassword: "secret"}, doctexttest.PDFPage{Lines: []string{"x"}})
+	cfb      = append([]byte{0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1}, make([]byte, 504)...)
+	password = append(append([]byte(nil), cfb...), []byte("E\x00n\x00c\x00r\x00y\x00p\x00t\x00e\x00d\x00P\x00a\x00c\x00k\x00a\x00g\x00e\x00")...)
+	served   = map[string]struct {
+		ct   string
+		data []byte
+	}{
+		"/deck.pptx": {doctexttest.PPTXType, deck}, "/deck": {"", deck}, "/deck.bin": {"application/octet-stream", deck},
+		"/handout.docx": {doctexttest.DOCXType, handout}, "/grades.xlsx": {doctexttest.XLSXType, grades},
+		"/reading.pdf": {"application/pdf", reading}, "/scanned.pdf": {"application/pdf", scanned},
+		"/garbled.pdf": {"application/pdf", garbled}, "/locked.pdf": {"application/pdf", locked},
+		"/old.doc": {"application/msword", cfb}, "/old": {"", cfb}, "/secret.docx": {doctexttest.DOCXType, password},
+		"/archive.zip": {"application/zip", doctexttest.Zip([2]string{"readme.txt", "hello"})},
+		"/photo.png":   {"image/png", []byte("\x89PNG\r\n\x1a\n")},
+	}
+)
 
 // fileServer serves the files a document_get's download_url points at, and
 // counts what it is asked for.
@@ -70,7 +103,15 @@ func newFileServer(t *testing.T) *fileServer {
 		case "/expired.pdf":
 			http.Error(w, "expired", http.StatusForbidden)
 		default:
-			http.NotFound(w, r)
+			f, ok := served[r.URL.Path]
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			if f.ct != "" {
+				w.Header().Set("Content-Type", f.ct)
+			}
+			_, _ = w.Write(f.data)
 		}
 	}))
 	t.Cleanup(fs.Close)
@@ -113,24 +154,81 @@ func TestRunFiles(t *testing.T) {
 		title, ct   string
 		size        int
 		fileInput   bool
+		pdfLimits   llm.FileLimits
+		docLimits   doctext.Limits
 		noFetcher   bool
 		maxFile     int64
 		givenAs     string
 		note        string
 		fetched     bool
 		wantText    string
+		textHas     []string
 		wantFile    bool
 		contentType string
+		extracted   string
 	}{
 		{name: "markdown is given as text", path: "/notes.md", title: "Week 1", ct: "text/markdown", size: len(markdown),
 			givenAs: givenText, fetched: true, wantText: markdown, contentType: "text/markdown"},
 		{name: "a PDF is a file part where the model takes files", path: "/syllabus.pdf", title: "Syllabus", ct: "application/pdf",
 			size: len(pdf), fileInput: true, givenAs: givenFile, fetched: true, wantFile: true, contentType: "application/pdf"},
-		{name: "a PDF is not given where the model takes no files", path: "/syllabus.pdf", title: "Syllabus", ct: "application/pdf",
-			size: len(pdf), givenAs: givenNot, note: "this model does not take files", contentType: "application/pdf"},
-		{name: "a type the runtime does not read is not fetched", path: "/notes.docx", title: "Notes",
-			ct: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", size: 10, fileInput: true,
-			givenAs: givenNot, note: "files are not read here"},
+		{name: "a PDF within its provider's limits is a file part", path: "/reading.pdf", title: "Reading", ct: "application/pdf",
+			size: len(reading), fileInput: true, pdfLimits: llm.FileLimits{PDFBytes: 1 << 20, PDFPages: 2}, givenAs: givenFile, fetched: true,
+			wantFile: true, contentType: "application/pdf"},
+		{name: "a PDF's text, where the model takes no files", path: "/reading.pdf", title: "Reading", ct: "application/pdf",
+			size: len(reading), givenAs: givenText, fetched: true, extracted: "pdf", note: "the runtime's text of its 2 pages",
+			wantText: "## Page 1\nReading 3: sorting\n第三週：排序\n\n## Page 2\nMerge sort is stable.", contentType: "application/pdf"},
+		{name: "a PDF of more pages than its provider takes is given as its text", path: "/reading.pdf", title: "Reading", ct: "application/pdf",
+			size: len(reading), fileInput: true, pdfLimits: llm.FileLimits{PDFPages: 1}, givenAs: givenText, fetched: true, extracted: "pdf",
+			note: "since it has 2 pages, more than the 1 this model takes in a file", textHas: []string{"第三週：排序", "## Page 2"}},
+		{name: "a PDF larger than its provider takes is given as its text", path: "/reading.pdf", title: "Reading", ct: "application/pdf",
+			size: len(reading), fileInput: true, pdfLimits: llm.FileLimits{PDFBytes: 100}, givenAs: givenText, fetched: true, extracted: "pdf",
+			note: "more than the 100 bytes this model takes as a file", textHas: []string{"Merge sort is stable."}},
+		{name: "a scanned PDF is a file part where the model takes files", path: "/scanned.pdf", title: "Scan", ct: "application/pdf",
+			size: len(scanned), fileInput: true, pdfLimits: llm.FileLimits{PDFPages: 10}, givenAs: givenFile, fetched: true, wantFile: true},
+		{name: "a scanned PDF is not given where the model takes no files", path: "/scanned.pdf", title: "Scan", ct: "application/pdf",
+			size: len(scanned), givenAs: givenNot, fetched: true,
+			note: "this model does not take files, and the PDF has no text to read: it looks scanned, or like pictures of text; ask for a version with selectable text"},
+		{name: "a scanned PDF of more pages than its provider takes is not given", path: "/scanned.pdf", title: "Scan", ct: "application/pdf",
+			size: len(scanned), fileInput: true, pdfLimits: llm.FileLimits{PDFPages: 1}, givenAs: givenNot, fetched: true,
+			note: "it has 2 pages, more than the 1 this model takes in a file, and the PDF has no text to read"},
+		{name: "a PDF whose fonts do not map is a file part where the model takes files", path: "/garbled.pdf", title: "Midterm", ct: "application/pdf",
+			size: len(garbled), fileInput: true, pdfLimits: llm.FileLimits{PDFPages: 10}, givenAs: givenFile, fetched: true, wantFile: true},
+		{name: "a PDF whose fonts do not map is not given where the model takes no files", path: "/garbled.pdf", title: "Midterm", ct: "application/pdf",
+			size: len(garbled), givenAs: givenNot, fetched: true,
+			note: "this model does not take files, and the PDF's text cannot be read: its fonts do not map to text; ask for a version with selectable text"},
+		{name: "a PDF that needs a password is given to no model", path: "/locked.pdf", title: "Answers", ct: "application/pdf",
+			size: len(locked), fileInput: true, pdfLimits: llm.FileLimits{PDFPages: 10}, givenAs: givenNot, fetched: true, note: "password-protected"},
+		{name: "a PDF that does not read is not given where the model takes no files", path: "/syllabus.pdf", title: "Syllabus", ct: "application/pdf",
+			size: len(pdf), givenAs: givenNot, fetched: true, note: "it could not be read", contentType: "application/pdf"},
+		{name: "a PowerPoint deck is given as the runtime's text of it", path: "/deck.pptx", title: "Week 3", ct: doctexttest.PPTXType,
+			size: len(deck), givenAs: givenText, fetched: true, extracted: "pptx",
+			note:     "the runtime's text of its 2 slides, with their speaker notes; its 1 image and 1 chart are only named, as [image] and [chart]",
+			wantText: "## Slide 1: Week 3: Sorting\n- Merge sort splits the list in two\n[image]\n\n## Slide 2: Complexity\n[chart: n log n]\nNotes: Draw the recursion tree."},
+		{name: "a deck to a model that takes files is text all the same", path: "/deck.pptx", title: "Week 3", ct: doctexttest.PPTXType,
+			size: len(deck), fileInput: true, givenAs: givenText, fetched: true, extracted: "pptx", note: "2 slides", textHas: []string{"Merge sort"}},
+		{name: "a Word document", path: "/handout.docx", title: "Lab 3", ct: doctexttest.DOCXType, size: len(handout), givenAs: givenText,
+			fetched: true, extracted: "docx", note: "the runtime's text of the document", wantText: "# Lab 3\n\n- Bring a laptop."},
+		{name: "an Excel workbook", path: "/grades.xlsx", title: "Quiz", ct: doctexttest.XLSXType, size: len(grades), givenAs: givenText,
+			fetched: true, extracted: "xlsx", note: "the runtime's text of its 1 sheet", wantText: "## Sheet 1: Quiz\nQuestion,Points\nQ1,5"},
+		{name: "a deck of no recorded type is known by what it holds", path: "/deck", title: "Week 3", size: len(deck), givenAs: givenText,
+			fetched: true, extracted: "pptx", note: "2 slides", textHas: []string{"Merge sort"}, contentType: doctexttest.PPTXType},
+		{name: "a deck recorded as an octet stream is known by what it holds", path: "/deck.bin", title: "Week 3", ct: "application/octet-stream",
+			size: len(deck), givenAs: givenText, fetched: true, extracted: "pptx", note: "2 slides", textHas: []string{"Complexity"},
+			contentType: doctexttest.PPTXType},
+		{name: "a zip that is no Office file is not given", path: "/archive.zip", title: "Files", ct: "application/zip", size: 100,
+			givenAs: givenNot, fetched: true, note: "application/zip files are not read here", contentType: "application/zip"},
+		{name: "an older Word file is not fetched", path: "/old.doc", title: "Old notes", ct: "application/msword", size: len(cfb),
+			givenAs: givenNot, note: "an older Office format (.ppt, .doc or .xls) that the runtime cannot read; ask for it as .pptx, .docx or .xlsx, or as a PDF"},
+		{name: "an older Office file of no recorded type", path: "/old", title: "Old notes", size: len(cfb), givenAs: givenNot, fetched: true,
+			note: "an older Office format"},
+		{name: "a Word document encrypted with a password", path: "/secret.docx", title: "Key", ct: doctexttest.DOCXType, size: len(password),
+			givenAs: givenNot, fetched: true, note: "it is password-protected; ask for a copy without a password"},
+		{name: "a document past what the runtime reads of one", path: "/deck.pptx", title: "Week 3", ct: doctexttest.PPTXType, size: len(deck),
+			docLimits: doctext.Limits{MaxTokens: 50}, givenAs: givenNot, fetched: true, note: "larger or more complex than the runtime reads"},
+		{name: "an image is not fetched for a model that takes no files", path: "/photo.png", title: "Photo", ct: "image/png", size: 8,
+			givenAs: givenNot, note: "this model does not take files"},
+		{name: "a type the runtime does not read is not fetched", path: "/talk.mp3", title: "Talk", ct: "audio/mpeg", size: 10,
+			fileInput: true, givenAs: givenNot, note: "audio/mpeg files are not read here"},
 		{name: "a file Core says is too large is not fetched", path: "/big.pdf", title: "Big", ct: "application/pdf",
 			size: 5000, fileInput: true, maxFile: 4096, givenAs: givenNot, note: "larger than the 4096 bytes the runtime reads"},
 		{name: "a file larger than Core said is refused as it is read", path: "/big.pdf", title: "Big", ct: "application/pdf",
@@ -155,7 +253,7 @@ func TestRunFiles(t *testing.T) {
 				}
 				return executed(`{"id":"c"}`), nil
 			}}
-			r := Runner{Client: core.NewClient(f), FileInput: tc.fileInput, MaxFileBytes: tc.maxFile}
+			r := Runner{Client: core.NewClient(f), FileInput: tc.fileInput, PDFLimits: tc.pdfLimits, MaxFileBytes: tc.maxFile, DocLimits: tc.docLimits}
 			if !tc.noFetcher {
 				r.Files = NewHTTPFetcher(fs.Client())
 			}
@@ -184,13 +282,23 @@ func TestRunFiles(t *testing.T) {
 			if tc.contentType != "" && rec["content_type"] != tc.contentType {
 				t.Errorf("content_type %v, want %s", rec["content_type"], tc.contentType)
 			}
+			if got, _ := rec["extracted_from"].(string); got != tc.extracted {
+				t.Errorf("extracted_from %q, want %q", got, tc.extracted)
+			}
 			note, _ := rec["note"].(string)
 			if tc.note != "" && !strings.Contains(note, tc.note) || tc.note == "" && note != "" {
 				t.Errorf("note %q, want one saying %q", note, tc.note)
 			}
 			text, _ := contentOf(t, parts[0])["file_text"].(string)
-			if text != tc.wantText {
-				t.Errorf("file_text %q, want %q", text, tc.wantText)
+			if tc.wantText != "" || tc.textHas == nil {
+				if text != tc.wantText {
+					t.Errorf("file_text %q, want %q", text, tc.wantText)
+				}
+			}
+			for _, want := range tc.textHas {
+				if !strings.Contains(text, want) {
+					t.Errorf("file_text %q, want it to hold %q", text, want)
+				}
 			}
 			// The results come first, in call order; then the files.
 			wantParts := 2
@@ -203,14 +311,42 @@ func TestRunFiles(t *testing.T) {
 			if tc.wantFile {
 				fp := parts[2]
 				if fp.Type != llm.PartFile || fp.File == nil || fp.File.MIME != "application/pdf" ||
-					fp.File.Name != "Syllabus.pdf" || !bytes.Equal(fp.File.Data, pdf) {
+					fp.File.Name != tc.title+".pdf" || int(rec["byte_size"].(float64)) != len(fp.File.Data) {
 					t.Errorf("file part %+v", fp)
-				}
-				if rec["byte_size"] != float64(len(pdf)) {
-					t.Errorf("byte_size %v, want %d", rec["byte_size"], len(pdf))
 				}
 			}
 		})
+	}
+}
+
+// TestRunExtractedTextBounded checks that a document's extracted text is
+// cut to the room the result leaves, as a text file's is, and still says
+// where it came from.
+func TestRunExtractedTextBounded(t *testing.T) {
+	var slides []doctexttest.Slide
+	for i := range 200 {
+		slides = append(slides, doctexttest.Slide{Title: fmt.Sprint("Slide title ", i), Body: []doctexttest.Bullet{{Text: strings.Repeat("words ", 40)}}})
+	}
+	big := doctexttest.PPTX(slides...)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(big) }))
+	t.Cleanup(srv.Close)
+	f := &fakeCore{respond: func(context.Context, string, json.RawMessage) (*core.Envelope, error) {
+		return executed(documentResult(srv.URL+"/deck?"+signature, "Big deck", doctexttest.PPTXType, len(big))), nil
+	}}
+	r := Runner{Client: core.NewClient(f), Files: NewHTTPFetcher(srv.Client())}
+	parts, err := delegateSet(t).Run(context.Background(), r, courseID, []llm.Part{call("d", "document_get", `{"document_id":"`+docID+`"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(parts[0].Content); n > DefaultMaxResultBytes || n < DefaultMaxResultBytes-40 {
+		t.Errorf("%d bytes, want close to the limit of %d", n, DefaultMaxResultBytes)
+	}
+	text, _ := contentOf(t, parts[0])["file_text"].(string)
+	if !strings.HasPrefix(text, "## Slide 1: Slide title 0\n- words") || !strings.Contains(text, "…[truncated, ") {
+		t.Errorf("file_text %q…", text[:min(len(text), 60)])
+	}
+	if rec := fileRecordOf(t, parts[0]); rec["given_as"] != givenText || rec["extracted_from"] != "pptx" {
+		t.Errorf("file record %v", rec)
 	}
 }
 
@@ -352,8 +488,12 @@ func TestClassify(t *testing.T) {
 	tests := map[string]fileKind{
 		"text/plain": kindText, "text/markdown": kindText, "text/csv": kindText, "application/json": kindText,
 		"application/ld+json": kindText, "application/x-markdown": kindText,
-		"application/pdf": kindFile, "image/png": kindFile, "image/jpeg": kindFile, "image/webp": kindFile, "image/gif": kindFile,
-		"image/svg+xml": kindOther, "application/zip": kindOther, "application/octet-stream": kindOther, "": kindOther,
+		"application/pdf": kindPDF, "image/png": kindImage, "image/jpeg": kindImage, "image/webp": kindImage, "image/gif": kindImage,
+		doctexttest.PPTXType: kindOffice, doctexttest.DOCXType: kindOffice, doctexttest.XLSXType: kindOffice,
+		"application/vnd.ms-powerpoint.presentation.macroenabled.12": kindOffice,
+		"application/msword": kindOldOffice, "application/vnd.ms-excel": kindOldOffice, "application/vnd.ms-powerpoint": kindOldOffice,
+		"application/zip": kindUnknown, "application/octet-stream": kindUnknown, "": kindUnknown,
+		"image/svg+xml": kindOther, "audio/mpeg": kindOther, "application/vnd.oasis.opendocument.text": kindOther,
 	}
 	for mt, want := range tests {
 		if got := classify(mt); got != want {
@@ -362,5 +502,13 @@ func TestClassify(t *testing.T) {
 	}
 	if mediaType("Text/Markdown; charset=UTF-8") != "text/markdown" || mediaType("not a type;;") != "" {
 		t.Error("mediaType does not parse")
+	}
+}
+
+func TestSizeOf(t *testing.T) {
+	for n, want := range map[int64]string{4096: "4096 bytes", 10 << 20: "10 MiB", 3<<20 + 1<<19: "3.5 MiB"} {
+		if got := sizeOf(n); got != want {
+			t.Errorf("sizeOf(%d) = %q, want %q", n, got, want)
+		}
 	}
 }

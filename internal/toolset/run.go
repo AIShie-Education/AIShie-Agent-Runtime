@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/doctext"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolschema"
 )
@@ -31,9 +32,15 @@ type Runner struct {
 	MaxResultBytes int
 	// FileInput: the model takes file parts (llm.Capabilities.FileInput).
 	FileInput bool
+	// PDFLimits are the largest PDF the model's provider takes as a file
+	// (llm.FileLimiter): a PDF past them is given as its text.
+	PDFLimits llm.FileLimits
 	// MaxFileBytes bounds a file fetched for the model (rule 6);
 	// DefaultMaxFileBytes when 0 or less.
 	MaxFileBytes int64
+	// DocLimits bound the reading of a file's text (doctext); its zero
+	// fields are doctext's defaults.
+	DocLimits doctext.Limits
 	// Writes is the answer's account of its writes: their keys and their
 	// budget. Nil refuses every write, whatever the set offers.
 	Writes *Writes
@@ -586,7 +593,7 @@ func (r Runner) fit(c content, text string) string {
 			c.FileText = t
 			return encodeJSON(c)
 		}
-		c.File.GivenAs = givenNot
+		c.File.GivenAs, c.File.ExtractedFrom = givenNot, ""
 		c.File.Note = "the file's text could not be given to the model: the result left no room for it"
 	}
 	if out := encodeJSON(c); len(out) <= limit {

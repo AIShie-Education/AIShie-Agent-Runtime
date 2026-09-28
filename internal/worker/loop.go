@@ -442,9 +442,15 @@ func (l *loop) runTools(ctx context.Context, resp *llm.Response) error {
 	}
 	l.stats.ToolCalls += len(calls)
 	eff := l.c.eff
+	// A PDF past what the model's provider takes as a file is given as
+	// its text.
+	var pdf llm.FileLimits
+	if fl, ok := l.m.ad.(llm.FileLimiter); ok {
+		pdf = fl.FileLimits()
+	}
 	parts, err := l.set.Run(ctx, toolset.Runner{
 		Client: l.c.a.client, Files: l.c.a.s.files, MaxParallel: eff.Tools.MaxParallelTools,
-		FileInput: l.m.ad.Capabilities().FileInput, Writes: l.writes, Guard: l.guard,
+		FileInput: l.m.ad.Capabilities().FileInput, PDFLimits: pdf, Writes: l.writes, Guard: l.guard,
 	}, l.c.s.course, run)
 	l.accountWrites()
 	if err != nil {

@@ -239,6 +239,12 @@ func (a *Adapter) Dialect() toolschema.Dialect { return a.dialect }
 // Capabilities are the adapter's, with the agent's overrides.
 func (a *Adapter) Capabilities() llm.Capabilities { return a.caps }
 
+// FileLimits are Converse's on a document (maxDocumentBytes) and the
+// pages Anthropic's models, which read PDFs through it, take in one.
+func (a *Adapter) FileLimits() llm.FileLimits {
+	return llm.FileLimits{PDFBytes: maxDocumentBytes, PDFPages: 100}
+}
+
 // Call makes one Converse call.
 func (a *Adapter) Call(ctx context.Context, req *llm.Request) (*llm.Response, error) {
 	wire, err := a.translate(req)

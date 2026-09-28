@@ -140,6 +140,13 @@ func (a *Adapter) Dialect() toolschema.Dialect { return a.dialect }
 // Capabilities are the gemini defaults with the agent's overrides.
 func (a *Adapter) Capabilities() llm.Capabilities { return a.caps }
 
+// FileLimits are Gemini's on a document (its documentation of document
+// understanding): 1,000 pages, and what a request's inline files may take
+// here, less its base64 encoding.
+func (a *Adapter) FileLimits() llm.FileLimits {
+	return llm.FileLimits{PDFBytes: maxFileBytes / 4 * 3, PDFPages: 1000}
+}
+
 // Call makes one generateContent call. A refusal is an *llm.Error; a call
 // that completed, for whatever reason it stopped, is a Response.
 func (a *Adapter) Call(ctx context.Context, req *llm.Request) (*llm.Response, error) {

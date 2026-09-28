@@ -54,6 +54,7 @@ type Adapter struct {
 	name, provider, model, maker string
 	dialect                      toolschema.Dialect
 	caps                         llm.Capabilities
+	files                        llm.FileLimits
 
 	mu       sync.Mutex
 	steps    []Step
@@ -62,7 +63,10 @@ type Adapter struct {
 	err      error
 }
 
-var _ llm.Adapter = (*Adapter)(nil)
+var (
+	_ llm.Adapter     = (*Adapter)(nil)
+	_ llm.FileLimiter = (*Adapter)(nil)
+)
 
 // New plays steps. Its capabilities are those of openai_chat against OpenAI
 // (parallel calls, tool_choice none, files) and its dialect OpenAI's, until
@@ -94,6 +98,12 @@ func (a *Adapter) WithDialect(d toolschema.Dialect) *Adapter { a.dialect = d; re
 
 // WithCapabilities sets Capabilities.
 func (a *Adapter) WithCapabilities(c llm.Capabilities) *Adapter { a.caps = c; return a }
+
+// WithFileLimits sets FileLimits: by default none.
+func (a *Adapter) WithFileLimits(l llm.FileLimits) *Adapter { a.files = l; return a }
+
+// FileLimits are the largest PDF the adapter's model takes as a file.
+func (a *Adapter) FileLimits() llm.FileLimits { return a.files }
 
 // Name is the adapter's name, scripted by default.
 func (a *Adapter) Name() string { return a.name }
