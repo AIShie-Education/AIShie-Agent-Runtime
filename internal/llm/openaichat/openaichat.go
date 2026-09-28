@@ -179,6 +179,10 @@ func (a *Adapter) Dialect() toolschema.Dialect { return a.dialect }
 // overrides.
 func (a *Adapter) Capabilities() llm.Capabilities { return a.caps }
 
+// FileLimits are OpenAI's on file inputs (its documentation of PDF input):
+// 100 pages and 32 MB in one request.
+func (a *Adapter) FileLimits() llm.FileLimits { return llm.OpenAIFileLimits }
+
 // Call sends req and reads the answer. A refusal of the call (an HTTP
 // error, a network failure, an error body in a 200) is an *llm.Error; any
 // completed call is a Response, whatever it stopped for.

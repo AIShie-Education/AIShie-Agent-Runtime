@@ -134,6 +134,13 @@ func (a *Adapter) Dialect() toolschema.Dialect { return a.dialect }
 // Capabilities are the provider's defaults with the agent's overrides.
 func (a *Adapter) Capabilities() llm.Capabilities { return a.caps }
 
+// FileLimits are the Messages API's on a PDF (its documentation of PDF
+// support): 100 pages, and what a request's files may take here, less its
+// base64 encoding.
+func (a *Adapter) FileLimits() llm.FileLimits {
+	return llm.FileLimits{PDFBytes: maxFileBytes / 4 * 3, PDFPages: 100}
+}
+
 // Endpoint is the URL requests are posted to.
 func (a *Adapter) Endpoint() string { return a.endpoint }
 

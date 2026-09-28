@@ -72,8 +72,9 @@ type loopStats struct {
 	Cost int64
 	// Writes are the writes the model made, as Core answered them;
 	// WritesRefused those refused before Core, the answer's writes being
-	// spent; and WritesGuarded the member writes refused before Core for
-	// the seats they would have changed (toolset.SeatGuard).
+	// spent; and WritesGuarded those refused before Core for the seats
+	// they would have changed (toolset.SeatGuard) or for deciding alone
+	// (toolset.Decides).
 	Writes        store.WriteCounts
 	WritesRefused int
 	WritesGuarded int
@@ -442,9 +443,15 @@ func (l *loop) runTools(ctx context.Context, resp *llm.Response) error {
 	}
 	l.stats.ToolCalls += len(calls)
 	eff := l.c.eff
+	// A PDF past what the model's provider takes as a file is given as
+	// its text.
+	var pdf llm.FileLimits
+	if fl, ok := l.m.ad.(llm.FileLimiter); ok {
+		pdf = fl.FileLimits()
+	}
 	parts, err := l.set.Run(ctx, toolset.Runner{
 		Client: l.c.a.client, Files: l.c.a.s.files, MaxParallel: eff.Tools.MaxParallelTools,
-		FileInput: l.m.ad.Capabilities().FileInput, Writes: l.writes, Guard: l.guard,
+		FileInput: l.m.ad.Capabilities().FileInput, PDFLimits: pdf, Writes: l.writes, Guard: l.guard,
 	}, l.c.s.course, run)
 	l.accountWrites()
 	if err != nil {
@@ -509,14 +516,18 @@ func (l *loop) accountWrites() {
 	for _, tool := range w.Guarded[l.stats.WritesGuarded:] {
 		l.stats.WritesGuarded++
 		m.ToolWrites.WithLabelValues(tool, writeRefused).Inc()
-		l.c.s.log.Warn("a write the model made was refused before Core: it would have changed a seat the model never changes",
-			"conversation", l.c.conv, "message", l.msg, "tool", tool)
+		msg := "a write the model made was refused before Core: it would have changed a seat the model never changes"
+		if toolset.Decides(tool) {
+			msg = "a decision the model made was refused before Core: its seat's action_decide would have let it take effect without a person"
+		}
+		l.c.s.log.Warn(msg, "conversation", l.c.conv, "message", l.msg, "tool", tool)
 	}
 }
 
 // writeRefused is tool_writes_total's outcome for a write refused before
-// Core: the answer's writes being spent, or a member write that would have
-// changed a seat the model never changes (toolset.SeatGuard).
+// Core: the answer's writes being spent, a member write that would have
+// changed a seat the model never changes (toolset.SeatGuard), or a
+// decision its seat would have made alone (toolset.Decides).
 const writeRefused = "refused"
 
 // writeOutcome is tool_writes_total's outcome for a write's status: Core's

@@ -109,7 +109,7 @@ func (c *Catalogue) Build(perms map[string]string, cfg config.Tools, access Acce
 	if c == nil {
 		c = &Catalogue{}
 	}
-	s := &Set{tools: map[string]*offered{}}
+	s := &Set{tools: map[string]*offered{}, decide: perms["action_decide"]}
 	switch cfg.Mode {
 	case "", "derived":
 	case "none":

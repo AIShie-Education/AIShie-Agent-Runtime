@@ -253,6 +253,25 @@ type Capabilities struct {
 	ToolsWithHistory bool `json:"tools_with_history"`
 }
 
+// FileLimits are the largest PDF an adapter gives its model as a file, in
+// bytes and in pages, as its provider documents them for one request; 0 is
+// no limit known. A PDF past either is given to the model as the runtime's
+// text of it instead (toolset), where the provider would refuse it, or the
+// adapter leave it out.
+type FileLimits struct {
+	PDFBytes int64
+	PDFPages int
+}
+
+// OpenAIFileLimits are OpenAI's limits on file inputs, which both of its
+// adapters send.
+var OpenAIFileLimits = FileLimits{PDFBytes: 32 << 20, PDFPages: 100}
+
+// FileLimiter is an adapter that knows its provider's limits on files.
+type FileLimiter interface {
+	FileLimits() FileLimits
+}
+
 // Adapter translates the internal format to one model API and back.
 type Adapter interface {
 	// Name is the adapter's name in configuration: openai_chat,

@@ -26,6 +26,33 @@ func TestNewBuildsEveryAdapter(t *testing.T) {
 	}
 }
 
+// TestEveryAdapterKnowsItsFileLimits: every adapter says how large a PDF,
+// and of how many pages, its provider takes as a file, as each documents
+// it: past them, the runtime gives the model the PDF's text instead.
+func TestEveryAdapterKnowsItsFileLimits(t *testing.T) {
+	want := map[string]llm.FileLimits{
+		llm.AdapterOpenAIChat:      {PDFBytes: 32 << 20, PDFPages: 100},
+		llm.AdapterOpenAIResponses: {PDFBytes: 32 << 20, PDFPages: 100},
+		llm.AdapterAnthropic:       {PDFBytes: 18 << 20, PDFPages: 100},
+		llm.AdapterGemini:          {PDFBytes: 48 << 20, PDFPages: 1000},
+		llm.AdapterBedrockConverse: {PDFBytes: 4_500_000, PDFPages: 100},
+	}
+	for _, name := range Adapters {
+		a, err := New(llm.Config{Adapter: name, Model: "a-model", APIKey: "sk-test-0123456789", Region: "us-east-1"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		fl, ok := a.(llm.FileLimiter)
+		if !ok {
+			t.Errorf("%s does not say its file limits", name)
+			continue
+		}
+		if got := fl.FileLimits(); got != want[name] {
+			t.Errorf("%s: %+v, want %+v", name, got, want[name])
+		}
+	}
+}
+
 func TestConfigCarriesTheModelSection(t *testing.T) {
 	yes, temp := true, 0.3
 	m := config.Model{

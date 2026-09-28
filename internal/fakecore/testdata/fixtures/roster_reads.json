@@ -1,0 +1,264 @@
+{
+ "scenario": "roster_reads",
+ "steps": [
+  {
+   "args": {
+    "assignment_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "students": [
+      {
+       "attempt": 1,
+       "display_name": "Yuki",
+       "member_status": "active",
+       "state": "submitted",
+       "student_member_id": "<id:3>",
+       "submission_id": "<id:4>",
+       "submitted_at": "<time>"
+      },
+      {
+       "display_name": "Ken",
+       "member_status": "active",
+       "state": "not_started",
+       "student_member_id": "<id:5>"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "roster_as_an_instructor",
+   "text_is_envelope": true,
+   "tool": "submission_roster"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:1>",
+    "course_id": "<id:2>",
+    "limit": 1
+   },
+   "envelope": {
+    "result": {
+     "next": "<id:3>",
+     "students": [
+      {
+       "attempt": 1,
+       "display_name": "Yuki",
+       "member_status": "active",
+       "state": "submitted",
+       "student_member_id": "<id:3>",
+       "submission_id": "<id:4>",
+       "submitted_at": "<time>"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "roster_a_page",
+   "text_is_envelope": true,
+   "tool": "submission_roster"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "students": [
+      {
+       "state": "not_started",
+       "student_member_id": "<id:5>"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "roster_as_a_student",
+   "text_is_envelope": true,
+   "tool": "submission_roster"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "students": [
+      {
+       "attempt": 1,
+       "state": "submitted",
+       "student_member_id": "<id:3>",
+       "submission_id": "<id:4>",
+       "submitted_at": "<time>"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "roster_as_a_students_agent",
+   "text_is_envelope": true,
+   "tool": "submission_roster"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "students": [
+      {
+       "attempt": 1,
+       "state": "submitted",
+       "student_member_id": "<id:3>",
+       "submission_id": "<id:4>",
+       "submitted_at": "<time>"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "roster_as_a_listed_tutor",
+   "text_is_envelope": true,
+   "tool": "submission_roster"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "permission_denied"
+     },
+     "message": "not permitted"
+    },
+    "status": "denied"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "roster_as_the_course_tutor",
+   "text_is_envelope": true,
+   "tool": "submission_roster"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:6>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "message": "no such assignment in this course"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "roster_of_no_assignment",
+   "text_is_envelope": true,
+   "tool": "submission_roster"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "document_id": "<id:7>"
+   },
+   "envelope": {
+    "result": {
+     "versions": [
+      {
+       "author_member_id": "<id:8>",
+       "created_at": "<time>",
+       "has_file": false,
+       "id": "<id:9>",
+       "published": true,
+       "seq": 1
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "versions_as_an_instructor",
+   "text_is_envelope": true,
+   "tool": "document_versions"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "document_id": "<id:7>"
+   },
+   "envelope": {
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "permission_denied"
+     },
+     "message": "not permitted"
+    },
+    "status": "denied"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "versions_as_a_students_agent",
+   "text_is_envelope": true,
+   "tool": "document_versions"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "document_id": "<id:7>"
+   },
+   "envelope": {
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "permission_denied"
+     },
+     "message": "not permitted"
+    },
+    "status": "denied"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "versions_as_the_course_tutor",
+   "text_is_envelope": true,
+   "tool": "document_versions"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "document_id": "<id:6>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "message": "no such document in this course"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "versions_of_no_document",
+   "text_is_envelope": true,
+   "tool": "document_versions"
+  }
+ ]
+}

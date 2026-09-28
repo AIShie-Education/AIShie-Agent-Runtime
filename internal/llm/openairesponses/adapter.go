@@ -215,6 +215,10 @@ func (a *Adapter) Dialect() toolschema.Dialect { return a.dialect }
 // Capabilities are the adapter's defaults with the agent's overrides.
 func (a *Adapter) Capabilities() llm.Capabilities { return a.caps }
 
+// FileLimits are OpenAI's on file inputs (its documentation of PDF input):
+// 100 pages and 32 MB in one request.
+func (a *Adapter) FileLimits() llm.FileLimits { return llm.OpenAIFileLimits }
+
 // Call sends one request to {base}/responses and translates the answer. A
 // refusal of the call (4xx, 5xx, a network error) is an *llm.Error; a
 // response the API completed, cut short or failed is a Response whose Stop

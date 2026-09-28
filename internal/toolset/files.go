@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/doctext"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
 )
 
@@ -117,7 +119,12 @@ type fileRecord struct {
 	// GivenAs is file (a file part after the results), text (file_text in
 	// the result) or not_given.
 	GivenAs string `json:"given_as"`
-	// Note says why it was not given.
+	// ExtractedFrom is the format the runtime read the text from (pptx,
+	// docx, xlsx or pdf) when the text is not the file's own but the
+	// runtime's reading of it.
+	ExtractedFrom string `json:"extracted_from,omitempty"`
+	// Note says why the file was not given; or, of text the runtime
+	// extracted, what it holds and leaves out.
 	Note string `json:"note,omitempty"`
 }
 
@@ -153,17 +160,39 @@ const (
 	kindOther fileKind = iota
 	// kindText is given as text, to any model.
 	kindText
-	// kindFile is given as a file part, to a model that takes files: the
-	// types every adapter's API takes as documents or images.
-	kindFile
+	// kindImage is given as a file part, to a model that takes files: the
+	// types every adapter's API takes as images.
+	kindImage
+	// kindPDF is given as a file part to a model that takes files and
+	// whose provider takes one of its size and pages, and otherwise as the
+	// text the runtime reads from it.
+	kindPDF
+	// kindOffice is a PowerPoint, Word or Excel file (Office Open XML),
+	// given as the text the runtime reads from it, to any model.
+	kindOffice
+	// kindOldOffice is an older binary Office file, which is not read.
+	kindOldOffice
+	// kindUnknown is a file of no type, or of one that says nothing (an
+	// octet stream, a zip archive): fetched, and known by what it holds.
+	kindUnknown
 )
 
 func classify(mediaType string) fileKind {
 	switch mediaType {
 	case "application/json", "application/markdown", "application/x-markdown":
 		return kindText
-	case "application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp":
-		return kindFile
+	case "image/png", "image/jpeg", "image/gif", "image/webp":
+		return kindImage
+	case "application/pdf":
+		return kindPDF
+	case "", "application/octet-stream", "binary/octet-stream", "application/zip", "application/x-zip-compressed", "application/x-zip":
+		return kindUnknown
+	}
+	if f, ok := doctext.FormatOf(mediaType); ok && f != doctext.PDF {
+		return kindOffice
+	}
+	if doctext.OldOffice(mediaType) {
+		return kindOldOffice
 	}
 	if strings.HasPrefix(mediaType, "text/") || strings.HasSuffix(mediaType, "+json") {
 		return kindText
@@ -184,21 +213,39 @@ func mediaType(contentType string) string {
 	return strings.ToLower(mt)
 }
 
-// giveFile fetches a document's file and says how the model gets it: text
-// for a text file, a file part for a PDF or an image when the model takes
-// files, and otherwise not at all, with a note saying why. A file whose
-// type Core did not record is fetched to find out.
+// extractTimeout bounds the reading of one file's text, within the
+// answer's own time.
+const extractTimeout = 20 * time.Second
+
+// Notes of a file not given, for the model.
+const (
+	notGiven      = "the file could not be given to the model: "
+	noteOldOffice = notGiven + "it is in an older Office format (.ppt, .doc or .xls) that the runtime cannot read; " +
+		"ask for it as .pptx, .docx or .xlsx, or as a PDF"
+	notePassword  = notGiven + "it is password-protected; ask for a copy without a password"
+	noteNoFiles   = notGiven + "this model does not take files"
+	noteNoText    = "the PDF has no text to read: it looks scanned, or like pictures of text; ask for a version with selectable text"
+	noteUnmapped  = "the PDF's text cannot be read: its fonts do not map to text; ask for a version with selectable text"
+	noteMalformed = notGiven + "it could not be read: it is damaged, or not the kind of file it says it is"
+)
+
+// giveFile fetches a document's file and says how the model gets it (rule
+// 6): text as text; an image as a file part, to a model that takes files;
+// a PowerPoint, Word or Excel file as the text the runtime reads from it;
+// a PDF as a file part to a model that takes files and whose provider
+// takes one of its size and pages, and otherwise as its text, when that
+// reads as text. A file of no type, or of one that says nothing, is known
+// by what it holds. Anything else is not given, with a note saying why.
 func (r Runner) giveFile(ctx context.Context, d *docFile) (*fileRecord, string, *llm.File) {
 	rec := &fileRecord{Name: d.title, ContentType: d.contentType, ByteSize: d.byteSize, GivenAs: givenNot}
 	mt := mediaType(d.contentType)
-	if mt != "" {
-		if why := r.refusal(mt); why != "" {
-			rec.Note = why
-			return rec, "", nil
-		}
+	kind := classify(mt)
+	if why := r.refusal(mt, kind); why != "" {
+		rec.Note = why
+		return rec, "", nil
 	}
 	if r.Files == nil {
-		rec.Note = "the file could not be given to the model: files are not fetched here"
+		rec.Note = notGiven + "files are not fetched here"
 		return rec, "", nil
 	}
 	if d.byteSize > r.MaxFileBytes {
@@ -211,22 +258,24 @@ func (r Runner) giveFile(ctx context.Context, d *docFile) (*fileRecord, string, 
 		rec.Note = r.tooLarge()
 		return rec, "", nil
 	case err != nil:
-		rec.Note = "the file could not be given to the model: it could not be fetched"
+		rec.Note = notGiven + "it could not be fetched"
 		return rec, "", nil
 	}
 	rec.ByteSize = int64(len(f.Data))
-	if mt == "" {
-		mt = mediaType(f.ContentType)
-		if mt == "" || mt == "application/octet-stream" {
-			mt = mediaType(http.DetectContentType(f.Data))
-		}
+	if kind == kindUnknown {
+		var why string
+		mt, kind, why = sniff(f)
 		rec.ContentType = mt
-		if why := r.refusal(mt); why != "" {
+		if why == "" {
+			why = r.refusal(mt, kind)
+		}
+		if why != "" {
 			rec.Note = why
 			return rec, "", nil
 		}
 	}
-	if classify(mt) == kindText {
+	switch kind {
+	case kindText:
 		text := strings.ToValidUTF8(string(f.Data), "�")
 		if text == "" {
 			rec.Note = "the file is empty"
@@ -234,31 +283,207 @@ func (r Runner) giveFile(ctx context.Context, d *docFile) (*fileRecord, string, 
 		}
 		rec.GivenAs = givenText
 		return rec, text, nil
+	case kindPDF:
+		return r.givePDF(ctx, rec, d.title, f.Data)
+	case kindOffice:
+		format, _ := doctext.FormatOf(mt)
+		return r.giveText(ctx, rec, format, f.Data)
 	}
 	rec.GivenAs = givenFile
 	return rec, "", &llm.File{Name: fileName(d.title, mt), MIME: mt, Data: f.Data}
 }
 
-// refusal says why a file of media type mt cannot be given to this model,
-// or "" when it can.
-func (r Runner) refusal(mt string) string {
-	switch classify(mt) {
+// sniff is what a fetched file of no telling type is: by its first bytes
+// and the package it holds (PDF, Office Open XML, an older Office file);
+// then by what the file server said; then by Go's sniffing. why is set
+// when that alone says it is not given.
+func sniff(f *FetchedFile) (mt string, kind fileKind, why string) {
+	format, err := doctext.Sniff(f.Data)
+	switch {
+	case errors.Is(err, doctext.ErrEncrypted):
+		return "application/x-ole-storage", kindOldOffice, notePassword
+	case errors.Is(err, doctext.ErrOldFormat):
+		return "application/x-ole-storage", kindOldOffice, noteOldOffice
+	case format != "":
+		mt = format.MediaType()
+		return mt, classify(mt), ""
+	}
+	if mt = mediaType(f.ContentType); classify(mt) != kindUnknown {
+		return mt, classify(mt), ""
+	}
+	mt = mediaType(http.DetectContentType(f.Data))
+	if classify(mt) == kindUnknown {
+		return mt, kindOther, ""
+	}
+	return mt, classify(mt), ""
+}
+
+// refusal says why a file of media type mt, of kind, cannot be given to
+// this model, or "" when it can, or might be once read.
+func (r Runner) refusal(mt string, kind fileKind) string {
+	switch kind {
 	case kindOther:
-		return "the file could not be given to the model: " + mt + " files are not read here"
-	case kindFile:
+		return notGiven + mt + " files are not read here"
+	case kindOldOffice:
+		return noteOldOffice
+	case kindImage:
 		if !r.FileInput {
-			return "the file could not be given to the model: this model does not take files"
+			return noteNoFiles
 		}
 	}
 	return ""
 }
 
-func (r Runner) tooLarge() string {
-	size := fmt.Sprintf("%d bytes", r.MaxFileBytes)
-	if r.MaxFileBytes%(1<<20) == 0 {
-		size = fmt.Sprintf("%d MiB", r.MaxFileBytes>>20)
+// givePDF gives a PDF: as a file part where the model takes files and its
+// provider takes a PDF of its size and pages; else as its text, where that
+// reads as text. One that needs a password to open is not given at all:
+// no provider reads it either.
+func (r Runner) givePDF(ctx context.Context, rec *fileRecord, title string, data []byte) (*fileRecord, string, *llm.File) {
+	ctx, cancel := context.WithTimeout(ctx, extractTimeout)
+	defer cancel()
+	past := ""
+	if r.FileInput {
+		var err error
+		if past, err = r.pastLimits(ctx, data); errors.Is(err, doctext.ErrEncrypted) {
+			rec.Note = notePassword
+			return rec, "", nil
+		}
+		if past == "" {
+			rec.GivenAs = givenFile
+			return rec, "", &llm.File{Name: fileName(title, "application/pdf"), MIME: "application/pdf", Data: data}
+		}
 	}
-	return "the file could not be given to the model: it is larger than the " + size + " the runtime reads"
+	res, err := doctext.Extract(ctx, data, doctext.PDF, r.DocLimits)
+	switch {
+	case err != nil && past != "":
+		rec.Note = notGiven + past + ", and " + strings.TrimPrefix(extractNote(err), notGiven)
+		return rec, "", nil
+	case err != nil:
+		rec.Note = extractNote(err)
+		return rec, "", nil
+	case res.Unreadable != "":
+		why := noteUnmapped
+		if res.Unreadable == doctext.UnreadableNoText {
+			why = noteNoText
+		}
+		if past != "" {
+			rec.Note = notGiven + past + ", and " + why
+		} else {
+			rec.Note = noteNoFiles + ", and " + why
+		}
+		return rec, "", nil
+	}
+	rec, text, file := r.extracted(rec, res)
+	if past != "" {
+		rec.Note = "the PDF is given as the runtime's text of it, since " + past + "; " + rec.Note
+	}
+	return rec, text, file
+}
+
+// pastLimits says why a PDF is past what the model's provider takes as a
+// file (r.PDFLimits), or "" when it is not. Its pages are counted only
+// when there is a limit on them; a PDF whose pages cannot be counted is
+// taken to be within it, as the provider may yet read it.
+func (r Runner) pastLimits(ctx context.Context, data []byte) (string, error) {
+	lim := r.PDFLimits
+	if lim.PDFBytes > 0 && int64(len(data)) > lim.PDFBytes {
+		return fmt.Sprintf("it is %s, more than the %s this model takes as a file", sizeOf(int64(len(data))), sizeOf(lim.PDFBytes)), nil
+	}
+	if lim.PDFPages <= 0 {
+		return "", nil
+	}
+	pages, err := doctext.PDFPages(ctx, data, r.DocLimits)
+	switch {
+	case errors.Is(err, doctext.ErrEncrypted):
+		return "", err
+	case err == nil && pages > lim.PDFPages:
+		return fmt.Sprintf("it has %d pages, more than the %d this model takes in a file", pages, lim.PDFPages), nil
+	}
+	return "", nil
+}
+
+// giveText gives the text the runtime reads from an Office file.
+func (r Runner) giveText(ctx context.Context, rec *fileRecord, f doctext.Format, data []byte) (*fileRecord, string, *llm.File) {
+	ctx, cancel := context.WithTimeout(ctx, extractTimeout)
+	defer cancel()
+	res, err := doctext.Extract(ctx, data, f, r.DocLimits)
+	if err != nil {
+		rec.Note = extractNote(err)
+		return rec, "", nil
+	}
+	return r.extracted(rec, res)
+}
+
+// extracted gives a file's text as read, and says what it holds and
+// leaves out.
+func (r Runner) extracted(rec *fileRecord, res *doctext.Result) (*fileRecord, string, *llm.File) {
+	if strings.TrimSpace(res.Text) == "" {
+		rec.Note = notGiven + "it holds no text"
+		return rec, "", nil
+	}
+	rec.GivenAs, rec.ExtractedFrom = givenText, string(res.Format)
+	var holds string
+	switch res.Format {
+	case doctext.PPTX:
+		holds = "the runtime's text of its " + plural(res.Parts, "slide") + ", with their speaker notes"
+	case doctext.DOCX:
+		holds = "the runtime's text of the document, its headings, lists and tables in Markdown, then its notes, headers and footers"
+	case doctext.XLSX:
+		holds = "the runtime's text of its " + plural(res.Parts, "sheet") + ", each sheet's rows as CSV, values as stored"
+	case doctext.PDF:
+		holds = "the runtime's text of its " + plural(res.Parts, "page") + ", without their pictures or layout"
+	}
+	var named []string
+	if res.Images > 0 {
+		named = append(named, plural(res.Images, "image"))
+	}
+	if res.Charts > 0 {
+		named = append(named, plural(res.Charts, "chart"))
+	}
+	if len(named) > 0 && res.Format != doctext.PDF {
+		holds += "; its " + strings.Join(named, " and ") + " are only named, as [image] and [chart]"
+	}
+	rec.Note = strings.Join(append([]string{holds}, res.Notes...), "; ")
+	return rec, res.Text, nil
+}
+
+// extractNote is why a file whose text could not be read is not given.
+func extractNote(err error) string {
+	switch {
+	case errors.Is(err, doctext.ErrEncrypted):
+		return notePassword
+	case errors.Is(err, doctext.ErrOldFormat):
+		return noteOldOffice
+	case errors.Is(err, doctext.ErrLimit):
+		return notGiven + "it is larger or more complex than the runtime reads (" +
+			strings.TrimPrefix(err.Error(), doctext.ErrLimit.Error()+": ") + ")"
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
+		return notGiven + "reading it took longer than the runtime allows"
+	}
+	return noteMalformed
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+func (r Runner) tooLarge() string {
+	return notGiven + "it is larger than the " + sizeOf(r.MaxFileBytes) + " the runtime reads"
+}
+
+// sizeOf is n bytes as a person says it: whole MiB when it is, bytes
+// otherwise.
+func sizeOf(n int64) string {
+	if n%(1<<20) == 0 {
+		return fmt.Sprintf("%d MiB", n>>20)
+	}
+	if n > 1<<20 {
+		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
+	}
+	return fmt.Sprintf("%d bytes", n)
 }
 
 // fileName names a file part: the document's title, with the extension its

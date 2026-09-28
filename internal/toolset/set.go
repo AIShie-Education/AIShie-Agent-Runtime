@@ -14,6 +14,9 @@ type Set struct {
 	// names are the tools' names, sorted: declarations go to the model in
 	// this order, the same every time, which keeps prompt caches warm.
 	names []string
+	// decide is the seat's level of action_decide, which Run holds a
+	// decision or a review to (Decides).
+	decide string
 }
 
 // offered is one tool in a set.

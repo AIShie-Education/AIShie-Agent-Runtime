@@ -338,7 +338,7 @@ func TestCheckLive(t *testing.T) {
 		"catalogue " + worker.SnapshotCatalogueHash,
 		`agent own: connected as "Yuki's helper"`,
 		"Delegate of member " + w.yuki.ID + " in CS101 (A): reads your work and the material, answers only you",
-		"tools: assignment_get, assignment_list, component_tree, course_get, document_get, document_list, grade_get, grade_list, gradebook_get, submission_get, submission_list",
+		"tools: assignment_get, assignment_list, component_tree, course_get, document_get, document_list, grade_get, grade_list, gradebook_get, submission_get, submission_list, submission_roster\n",
 		`agent tutor: connected as "CS101 Tutor"`,
 		"Tutor of CS101 (A): answers every student, reads the material",
 		"tools: assignment_get, assignment_list, course_get, document_get, document_list",

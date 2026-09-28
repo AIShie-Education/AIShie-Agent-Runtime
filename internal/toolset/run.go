@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/doctext"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolschema"
 )
@@ -31,9 +32,15 @@ type Runner struct {
 	MaxResultBytes int
 	// FileInput: the model takes file parts (llm.Capabilities.FileInput).
 	FileInput bool
+	// PDFLimits are the largest PDF the model's provider takes as a file
+	// (llm.FileLimiter): a PDF past them is given as its text.
+	PDFLimits llm.FileLimits
 	// MaxFileBytes bounds a file fetched for the model (rule 6);
 	// DefaultMaxFileBytes when 0 or less.
 	MaxFileBytes int64
+	// DocLimits bound the reading of a file's text (doctext); its zero
+	// fields are doctext's defaults.
+	DocLimits doctext.Limits
 	// Writes is the answer's account of its writes: their keys and their
 	// budget. Nil refuses every write, whatever the set offers.
 	Writes *Writes
@@ -99,8 +106,10 @@ type Writes struct {
 	// Refused are the tools of the writes refused because the budget was
 	// spent, in the order the model made them.
 	Refused []string
-	// Guarded are the tools of the member writes SeatGuard refused, in the
-	// order the model made them.
+	// Guarded are the tools of the writes refused before Core for what
+	// they would change or how they would be decided: member writes
+	// SeatGuard refused, and decisions the seat would make alone
+	// (Decides); in the order the model made them.
 	Guarded []string
 }
 
@@ -176,9 +185,11 @@ func (w *Writes) claim(tool string, args json.RawMessage) (sent, bool) {
 // conversation's course, whatever the model wrote (toolschema.Reverse,
 // Validate); a member write that would change a seat r.Guard keeps, which
 // for a change to every seat of a role the runtime reads with member_get
-// (SeatGuard). A write is then numbered and bound to its idempotency key
-// (Writes), whatever key the model wrote; one past the answer's budget, or
-// one that repeats another call of the same turn exactly, is refused.
+// (SeatGuard); a decision or review from a seat whose action_decide is not
+// confirm_required (Decides). A write is then numbered and bound to its
+// idempotency key (Writes), whatever key the model wrote; one past the
+// answer's budget, or one that repeats another call of the same turn
+// exactly, is refused.
 // Core's answer is Core's envelope as JSON, is_error unless executed or
 // proposed (a proposal is Core's normal answer at confirm_required, not a
 // failure), with every download_url taken out and cut to MaxResultBytes
@@ -216,6 +227,13 @@ func (s *Set) Run(ctx context.Context, r Runner, courseID string, calls []llm.Pa
 		p := s.prepare(r, courseID, call)
 		if p.done || !p.write {
 			preps[i] = p
+			continue
+		}
+		if Decides(call.Name) && s.decide != core.LevelConfirmRequired {
+			r.Writes.Guarded = append(r.Writes.Guarded, call.Name)
+			preps[i] = refusedCall(p.res, core.CodeForbidden, fmt.Sprintf(
+				"the runtime did not send this: a model's decision or review must wait for a person to confirm it, and this seat's action_decide is %s, "+
+					"which Core should never give an agent; tell the person to decide it themselves", cut(levelOf(s.decide), maxNameInMessage)))
 			continue
 		}
 		if guarded(call.Name) {
@@ -317,6 +335,22 @@ func (s *Set) Run(ctx context.Context, r Runner, courseID string, calls []llm.Pa
 		}
 	}
 	return parts, nil
+}
+
+// Decides reports whether a write of tool decides or reviews a proposal:
+// Run sends one only from a seat whose action_decide is confirm_required,
+// where Core makes the decision itself a proposal that a person confirms.
+// At pending_review a decision would take effect before anyone looked, and
+// at autonomous without anyone looking; Core holds an agent's to
+// confirm_required, and the runtime holds it there again.
+func Decides(tool string) bool { return tool == "action_decide" || tool == "action_review" }
+
+// levelOf is a seat's level as a refusal names it.
+func levelOf(level string) string {
+	if level == "" {
+		return "not set"
+	}
+	return level
 }
 
 func isContextError(err error) bool {
@@ -586,7 +620,7 @@ func (r Runner) fit(c content, text string) string {
 			c.FileText = t
 			return encodeJSON(c)
 		}
-		c.File.GivenAs = givenNot
+		c.File.GivenAs, c.File.ExtractedFrom = givenNot, ""
 		c.File.Note = "the file's text could not be given to the model: the result left no room for it"
 	}
 	if out := encodeJSON(c); len(out) <= limit {

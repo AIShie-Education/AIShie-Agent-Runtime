@@ -21,8 +21,10 @@
 // (conversation_open, conversation_ask, action_decide, action_review), and
 // document_create and member_add, writes a model makes through its seat's
 // perms, and the roster a model reads (member_list, member_get,
-// member_lookup_actor). The model's other read tools read canned material
-// per course, under Core's gates and scope rules. Any other tool is refused as never attempted: status
+// member_lookup_actor). The model's other read tools (where students stand
+// on an assignment, submission_roster, and a document's versions among
+// them) read canned material per course, and the files AddFile adds, under
+// Core's gates and scope rules. Any other tool is refused as never attempted: status
 // error, code not_found for a course that does not exist, forbidden
 // (details.reason not_implemented) otherwise.
 //
@@ -142,6 +144,8 @@ func implemented() map[string]*impl {
 		"member.get":            memberGet(),
 		"member.lookup_actor":   memberLookupActor(),
 		"member.add":            memberAdd(),
+		"submission.roster":     submissionRoster(),
+		"document.versions":     documentVersions(),
 	}
 }
 

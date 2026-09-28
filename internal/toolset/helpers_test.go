@@ -49,10 +49,15 @@ func snapshot(t testing.TB) *Catalogue {
 
 // Seats' perms, as me_memberships gives them.
 var (
-	// tutorPerms is a course tutor's: the material, nobody's work (§2.7).
+	// tutorPerms is a course tutor's, as Core's course_tutor preset seats
+	// one: the material, nobody's work (§2.7), no drafts, no roster, no
+	// proposals.
 	tutorPerms = map[string]string{
-		"conversation_answer": "autonomous", "document_read": "autonomous",
-		"submission_read": "denied", "grade_read": "denied", "member_read": "denied", "member_manage": "denied",
+		"conversation_answer": "autonomous", "document_read": "autonomous", "document_read_draft": "denied",
+		"document_write": "denied", "rubric_read": "denied", "assignment_write": "denied",
+		"submission_read": "denied", "submission_write": "denied", "grade_read": "denied", "grade_submit": "denied",
+		"grade_post": "denied", "member_read": "denied", "member_manage": "denied", "action_decide": "denied",
+		"agent_delegate": "denied", "conversation_ask": "denied",
 	}
 	// delegatePerms is a student's own agent's: its principal's work too
 	// (§2.6).

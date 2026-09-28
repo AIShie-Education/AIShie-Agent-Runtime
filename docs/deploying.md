@@ -177,6 +177,26 @@ seats agents; `tools.deny: [member_*]` takes member changes away from it
 altogether. The roster (`member_list`, `member_get`) is read where the
 seat's `member_read` allows, as any read is.
 
+A seat that holds `action_decide` (an instructor's own agent, say) reads
+the queues of proposals, and in its owner's conversations recommends
+decisions and reviews: Core holds an agent's `action_decide` at
+`confirm_required`, so each is a proposal a person confirms, and the
+runtime refuses one from a seat at any other level. `tools.deny:
+[action_decide, action_review]` takes them away.
+
+A course document's file reaches the model as the runtime reads it: text
+as text, a PowerPoint, Word or Excel file as the runtime's text of it for
+every model, a PDF as a file where the model takes files (and its provider
+a PDF of its size and pages) and as its text otherwise, an image as a file
+where the model takes files. The runtime reads files of at most 10 MB, from
+memory and within fixed limits, and needs nothing installed for it. A
+scanned PDF, or one whose fonts do not map to text, reaches a model that
+takes no files as a note asking for a version with selectable text; an
+older Office file (`.doc`, `.ppt`, `.xls`) as one asking for `.pptx`,
+`.docx` or `.xlsx`, or a PDF. Whether a model takes files is its
+adapter's default for its provider, which `model.capabilities.file_input`
+overrides.
+
 To apply a change to the agents, check it, then either tell the runtime to
 read its configuration again, or deploy the image that is running again,
 which checks it first and changes nothing if the new version refuses it:
