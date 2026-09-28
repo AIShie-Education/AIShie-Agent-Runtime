@@ -93,18 +93,18 @@ repository's, not Core's, though Core has scripts of the same kind:
    nothing, and says so in its log at every start and reload, so the first
    deploy can come before the first agent. Every
    green push to `main` publishes
-   `ghcr.io/aishiteru-lms/aishie-agent-runtime:sha-<commit>`: the CI run's
+   `ghcr.io/aishie-education/aishie-agent-runtime:sha-<commit>`: the CI run's
    `publish / image` job names it, and so does the package's page. A release
    publishes `:X.Y.Z`. Production takes only releases.
 
    ```
-   AISHIE_RUNTIME_IMAGE=ghcr.io/aishiteru-lms/aishie-agent-runtime:sha-de4f548 aishie-runtime check --live
+   AISHIE_RUNTIME_IMAGE=ghcr.io/aishie-education/aishie-agent-runtime:sha-de4f548 aishie-runtime check --live
    ```
 
 4. Start it, and see that it answers:
 
    ```
-   aishie-runtime-deploy ghcr.io/aishiteru-lms/aishie-agent-runtime:sha-de4f548
+   aishie-runtime-deploy ghcr.io/aishie-education/aishie-agent-runtime:sha-de4f548
    curl -s 127.0.0.1:9090/healthz
    curl -s 127.0.0.1:9090/status
    ```
@@ -207,7 +207,7 @@ key there would not last.
 From then on, every green push to `main` deploys to staging, and a
 pre-release tag (`v1.2.3-rc.1`) does too. To try the connection without a
 push, go to Actions → Deploy → Run workflow, from `main`, with environment
-`staging` and image `ghcr.io/aishiteru-lms/aishie-agent-runtime:edge`. That
+`staging` and image `ghcr.io/aishie-education/aishie-agent-runtime:edge`. That
 is also the way to deploy staging again: re-running the deploy of an older
 push to `main` fails once `main` has moved on. (Re-running a pre-release's
 deploy, or a Deploy run by hand, still deploys the image it had.) Production
@@ -261,7 +261,7 @@ run `migrate down`: it deletes all of the runtime's state, the ledger
 included. Going back further than one release means restoring a backup.
 
 ```
-aishie-runtime-deploy ghcr.io/aishiteru-lms/aishie-agent-runtime:1.2.2
+aishie-runtime-deploy ghcr.io/aishie-education/aishie-agent-runtime:1.2.2
 ```
 
 ## Day to day

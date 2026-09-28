@@ -30,7 +30,7 @@ defaults:
     shell: bash
 
 env:
-  IMAGE: ghcr.io/aishiteru-lms/aishie-agent-runtime
+  IMAGE: ghcr.io/aishie-education/aishie-agent-runtime
   GOLANGCI_LINT_VERSION: v2.13.2
   GORELEASER_VERSION: v2.18.2
   # Makes the store's Postgres tests fail, rather than skip, if the database

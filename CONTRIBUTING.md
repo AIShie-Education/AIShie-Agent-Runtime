@@ -94,7 +94,7 @@ git push origin v0.1.0
 against the pinned Core included, then publishes binaries (Linux and macOS,
 amd64 and arm64, with the docs and the example configuration) with checksums
 to the release page, and a multi-architecture image to
-`ghcr.io/aishiteru-lms/aishie-agent-runtime`. The release notes list the
+`ghcr.io/aishie-education/aishie-agent-runtime`. The release notes list the
 store's migrations new in the release; for a stable release, new since the
 last stable one, pre-releases included. A tag with a hyphen
 (`v0.1.0-rc.1`) is a pre-release: it leaves `:latest` alone and is deployed
@@ -103,7 +103,7 @@ to staging.
 A stable release goes to production when somebody runs **Deploy** for it:
 Actions → Deploy → Run workflow, use the workflow from the release's tag, and
 give the environment `production` and the image the release run's summary
-names (`ghcr.io/aishiteru-lms/aishie-agent-runtime:1.2.3`). That run is the
+names (`ghcr.io/aishie-education/aishie-agent-runtime:1.2.3`). That run is the
 decision to deploy and to migrate. For production, Deploy takes nothing else:
 run from a branch or a pre-release's tag, or given an image that is not a
 stable release's, it stops before it deploys. To roll back, run Deploy from
@@ -123,11 +123,11 @@ goreleaser release --snapshot --clean
 Before the first push to `main` after the CD workflows land, in GitHub:
 
 - **Core's image** (Core's package settings): the end to end pulls
-  `ghcr.io/aishiteru-lms/aishiteru-core`, which is private, with this
-  repository's `GITHUB_TOKEN`. An owner of the AIShiteru-LMS organization, or
+  `ghcr.io/aishie-education/aishie-core`, which is private, with this
+  repository's `GITHUB_TOKEN`. An owner of the AIShie-Education organization, or
   an admin of the package, lets this repository read it, once: the
   package's settings
-  (<https://github.com/orgs/AIShiteru-LMS/packages/container/aishiteru-core/settings>)
+  (<https://github.com/orgs/AIShie-Education/packages/container/aishie-core/settings>)
   → Manage Actions access → Add Repository → `AIShie-Agent-Runtime`, role
   **Read**. Until then every pull request's end to end fails at the pull,
   and says so, and so does every release.
@@ -199,10 +199,10 @@ Move the three together, in one pull request:
    `:X.Y.Z`. The digest:
 
    ```
-   docker buildx imagetools inspect ghcr.io/aishiteru-lms/aishiteru-core:sha-<commit> --format '{{json .Manifest}}' | jq -r .digest
+   docker buildx imagetools inspect ghcr.io/aishie-education/aishie-core:sha-<commit> --format '{{json .Manifest}}' | jq -r .digest
    ```
 
-   giving `ghcr.io/aishiteru-lms/aishiteru-core:sha-<commit>@sha256:<digest>`.
+   giving `ghcr.io/aishie-education/aishie-core:sha-<commit>@sha256:<digest>`.
    `scripts/ci-core.sh` refuses a `:sha-` tag whose commit is not the
    digest's.
 
