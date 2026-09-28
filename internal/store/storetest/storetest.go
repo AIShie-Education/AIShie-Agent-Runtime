@@ -23,7 +23,13 @@
 //   - PurgeMember removes everything the store holds in the seat: its notes,
 //     its attempts (whose bytes hold the answers' bodies) and its cursors.
 //     The seat's row goes with ForgetSeat, and the ledger's ids and numbers
-//     stay (Core's docs/agent-runtime.md §6.3).
+//     stay (Core's docs/agent-runtime.md §6.3). PurgeAgent removes all of
+//     an agent's but its ledger: every seat's notes, attempts and cursors,
+//     its seats, its state and its leases (agent:{id}, conv:{id}:*), and
+//     nothing of an agent whose id begins as its does.
+//   - An agent's state keeps why (a reason) and the version of the row
+//     the worker put in force; AgentState of an agent with none is
+//     ErrNotFound.
 //   - SeatGone of a seat never seen is ErrNotFound; ForgetSeat of one is
 //     nothing.
 //   - A ledger row is keyed on (agent, id), and recording one again is
@@ -44,8 +50,8 @@
 //     jsonb. The registry's revision moves on with every write to an agent
 //     or a course (a delete of nothing may move it too), and never with a
 //     read, a person or a secret alone.
-//   - A seat keeps what me_memberships last showed of it; perms of none
-//     come back as an empty map.
+//   - A seat keeps what me_memberships last showed of it, its course's
+//     status among it; perms of none come back as an empty map.
 //   - Reports span [since, until), and group by the UTC day; a row is
 //     there only when something was recorded in it. Answers count the
 //     billable ones, outcomes every one; calls, tokens and cost are the

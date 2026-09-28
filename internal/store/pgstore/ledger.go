@@ -3,10 +3,13 @@ package pgstore
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
 )
@@ -143,36 +146,57 @@ func (s *Store) SetAgentState(ctx context.Context, st store.AgentState) error {
 		return err
 	}
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO agent_state (agent_id, state, detail, worker, updated_at)
-		VALUES ($1, $2, $3, $4, COALESCE($5::timestamptz, now()))
+		INSERT INTO agent_state (agent_id, state, reason, detail, worker, config_version, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::timestamptz, now()))
 		ON CONFLICT (agent_id) DO UPDATE
-		   SET state = EXCLUDED.state, detail = EXCLUDED.detail, worker = EXCLUDED.worker,
-		       updated_at = EXCLUDED.updated_at`,
-		st.AgentID, st.State, st.Detail, st.Worker, orNow(st.UpdatedAt))
+		   SET state = EXCLUDED.state, reason = EXCLUDED.reason, detail = EXCLUDED.detail, worker = EXCLUDED.worker,
+		       config_version = EXCLUDED.config_version, updated_at = EXCLUDED.updated_at`,
+		st.AgentID, st.State, st.Reason, st.Detail, st.Worker, st.ConfigVersion, orNow(st.UpdatedAt))
 	if err != nil {
 		return fmt.Errorf("store: set state of agent %s: %w", st.AgentID, err)
 	}
 	return nil
 }
 
+// stateColumns are what scanState reads, in its order.
+const stateColumns = `agent_id, state, reason, detail, worker, config_version, updated_at`
+
+func scanState(row pgx.Row) (*store.AgentState, error) {
+	var st store.AgentState
+	if err := row.Scan(&st.AgentID, &st.State, &st.Reason, &st.Detail, &st.Worker, &st.ConfigVersion, &st.UpdatedAt); err != nil {
+		return nil, err
+	}
+	utc(&st.UpdatedAt)
+	return &st, nil
+}
+
+// AgentState is one agent's state, or store.ErrNotFound.
+func (s *Store) AgentState(ctx context.Context, agentID string) (*store.AgentState, error) {
+	st, err := scanState(s.pool.QueryRow(ctx, `SELECT `+stateColumns+` FROM agent_state WHERE agent_id = $1`, agentID))
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return nil, fmt.Errorf("the state of agent %s: %w", agentID, store.ErrNotFound)
+	case err != nil:
+		return nil, fmt.Errorf("store: the state of agent %s: %w", agentID, err)
+	}
+	return st, nil
+}
+
 // AgentStates lists every agent's state, by agent id, sorted bytewise as
 // memstore sorts it.
 func (s *Store) AgentStates(ctx context.Context) ([]store.AgentState, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT agent_id, state, detail, worker, updated_at FROM agent_state
-		 ORDER BY agent_id COLLATE "C"`)
+	rows, err := s.pool.Query(ctx, `SELECT `+stateColumns+` FROM agent_state ORDER BY agent_id COLLATE "C"`)
 	if err != nil {
 		return nil, fmt.Errorf("store: agent states: %w", err)
 	}
 	defer rows.Close()
 	var out []store.AgentState
 	for rows.Next() {
-		var st store.AgentState
-		if err := rows.Scan(&st.AgentID, &st.State, &st.Detail, &st.Worker, &st.UpdatedAt); err != nil {
+		st, err := scanState(rows)
+		if err != nil {
 			return nil, fmt.Errorf("store: agent states: %w", err)
 		}
-		utc(&st.UpdatedAt)
-		out = append(out, st)
+		out = append(out, *st)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("store: agent states: %w", err)

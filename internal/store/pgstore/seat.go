@@ -21,15 +21,16 @@ func (s *Store) SeatSeen(ctx context.Context, r store.SeatRef) error {
 	}
 	_, err = s.pool.Exec(ctx, `
 		INSERT INTO seat (agent_id, member_id, course_id, seen_at, gone_at, course_code, course_title, section, status,
-		                  answers_course, principal_member_id, perms)
-		VALUES ($1, $2, $3, COALESCE($4::timestamptz, now()), NULL, $5, $6, $7, $8, $9, $10, $11::jsonb)
+		                  answers_course, principal_member_id, perms, course_status)
+		VALUES ($1, $2, $3, COALESCE($4::timestamptz, now()), NULL, $5, $6, $7, $8, $9, $10, $11::jsonb, $12)
 		ON CONFLICT (agent_id, member_id) DO UPDATE
 		   SET course_id = EXCLUDED.course_id, seen_at = EXCLUDED.seen_at, gone_at = NULL,
 		       course_code = EXCLUDED.course_code, course_title = EXCLUDED.course_title, section = EXCLUDED.section,
 		       status = EXCLUDED.status, answers_course = EXCLUDED.answers_course,
-		       principal_member_id = EXCLUDED.principal_member_id, perms = EXCLUDED.perms`,
+		       principal_member_id = EXCLUDED.principal_member_id, perms = EXCLUDED.perms,
+		       course_status = EXCLUDED.course_status`,
 		r.AgentID, r.MemberID, r.CourseID, orNow(r.SeenAt), r.CourseCode, r.CourseTitle, r.Section, r.Status,
-		r.AnswersCourse, orNull(r.PrincipalMemberID), string(perms))
+		r.AnswersCourse, orNull(r.PrincipalMemberID), string(perms), r.CourseStatus)
 	if err != nil {
 		return fmt.Errorf("store: seat %s seen: %w", r.MemberID, err)
 	}
@@ -54,7 +55,7 @@ func (s *Store) SeatGone(ctx context.Context, agentID, memberID string, at time.
 
 // seatColumns are what querySeats reads, in its order.
 const seatColumns = `agent_id, member_id, course_id, seen_at, gone_at, course_code, course_title, section, status,
-	answers_course, COALESCE(principal_member_id, ''), perms::text`
+	answers_course, COALESCE(principal_member_id, ''), perms::text, course_status`
 
 // querySeats lists the seats a query returns.
 func (s *Store) querySeats(ctx context.Context, sql string, args ...any) ([]store.SeatRef, error) {
@@ -68,7 +69,7 @@ func (s *Store) querySeats(ctx context.Context, sql string, args ...any) ([]stor
 		var r store.SeatRef
 		var perms string
 		if err := rows.Scan(&r.AgentID, &r.MemberID, &r.CourseID, &r.SeenAt, &r.GoneAt, &r.CourseCode, &r.CourseTitle,
-			&r.Section, &r.Status, &r.AnswersCourse, &r.PrincipalMemberID, &perms); err != nil {
+			&r.Section, &r.Status, &r.AnswersCourse, &r.PrincipalMemberID, &perms, &r.CourseStatus); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal([]byte(perms), &r.Perms); err != nil || r.Perms == nil {

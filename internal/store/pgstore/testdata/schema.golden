@@ -4,6 +4,8 @@ agent_state.state text not null
 agent_state.detail text not null
 agent_state.worker text not null
 agent_state.updated_at timestamp with time zone not null
+agent_state.reason text not null default ''::text
+agent_state.config_version integer not null default 0
 answer.agent_id text not null
 answer.id text not null
 answer.seq bigint not null identity
@@ -73,6 +75,7 @@ hosted_agent.settings jsonb not null
 hosted_agent.version integer not null
 hosted_agent.created_at timestamp with time zone not null
 hosted_agent.updated_at timestamp with time zone not null
+hosted_agent.key_provider text not null default ''::text
 hosted_course.agent_id text not null
 hosted_course.course_id text not null
 hosted_course.settings jsonb not null
@@ -132,6 +135,7 @@ seat.status text not null default ''::text
 seat.answers_course boolean not null default false
 seat.principal_member_id text
 seat.perms jsonb not null default '{}'::jsonb
+seat.course_status text not null default ''::text
 secret.id text not null
 secret.tenant_id text not null
 secret.kind text not null

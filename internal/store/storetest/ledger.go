@@ -2,6 +2,7 @@ package storetest
 
 import (
 	"encoding/json"
+	"errors"
 	"slices"
 	"testing"
 	"time"
@@ -258,6 +259,37 @@ func testStatus(t *testing.T, open Opener) {
 			if got[i] != want[i] {
 				t.Errorf("AgentStates[%d] = %+v, want %+v", i, got[i], want[i])
 			}
+		}
+	})
+
+	t.Run("one agent's state, with why and the version in force", func(t *testing.T) {
+		s, ctx := open(t), t.Context()
+		if _, err := s.AgentState(ctx, "agt_1"); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("AgentState before any: %v", err)
+		}
+		for _, st := range []store.AgentState{
+			{AgentID: "agt_1", State: store.AgentStarting, Worker: "w1", ConfigVersion: 3, UpdatedAt: at(0)},
+			{AgentID: "agt_1", State: store.AgentError, Reason: store.ReasonSettingsRejected, Detail: "not run: agent.model", Worker: "w2",
+				ConfigVersion: 4, UpdatedAt: at(time.Minute)},
+			{AgentID: "agt_2", State: store.AgentRunning, Worker: "w1", UpdatedAt: at(0)},
+		} {
+			if err := s.SetAgentState(ctx, st); err != nil {
+				t.Fatal(err)
+			}
+		}
+		got, err := s.AgentState(ctx, "agt_1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		sameTime(t, "updated_at", got.UpdatedAt, us(at(time.Minute)))
+		got.UpdatedAt = time.Time{}
+		if want := (store.AgentState{AgentID: "agt_1", State: store.AgentError, Reason: store.ReasonSettingsRejected,
+			Detail: "not run: agent.model", Worker: "w2", ConfigVersion: 4}); *got != want {
+			t.Errorf("AgentState = %+v, want %+v", *got, want)
+		}
+		all, err := s.AgentStates(ctx)
+		if err != nil || len(all) != 2 || all[0].Reason != store.ReasonSettingsRejected || all[0].ConfigVersion != 4 || all[1].ConfigVersion != 0 {
+			t.Errorf("AgentStates = %+v, %v", all, err)
 		}
 	})
 

@@ -16,6 +16,7 @@
 // zero time is the store's now; FinishAttempt keeps a known action id and
 // posted message id when the outcome has none; PurgeMember removes the
 // seat's notes, attempts and cursors, but not its seat row or the ledger;
+// PurgeAgent removes all an agent has but its ledger;
 // SeatGone of a seat never seen is ErrNotFound; and a ledger row is keyed on
 // (agent_id, ID), so every LLMCall and AnswerRecord needs an ID of its own,
 // and recording one again counts nothing twice.
@@ -169,6 +170,22 @@ type Attempts interface {
 	Unsettled(ctx context.Context, agentID, memberID string) ([]Attempt, error)
 }
 
+// ProposalsWaiting counts one seat's answers waiting for a person's
+// approval: its attempts in state proposed.
+func ProposalsWaiting(ctx context.Context, a Attempts, agentID, memberID string) (int, error) {
+	atts, err := a.Unsettled(ctx, agentID, memberID)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, at := range atts {
+		if at.State == AttemptProposed {
+			n++
+		}
+	}
+	return n, nil
+}
+
 // ErrExists is PutAttempt finding the key taken.
 var ErrExists = errors.New("store: the key is taken")
 
@@ -227,6 +244,12 @@ type Memory interface {
 	// its attempts (whose bytes hold the answers' bodies) and its cursors.
 	// The seat's row goes with ForgetSeat; the ledger stays.
 	PurgeMember(ctx context.Context, agentID, memberID string) error
+	// PurgeAgent removes everything the store holds of an agent but its
+	// ledger (its model calls and answers, kept by D11): the notes,
+	// attempts and cursors of every seat of its, its seats, its state,
+	// and its leases, agent:{id} and conv:{id}:*. An agent it holds
+	// nothing of is nothing.
+	PurgeAgent(ctx context.Context, agentID string) error
 }
 
 // SeatRef is one seat the runtime has seen: its ids, and, as
@@ -242,6 +265,9 @@ type SeatRef struct {
 	Section     string `json:"section"`
 	// Status is the seat's: active, paused, …
 	Status string `json:"status"`
+	// CourseStatus is its course's: active, archived, …; "" for a seat
+	// last seen by a release that did not keep it.
+	CourseStatus string `json:"course_status"`
 	// AnswersCourse is true for a course tutor's seat.
 	AnswersCourse bool `json:"answers_course"`
 	// PrincipalMemberID is whom a person's own agent answers, "" for none.
@@ -387,18 +413,43 @@ const (
 	AgentStopped      = "stopped"
 )
 
+// Why an agent is in its state, as the API's problem.reason names it (the
+// M2 API contract, §6.1): "" when nothing is wrong.
+const (
+	ReasonTokenRefused         = "token_refused"
+	ReasonSettingsRejected     = "settings_rejected"
+	ReasonRuntimeMisconfigured = "runtime_misconfigured"
+	ReasonOperatorAgent        = "operator_agent"
+	ReasonActorInUse           = "actor_in_use"
+	ReasonTokenOtherAgent      = "token_other_agent"
+	ReasonTokenNotAgent        = "token_not_agent"
+	ReasonOwnerChanged         = "owner_changed"
+	ReasonCoreTooOld           = "core_too_old"
+	ReasonAgentSuspended       = "agent_suspended"
+	ReasonFailing              = "failing"
+)
+
 // AgentState is what the owner's page shows about one agent.
 type AgentState struct {
-	AgentID   string    `json:"agent_id"`
-	State     string    `json:"state"`
-	Detail    string    `json:"detail,omitempty"`
-	Worker    string    `json:"worker,omitempty"`
-	UpdatedAt time.Time `json:"updated_at"`
+	AgentID string `json:"agent_id"`
+	State   string `json:"state"`
+	// Reason is why, for a state that is a problem: one of the reasons
+	// above; "" otherwise.
+	Reason string `json:"reason,omitempty"`
+	Detail string `json:"detail,omitempty"`
+	Worker string `json:"worker,omitempty"`
+	// ConfigVersion is the version of a hosted agent's row the worker had
+	// put in force when it wrote the state; 0 for a YAML agent's.
+	ConfigVersion int       `json:"config_version"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // Status is each agent's state.
 type Status interface {
 	SetAgentState(ctx context.Context, s AgentState) error
+	// AgentState is one agent's state, or ErrNotFound when none is
+	// recorded.
+	AgentState(ctx context.Context, agentID string) (*AgentState, error)
 	AgentStates(ctx context.Context) ([]AgentState, error)
 }
 
@@ -534,9 +585,12 @@ type HostedAgent struct {
 	// KeySecretID is the owner's own model key, sealed, "" when none is
 	// stored: a secret of kind model_key of its tenant, which the registry
 	// gives every model section on the owner's key. KeyHint is what may be
-	// shown of it.
+	// shown of it, and KeyProvider the provider it was given for, "" when
+	// none was named (a key stored by hand): a key is never sent to
+	// another provider's host.
 	KeySecretID string `json:"key_secret_id,omitempty"`
 	KeyHint     string `json:"key_hint,omitempty"`
+	KeyProvider string `json:"key_provider,omitempty"`
 	// Paused stops every call to Core for the agent.
 	Paused bool `json:"paused"`
 	// Settings are the rest of the agent document (Core's

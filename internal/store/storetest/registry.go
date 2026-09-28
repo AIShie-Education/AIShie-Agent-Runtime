@@ -130,7 +130,7 @@ func testRegistry(t *testing.T, open Opener) {
 		s, ctx := open(t), t.Context()
 		token, key := sealed("sec_t1", "ten_owner1", store.SecretCoreToken), sealed("sec_k1", "ten_owner1", store.SecretModelKey)
 		a := hosted("agt_1", "actor-1", "owner1", "sec_t1")
-		a.KeySecretID, a.KeyHint = "sec_k1", "sk-…3f9a"
+		a.KeySecretID, a.KeyHint, a.KeyProvider = "sec_k1", "sk-…3f9a", "openai"
 		got := create(t, s, a, token, key)
 		want := a
 		want.Version, want.UpdatedAt = 1, a.CreatedAt
@@ -287,7 +287,7 @@ func testRegistry(t *testing.T, open Opener) {
 		s, ctx := open(t), t.Context()
 		a := *create(t, s, hosted("agt_1", "actor-1", "owner1", "sec_t1"), sealed("sec_t1", "ten_owner1", store.SecretCoreToken))
 		a.TokenSecretID, a.TokenHint = "sec_t2", "ais_newprefix0000…"
-		a.KeySecretID, a.KeyHint = "sec_k1", "sk-…aaaa"
+		a.KeySecretID, a.KeyHint, a.KeyProvider = "sec_k1", "sk-…aaaa", "deepseek"
 		a2, err := s.UpdateHostedAgent(ctx, a, sealed("sec_t2", "ten_owner1", store.SecretCoreToken), sealed("sec_k1", "ten_owner1", store.SecretModelKey))
 		if err != nil {
 			t.Fatal(err)
@@ -295,17 +295,20 @@ func testRegistry(t *testing.T, open Opener) {
 		missingSecret(t, s, "sec_t1")
 		getSecret(t, s, "sec_t2")
 		getSecret(t, s, "sec_k1")
-		if a2.TokenSecretID != "sec_t2" || a2.KeySecretID != "sec_k1" || a2.KeyHint != "sk-…aaaa" || a2.Version != 2 {
+		if a2.TokenSecretID != "sec_t2" || a2.KeySecretID != "sec_k1" || a2.KeyHint != "sk-…aaaa" || a2.KeyProvider != "deepseek" || a2.Version != 2 {
 			t.Errorf("after the replacement: %+v", a2)
 		}
+		if got := getHosted(t, s, "agt_1"); got.KeyProvider != "deepseek" {
+			t.Errorf("the key's provider read back: %q", got.KeyProvider)
+		}
 		// A key taken away is destroyed.
-		a2.KeySecretID, a2.KeyHint = "", ""
+		a2.KeySecretID, a2.KeyHint, a2.KeyProvider = "", "", ""
 		a3, err := s.UpdateHostedAgent(ctx, *a2)
 		if err != nil {
 			t.Fatal(err)
 		}
 		missingSecret(t, s, "sec_k1")
-		if a3.KeySecretID != "" || a3.Version != 3 {
+		if a3.KeySecretID != "" || a3.KeyProvider != "" || a3.Version != 3 {
 			t.Errorf("after the key went: %+v", a3)
 		}
 		// A secret an agent refers to is not destroyed on its own.

@@ -306,15 +306,9 @@ func (s *Server) proposals(ctx context.Context, a *AgentStatus) int {
 	}
 	total := 0
 	for member, seat := range members {
-		atts, err := s.st.Unsettled(ctx, a.AgentID, member)
+		n, err := store.ProposalsWaiting(ctx, s.st, a.AgentID, member)
 		if err != nil {
 			continue
-		}
-		n := 0
-		for _, at := range atts {
-			if at.State == store.AttemptProposed {
-				n++
-			}
 		}
 		if seat != nil {
 			seat.ProposalsWaiting = n

@@ -264,6 +264,69 @@ func testMemory(t *testing.T, open Opener) {
 		}
 	})
 
+	t.Run("PurgeAgent removes all an agent has but its ledger, and nothing of another's", func(t *testing.T) {
+		s, ctx := open(t), t.Context()
+		// agt_1's neighbours: one whose id begins as its does, and one
+		// whose id a LIKE pattern would take for it.
+		agents := []string{"agt_1", "agt_10", "agtX1"}
+		for _, a := range agents {
+			addNotes(t, s, note(a, "m1", "x1", "q1", a+"'s note", base))
+			put(t, s, answer(a, "m1", "x1", "q1", 1, base))
+			if err := s.SetCursor(ctx, a, "m1", store.CursorEvents, "5"); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.SeatSeen(ctx, store.SeatRef{AgentID: a, MemberID: "m1", CourseID: "course-1", SeenAt: base}); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.SetAgentState(ctx, store.AgentState{AgentID: a, State: store.AgentRunning, Worker: "w1", UpdatedAt: base}); err != nil {
+				t.Fatal(err)
+			}
+			for _, lease := range []string{"agent:" + a, "conv:" + a + ":x1"} {
+				if ok, err := s.AcquireLease(ctx, lease, "w1", time.Hour); err != nil || !ok {
+					t.Fatalf("lease %s: %v %v", lease, ok, err)
+				}
+			}
+			record(t, s, []store.LLMCall{call("c-"+a, base, scope{agent: a}, 10)}, []store.AnswerRecord{answerRecord("r-"+a, base, scope{agent: a}, true, 10)})
+		}
+		if err := s.PurgeAgent(ctx, "agt_1"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.PurgeAgent(ctx, "agt_nothing"); err != nil {
+			t.Errorf("an agent it holds nothing of: %v", err)
+		}
+		for _, a := range agents {
+			purged := a == "agt_1"
+			if got := texts(t, s, a, "m1", "x1", 10); (len(got) == 0) != purged {
+				t.Errorf("%s's notes: %q", a, got)
+			}
+			if _, err := s.Attempt(ctx, a, "answer:x1:q1:1"); errors.Is(err, store.ErrNotFound) != purged {
+				t.Errorf("%s's attempt: %v", a, err)
+			}
+			if c, _ := s.Cursor(ctx, a, "m1", store.CursorEvents); (c == "") != purged {
+				t.Errorf("%s's cursor: %q", a, c)
+			}
+			if seats := knownSeats(t, s, a); (len(seats) == 0) != purged {
+				t.Errorf("%s's seats: %+v", a, seats)
+			}
+			if _, err := s.AgentState(ctx, a); errors.Is(err, store.ErrNotFound) != purged {
+				t.Errorf("%s's state: %v", a, err)
+			}
+			for _, lease := range []string{"agent:" + a, "conv:" + a + ":x1"} {
+				// Another holder takes a lease only once it has gone.
+				if ok, err := s.AcquireLease(ctx, lease, "w2", time.Hour); err != nil || ok != purged {
+					t.Errorf("%s's lease %s taken by another: %v %v", a, lease, ok, err)
+				}
+			}
+			// The ledger's ids and numbers stay.
+			if sp := spend(t, s, store.SpendScope{AgentID: a}, base.Add(-time.Hour)); sp.Answers != 1 || sp.CostPUSD != 10 {
+				t.Errorf("%s's ledger: %+v", a, sp)
+			}
+		}
+		if err := s.PurgeAgent(ctx, ""); err == nil {
+			t.Error("PurgeAgent of no agent was taken")
+		}
+	})
+
 	t.Run("one conversation's, seat's or agent's notes are never another's", func(t *testing.T) {
 		s := open(t)
 		addNotes(t, s, note("a1", "m1", "x1", "q1", "secret", base))

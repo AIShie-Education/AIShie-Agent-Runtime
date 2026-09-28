@@ -416,6 +416,44 @@ func (s *Store) PurgeMember(_ context.Context, agentID, memberID string) error {
 	return nil
 }
 
+// PurgeAgent removes everything the store holds of an agent but its
+// ledger: every seat's notes, attempts and cursors, its seats, its state
+// and its leases.
+func (s *Store) PurgeAgent(_ context.Context, agentID string) error {
+	if err := required("agent_id", agentID); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k := range s.notes {
+		if k.agent == agentID {
+			delete(s.notes, k)
+		}
+	}
+	for k := range s.attempts {
+		if k.agent == agentID {
+			delete(s.attempts, k)
+		}
+	}
+	for k := range s.cursors {
+		if k.agent == agentID {
+			delete(s.cursors, k)
+		}
+	}
+	for k := range s.seats {
+		if k.agent == agentID {
+			delete(s.seats, k)
+		}
+	}
+	delete(s.states, agentID)
+	for name := range s.leases {
+		if name == "agent:"+agentID || strings.HasPrefix(name, "conv:"+agentID+":") {
+			delete(s.leases, name)
+		}
+	}
+	return nil
+}
+
 // copySeat is r with a GoneAt and perms of its own.
 func copySeat(r store.SeatRef) store.SeatRef {
 	if r.GoneAt != nil {
@@ -609,6 +647,17 @@ func (s *Store) SetAgentState(_ context.Context, st store.AgentState) error {
 	st.UpdatedAt = s.orNow(st.UpdatedAt)
 	s.states[st.AgentID] = st
 	return nil
+}
+
+// AgentState is one agent's state, or store.ErrNotFound.
+func (s *Store) AgentState(_ context.Context, agentID string) (*store.AgentState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st, ok := s.states[agentID]
+	if !ok {
+		return nil, fmt.Errorf("the state of agent %s: %w", agentID, store.ErrNotFound)
+	}
+	return &st, nil
 }
 
 // AgentStates lists every agent's state, by agent id.
