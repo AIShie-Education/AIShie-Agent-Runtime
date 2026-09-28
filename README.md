@@ -164,4 +164,4 @@ back.
 
 ## License
 
-AIShie Agent Runtime is source-available under the [Elastic License 2.0](LICENSE) (ELv2). You may use, copy, change and redistribute it on the terms in LICENSE, which include that you may not offer it to others as a hosted or managed service.
+AIShie Agent Runtime is copyright 2026 XIE Hanming, and source-available under the [Elastic License 2.0](LICENSE) (ELv2), governed by the laws of Hong Kong. You may use, copy, change and redistribute it on the terms in LICENSE, which include that you may not offer it to others as a hosted or managed service.
