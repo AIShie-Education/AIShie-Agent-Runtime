@@ -35,14 +35,16 @@ also runs `vuln`, and all of it again every week.
   runtime already has (most speak OpenAI's Chat Completions) is not a new
   adapter: it is a row in `llm.DetectProvider` and `llm.Defaults`.
 - A new **tool gate**: `GET /v1/tools` does not say which permissions each
-  tool needs, so the gates are kept by hand, in `toolset.Gates` (Core's
-  `docs/agent-runtime.md` §4). A read Core adds is offered to no model until
-  it has a gate there, with the permissions Core's own declaration of the
-  tool checks, and a test. Only reads are offered; `toolset.BuiltinDeny`
-  keeps writes and the tools no model may call out whatever the
-  configuration allows. At start, the runtime checks every gated tool
-  against Core's catalogue, and refuses one that has gone or is no longer a
-  read.
+  tool needs, so the gates are kept by hand, in `toolset.Gates` for reads
+  and `toolset.WriteGates` for writes (Core's `docs/agent-runtime.md` §4,
+  `docs/design.md` §4). A tool Core adds is offered to no model until it has
+  a gate there, with the permissions Core's own declaration of the tool
+  checks, and a test; a write goes only to a conversation its agent's owner
+  opened. `toolset.BuiltinDeny` keeps out the tools no model may call
+  whatever the configuration and the seat's perms allow, each with its
+  reason: a new write Core adds is either gated or denied there, which a
+  test holds. At start, the runtime checks every gated tool against Core's
+  catalogue, and refuses one that has gone or changed kind.
 - A **store migration** is the next `NNNN_name.up.sql` and
   `NNNN_name.down.sql` in `internal/store/pgstore/migrations`, both, each one
   transaction ([Migrations](#migrations)). A change to what the store keeps
@@ -218,8 +220,8 @@ Move the three together, in one pull request:
    scripts/ci-core.sh stop
    ```
 
-3. Read the diffs. A tool gone from the catalogue, or no longer a read, or a
-   new read the agents should have, is a change to the tool gates
+3. Read the diffs. A tool gone from the catalogue, or of another kind, or a
+   new tool the agents should have, is a change to the tool gates
    ([Where things go](#where-things-go)); a changed schema shows in the
    sanitiser's tests. A changed fixture is a change in Core's behaviour: the
    fake Core must follow it, and `make test` fails until it does.
