@@ -154,7 +154,11 @@ func (s *Server) healthz(w http.ResponseWriter, r *http.Request) {
 }
 
 // localOnly serves h to requests from a loopback address alone, and
-// answers 403 to any other.
+// answers 403 to any other. A proxy on this machine (Caddy, in front of the
+// API) connects from loopback too: a request that says it was forwarded,
+// in any of the headers proxies add, is refused as well, so that /status
+// is not reached from outside through a proxy pointed at HTTP_ADDR by
+// mistake.
 func localOnly(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		host, _, err := net.SplitHostPort(r.RemoteAddr)
@@ -162,8 +166,26 @@ func localOnly(h http.HandlerFunc) http.HandlerFunc {
 			writeJSON(w, http.StatusForbidden, map[string]string{"status": "forbidden", "reason": "/status answers this machine alone"})
 			return
 		}
+		if forwarded(r) {
+			writeJSON(w, http.StatusForbidden, map[string]string{"status": "forbidden", "reason": "/status answers this machine alone, never through a proxy"})
+			return
+		}
 		h(w, r)
 	}
+}
+
+// forwardedHeaders are the headers a proxy adds to what it forwards.
+var forwardedHeaders = []string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto", "X-Real-Ip"}
+
+// forwarded reports whether r carries any of forwardedHeaders, empty or
+// not.
+func forwarded(r *http.Request) bool {
+	for _, name := range forwardedHeaders {
+		if _, ok := r.Header[name]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // Status is /status's answer.
