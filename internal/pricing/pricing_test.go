@@ -2,6 +2,7 @@ package pricing
 
 import (
 	"math"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -249,5 +250,31 @@ func TestExampleTable(t *testing.T) {
 		if _, ok := tab.Lookup(m.provider, m.model, time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC)); !ok {
 			t.Errorf("the example prices nothing for %s %s", m.provider, m.model)
 		}
+	}
+}
+
+// Models are the rows that price a model by name, from their date on, each
+// model once; globs name no model; a table of none is nil.
+func TestModels(t *testing.T) {
+	tb, err := Load("testdata/table.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		provider, at string
+		want         []string
+	}{
+		{"anthropic", "2026-09-28", []string{"claude-sonnet-4-5"}},
+		{"anthropic", "2025-09-28", nil},
+		{"deepseek", "2025-09-29", []string{"deepseek-chat"}},
+		{"openrouter", "2026-09-28", nil},
+		{"nobody", "2026-09-28", nil},
+	} {
+		if got := tb.Models(tc.provider, day(tc.at)); !slices.Equal(got, tc.want) {
+			t.Errorf("Models(%s, %s) = %q, want %q", tc.provider, tc.at, got, tc.want)
+		}
+	}
+	if got := (*Table)(nil).Models("anthropic", time.Now()); got != nil {
+		t.Errorf("no table: %q", got)
 	}
 }

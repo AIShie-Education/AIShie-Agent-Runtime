@@ -24,6 +24,7 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/fakellm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/metrics"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/netguard"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/redact"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/registry"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/secrets"
@@ -322,7 +323,11 @@ func (w *world) startHosted(t *testing.T, m *fakellm.Server, st *pgstore.Store, 
 		Config: cfg, Store: st, Metrics: metrics.New(rt.reg), Log: logger, WorkerID: "hosted-w1",
 		Secrets:    secrets.Resolver{Sealed: vault.Opener{Vault: v, Store: st}},
 		HTTPClient: &http.Client{Transport: toModel{next: tr, target: target}},
-		CoreRetry:  core.RetryOptions{Base: 50 * time.Millisecond, Max: time.Second},
+		// A hosted agent's model calls go through a client that follows no
+		// redirect; the scripted model is on loopback, which the dial guard
+		// of production refuses, so the guard is left out here.
+		HostedHTTPClient: netguard.NoRedirects(&http.Client{Transport: toModel{next: tr, target: target}}),
+		CoreRetry:        core.RetryOptions{Base: 50 * time.Millisecond, Max: time.Second},
 		Timing: worker.Timing{
 			LeaseEvery: time.Second, LeaseTTL: 5 * time.Second, Restart: 100 * time.Millisecond, RestartMax: time.Second,
 			ModelBackoff: 50 * time.Millisecond, ModelBackoffMax: 500 * time.Millisecond,

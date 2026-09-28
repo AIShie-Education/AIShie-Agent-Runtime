@@ -3,14 +3,20 @@ package worker
 import (
 	"context"
 	"errors"
+	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/scripted"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/netguard"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/registry"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/secrets"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/vault"
 )
 
 // waitVersion waits for the agent's state to be state at the row's
@@ -225,3 +231,57 @@ func TestActorAgent(t *testing.T) {
 		return err == nil && len(seats) == 1 && seats[0].CourseStatus == "active"
 	})
 }
+
+// A hosted agent's model is called over the hosted-model client, which
+// follows no redirect and connects to public addresses alone; a YAML
+// agent's over the egress client.
+func TestHostedModelsUseTheGuardedClient(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("agt_yuki", 0)
+	h := w.hosting()
+	h.host("agt_yuki", own, "", hostedSettings("m1"))
+	w.tutor("cs101-tutor")
+	yaml := w.config(nil, w.agentDoc("cs101-tutor", "m2", nil, nil))
+	var mu sync.Mutex
+	clients := map[string]*http.Client{}
+	ms := models{"m1": scripted.New(), "m2": scripted.New()}
+	egress := &http.Client{Timeout: 5 * time.Second}
+	wk := h.w.start(h.build(yaml), ms, workerOpts{store: h.st, edit: func(o *Options) {
+		o.Secrets = secrets.Resolver{Getenv: w.getenv, Sealed: vault.Opener{Vault: h.v, Store: h.st}}
+		o.HTTPClient = egress
+		o.NewAdapter = func(c llm.Config) (llm.Adapter, error) {
+			mu.Lock()
+			clients[c.Model] = c.HTTPClient
+			mu.Unlock()
+			return ms[c.Model], nil
+		}
+	}})
+	wk.waitState("agt_yuki", store.AgentRunning)
+	wk.waitState("cs101-tutor", store.AgentRunning)
+	mu.Lock()
+	defer mu.Unlock()
+	if clients["m2"] != egress {
+		t.Error("the YAML agent's model is not called over the egress client")
+	}
+	hosted := clients["m1"]
+	if hosted == nil || hosted == egress || hosted.CheckRedirect == nil {
+		t.Fatalf("the hosted agent's model client: %+v", hosted)
+	}
+	if err := hosted.CheckRedirect(nil, nil); !errors.Is(err, netguard.ErrRedirect) {
+		t.Errorf("a redirect: %v", err)
+	}
+	resp, err := hosted.Get("http://127.0.0.1:1/")
+	if err == nil {
+		_ = resp.Body.Close()
+	}
+	if !errors.Is(err, netguard.ErrBlocked) {
+		t.Errorf("loopback: %v", err)
+	}
+	if _, err := NewSupervisor(Options{Config: &config.Config{}, Store: h.st, HTTPClient: &http.Client{Transport: roundTrip(nil)}}); err == nil {
+		t.Error("a hosted-model client made from a transport it cannot guard")
+	}
+}
+
+type roundTrip func(*http.Request) (*http.Response, error)
+
+func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

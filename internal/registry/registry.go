@@ -147,6 +147,36 @@ func Build(ctx context.Context, yaml *config.Config, r Reader, o Options) (*conf
 	return out, rev, nil
 }
 
+// Check holds one hosted agent, as its row would be written with its
+// courses, to what Build holds it to: an id no YAML agent of yaml's has, a
+// CORE_BASE_URL, its document, loaded and validated over yaml's runtime
+// settings, and its models. It reads and writes nothing: the API tries a
+// change with it before it writes one. The error is why it would not run,
+// as a Rejection's Detail words it.
+func Check(_ context.Context, yaml *config.Config, row store.HostedAgent, courses []store.HostedCourse, o Options) error {
+	for _, a := range yaml.Agents {
+		if a.ID == row.ID {
+			return errors.New("a YAML agent has this id, and the operator's configuration wins")
+		}
+	}
+	if err := checkCoreBaseURL(o); err != nil {
+		return err
+	}
+	src, err := Document(row, courses, o.CoreBaseURL, defaultKeySource(yaml))
+	if err != nil {
+		return err
+	}
+	agents, rejected := config.LoadDocuments(yaml, o.Allowlist, src)
+	if len(rejected) > 0 {
+		return rejected[0].Err
+	}
+	key := ""
+	if row.KeySecretID != "" {
+		key = secrets.SchemeSealed + row.KeySecretID
+	}
+	return checkModels(agents[0], key)
+}
+
 // checkCoreBaseURL refuses a CORE_BASE_URL no hosted agent can use: none.
 // One outside CORE_BASE_URL_ALLOWLIST is refused by FromEnv, and by each
 // agent's validation.

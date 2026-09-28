@@ -290,6 +290,25 @@ func (t *Table) Lookup(provider, model string, at time.Time) (Price, bool) {
 
 func literalLen(pattern string) int { return len(pattern) - strings.Count(pattern, "*") }
 
+// Models are the models the table prices by name for provider at at: its
+// rows that name a model exactly, not a glob, dated at or before at, each
+// model once, in the table's order. A form suggests them.
+func (t *Table) Models(provider string, at time.Time) []string {
+	if t == nil {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, r := range t.rows {
+		if r.provider != provider || r.glob || r.from.After(at) || seen[r.model] {
+			continue
+		}
+		seen[r.model] = true
+		out = append(out, r.model)
+	}
+	return out
+}
+
 // Match reports whether s matches pattern, where * stands for any run of
 // characters, '/' and ':' included, and everything else stands for itself.
 // It is the one glob the runtime uses for model names, here and in the
