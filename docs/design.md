@@ -582,7 +582,10 @@ document a YAML file would hold, and runs it beside the YAML agents:
   defaults'); none is called with the runtime's own credentials (Bedrock
   without a key would sign with the host's) or at a server that takes no
   key; `base_url` is empty (the adapter's own) or an official provider's
-  endpoint (§3.9) over https; and it sends no extra headers (D9). The
+  endpoint (§3.9) over https, the provider's own host where it serves
+  from a cloud's domain (DashScope's under `aliyuncs.com`, Bedrock's
+  runtime under `amazonaws.com`, not a bucket or function anyone can
+  name there); and it sends no extra headers (D9). The
   school's key is not offered to hosted agents yet: that waits on the
   school's model offers and the owners' quotas (below).
 - **YAML ∪ registry.** `registry.Build` is the YAML configuration, then

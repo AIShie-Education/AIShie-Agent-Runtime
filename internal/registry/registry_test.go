@@ -450,6 +450,13 @@ func TestOfficialEndpoints(t *testing.T) {
 		{"openai_chat", "https://myres.openai.azure.com/openai/v1", true},
 		{"openai_chat", "https://openrouter.ai/api/v1", true},
 		{"openai_chat", "https://dashscope.aliyuncs.com/compatible-mode/v1", true},
+		{"openai_chat", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", true},
+		{"openai_chat", "https://dashscope-us.aliyuncs.com/compatible-mode/v1", true},
+		{"openai_chat", "https://ws-1a2b3c.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", true},
+		// Alibaba Cloud's names that anyone can take: a bucket, a function.
+		{"openai_chat", "https://mybucket.oss-cn-hangzhou.aliyuncs.com/v1", false},
+		{"openai_chat", "https://1234567890.cn-hangzhou.fc.aliyuncs.com/2016-08-15/proxy/svc/fn", false},
+		{"openai_chat", "https://dashscope.aliyuncs.com.evil.example/v1", false},
 		{"openai_chat", "https://api.anthropic.com/v1", true},
 		{"openai_chat", "https://llm.internal/v1", false},
 		{"openai_chat", "https://127.0.0.1/v1", false},
@@ -463,7 +470,13 @@ func TestOfficialEndpoints(t *testing.T) {
 		{"gemini", "https://generativelanguage.googleapis.com/v1beta", true},
 		{"gemini", "https://gemini.example.net", false},
 		{"bedrock_converse", "https://bedrock-runtime.us-east-1.amazonaws.com", true},
+		{"bedrock_converse", "https://bedrock-runtime-fips.us-east-1.amazonaws.com", true},
+		{"bedrock_converse", "https://bedrock-runtime.cn-north-1.amazonaws.com.cn", true},
 		{"bedrock_converse", "https://s3.amazonaws.com", false},
+		// AWS's names that anyone can take with "bedrock" in them: a
+		// bucket, a load balancer.
+		{"bedrock_converse", "https://bedrock-mine.s3.amazonaws.com", false},
+		{"bedrock_converse", "https://bedrock-lb-1234567890.us-east-1.elb.amazonaws.com", false},
 		{"cohere", "https://api.cohere.com", false},
 	} {
 		m := config.Model{Adapter: c.adapter, BaseURL: c.url, KeyRef: "sealed://sec_k"}

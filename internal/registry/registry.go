@@ -37,6 +37,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -382,11 +383,18 @@ func checkModel(m config.Model) string {
 // (Core's docs/agent-runtime.md §3.9): behind openai_chat, any provider
 // DetectProvider knows by its host; behind the others, their provider's
 // hosts alone, since DetectProvider names their provider for any host.
+// Where DetectProvider knows a provider by a cloud's domain, under which
+// anyone can have a name of their own (Alibaba Cloud's, for Qwen: a bucket,
+// a function), only the provider's own hosts under it are official.
 func official(adapter string, u *url.URL) bool {
 	host := strings.ToLower(u.Hostname())
 	switch adapter {
 	case llm.AdapterOpenAIChat:
-		return !slices.Contains(selfHosted, llm.DetectProvider(adapter, u.String()))
+		p := llm.DetectProvider(adapter, u.String())
+		if p == llm.ProviderQwen {
+			return dashScope(host)
+		}
+		return !slices.Contains(selfHosted, p)
 	case llm.AdapterOpenAIResponses:
 		return isHost(host, "api.openai.com") || llm.DetectProvider(llm.AdapterOpenAIChat, u.String()) == llm.ProviderAzure
 	case llm.AdapterAnthropic:
@@ -394,9 +402,29 @@ func official(adapter string, u *url.URL) bool {
 	case llm.AdapterGemini:
 		return isHost(host, "generativelanguage.googleapis.com")
 	case llm.AdapterBedrockConverse:
-		return isHost(host, "amazonaws.com") && strings.Contains(host, "bedrock")
+		return bedrockRuntimeRe.MatchString(host)
 	}
 	return false
+}
+
+// bedrockRuntimeRe is Bedrock's runtime endpoint in a region (§3.9), FIPS
+// or not, in China's partition too; not any name of AWS's that holds
+// "bedrock", which a bucket or a load balancer of anyone's may.
+var bedrockRuntimeRe = regexp.MustCompile(`^bedrock-runtime(-fips)?\.[a-z0-9-]+\.amazonaws\.com(\.cn)?$`)
+
+// dashScope reports whether host is Alibaba Cloud Model Studio's (§3.9):
+// dashscope.aliyuncs.com and its regional hosts (dashscope-intl,
+// dashscope-us), or a workspace's, <workspace>.<region>.maas.aliyuncs.com.
+func dashScope(host string) bool {
+	name, ok := strings.CutSuffix(host, ".aliyuncs.com")
+	if !ok {
+		return false
+	}
+	if name == "dashscope" || strings.HasPrefix(name, "dashscope-") && !strings.Contains(name, ".") {
+		return true
+	}
+	parts := strings.Split(name, ".")
+	return len(parts) == 3 && parts[2] == "maas" && parts[0] != "" && parts[1] != ""
 }
 
 // isHost reports whether host is domain or a name under it.
