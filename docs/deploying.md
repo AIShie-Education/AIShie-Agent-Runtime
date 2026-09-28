@@ -189,7 +189,11 @@ as text, a PowerPoint, Word or Excel file as the runtime's text of it for
 every model, a PDF as a file where the model takes files (and its provider
 a PDF of its size and pages) and as its text otherwise, an image as a file
 where the model takes files. The runtime reads files of at most 10 MB, from
-memory and within fixed limits, and needs nothing installed for it. A
+memory and within fixed limits, and needs nothing installed for it. Text
+too long for one result (32 KB) is given in parts, which the model asks
+for one after another; each worker keeps what it read of a file (at most
+32 MiB in all), so that the file is fetched and read once for all its
+parts. A
 scanned PDF, or one whose fonts do not map to text, reaches a model that
 takes no files as a note asking for a version with selectable text; an
 older Office file (`.doc`, `.ppt`, `.xls`) as one asking for `.pptx`,

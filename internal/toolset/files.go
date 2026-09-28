@@ -123,8 +123,16 @@ type fileRecord struct {
 	// docx, xlsx or pdf) when the text is not the file's own but the
 	// runtime's reading of it.
 	ExtractedFrom string `json:"extracted_from,omitempty"`
+	// Part and Parts: a text too long for one result is given in parts,
+	// and file_text is part Part of Parts; PartHolds says which slides,
+	// pages or sheets it holds, and NextPart is the call that reads the
+	// next. All empty when the text is given whole.
+	Part      int       `json:"part,omitempty"`
+	Parts     int       `json:"parts,omitempty"`
+	PartHolds string    `json:"part_holds,omitempty"`
+	NextPart  *nextPart `json:"next_part,omitempty"`
 	// Note says why the file was not given; or, of text the runtime
-	// extracted, what it holds and leaves out.
+	// extracted, what it holds and leaves out, and which part it is.
 	Note string `json:"note,omitempty"`
 }
 
@@ -132,6 +140,10 @@ type fileRecord struct {
 type docFile struct {
 	url, title, contentType string
 	byteSize                int64
+	// documentID, versionID and checksum name the document and the
+	// version Core gave, as its result does: what a part of its text is
+	// asked for by, and kept under.
+	documentID, versionID, checksum string
 }
 
 // documentFile finds the file of a document_get result: its version's
@@ -146,6 +158,9 @@ func documentFile(result any) *docFile {
 	}
 	d := &docFile{url: u}
 	d.title, _ = m["title"].(string)
+	d.documentID, _ = m["id"].(string)
+	d.versionID, _ = version["id"].(string)
+	d.checksum, _ = version["checksum"].(string)
 	d.contentType, _ = version["content_type"].(string)
 	if n, ok := version["byte_size"].(json.Number); ok {
 		d.byteSize, _ = n.Int64()
@@ -229,6 +244,17 @@ const (
 	noteMalformed = notGiven + "it could not be read: it is damaged, or not the kind of file it says it is"
 )
 
+// given is what the model is given of a document's file: the record the
+// result carries, and the text or the file part, if any.
+type given struct {
+	rec *fileRecord
+	// text is the file's text, whole, and sections where its slides,
+	// pages or sheets begin: the result gives it whole or a part of it.
+	text     string
+	sections []doctext.Section
+	file     *llm.File
+}
+
 // giveFile fetches a document's file and says how the model gets it (rule
 // 6): text as text; an image as a file part, to a model that takes files;
 // a PowerPoint, Word or Excel file as the text the runtime reads from it;
@@ -236,30 +262,41 @@ const (
 // takes one of its size and pages, and otherwise as its text, when that
 // reads as text. A file of no type, or of one that says nothing, is known
 // by what it holds. Anything else is not given, with a note saying why.
-func (r Runner) giveFile(ctx context.Context, d *docFile) (*fileRecord, string, *llm.File) {
+// What was read for a model given the text is kept (Runner.Texts), and a
+// later call for the same version, a later part of it, reads it there
+// without fetching the file again.
+func (r Runner) giveFile(ctx context.Context, d *docFile) given {
 	rec := &fileRecord{Name: d.title, ContentType: d.contentType, ByteSize: d.byteSize, GivenAs: givenNot}
+	g := given{rec: rec}
 	mt := mediaType(d.contentType)
 	kind := classify(mt)
 	if why := r.refusal(mt, kind); why != "" {
 		rec.Note = why
-		return rec, "", nil
+		return g
 	}
 	if r.Files == nil {
 		rec.Note = notGiven + "files are not fetched here"
-		return rec, "", nil
+		return g
 	}
 	if d.byteSize > r.MaxFileBytes {
 		rec.Note = r.tooLarge()
-		return rec, "", nil
+		return g
+	}
+	key := r.textKey(d)
+	if kept := r.Texts.get(key); kept != nil && !r.givesFile(classify(kept.mt)) {
+		if kind == kindUnknown {
+			rec.ContentType = kept.mt
+		}
+		return r.giveReading(g, kept, "")
 	}
 	f, err := r.Files.Fetch(ctx, d.url, r.MaxFileBytes)
 	switch {
 	case errors.Is(err, ErrTooLarge):
 		rec.Note = r.tooLarge()
-		return rec, "", nil
+		return g
 	case err != nil:
 		rec.Note = notGiven + "it could not be fetched"
-		return rec, "", nil
+		return g
 	}
 	rec.ByteSize = int64(len(f.Data))
 	if kind == kindUnknown {
@@ -271,26 +308,129 @@ func (r Runner) giveFile(ctx context.Context, d *docFile) (*fileRecord, string, 
 		}
 		if why != "" {
 			rec.Note = why
-			return rec, "", nil
+			return g
 		}
 	}
+	past := ""
+	switch {
+	case kind == kindImage:
+		rec.GivenAs = givenFile
+		g.file = &llm.File{Name: fileName(d.title, mt), MIME: mt, Data: f.Data}
+		return g
+	case kind == kindPDF && r.FileInput:
+		// A PDF is a file part where the model takes files and its
+		// provider takes a PDF of its size and pages; one that needs a
+		// password to open is given to no model, as no provider reads it
+		// either.
+		ctx, cancel := context.WithTimeout(ctx, extractTimeout)
+		past, err = r.pastLimits(ctx, f.Data)
+		cancel()
+		if errors.Is(err, doctext.ErrEncrypted) {
+			rec.Note = notePassword
+			return g
+		}
+		if past == "" {
+			rec.GivenAs = givenFile
+			g.file = &llm.File{Name: fileName(d.title, "application/pdf"), MIME: "application/pdf", Data: f.Data}
+			return g
+		}
+	}
+	rd := r.Texts.get(key)
+	if rd == nil {
+		var keep bool
+		rd, keep = r.read(ctx, mt, kind, f.Data)
+		if keep {
+			r.Texts.put(key, rd)
+		}
+	}
+	return r.giveReading(g, rd, past)
+}
+
+// givesFile reports whether a file of kind may be given to this model as
+// a file part, which takes its bytes, not its text: an image, or a PDF to
+// a model that takes files.
+func (r Runner) givesFile(kind fileKind) bool {
+	return kind == kindImage || kind == kindPDF && r.FileInput
+}
+
+// read reads the text of a file of media type mt, of kind (text, a PDF or
+// an Office file), within extractTimeout; keep is false when the reading
+// ran out of time or was cancelled, which another call may yet finish.
+func (r Runner) read(ctx context.Context, mt string, kind fileKind, data []byte) (rd *fileReading, keep bool) {
+	rd = &fileReading{mt: mt, size: int64(len(data)), sum: checksum(data)}
+	var format doctext.Format
 	switch kind {
 	case kindText:
-		text := strings.ToValidUTF8(string(f.Data), "�")
-		if text == "" {
+		rd.res = &doctext.Result{Text: strings.ToValidUTF8(string(data), "\uFFFD")}
+		return rd, true
+	case kindPDF:
+		format = doctext.PDF
+	case kindOffice:
+		format, _ = doctext.FormatOf(mt)
+	default:
+		rd.err = fmt.Errorf("%w: it is not a file the runtime reads the text of", doctext.ErrMalformed)
+		return rd, true
+	}
+	ctx, cancel := context.WithTimeout(ctx, extractTimeout)
+	defer cancel()
+	rd.res, rd.err = doctext.Extract(ctx, data, format, r.DocLimits)
+	return rd, !isContextError(rd.err)
+}
+
+// giveReading gives a file's text as rd read it; past, for a PDF, says why
+// the model's provider does not take it as a file, when that is why it is
+// given as text.
+func (r Runner) giveReading(g given, rd *fileReading, past string) given {
+	rec := g.rec
+	rec.ByteSize = rd.size
+	kind := classify(rd.mt)
+	switch {
+	case kind == kindText && rd.res != nil:
+		if rd.res.Text == "" {
 			rec.Note = "the file is empty"
-			return rec, "", nil
+			return g
 		}
 		rec.GivenAs = givenText
-		return rec, text, nil
-	case kindPDF:
-		return r.givePDF(ctx, rec, d.title, f.Data)
-	case kindOffice:
-		format, _ := doctext.FormatOf(mt)
-		return r.giveText(ctx, rec, format, f.Data)
+		g.text = rd.res.Text
+		return g
+	case kind == kindPDF:
+		return r.givePDFText(g, rd, past)
+	case rd.err != nil:
+		rec.Note = extractNote(rd.err)
+		return g
 	}
-	rec.GivenAs = givenFile
-	return rec, "", &llm.File{Name: fileName(d.title, mt), MIME: mt, Data: f.Data}
+	return r.extracted(g, rd.res)
+}
+
+// givePDFText gives a PDF's text, where that reads as text: to a model
+// that takes no files, or past what its provider takes (past says why).
+func (r Runner) givePDFText(g given, rd *fileReading, past string) given {
+	rec := g.rec
+	res, err := rd.res, rd.err
+	switch {
+	case err != nil && past != "":
+		rec.Note = notGiven + past + ", and " + strings.TrimPrefix(extractNote(err), notGiven)
+		return g
+	case err != nil:
+		rec.Note = extractNote(err)
+		return g
+	case res.Unreadable != "":
+		why := noteUnmapped
+		if res.Unreadable == doctext.UnreadableNoText {
+			why = noteNoText
+		}
+		if past != "" {
+			rec.Note = notGiven + past + ", and " + why
+		} else {
+			rec.Note = noteNoFiles + ", and " + why
+		}
+		return g
+	}
+	g = r.extracted(g, res)
+	if past != "" {
+		rec.Note = "the PDF is given as the runtime's text of it, since " + past + "; " + rec.Note
+	}
+	return g
 }
 
 // sniff is what a fetched file of no telling type is: by its first bytes
@@ -334,52 +474,6 @@ func (r Runner) refusal(mt string, kind fileKind) string {
 	return ""
 }
 
-// givePDF gives a PDF: as a file part where the model takes files and its
-// provider takes a PDF of its size and pages; else as its text, where that
-// reads as text. One that needs a password to open is not given at all:
-// no provider reads it either.
-func (r Runner) givePDF(ctx context.Context, rec *fileRecord, title string, data []byte) (*fileRecord, string, *llm.File) {
-	ctx, cancel := context.WithTimeout(ctx, extractTimeout)
-	defer cancel()
-	past := ""
-	if r.FileInput {
-		var err error
-		if past, err = r.pastLimits(ctx, data); errors.Is(err, doctext.ErrEncrypted) {
-			rec.Note = notePassword
-			return rec, "", nil
-		}
-		if past == "" {
-			rec.GivenAs = givenFile
-			return rec, "", &llm.File{Name: fileName(title, "application/pdf"), MIME: "application/pdf", Data: data}
-		}
-	}
-	res, err := doctext.Extract(ctx, data, doctext.PDF, r.DocLimits)
-	switch {
-	case err != nil && past != "":
-		rec.Note = notGiven + past + ", and " + strings.TrimPrefix(extractNote(err), notGiven)
-		return rec, "", nil
-	case err != nil:
-		rec.Note = extractNote(err)
-		return rec, "", nil
-	case res.Unreadable != "":
-		why := noteUnmapped
-		if res.Unreadable == doctext.UnreadableNoText {
-			why = noteNoText
-		}
-		if past != "" {
-			rec.Note = notGiven + past + ", and " + why
-		} else {
-			rec.Note = noteNoFiles + ", and " + why
-		}
-		return rec, "", nil
-	}
-	rec, text, file := r.extracted(rec, res)
-	if past != "" {
-		rec.Note = "the PDF is given as the runtime's text of it, since " + past + "; " + rec.Note
-	}
-	return rec, text, file
-}
-
 // pastLimits says why a PDF is past what the model's provider takes as a
 // file (r.PDFLimits), or "" when it is not. Its pages are counted only
 // when there is a limit on them; a PDF whose pages cannot be counted is
@@ -402,24 +496,13 @@ func (r Runner) pastLimits(ctx context.Context, data []byte) (string, error) {
 	return "", nil
 }
 
-// giveText gives the text the runtime reads from an Office file.
-func (r Runner) giveText(ctx context.Context, rec *fileRecord, f doctext.Format, data []byte) (*fileRecord, string, *llm.File) {
-	ctx, cancel := context.WithTimeout(ctx, extractTimeout)
-	defer cancel()
-	res, err := doctext.Extract(ctx, data, f, r.DocLimits)
-	if err != nil {
-		rec.Note = extractNote(err)
-		return rec, "", nil
-	}
-	return r.extracted(rec, res)
-}
-
-// extracted gives a file's text as read, and says what it holds and
-// leaves out.
-func (r Runner) extracted(rec *fileRecord, res *doctext.Result) (*fileRecord, string, *llm.File) {
+// extracted gives a file's text as doctext read it, and says what it
+// holds and leaves out.
+func (r Runner) extracted(g given, res *doctext.Result) given {
+	rec := g.rec
 	if strings.TrimSpace(res.Text) == "" {
 		rec.Note = notGiven + "it holds no text"
-		return rec, "", nil
+		return g
 	}
 	rec.GivenAs, rec.ExtractedFrom = givenText, string(res.Format)
 	var holds string
@@ -444,7 +527,8 @@ func (r Runner) extracted(rec *fileRecord, res *doctext.Result) (*fileRecord, st
 		holds += "; its " + strings.Join(named, " and ") + " are only named, as [image] and [chart]"
 	}
 	rec.Note = strings.Join(append([]string{holds}, res.Notes...), "; ")
-	return rec, res.Text, nil
+	g.text, g.sections = res.Text, res.Sections
+	return g
 }
 
 // extractNote is why a file whose text could not be read is not given.

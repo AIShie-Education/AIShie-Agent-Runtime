@@ -396,12 +396,27 @@ func TestDeclarations(t *testing.T) {
 			if decl.Description != cat.Tools[decl.Name].Description {
 				t.Errorf("%s: %s's description is not Core's", d, decl.Name)
 			}
-			want, err := toolschema.Sanitise(cat.Tools[decl.Name].InputSchema, d, Bound)
+			// Core's schema, and document_get's with the runtime's
+			// file_part beside Core's arguments.
+			core := cat.Tools[decl.Name].InputSchema
+			shown := core
+			if decl.Name == FilePartTool {
+				if shown, err = withFilePart(core); err != nil {
+					t.Fatal(err)
+				}
+				if !strings.Contains(string(decl.Schema), `"`+FilePartArg+`"`) {
+					t.Errorf("%s: %s's schema does not offer %s", d, decl.Name, FilePartArg)
+				}
+			}
+			want, err := toolschema.Sanitise(shown, d, Bound)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if string(decl.Schema) != string(want) {
 				t.Errorf("%s: %s's schema is not the sanitised one", d, decl.Name)
+			}
+			if decl.Name != FilePartTool && strings.Contains(string(decl.Schema), FilePartArg) {
+				t.Errorf("%s: %s's schema offers %s", d, decl.Name, FilePartArg)
 			}
 			if strings.Contains(string(decl.Schema), "course_id") {
 				t.Errorf("%s: %s's schema offers course_id", d, decl.Name)

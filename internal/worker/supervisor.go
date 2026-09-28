@@ -36,6 +36,9 @@ type Supervisor struct {
 	coreHTTP *http.Client
 	files    toolset.FileFetcher
 	schemas  *toolschema.Cache
+	// texts keeps what was read of documents' files, for every agent of
+	// this worker: a file read in parts is fetched and read once.
+	texts *toolset.TextCache
 
 	kick    chan struct{}
 	running atomic.Bool
@@ -115,7 +118,7 @@ func NewSupervisor(o Options) (*Supervisor, error) {
 	}
 	s := &Supervisor{
 		o: o, log: o.Log.With("worker", o.WorkerID), coreHTTP: coreClient(o.HTTPClient),
-		files: toolset.NewHTTPFetcher(o.HTTPClient), schemas: toolschema.NewCache(),
+		files: toolset.NewHTTPFetcher(o.HTTPClient), schemas: toolschema.NewCache(), texts: toolset.NewTextCache(0),
 		kick: make(chan struct{}, 1), runners: map[string]*runner{}, paused: map[string]int{}, rejected: map[string]rejection{},
 		cats: map[string]*catEntry{}, actors: map[string]string{}, pending: o.Config,
 	}

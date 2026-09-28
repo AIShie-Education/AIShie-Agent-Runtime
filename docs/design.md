@@ -313,7 +313,8 @@ Then Core is called. Any failure before Core is an `is_error` result the
 model can correct itself from. Results are Core's envelope as JSON, as it
 is: `executed`, `proposed` with its `action_id` (not an `is_error`: it is
 Core's normal answer at `confirm_required`), `denied` or `failed`, cut at
-32 KB keeping `status` and `error` whole. A write Core did not answer may or
+32 KB keeping `status` and `error` whole; a document's file text too long
+for that is given in parts (Files, below). A write Core did not answer may or
 may not have been made: the model is told so, and that the same call again
 is never made twice. `document_get`'s `download_url` never reaches the
 model: the runtime fetches the file (below).
@@ -367,8 +368,61 @@ what the text holds and leaves out.
   or of one that says nothing (an octet stream, a zip archive), is known by
   what it holds; anything else is not given, with its type named.
 
-The text goes into the result as a text file's does, cut to the room the
-result leaves. `internal/doctext` reads every file as hostile, from memory,
+**Reading in parts.** A result is at most 32 KB, and a lecture's deck of
+38 slides reads as 57 KB of text: cut there, the model would see the
+first half and have no way to the rest. So a file's text (the runtime's of
+an Office file or a PDF, or a text file's own) longer than a part is given
+in parts, and the model asks for the next. A part is at most the result's
+limit less 8 KB left for the envelope and the file's record (24 KB of the
+text as a JSON string, at the defaults), counted as JSON writes it, so a
+part of Chinese, quotes or newlines fits as one of plain letters does.
+`toolset.splitText` cuts the text the same way every time, and only by
+the limit: where a slide, page or sheet begins, as `doctext` records it
+(`Result.Sections`, the offsets of the headings it wrote itself, so a
+slide whose text reads `## Slide 9` is still one slide), else after an
+empty line, after a line, or at worst between two characters, taking the
+first of these that fills at least half a part and the last that fits
+otherwise. The parts together are the text exactly: nothing is lost at
+their edges and nothing given twice. The file's record says which part
+`file_text` is (`part`, `parts`), which slides, pages or sheets it holds
+(`part_holds`: `slides 1–16`, `the end of slide 17 to slide 20`), and,
+but for the last, the call that reads the next (`next_part`: `{"tool":
+"document_get", "arguments": {"document_id", "version_id", "file_part":
+2}}`), which its `note` says in words; the first part says how many there
+are, and, when there are at most twenty, what each of the others holds,
+so that a model looking for one slide asks for its part at once.
+
+Parts are numbered, not asked for by slide or by byte offset: a slide may
+be longer than a part, and a range of slides the model chose could be
+again too long for one result, while a part always fits one and the first
+says how many there are. The model asks with `file_part`, an argument the
+runtime adds to `document_get`'s schema as the model is shown it (Core's
+own schema naming one of that name fails `Check`, since the two would be
+one) and takes out again, with the others checked, before the call goes
+to Core: every part is a call of `document_get` with the caller's own
+token, so a part is given only of a version the caller may still read,
+and a document archived or purged since gives nothing. `next_part` names
+the version the first part was of, which Core gives any caller who read
+it (a student the published version, by its id), so the parts of one
+reading are of one version even when a new one is added meanwhile. A part
+past the last, or asked of a text given whole, is not given, and the note
+says which there are; `file_part` of a file given as a file part (a PDF
+to a model that takes it, an image) is noted and does nothing. Only when
+Core's own result leaves a part too little room (a document whose own
+text, `body_md`, is kilobytes long besides its file) is the part cut, and
+the note says so.
+
+What was read of a file is kept per worker (`toolset.TextCache`), so that
+the file is fetched and read once, not once a part: keyed by the version
+Core named, its checksum, and the limits it was read within, and kept
+only for a model given the text (a file part needs its bytes, which are
+never kept). A version's file never changes, and the cache is reached
+only after Core has given the caller that version, so every agent of the
+worker shares it. It holds at most 32 MiB of text in all, the reading
+used least recently going first past that; a reading that ran out of time
+is not kept, and neither is one larger than the whole bound.
+
+`internal/doctext` reads every file as hostile, from memory,
 never touching the filesystem nor following a relationship outside the
 package: at most 64 MB decompressed in all and 32 MB from any one entry or
 stream (a zip or Flate bomb is refused as it inflates, whatever its
@@ -812,7 +866,9 @@ answer 8 turns, 12 tool calls of which at most 10 writes (`max_writes`),
 quotas unless set (a school key requires per-agent and per-asker ones);
 polling 2 s hot for 120 s, 10 s idle to 30 s, events 45 s, seats 300 s,
 ±25 %, 30 % of 600 a minute; memory on, purged 30 days after a seat goes;
-files of at most 10 MB, read within `doctext.DefaultLimits` and 20 s.
+files of at most 10 MB, read within `doctext.DefaultLimits` and 20 s, their
+text given in parts of 24 KB within results of 32 KB, what was read kept
+per worker up to 32 MiB.
 
 ## 10. Tests
 
@@ -832,7 +888,9 @@ files of at most 10 MB, read within `doctext.DefaultLimits` and 20 s.
   (`doctexttest`) read as the model gets them: slides in the presentation's
   order whatever their parts are named, their placeholders, tables, charts
   and notes; headings, lists, tables, text boxes, footnotes, headers and
-  footers once; sheets as CSV, cut and said so; PDFs uncompressed,
+  footers once; sheets as CSV, cut and said so; where each slide, page and
+  sheet begins, and a slide whose text reads like a heading still one;
+  PDFs uncompressed,
   compressed, in object streams, encrypted with RC4 and AES-256, with pages
   nested, and with their cross-reference damaged and rebuilt; CJK through
   ToUnicode and the predefined national CMaps; a broken ToUnicode map (`《`
@@ -867,7 +925,16 @@ files of at most 10 MB, read within `doctext.DefaultLimits` and 20 s.
   an Office file as its text, a PDF as a file within its provider's limits
   and as its text past them or to a model that takes none, a scan or a PDF
   whose fonts do not map not at all (with its reason), one that needs a
-  password to no model, an older Office file unfetched. The fake Core
+  password to no model, an older Office file unfetched. A long deck is
+  read in parts, each asked for with the call the one before names, until
+  the last: the parts are the deck's text exactly, each beginning where a
+  slide does, the first saying how many there are, Core asked for each
+  (for the version the first named, never with `file_part`), and the file
+  fetched once; a slide longer than a part is cut on its lines, each part
+  saying which end of it it holds; a part past the last, a part of a text
+  given whole, and one of a file given as a file are said so, and a
+  `file_part` that is no whole number from 1 reaches nobody. `splitText`
+  holds random texts of every escape to its promises. The fake Core
   carries out `document_create` through its pipeline, held to the
   `model_writes` fixture recorded from Core; `member_add`, `member_get`,
   `member_list` and `member_lookup_actor`, held to `member_writes`; and
@@ -910,7 +977,9 @@ files of at most 10 MB, read within `doctext.DefaultLimits` and 20 s.
   seat's perms allow, and no member write to a delegate; a deck, a reading
   and a scan read by a model that takes files, a PDF of one page at most
   (its adapter's `FileLimits`), and by one that takes none, each answered
-  from the runtime's text; the site chat declared once per start, by an
+  from the runtime's text; a deck of 38 slides read in parts by a model
+  that follows `next_part` to the last and answers, the parts its text
+  exactly and the file fetched once; the site chat declared once per start, by an
   agent with an owner at once and by one nobody owns once a seat of its
   answers, never taken back, and not sent to a Core that does not offer
   it.
