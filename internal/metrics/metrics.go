@@ -1,7 +1,7 @@
 // Package metrics is what the runtime counts (Core's docs/agent-runtime.md
 // §8.1): polls, answers and their latency, model calls, tokens and cost,
-// Core calls, the models' writes, budgets spent, lease takeovers, and each
-// agent's presence gap. Labels hold ids, names and codes, never text: a
+// Core calls, the models' writes, budgets spent, lease takeovers, each
+// agent's presence gap, and the OCR of documents. Labels hold ids, names and codes, never text: a
 // write's arguments are never a label.
 package metrics
 
@@ -31,6 +31,15 @@ type Metrics struct {
 	BudgetExhausted *prometheus.CounterVec
 	LeaseTakeovers  prometheus.Counter
 	AgentStates     *prometheus.GaugeVec
+	// OCR: what the runtime recognized of documents that have no text of
+	// their own (docs/design.md §4, Files).
+	OCRRequests    *prometheus.CounterVec
+	OCRJobs        *prometheus.CounterVec
+	OCRPages       *prometheus.CounterVec
+	OCRJobSeconds  *prometheus.HistogramVec
+	OCRPageSeconds *prometheus.HistogramVec
+	OCRRunning     prometheus.Gauge
+	OCRWaiting     prometheus.Gauge
 
 	presence *presence
 }
@@ -76,10 +85,37 @@ func New(reg prometheus.Registerer) *Metrics {
 		AgentStates: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "agents", Help: "Agents this worker runs, by state.",
 		}, []string{"state"}),
+		OCRRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "ocr_requests_total",
+			Help: "Asks for the OCR of a file, by what they found: done (kept text), failed (a kept failure), started, " +
+				"in_progress, busy (the queue full), off (no OCR here).",
+		}, []string{"result"}),
+		OCRJobs: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "ocr_jobs_total",
+			Help: "Files recognized, by kind (pdf, image) and outcome: done, empty (no text found), failed, timeout, too_large, cancelled.",
+		}, []string{"kind", "outcome"}),
+		OCRPages: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "ocr_pages_total", Help: "Pages recognized, by kind and outcome: text, empty (no text found), failed (not rendered, not read, or past its time).",
+		}, []string{"kind", "outcome"}),
+		OCRJobSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name: "ocr_job_seconds", Help: "How long recognizing a file took, from its start to its end, by kind.",
+			Buckets: []float64{1, 2, 5, 10, 20, 30, 60, 120, 300, 600, 1200},
+		}, []string{"kind"}),
+		OCRPageSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name: "ocr_page_seconds", Help: "How long a page took, by step: render (pdftoppm), recognize (tesseract).",
+			Buckets: []float64{0.25, 0.5, 1, 2, 4, 8, 15, 30, 60, 120},
+		}, []string{"step"}),
+		OCRRunning: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "ocr_jobs_running", Help: "Files being recognized now.",
+		}),
+		OCRWaiting: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "ocr_jobs_waiting", Help: "Files waiting for a turn to be recognized.",
+		}),
 		presence: &presence{last: map[string]time.Time{}},
 	}
 	reg.MustRegister(m.InboxPolls, m.AnswerLatency, m.Answers, m.LLMCalls, m.LLMTokens, m.LLMCost,
-		m.CoreCalls, m.ToolWrites, m.BudgetExhausted, m.LeaseTakeovers, m.AgentStates, m.presence)
+		m.CoreCalls, m.ToolWrites, m.BudgetExhausted, m.LeaseTakeovers, m.AgentStates, m.presence,
+		m.OCRRequests, m.OCRJobs, m.OCRPages, m.OCRJobSeconds, m.OCRPageSeconds, m.OCRRunning, m.OCRWaiting)
 	return m
 }
 
