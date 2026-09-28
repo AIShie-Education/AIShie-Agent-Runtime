@@ -22,8 +22,8 @@ type offered struct {
 	// input is Core's own input schema: calls are reversed and validated
 	// against it, not against what the model was shown.
 	input json.RawMessage
-	// kind is the catalogue's. Run refuses anything but a read, whatever
-	// built the set.
+	// kind is the catalogue's. Run refuses a write unless the answer
+	// gives it keys and a budget (Runner.Writes), whatever built the set.
 	kind string
 }
 
@@ -33,6 +33,26 @@ func (s *Set) Names() []string {
 		return nil
 	}
 	return slices.Clone(s.names)
+}
+
+// Reads are the offered reads' names, sorted.
+func (s *Set) Reads() []string { return s.namesOf(KindRead) }
+
+// Writes are the offered writes' names, sorted: none but in a set built
+// ReadWrite.
+func (s *Set) Writes() []string { return s.namesOf(KindWrite) }
+
+func (s *Set) namesOf(kind string) []string {
+	if s == nil {
+		return nil
+	}
+	var out []string
+	for _, name := range s.names {
+		if s.tools[name].kind == kind {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // Len is how many tools are offered.

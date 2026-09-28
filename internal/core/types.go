@@ -1,9 +1,12 @@
 package core
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"strconv"
 	"time"
+	"unicode/utf8"
 )
 
 // Actor is me_get's result.
@@ -266,6 +269,24 @@ type CloseArgs struct {
 // give this form.
 func AnswerKey(conversationID, messageID string, attempt int) string {
 	return "answer:" + conversationID + ":" + messageID + ":" + strconv.Itoa(attempt)
+}
+
+// MaxKeyChars is the most characters Core takes in an idempotency key.
+const MaxKeyChars = 200
+
+// ToolKey is the idempotency key of the nth write (from 1) the model made
+// in attempt at answering message messageID in conversationID:
+// tool:{conversation}:{message}:{attempt}:{n}. The same attempt tried
+// again keys its writes the same, so that Core replays what it did then;
+// a new attempt's are new. A key that would be longer than Core takes is
+// tool: and the sha256 of what it would have been, in hex.
+func ToolKey(conversationID, messageID string, attempt, n int) string {
+	key := "tool:" + conversationID + ":" + messageID + ":" + strconv.Itoa(attempt) + ":" + strconv.Itoa(n)
+	if utf8.RuneCountInString(key) <= MaxKeyChars {
+		return key
+	}
+	sum := sha256.Sum256([]byte(key))
+	return "tool:" + hex.EncodeToString(sum[:])
 }
 
 // CloseKey is the key of closing a conversation.

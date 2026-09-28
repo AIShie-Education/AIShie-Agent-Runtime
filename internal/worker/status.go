@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolset"
 )
 
 // AgentStatus is what the supervisor knows of one configured agent, for
@@ -46,11 +47,14 @@ type SeatStatus struct {
 	Held    bool   `json:"held"`
 	HeldWhy string `json:"held_why,omitempty"`
 	// HeldBack is how many conversations are held back now.
-	HeldBack   int        `json:"held_back"`
-	Hot        bool       `json:"hot"`
-	Tools      []string   `json:"tools,omitempty"`
-	LastPoll   *time.Time `json:"last_poll,omitempty"`
-	LastEvents *time.Time `json:"last_events,omitempty"`
+	HeldBack int      `json:"held_back"`
+	Hot      bool     `json:"hot"`
+	Tools    []string `json:"tools,omitempty"`
+	// OwnerWrites are the writes a conversation the seat's owner opens is
+	// offered besides (design §4); anyone else's is offered Tools alone.
+	OwnerWrites []string   `json:"owner_writes,omitempty"`
+	LastPoll    *time.Time `json:"last_poll,omitempty"`
+	LastEvents  *time.Time `json:"last_events,omitempty"`
 }
 
 // Status is every configured agent as this worker knows it, by id.
@@ -115,14 +119,14 @@ func (a *Agent) status(st *AgentStatus) {
 
 // status is the seat as it stands.
 func (s *Seat) status() SeatStatus {
-	tools := s.toolNames()
+	tools, writes := s.toolNames(toolset.ReadOnly), s.ownerWrites()
 	now := s.a.now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	st := SeatStatus{
 		MemberID: s.id, CourseID: s.course, CourseCode: s.m.Code, AnswersCourse: s.m.AnswersCourse,
 		Answering: s.hold == nil, Level: s.m.Level("conversation_answer"), Held: s.hold != nil, Hot: now.Before(s.hotUntil),
-		Tools: tools,
+		Tools: tools, OwnerWrites: writes,
 	}
 	if s.hold != nil {
 		st.HeldWhy = s.hold.why

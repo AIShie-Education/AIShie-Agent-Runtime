@@ -337,7 +337,7 @@ func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, res
 			line += "; does not answer now: " + why
 		}
 		p("%s", line)
-		set, err := toolset.Build(cat, m.Perms, e.Tools, dialectOf(e.Model), nil)
+		set, err := toolset.Build(cat, m.Perms, e.Tools, toolset.ReadOnly, dialectOf(e.Model), nil)
 		if err != nil {
 			p("    tools: %v", err)
 			ok = false
@@ -347,6 +347,20 @@ func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, res
 			p("    tools: %s", strings.Join(names, ", "))
 		} else {
 			p("    tools: none; it answers from the conversation alone")
+		}
+		// The writes a conversation its owner opens is offered besides
+		// (design §4): none with tools.writes off.
+		owner, err := toolset.Build(cat, m.Perms, e.Tools, toolset.ReadWrite, dialectOf(e.Model), nil)
+		if err != nil {
+			p("    writes: %v", err)
+			ok = false
+			continue
+		}
+		switch writes := owner.Writes(); {
+		case len(writes) > 0:
+			p("    writes, in its owner's conversations: %s", strings.Join(writes, ", "))
+		case e.Tools.Writes:
+			p("    writes: none its seat allows")
 		}
 	}
 	if !tryModel(ctx, p, a, a.Model, res, clients.model(a)) {

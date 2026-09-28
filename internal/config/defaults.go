@@ -18,11 +18,13 @@ const DefaultMCPProtocol = "2025-11-25"
 // which follows §4's example): MCP at the pinned revision; the owner's own
 // key and 2,000 output tokens; the answer in the asker's language; tools
 // derived from the seat, with no allow list (tools.allow unset or empty
-// means the default list, the read tools of §2.3) and four calls at once;
-// three attempts, then close; the canned notice when out of quota; 19,000
-// characters; the newest 30 messages; eight answers at once per agent and
-// four per course; per answer 8 turns, 12 tool calls, 150,000 input and
-// 4,000 output tokens and 90 s; no daily quotas (a school key must set
+// means the default list: the read tools of §2.3 and the gated writes),
+// writes off (a hosted agent's registry document turns them on) and four
+// calls at once; three attempts, then close; the canned notice when out of
+// quota; 19,000 characters; the newest 30 messages; eight answers at once
+// per agent and four per course; per answer 8 turns, 12 tool calls of which
+// at most 10 writes, 150,000 input and 4,000 output tokens and 90 s; no
+// daily quotas (a school key must set
 // them); polling 2 s hot for 120 s, 10 s idle growing to 30 s, events every
 // 45 s, seats every 300 s, ±25 %, 30 % of Core's 600 calls a minute (burst
 // 100); memory on, purged 30 days after a seat goes.
@@ -47,6 +49,7 @@ func Defaults() map[string]any {
 		},
 		"tools": map[string]any{
 			"mode":               ToolsDerived,
+			"writes":             false,
 			"max_parallel_tools": 4,
 		},
 		"answer": map[string]any{
@@ -62,6 +65,7 @@ func Defaults() map[string]any {
 			"per_answer": map[string]any{
 				"turns":         8,
 				"tool_calls":    12,
+				"max_writes":    10,
 				"input_tokens":  150000,
 				"output_tokens": 4000,
 				"wall_clock_s":  90,

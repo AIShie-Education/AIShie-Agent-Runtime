@@ -31,7 +31,7 @@ func TestCoreCatalogue(t *testing.T) {
 	if got := view.Tools["course_get"]; got.Kind != KindRead || got.Name != "course_get" || len(got.InputSchema) == 0 || got.Description == "" {
 		t.Errorf("course_get is %+v", got)
 	}
-	s, err := Build(cat, tutorPerms, config.Tools{}, toolschema.OpenAI, toolschema.NewCache())
+	s, err := Build(cat, tutorPerms, config.Tools{}, ReadOnly, toolschema.OpenAI, toolschema.NewCache())
 	if err != nil {
 		t.Fatal(err)
 	}

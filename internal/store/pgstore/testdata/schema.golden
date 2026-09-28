@@ -27,6 +27,11 @@ answer.cost_pusd bigint not null
 answer.key_source text not null
 answer.prompt_hash text not null
 answer.latency_ms bigint not null
+answer.writes integer not null default 0
+answer.writes_executed integer not null default 0
+answer.writes_proposed integer not null default 0
+answer.writes_denied integer not null default 0
+answer.writes_failed integer not null default 0
 attempt.agent_id text not null
 attempt.key text not null
 attempt.seq bigint not null identity

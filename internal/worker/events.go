@@ -339,8 +339,11 @@ func (s *Seat) retracted(ctx context.Context, conv, msg string) error {
 // actionLookup finds the agent's own actions in the seat's course, paging
 // action_list_mine (all types: the answers are what matter) from the
 // seat's actions cursor only as far as it must. The cursor moves only over
-// actions that are settled, so that a proposal still waiting is found
-// again when it is decided, however long that takes; save keeps it.
+// actions that are settled, so that a proposal of the runtime's own (an
+// answer or a close) still waiting is found again when it is decided,
+// however long that takes; save keeps it. A proposal of the model's own
+// writes is its owner's to follow, not the runtime's, and holds the cursor
+// back no more than a settled action does.
 type actionLookup struct {
 	s     *Seat
 	begun bool
@@ -389,7 +392,7 @@ func (l *actionLookup) more(ctx context.Context) bool {
 	}
 	for _, act := range page.Actions {
 		l.acts[act.ID] = act
-		if act.Status == actionProposed {
+		if act.Status == actionProposed && runtimesOwn(act.ActionType) {
 			l.blocked = true
 		}
 		if !l.blocked {
@@ -402,6 +405,12 @@ func (l *actionLookup) more(ctx context.Context) bool {
 		l.after = page.Actions[len(page.Actions)-1].ID
 	}
 	return true
+}
+
+// runtimesOwn reports whether an action of this type is one the runtime
+// makes itself, and follows: an answer, or a close.
+func runtimesOwn(actionType string) bool {
+	return actionType == "conversation.answer" || actionType == "conversation.close"
 }
 
 // save keeps the cursor, when it moved.

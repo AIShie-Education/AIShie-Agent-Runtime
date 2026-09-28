@@ -16,6 +16,7 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/providers"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolset"
 )
 
 // Agent is one hosted agent as this worker runs it (design §5.1): its
@@ -417,7 +418,7 @@ func (a *Agent) reconcile(ctx context.Context, ms []core.Membership) {
 		a.mu.Unlock()
 		s.start(ctx)
 		a.log.Info("seat started", "member", id, "course", m.CourseID, "answers_course", m.AnswersCourse,
-			"level", m.Level("conversation_answer"), "tools", len(s.toolNames()))
+			"level", m.Level("conversation_answer"), "tools", len(s.toolNames(toolset.ReadOnly)), "owner_writes", len(s.ownerWrites()))
 	}
 	a.refreshDetail()
 }

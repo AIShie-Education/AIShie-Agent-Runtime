@@ -39,7 +39,7 @@ type Seat struct {
 	eff      *config.Effective
 	primary  *model
 	fallback *model
-	tools    map[toolschema.Dialect]*toolset.Set
+	tools    map[toolsKey]*toolset.Set
 	// custom is the system_ref file's text, or system_text, when the agent
 	// has either; else the built-in prompt for the seat's kind is used, as
 	// it stands at each answer. appended is the course's prompt_append_ref
@@ -80,7 +80,7 @@ func newSeat(ctx context.Context, a *Agent, m core.Membership, eff *config.Effec
 	s := &Seat{
 		a: a, id: m.MemberID, course: m.CourseID, log: a.log.With("course", m.CourseID, "member", m.MemberID),
 		wakeInbox: make(chan struct{}, 1), wakeEvents: make(chan struct{}, 1),
-		m: m, eff: eff, tools: map[toolschema.Dialect]*toolset.Set{},
+		m: m, eff: eff, tools: map[toolsKey]*toolset.Set{},
 		heldBack: map[string]heldBack{}, failures: map[string]int{},
 	}
 	var err error
@@ -106,8 +106,10 @@ func newSeat(ctx context.Context, a *Agent, m core.Membership, eff *config.Effec
 	case eff.PromptAppendText != "":
 		s.appended = eff.PromptAppendText
 	}
-	if _, err := s.toolsFor(s.primary.ad.Dialect()); err != nil {
-		return nil, err
+	for _, access := range []toolset.Access{toolset.ReadOnly, toolset.ReadWrite} {
+		if _, err := s.toolsFor(s.primary.ad.Dialect(), access); err != nil {
+			return nil, err
+		}
 	}
 	return s, nil
 }
@@ -156,7 +158,7 @@ func (s *Seat) stop() {
 func (s *Seat) update(m core.Membership, eff *config.Effective) {
 	s.mu.Lock()
 	if !maps.Equal(s.m.Perms, m.Perms) || !reflect.DeepEqual(s.eff.Tools, eff.Tools) {
-		s.tools = map[toolschema.Dialect]*toolset.Set{}
+		s.tools = map[toolsKey]*toolset.Set{}
 	}
 	s.m, s.eff = m, eff
 	lifted := s.hold != nil && !reflect.DeepEqual(s.hold.seen, m)
@@ -195,33 +197,80 @@ func (s *Seat) config() *config.Effective {
 	return s.eff
 }
 
-// toolsFor is the seat's toolset declared in dialect d, built once per
-// dialect while the seat's perms stay the same.
-func (s *Seat) toolsFor(d toolschema.Dialect) (*toolset.Set, error) {
+// toolsKey is one of a seat's toolsets: the dialect it is declared in,
+// and whether it holds the seat's writes.
+type toolsKey struct {
+	d      toolschema.Dialect
+	access toolset.Access
+}
+
+// toolsFor is the seat's toolset declared in dialect d, with its writes
+// when access is ReadWrite, built once per dialect and access while the
+// seat's perms stay the same.
+func (s *Seat) toolsFor(d toolschema.Dialect, access toolset.Access) (*toolset.Set, error) {
+	k := toolsKey{d, access}
 	s.mu.Lock()
-	set, ok := s.tools[d]
+	set, ok := s.tools[k]
 	perms, tools := s.m.Perms, s.eff.Tools
 	s.mu.Unlock()
 	if ok {
 		return set, nil
 	}
-	set, err := toolset.Build(s.a.cat, perms, tools, d, s.a.s.schemas)
+	set, err := toolset.Build(s.a.cat, perms, tools, access, d, s.a.s.schemas)
 	if err != nil {
 		return nil, err
 	}
 	s.mu.Lock()
-	s.tools[d] = set
+	s.tools[k] = set
 	s.mu.Unlock()
 	return set, nil
 }
 
-// toolNames are the tools the seat's model is offered.
-func (s *Seat) toolNames() []string {
-	set, err := s.toolsFor(s.primary.ad.Dialect())
+// toolNames are the tools the seat's model is offered with access; with
+// ReadWrite, what a conversation its owner opens is.
+func (s *Seat) toolNames(access toolset.Access) []string {
+	set, err := s.toolsFor(s.primary.ad.Dialect(), access)
 	if err != nil {
 		return nil
 	}
 	return set.Names()
+}
+
+// ownerWrites are the writes a conversation the seat's owner opens is
+// offered.
+func (s *Seat) ownerWrites() []string {
+	set, err := s.toolsFor(s.primary.ad.Dialect(), toolset.ReadWrite)
+	if err != nil {
+		return nil
+	}
+	return set.Writes()
+}
+
+// accessFor is what the model answering a conversation that opener opened
+// is offered in seat m (design §4): the seat's writes, with tools.writes
+// on, only in a conversation its owner opened, which for someone's
+// delegate is its principal's; anyone else's, a course tutor's student or
+// whoever else may address it, is answered with reads alone, whatever the
+// seat allows. A seat that is nobody's delegate belongs to an agent nobody
+// owns, which only an operator's YAML runs, and which has writes only when
+// its configuration turns them on: then in whatever conversation Core lets
+// be opened with it, since Core holds every opener of one to at least the
+// agent's own permissions. A hosted agent always has an owner, so a seat
+// of its that is nobody's delegate has none to answer with writes.
+func accessFor(a *config.Agent, tools config.Tools, m core.Membership, opener string) toolset.Access {
+	if !tools.Writes || tools.Mode == config.ToolsNone {
+		return toolset.ReadOnly
+	}
+	if principal := deref(m.PrincipalMemberID); principal != "" {
+		if opener == principal {
+			return toolset.ReadWrite
+		}
+		return toolset.ReadOnly
+	}
+	if a.Hosted == nil {
+		return toolset.ReadWrite
+	}
+	return toolset.ReadOnly
 }
 
 // markHot makes the seat's inbox polled at inbox_hot_s for hot_window_s:

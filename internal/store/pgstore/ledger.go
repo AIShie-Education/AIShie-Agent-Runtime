@@ -56,13 +56,15 @@ func (s *Store) RecordAnswer(ctx context.Context, a store.AnswerRecord) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO answer (agent_id, id, at, tenant_id, course_id, member_id, conversation_id, message_id,
 		                    opener_member_id, key, outcome, billable, turns, tool_calls,
-		                    input_tokens, output_tokens, cost_pusd, key_source, prompt_hash, latency_ms)
+		                    input_tokens, output_tokens, cost_pusd, key_source, prompt_hash, latency_ms,
+		                    writes, writes_executed, writes_proposed, writes_denied, writes_failed)
 		VALUES ($1, $2, COALESCE($3::timestamptz, now()), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-		        $15, $16, $17, $18, $19, $20)
+		        $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
 		ON CONFLICT (agent_id, id) DO NOTHING`,
 		a.AgentID, a.ID, orNow(a.At), a.TenantID, a.CourseID, a.MemberID, a.ConversationID, a.MessageID,
 		a.OpenerMemberID, a.Key, a.Outcome, a.Billable, a.Turns, a.ToolCalls,
-		a.InputTokens, a.OutputTokens, a.CostPUSD, a.KeySource, a.PromptHash, a.LatencyMS)
+		a.InputTokens, a.OutputTokens, a.CostPUSD, a.KeySource, a.PromptHash, a.LatencyMS,
+		a.Writes.Sent, a.Writes.Executed, a.Writes.Proposed, a.Writes.Denied, a.Writes.Failed)
 	if err != nil {
 		return fmt.Errorf("store: record answer %s: %w", a.ID, err)
 	}

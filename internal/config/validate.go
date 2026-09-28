@@ -27,6 +27,10 @@ const (
 	CoreMaxCloseReason = 500
 )
 
+// MaxWritesPerAnswer bounds budgets.per_answer.max_writes: an answer that
+// changes more than this in the course is not an answer.
+const MaxWritesPerAnswer = 100
+
 // Limits of the prompts written in the configuration itself, rather than
 // in files: a hosted agent's, kept in the runtime's database.
 const (
@@ -513,6 +517,9 @@ func checkBudgets(is *issues, b Budgets) {
 		if n.v < 1 {
 			is.add(n.path, "must be one or more")
 		}
+	}
+	if pa.MaxWrites < 0 || pa.MaxWrites > MaxWritesPerAnswer {
+		is.add("budgets.per_answer.max_writes", "must be from 0 to %d", MaxWritesPerAnswer)
 	}
 	if !finite(pa.WallClockS) || pa.WallClockS <= 0 {
 		is.add("budgets.per_answer.wall_clock_s", "must be more than 0")

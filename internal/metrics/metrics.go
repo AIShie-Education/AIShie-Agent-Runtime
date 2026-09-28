@@ -1,7 +1,8 @@
 // Package metrics is what the runtime counts (Core's docs/agent-runtime.md
 // §8.1): polls, answers and their latency, model calls, tokens and cost,
-// Core calls, budgets spent, lease takeovers, and each agent's presence gap.
-// Labels hold ids, names and codes, never text.
+// Core calls, the models' writes, budgets spent, lease takeovers, and each
+// agent's presence gap. Labels hold ids, names and codes, never text: a
+// write's arguments are never a label.
 package metrics
 
 import (
@@ -26,6 +27,7 @@ type Metrics struct {
 	LLMTokens       *prometheus.CounterVec
 	LLMCost         *prometheus.CounterVec
 	CoreCalls       *prometheus.CounterVec
+	ToolWrites      *prometheus.CounterVec
 	BudgetExhausted *prometheus.CounterVec
 	LeaseTakeovers  prometheus.Counter
 	AgentStates     *prometheus.GaugeVec
@@ -60,6 +62,11 @@ func New(reg prometheus.Registerer) *Metrics {
 		CoreCalls: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "core_calls_total", Help: "Calls to Core, by tool, envelope status (or transport failure) and error code.",
 		}, []string{"tool", "status", "error_code"}),
+		ToolWrites: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "tool_writes_total",
+			Help: "Writes the models made through their seats' perms, by tool and outcome: executed, proposed, denied, failed, " +
+				"error (Core refused the call), unreachable (Core did not answer), refused (the answer's writes were spent).",
+		}, []string{"tool", "outcome"}),
 		BudgetExhausted: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "budget_exhausted_total", Help: "Budgets and quotas reached, by which.",
 		}, []string{"budget"}),
@@ -72,7 +79,7 @@ func New(reg prometheus.Registerer) *Metrics {
 		presence: &presence{last: map[string]time.Time{}},
 	}
 	reg.MustRegister(m.InboxPolls, m.AnswerLatency, m.Answers, m.LLMCalls, m.LLMTokens, m.LLMCost,
-		m.CoreCalls, m.BudgetExhausted, m.LeaseTakeovers, m.AgentStates, m.presence)
+		m.CoreCalls, m.ToolWrites, m.BudgetExhausted, m.LeaseTakeovers, m.AgentStates, m.presence)
 	return m
 }
 
