@@ -118,6 +118,85 @@ func TestCheckRefusesDollarsWithoutPrices(t *testing.T) {
 	}
 }
 
+// TestCheckNoAgents: a configuration with no agent passes, and check says
+// what the runtime will do with it and how an agent is added; --live has
+// nothing to connect and passes too.
+func TestCheckNoAgents(t *testing.T) {
+	dir := t.TempDir()
+	for _, args := range [][]string{{"check"}, {"check", "--live"}} {
+		code, out, errs := runCmd(t, env("CONFIG", dir), args...)
+		if code != exitOK || !strings.Contains(out, "the configuration passes: 0 agents") ||
+			!strings.Contains(out, "no agent is configured: the runtime starts and waits") ||
+			strings.Contains(out, "every agent connects") {
+			t.Errorf("%v: %d\n%s%s", args, code, out, errs)
+		}
+	}
+}
+
+// TestRunWithNoAgents: with no agent, run starts, says so in its log, is
+// healthy, and stops on SIGTERM.
+func TestRunWithNoAgents(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	cmd.Env = append(os.Environ(), childArgs+"=run", "CONFIG="+t.TempDir(), "HTTP_ADDR=127.0.0.1:0",
+		"LOG_FORMAT=json", "LOG_LEVEL=info", "SHUTDOWN_GRACE=1s", "DATABASE_URL=", "WORKER_ID=child")
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	stopped := false
+	t.Cleanup(func() {
+		if !stopped {
+			_ = cmd.Process.Kill()
+		}
+	})
+	var out lines
+	done := make(chan struct{})
+	go func() { out.read(stderr); close(done) }()
+
+	var started struct {
+		Addr   string `json:"addr"`
+		Agents int    `json:"agents"`
+	}
+	if err := json.Unmarshal([]byte(out.wait(t, `"msg":"aishie-runtime started"`)), &started); err != nil || started.Addr == "" || started.Agents != 0 {
+		t.Fatalf("the started line: %+v, %v", started, err)
+	}
+	out.wait(t, `"msg":"no agent is configured: the runtime starts and waits`)
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		resp, err := http.Get("http://" + started.Addr + "/healthz")
+		if err == nil {
+			body, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK && strings.Contains(string(body), `"status": "ok"`) {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("healthz never answered ok:\n%s", out.text())
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	select {
+	case err := <-exited:
+		stopped = true
+		if err != nil {
+			t.Errorf("the runtime exited with %v:\n%s", err, out.text())
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatalf("the runtime did not stop on SIGTERM:\n%s", out.text())
+	}
+	<-done
+}
+
 func TestUSDWithoutPrices(t *testing.T) {
 	cfg, err := config.Load("../../examples/runtime.yaml", "../../examples/agents")
 	if err != nil {

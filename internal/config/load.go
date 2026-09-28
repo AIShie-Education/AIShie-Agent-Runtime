@@ -32,6 +32,9 @@ import (
 // built-in Defaults, then runtime.defaults, then its document, merged as
 // maps key by key, anything else replaced whole; a course's are those, then
 // courses[course_id] (ForCourse).
+//
+// A configuration with no agent loads: the runtime then starts and waits
+// for agents to be added, and the commands say so.
 func Load(paths ...string) (*Config, error) {
 	files, err := expand(paths)
 	if err != nil {
@@ -54,9 +57,6 @@ func Load(paths ...string) (*Config, error) {
 				rtDoc = d
 			}
 		}
-	}
-	if len(agents) == 0 && len(errs) == 0 {
-		errs = append(errs, &Problem{File: strings.Join(files, ", "), Msg: "no agent is configured"})
 	}
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)

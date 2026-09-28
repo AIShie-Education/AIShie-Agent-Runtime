@@ -175,6 +175,26 @@ func TestReload(t *testing.T) {
 	}
 }
 
+// TestStartWithNoAgents: a worker with no agent runs and waits, and the
+// first agent a reload brings starts and answers.
+func TestStartWithNoAgents(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("yuki-helper", 0)
+	// A runtime document and no agent, as on a server set up before its first agent.
+	wk := w.start(w.config(map[string]any{}), models{"m1": scripted.New(scripted.Reply("Here now."))}, workerOpts{})
+	eventually(t, "the worker running", wk.sup.Running)
+	if st := wk.sup.Status(); len(st) != 0 {
+		t.Fatalf("status with no agent: %+v", st)
+	}
+
+	wk.sup.Reload(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)))
+	wk.waitState("yuki-helper", store.AgentRunning)
+	conv, _ := w.ask(0, own, "Anyone?")
+	if got := w.waitAnswers(conv, 1); got[0].Body != "Here now." {
+		t.Errorf("answered %q", got[0].Body)
+	}
+}
+
 // TestShutdownGivesAnswersTheirGrace: an answer in progress when the worker
 // stops is given the shutdown grace to finish, and the agent's lease is
 // released and its state recorded as stopped.

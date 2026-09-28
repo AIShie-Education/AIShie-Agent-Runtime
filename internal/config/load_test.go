@@ -334,11 +334,6 @@ runtime: {}
 			want:  []problem{{file: "a.yaml", msg: "yaml:"}},
 		},
 		{
-			name:  "no agent",
-			files: map[string]string{"r.yaml": "runtime: {}\n", "empty.yaml": "", "nulls.yaml": "---\n~\n---\n"},
-			want:  []problem{{msg: "no agent is configured"}},
-		},
-		{
 			name: "problems of the documents are all reported",
 			files: map[string]string{
 				"a.yaml": strings.Replace(okAgent, "A1", "A1\n  colour: x", 1),
@@ -398,6 +393,29 @@ func TestLoadFiles(t *testing.T) {
 	if _, err := Load(dir, filepath.Join(dir, "z")); err == nil || !strings.Contains(err.Error(), "another agent has this id") {
 		t.Fatalf("the same agent twice: %v", err)
 	}
+}
+
+// TestLoadNoAgent: a configuration with no agent loads, so that the runtime
+// can be deployed before its first agent is; the runtime document in it is
+// still read and checked.
+func TestLoadNoAgent(t *testing.T) {
+	dir := write(t, map[string]string{
+		"r.yaml":     "runtime:\n  denied_models: [\"*:*:*-preview\"]\n",
+		"empty.yaml": "",
+		"nulls.yaml": "---\n~\n---\n",
+	})
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Agents) != 0 || len(cfg.Runtime.DeniedModels) != 1 {
+		t.Fatalf("agents %d, denied models %v", len(cfg.Agents), cfg.Runtime.DeniedModels)
+	}
+	if cfg, err := Load(write(t, nil)); err != nil || len(cfg.Agents) != 0 {
+		t.Fatalf("an empty directory: %v", err)
+	}
+	_, err = Load(write(t, map[string]string{"r.yaml": "runtime: {colour: x}\n"}))
+	expectProblems(t, err, []problem{{path: "runtime.colour", msg: "unknown field"}})
 }
 
 func TestAliasBomb(t *testing.T) {

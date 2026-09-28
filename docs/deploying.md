@@ -88,7 +88,10 @@ repository's, not Core's, though Core has scripts of the same kind:
    ```
 
 3. Configure the agents ([below](#the-agents-configuration-and-secrets)), and
-   check the configuration with the image you are about to start. Every
+   check the configuration with the image you are about to start. This can
+   wait: with no agent configured, the runtime starts, is healthy and does
+   nothing, and says so in its log at every start and reload, so the first
+   deploy can come before the first agent. Every
    green push to `main` publishes
    `ghcr.io/aishiteru-lms/aishie-agent-runtime:sha-<commit>`: the CI run's
    `publish / image` job names it, and so does the package's page. A release
