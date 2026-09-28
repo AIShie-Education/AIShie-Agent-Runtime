@@ -162,22 +162,37 @@ caller to the document's kind as `document_get` does; `submission_roster`,
 where every student in the caller's scope stands on an assignment, those who
 have not started among them, on `submission_read`, with names only for a
 seat that holds `member_read`; the roster: `member_list` and `member_get` on
-`member_read`, `member_lookup_actor` on `member_manage`; and the queues of
+`member_read`, `member_lookup_actor` on `member_manage`; the queues of
 proposals, `action_list_proposed`, `action_list_pending_review` and
-`action_get`, on `action_decide`, each as Core gates it),
-`toolset.WriteGates` for the writes: `assignment_create`, `_update`,
-`_publish`, `_unpublish` and `component_create`, `_update`, `_move` on
-`assignment_write`; `document_create`, `_add_version`, `_publish`,
-`_archive` on any of `document_write`, `submission_write` and `grade_submit`
-(the document's kind names the one that governs, as reading does);
-`grade_submit` and `grade_post` on the permissions of their names, and
-`grade_regrade` on both, at the lower of their levels; `submission_create`,
-`_update_draft`, `_submit` on `submission_write`; `submission_set_lateness`,
-`_record_missing` on `grade_submit`; `member_add`, `member_update_perms`,
-`member_update_perms_bulk`, `member_rescope`, `member_pause`,
-`member_resume` and `member_remove` on `member_manage` (Core's
-`manageMembers`); and `action_decide` and `action_review` on
-`action_decide`. Every tool of the pinned catalogue, read or write, is gated
+`action_get`, on `action_decide`; and the course's join links,
+`course_join_link_list`, on `member_invite`, never a token; each as Core
+gates it), `toolset.WriteGates` for the writes: `assignment_create`,
+`_update`, `_publish`, `_unpublish` and `component_create`, `_update`,
+`_move` on `assignment_write`; `document_create`, `_add_version`,
+`_publish`, `_archive`, and `document_update` (a rename, or a place in the
+list) and `document_unarchive`, as `document_archive`, on any of
+`document_write`, `submission_write` and `grade_submit` (the document's
+kind names the one that governs, as reading does); `grade_submit` and
+`grade_post` on the permissions of their names, `grade_regrade` on both, at
+the lower of their levels, and so `grade_override_total`,
+`grade_clear_override` and `grade_comment_total`, which write what a
+student is shown of a total at once, as a regrade does;
+`grade_undo_ungraded_as_zero` on `grade_post`, as posting as final is;
+`submission_create`, `_update_draft`, `_submit` on `submission_write`;
+`submission_set_lateness`, `_record_missing` on `grade_submit`;
+`member_add`, `member_update_perms`, `member_update_perms_bulk`,
+`member_rescope`, `member_pause`, `member_resume`, `member_remove` and
+`member_set_role` (a seat's roster role, which grants nothing) on
+`member_manage` (Core's `manageMembers`), and `course_update_details` on
+it too; `course_join_link_revoke` on `member_invite`; and `action_decide`
+and `action_review` on `action_decide`. `course_update_details` changes a
+course's title and description from a seat in it, which Core gates on
+`member_manage` as its instructors change them: unlike `course_update`,
+`_activate`, `_archive` and `_move`, which Core keeps to the platform's and
+the departments' administrators and the built-in list denies, it is the
+course's own write, gated as the course's other writes are on the
+permission Core checks, and offered, as they are, only in its owner's
+conversation. Every tool of the pinned catalogue, read or write, is gated
 or on the built-in list. At start, and when the catalogue's hash changes,
 `CheckCatalogue` refuses a gated tool that has gone, is of another kind than
 its gate's, or is on the built-in list. A course tutor, as Core's
@@ -189,24 +204,31 @@ open.
 seat holds `member_manage`, which only someone who manages them gives
 (an instructor, in the built-in presets), and never more than they hold
 themselves: Core holds every grant to the granter's own levels, scope and
-life. Core gives it to no delegate whatever its row says
-(`domain.DelegateCap`; `member.add_delegate` refuses it), so a person's own
-agent, and with it every hosted agent, is offered no member write today:
-the seat that has one is an agent nobody owns that an instructor seated
-with `member.add`, which an operator runs with `tools.writes` on. Should
-Core come to let a delegate hold it, the same writes go to its owner's
-conversations alone, as every write does. Reads of the roster are offered
-wherever the seat's perms allow them, as any read is: a course tutor's
-`member_read` is denied (and a seat that holds it is no longer within a
-student's, so no student may address it), and so is a student's own
-agent's, capped by the student's.
+life. Since 169cf50 every seat also says the most it may hold of each
+permission (`perm_ceilings`, with `perm_ceiling_reasons`: Core's
+`domain.Ceiling`), and a delegate may hold `member_manage` as far as its
+principal does: an instructor's own agent, hosted or not, may be given it
+and manages the course's members for its owner, as the seat that an agent
+nobody owns has when an instructor seats it with `member.add`, which an
+operator runs with `tools.writes` on. A student's own agent may not: its
+principal holds none. The member writes go, as every write does, to the
+owner's conversations alone. Reads of the roster are offered wherever the
+seat's perms allow them, as any read is: a course tutor's `member_read` is
+denied (and a seat that holds it is no longer within a student's, so no
+student may address it), and so is a student's own agent's, capped by the
+student's.
 
 **Deciding proposals.** A seat that holds `action_decide` reads the queues
 of proposals and one in full, and, in its owner's conversation as every
 write, is offered `action_decide` and `action_review`. Core holds an
-agent's `action_decide` at `confirm_required`, so that the model's
-decision or review is itself a proposal that a person confirms: a triage
-assistant, never a decider. The runtime holds it there again
+agent's `action_decide` at `confirm_required` at most (its ceiling,
+`agent_decides_by_proposal`, since 169cf50), so that the model's decision
+or review is itself a proposal that a person confirms: a triage
+assistant, never a decider. Its own proposals, and what it did at
+`pending_review`, its owner decides and reviews where they could have done
+the same themselves without anyone's confirmation (`by_owner`), whatever
+their own `action_decide`; the runtime follows those decisions from the
+events as any other (§5.4). The runtime holds the model's level there again
 (`toolset.Decides`): a decision or review from a seat whose `action_decide`
 is anything else (`pending_review` would let it take effect before anyone
 looked, `autonomous` without anyone looking) is refused before Core, a
@@ -216,19 +238,30 @@ when its owner asks, having read the proposal, with a one-line reason.
 `action_withdraw` stays denied.
 
 **The seats a model never changes** (`toolset.SeatGuard`). Every `member_*`
-write is checked before it reaches Core against the seats of the answer:
-the agent's own, its principal's (its owner's own seat in the course) and
-the conversation's opener's, which in a conversation offered writes is the
-principal's for a delegate, and whoever opened it for an agent nobody owns.
-A write that names one of them (`member_id`, or any of `member_ids`, in any
-case) is refused: its own seat Core refuses too, and the seat of the
-person it acts for no text may have it change, whoever claims to ask. A
-change to every seat of a roster role (`member_update_perms_bulk`, which
-Core applies to every live seat of the role but the caller's own) is made
-only when none of those people's seats has the role: the runtime reads
-each one's role with `member_get`, as the agent, and refuses the change,
+write, `member_set_role` among them, is checked before it reaches Core
+against the seats of the answer: the agent's own, its principal's (its
+owner's own seat in the course) and the conversation's opener's, which in a
+conversation offered writes is the principal's for a delegate, and whoever
+opened it for an agent nobody owns; and the seats of those people's other
+agents. A write that names one of the first three (`member_id`, or any of
+`member_ids`, in any case) is refused: its own seat Core refuses too, and
+the seat of the person it acts for no text may have it change, whoever
+claims to ask. Any other seat it names the runtime reads first with
+`member_get`, as the agent, and refuses the write when the seat is a
+delegate of one of those people (their other agents, which only their
+owner brings in and answers for), or when it cannot read it; a seat Core
+says is not in the course is left for Core to say so. Core refuses the same
+of a delegate since 169cf50 (`not_your_principal`); the runtime holds every
+agent to it, one nobody owns included, before Core. So an agent that
+manages members needs `member_read` too, or every write that names a seat
+is refused. A change to every seat of a roster role
+(`member_update_perms_bulk`, which Core applies to every live seat of the
+role but the caller's own) is made only when none of those people's seats
+has the role, and none of their other agents' seats: the runtime reads each
+one's role with `member_get`, and the role's seats with `member_list`
+(200 a page, ten pages at most), as the agent, and refuses the change,
 telling the model to change the seats it means one at a time, when a seat
-has the role or its role cannot be read. A refusal is an `is_error` result
+has the role or the roster cannot be read. A refusal is an `is_error` result
 (`forbidden`) that reaches nobody, takes no number and spends nothing of
 the answer's writes, and is counted as `refused` in `tool_writes_total`
 and logged. A runner without the answer's seats refuses every member
@@ -277,11 +310,25 @@ by `Run`; each entry has its reason beside it in the code:
   itself. The rest of `member_*` is gated on the seat's perms (above), and
   kept off the seats a model never changes.
 - `course_create`, `course_update`, `course_activate`, `course_archive`,
-  `course_seat_instructor`, `course_list`, `preset_*`, `term_*`,
-  `department_*`: the platform's administration, which Core gates on a
-  platform role that no course permission grants.
+  `course_move`, `course_seat_instructor`, `course_list`, `preset_*`,
+  `term_*`, `department_*`: the platform's administration, which Core gates
+  on a platform or department administrator's role that no course
+  permission grants. (`actor_*` covers `actor_invite_new` and
+  `actor_lookup_by_email`, the departments' administrators' own.)
 - `document_upload_url`: a signed URL for bytes the model cannot send, and a
   credential for the upload besides.
+- `document_purge`: removing a document's or a version's text and file for
+  good, an administrator's tool, which no course permission grants.
+- `course_join_link_create`: a link that seats whoever opens it as a
+  student, at once and by no proposal, whose token, returned once, is a
+  credential that would be in the model's text. Listing and revoking the
+  links are gated on `member_invite`.
+- `memory_*`: Core's memory of the agent (about its owner, each asker, the
+  course), reached by the conversation a call names. The runtime keeps each
+  conversation's memory itself and answers one conversation from that
+  conversation alone (§6): the tools would let the model read what is kept
+  about other askers by naming their conversations, and write about
+  people.
 
 `deny` entries ending in `*` cover every tool they begin. The model sees
 each tool through `toolschema`: bound arguments removed (`course_id`,
@@ -517,8 +564,10 @@ first, until a reload.
 A hosted agent runs only for its owner (the product owner's D5): at each
 start, `me_get`'s `owner_actor_id` (Core's C1) must be the owner its row
 names, the person who connected it. When Core names another owner (the
-agent was given to someone else, or connected by someone who held its
-token without owning it) or none (its owner was taken away), it is
+agent was connected by someone who held its token without owning it, or,
+in a Core from before 169cf50, where an administrator could re-own an
+agent with `actor.set_owner`, it was given to someone else) or none (its
+owner was taken away, as such a Core could), it is
 stopped in state `owner_changed`, whose detail says that its owner in Core
 is no longer the person who connected it here and that its owner must
 connect it again, naming no one; it stays stopped, making no call, through
@@ -543,7 +592,9 @@ catalogue, and `me_memberships`.
 
 Core takes conversations in the site for an agent only after the brain
 running it declares so, with the agent's own token, and only while that
-token is live: `me.site_chat {on: true}`. The runtime sends it once each
+token is live: `me.site_chat {on: true}`. Until then nobody may open a
+conversation with the agent or ask in one (`agent_answers_elsewhere`), so a
+question can reach an agent only once a runtime has run it. The runtime sends it once each
 time it starts running an agent, right after the first successful
 `me_get` for one with an owner (a hosted agent always has one; a YAML
 agent when `me_get` names one), else once a seat of its answers
@@ -553,11 +604,16 @@ nothing). A call Core did not answer is sent again at the next read of the
 seats, within 10 s each time; a refusal is logged and left until the next
 start. It is never sent `on: false`: a restart must not flap it, and the
 token's revocation (a new token put in, the agent deleted) turns it off in
-Core. A Core whose catalogue does not offer the tool, the pinned
-571e1f9 among them, or that refuses it as a tool it does not know, has
-nothing to declare, which is logged once per catalogue. The model is
-never offered it (`me_*` is on the built-in deny list, §4). The fake Core
-offers it with `Options.SiteChat`, as a newer Core does.
+Core. Core's instructions to an agent say to declare `on: false` when
+what runs it stops; the runtime does not, for the reason above: with
+workers taking agents over from each other, a stopping worker's `false`
+could land after the next worker's `true`. A Core whose catalogue does not
+offer the tool (one from before it, as the runtime's pin was until
+169cf50), or that refuses it as a tool it does not know, has nothing to
+declare, which is logged once per catalogue. The model is never offered it
+(`me_*` is on the built-in deny list, §4). The fake Core offers it, and
+refuses a question to an agent that has not declared, as Core does;
+`Options.WithoutSiteChat` answers as a Core from before it.
 
 It reads memberships again every
 `memberships_s`, and at once after a `forbidden`, `not_found` or `denied`,
@@ -875,10 +931,16 @@ per worker up to 32 MiB.
 - `fakecore`: the MCP surface and envelope of Core, scriptable: questions,
   follow-ups written during generation, levels changed, seats paused or
   removed, proposals approved, rejected or expired, retractions, 429s and
-  401s. `internal/fakecore/testdata/fixtures` are envelopes recorded from
-  the pinned Core for every row of §2.4 and more (`make record-fixtures`
-  against a live Core); a conformance test holds the fake to them, and
-  Core's own client is tested live against the real one.
+  401s; each seat's ceilings, as Core works them out; an agent's owner
+  deciding and reviewing what it did where they could do it themselves;
+  and no question to an agent that has not declared it answers in the site
+  (the worker's tests wait for the runtime's declaration, or, asking
+  before a worker starts, make it as an earlier run would have).
+  `internal/fakecore/testdata/fixtures` are envelopes recorded from the
+  pinned Core for every row of §2.4 and more (`make record-fixtures`
+  against a live Core, whose recorder declares each agent's site chat with
+  its token); a conformance test holds the fake to them, and Core's own
+  client is tested live against the real one.
 - Adapters: golden translations both ways in `testdata/`, every stop reason
   and usage field; `LIVE=1` runs them against the real providers whose keys
   are set, with one request declaring every tool at 16 output tokens.
@@ -914,9 +976,12 @@ per worker up to 32 MiB.
   error; the member writes and the roster are offered on their gates alone,
   `member_add_delegate` and `member_delegate_defaults` never, and
   `SeatGuard` refuses a member write on the agent's own seat, its
-  principal's or the opener's, and a role-wide change when one of those
-  people's seats has the role or its role cannot be read, before Core and
-  without spending the budget; a decision or review is sent only from a
+  principal's or the opener's, or on another agent of theirs (read with
+  `member_get`, `member_set_role` of a sibling's role among them), or on a
+  seat it cannot read, and a role-wide change when one of those people's
+  seats, or one of their other agents' (read with `member_list`), has the
+  role or the roster cannot be read, before Core and without spending the
+  budget; a decision or review is sent only from a
   seat whose `action_decide` is `confirm_required`, and refused, counted
   and unnumbered, at `pending_review` and `autonomous`; every tool of the
   catalogue, read or write, is gated or denied, and a course tutor is
@@ -982,12 +1047,18 @@ per worker up to 32 MiB.
   exactly and the file fetched once; the site chat declared once per start, by an
   agent with an owner at once and by one nobody owns once a seat of its
   answers, never taken back, and not sent to a Core that does not offer
-  it.
+  it; and Sato's own assistant, given `member_manage`, offered
+  `member_set_role` in his conversation, seating Aoi when he asks, and
+  refused before Core the role a document orders for his course tutor,
+  his other agent, and for his own seat, and a pause of its own.
 - `e2e`: the pinned Core (`scripts/ci-core.sh`), agents seated over REST, the
   runtime with the scripted OpenAI Chat server behind the real `openai_chat`
   adapter: a student's own agent answers within the latency target and a
   course tutor keeps askers apart; moved on and duplicates across two
-  workers are safe; a seat set to `denied` stops polling and answers again
+  workers are safe (an agent asked before the runtime starts is one an
+  earlier run declared; every other is asked once the runtime has declared
+  that it answers in the site, which Core requires); a seat set to
+  `denied` stops polling and answers again
   when restored; a proposal approved is recorded, and a rejection's reason
   reaches the next attempt; no token or key in any log, before or after
   redaction; the binary's `catalogue --check` and `check --live`; and
@@ -995,7 +1066,8 @@ per worker up to 32 MiB.
   document, which at `confirm_required` is proposed, as the answer says, and
   at `autonomous` is executed and in Core, while a student asking his
   course tutor, which holds a write, is offered none and nothing is
-  written; and members: Core refuses Sato's own agent `member_manage`; an
+  written; and members: Core seats Sato's own agent with `member_manage`
+  and refuses it to Yuki's (`principal_level`); an
   agent nobody owns that Sato seated with it seats Aoi as a student when
   he asks, executed at `autonomous` and in Core, and Ren on a proposal at
   `confirm_required`; told by a document of Sato's to pause his seat, raise

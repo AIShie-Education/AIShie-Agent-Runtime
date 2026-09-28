@@ -168,13 +168,17 @@ answer makes at most `budgets.per_answer.max_writes` changes (10), and
 The course's members (seating people, pausing or removing them, changing
 what they may do) an agent manages only when its seat holds
 `member_manage`, which only an instructor gives, and never more than they
-hold. Core gives it to nobody's own agent, so an agent that seats people is
-one nobody owns: an instructor seats it with `member.add`, and it runs here
-from YAML with `tools: {writes: true}`, answering whoever Core lets address
-it (those who hold at least what it holds). It never changes its own seat,
-nor the seat of the person it acts for, whatever it is told, and never
-seats agents; `tools.deny: [member_*]` takes member changes away from it
-altogether. The roster (`member_list`, `member_get`) is read where the
+hold. Core gives a person's own agent no more of it than the person holds:
+an instructor's own agent, hosted or not, may be given it, and manages the
+members in its owner's conversations; a student's may not. An agent nobody
+owns may be seated with it too (`member.add`), and runs here from YAML with
+`tools: {writes: true}`, answering whoever Core lets address it (those who
+hold at least what it holds). It never changes its own seat, the seat of
+the person it acts for, nor the seat of another agent of theirs, whatever
+it is told, and never seats agents; to tell another agent's seat, the
+runtime reads each seat a member write names with `member_get`, so such a
+seat needs `member_read` as well, or its changes to a seat are refused.
+`tools.deny: [member_*]` takes member changes away from it altogether. The roster (`member_list`, `member_get`) is read where the
 seat's `member_read` allows, as any read is.
 
 A seat that holds `action_decide` (an instructor's own agent, say) reads
