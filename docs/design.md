@@ -559,7 +559,10 @@ document a YAML file would hold, and runs it beside the YAML agents:
   `display_name`, `tenant_id` and `paused` from the row; `core` as
   `{base_url: CORE_BASE_URL, token_ref: sealed://<token_secret_id>}`; and
   the owner's key, `sealed://<key_secret_id>`, on each model section whose
-  key source, as written or inherited, is `own`. Each course's row is its
+  key source, as written or inherited from its parent, is `own`, with that
+  key source written out (merged over `runtime.defaults`, a fallback that
+  names none would take the defaults' fallback's first, and be paid for as
+  the school's). Each course's row is its
   `courses[course_id]`. Settings that set any of those themselves, or refer
   to any file or secret (a key ending in `_ref`, anywhere), are refused: a
   hosted agent reads nothing but its own sealed secrets.
@@ -570,7 +573,8 @@ document a YAML file would hold, and runs it beside the YAML agents:
   `CORE_BASE_URL_ALLOWLIST`, but each on its own: one that does not pass is
   rejected with every problem, where `Load` stops at the first file's.
 - **What a hosted agent may call.** Every model it calls, in every course,
-  has the owner's key and no other, never one it would inherit from the
+  is on the owner's key source and has the owner's key and no other, as
+  merged and decoded, never one it would inherit from the
   runtime's defaults (a fallback it does not set is none, not the
   defaults'); none is called with the runtime's own credentials (Bedrock
   without a key would sign with the host's) or at a server that takes no

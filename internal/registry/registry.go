@@ -166,9 +166,10 @@ var setByRegistry = []string{"id", "display_name", "tenant_id", "paused", "core"
 // (the package's comment): its id, name, tenant and pause from its row;
 // Core at coreBaseURL, with its token as sealed://<token_secret_id>; and
 // the owner's key, sealed://<key_secret_id>, on each model section whose
-// key source, as written or as it inherits it from defaultKeySource, is
-// own. Settings that set any of those themselves, refer to a file or a
-// secret, or put a model on the school's key, are refused.
+// key source, as written or as it inherits it from defaultKeySource (and
+// then written out), is own. Settings that set any of those themselves,
+// refer to a file or a secret, or put a model on the school's key, are
+// refused.
 func Document(a store.HostedAgent, courses []store.HostedCourse, coreBaseURL, defaultKeySource string) (config.Source, error) {
 	src := config.Source{Name: SourceName(a.ID)}
 	settings, err := object(a.Settings, "its settings")
@@ -276,12 +277,18 @@ func refs(path string, v any) []string {
 
 // keyed gives a model section the owner's key, when its key source, as
 // written or else inherited, is own; one on the owner's key when no key is
-// stored, or on the school's, is a problem. It returns the section's key
-// source.
+// stored, or on the school's, is a problem. A section that does not name its
+// key source is given the one it inherits, written out: merged over the
+// runtime's defaults, it would take theirs first (a fallback, that of the
+// defaults' fallback), and be paid for otherwise than it is keyed. It
+// returns the section's key source.
 func keyed(section map[string]any, inherited, key, path string, problems *[]string) string {
 	ks, _ := section["key_source"].(string)
 	if ks == "" {
 		ks = inherited
+		if _, written := section["key_source"]; !written {
+			section["key_source"] = ks
+		}
 	}
 	switch ks {
 	case config.KeyOwn:
@@ -296,8 +303,9 @@ func keyed(section map[string]any, inherited, key, path string, problems *[]stri
 }
 
 // checkModels holds every model an agent calls, in every course it has
-// settings for, to the rules of hosted agents: the owner's key, key, and no
-// other, an official endpoint over https, and no extra headers.
+// settings for, as merged and decoded, to the rules of hosted agents: the
+// owner's key source and key, key, and no other, an official endpoint over
+// https, and no extra headers.
 func checkModels(a *config.Agent, key string) error {
 	type section struct {
 		path string
@@ -325,7 +333,14 @@ func checkModels(a *config.Agent, key string) error {
 	var problems []string
 	for _, v := range views {
 		msg := checkModel(v.m)
-		if msg == "" && v.m.KeyRef != key {
+		switch {
+		case msg != "":
+		case v.m.KeySource != config.KeyOwn:
+			// Document writes out every key source it gives; this holds
+			// the model to it as merged and decoded, whatever the
+			// runtime's defaults would give.
+			msg = "is on the school's key, which is not offered to hosted agents yet"
+		case v.m.KeyRef != key:
 			msg = "has a key that is not the owner's"
 		}
 		if msg != "" {

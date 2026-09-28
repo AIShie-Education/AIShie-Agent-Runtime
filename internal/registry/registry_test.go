@@ -339,6 +339,49 @@ func TestBuildTakesNoKeyFromTheDefaults(t *testing.T) {
 	}
 }
 
+// A section that names no key source is keyed as its parent's, and runs
+// so: merged over the runtime's defaults, a fallback that does not say would
+// take the key source of the defaults' fallback, the school's, and run on
+// the owner's key with its spend counted as the school's, held to the
+// school's quotas and reported as the school's cost.
+func TestBuildTakesNoKeySourceFromTheDefaults(t *testing.T) {
+	yaml := yamlConfig(t, "")
+	answers := 100
+	yaml.Runtime.Tenants = map[string]config.Tenant{"ten_owner": {PerDay: config.Quota{Answers: &answers}}}
+	yaml.Runtime.Defaults = map[string]any{"model": map[string]any{
+		"fallback": map[string]any{"adapter": "openai_chat", "model": "gpt-4.1", "key_source": "school", "key_ref": "secret://school/keys/openai"},
+	}}
+	const budgets = `"budgets": {"per_agent_day": {"answers": 10}, "per_asker_day": {"answers": 5}}`
+	st := hostedStore(t, []store.HostedAgent{
+		row("agt_empty", `{"model": {"adapter": "openai_chat", "model": "gpt-4.1-mini", "key_source": "own", "fallback": {}}, `+budgets+`}`),
+		row("agt_named", `{"model": {"adapter": "openai_chat", "model": "gpt-4.1-mini", "key_source": "own",
+		  "fallback": {"adapter": "anthropic", "model": "claude-test"}}, `+budgets+`}`),
+	})
+	cfg, _, err := Build(t.Context(), yaml, st, Options{CoreBaseURL: core})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := agentIDs(cfg); !slices.Equal(got, []string{"a1", "agt_empty", "agt_named"}) {
+		t.Fatalf("agents %v, rejected %v", got, rejectedWhy(cfg))
+	}
+	for _, a := range cfg.Agents[1:] {
+		fb := a.Model.Fallback
+		if fb == nil || fb.KeySource != config.KeyOwn || fb.KeyRef != "sealed://sec_k_"+a.ID {
+			t.Errorf("%s's fallback: %+v", a.ID, fb)
+		}
+	}
+
+	// And a model that is on the school's key as merged, however it came
+	// to be, is not run.
+	a := *cfg.Agents[1]
+	fb := *a.Model.Fallback
+	fb.KeySource = config.KeySchool
+	a.Model.Fallback = &fb
+	if err := checkModels(&a, "sealed://sec_k_agt_empty"); err == nil || !strings.Contains(err.Error(), "agent.model.fallback: is on the school's key") {
+		t.Errorf("a fallback on the school's key: %v", err)
+	}
+}
+
 // Without CORE_BASE_URL, or with one outside the allowlist, no hosted
 // agent runs, and each says why; the YAML agents run on.
 func TestBuildWithoutACore(t *testing.T) {
