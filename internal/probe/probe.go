@@ -1,9 +1,9 @@
 // Package probe is what the runtime asks of Core and of a model provider on
 // someone's behalf, outside an agent's run: what an agent's token is and
-// whose (Inspect), revoking a token of an agent's with a token of its own
-// (RevokeToken), and trying a model's key with one call (TryModel). The
-// API does it for the people who host agents; check --live tries each
-// agent's model with TryModel for the operator.
+// whose (Inspect, Check), revoking a token of an agent's with a token of
+// its own (RevokeToken, RevokeReplaced), and trying a model's key with one
+// call (TryModel). The API does it for the people who host agents; check
+// --live tries each agent's model with TryModel for the operator.
 //
 // A token is used for as long as the call that brought it, and never
 // written anywhere: not in an error, a log line, or anything returned.
@@ -146,6 +146,22 @@ type Inspection struct {
 // compared in any case. me_memberships is read only for a token that
 // passes.
 func Inspect(ctx context.Context, c *core.Client, cat *core.Catalogue, want Want) (*Inspection, error) {
+	me, err := Check(ctx, c, cat, want)
+	if err != nil {
+		return nil, err
+	}
+	ms, err := c.Memberships(ctx)
+	if err != nil {
+		return nil, classify(err)
+	}
+	return &Inspection{Me: me, Memberships: ms}, nil
+}
+
+// Check is Inspect without me_memberships: me_get, refused as Inspect
+// refuses it, in its order. It is for a caller about to act on what
+// Inspect said a while ago, which Core may have changed since (the agent
+// given to someone else, its tokens revoked): it asks again just before.
+func Check(ctx context.Context, c *core.Client, cat *core.Catalogue, want Want) (*core.Actor, error) {
 	me, err := c.Me(ctx)
 	if err != nil {
 		return nil, classify(err)
@@ -165,11 +181,7 @@ func Inspect(ctx context.Context, c *core.Client, cat *core.Catalogue, want Want
 		return nil, &Error{Reason: ReasonNotOwner}
 	}
 	me.ID, me.OwnerActorID = strings.ToLower(me.ID), strings.ToLower(me.OwnerActorID)
-	ms, err := c.Memberships(ctx)
-	if err != nil {
-		return nil, classify(err)
-	}
-	return &Inspection{Me: me, Memberships: ms}, nil
+	return me, nil
 }
 
 // reasonActorNotActive is the reason Core's authorization gives for a
@@ -224,22 +236,37 @@ type Revocation struct {
 }
 
 // RevokeToken revokes, in Core, the live API token whose public prefix is
-// prefix, with c: a client on a token of the same agent, the token itself
-// or one that replaces it (the API contract, §7.3). credential_list finds
-// it: the first credential of kind api_token with that prefix, neither
-// revoked nor expired at now; with none, the token is dead already. Then
-// credential_revoke revokes it, under aishie-revoke:<id>. Core refusing
-// c's token (401) means the token was dead already, when it is the token
-// itself; so does credential_revoke's failed not_found. A suspended agent
-// is denied both calls; a Core that cannot be reached, or answers
+// prefix, with c: a client on that token itself (the API contract, §7.3).
+// credential_list finds it: the first credential of kind api_token with
+// that prefix, neither revoked nor expired at now; with none, the token is
+// dead already. Then credential_revoke revokes it, under
+// aishie-revoke:<id>. Core refusing c's token (401) means the token was
+// dead already; so does credential_revoke's failed not_found. A suspended
+// agent is denied both calls; a Core that cannot be reached, or answers
 // otherwise, leaves the token as it was.
 func RevokeToken(ctx context.Context, c *core.Client, prefix string, now time.Time) Revocation {
+	return revoke(ctx, c, prefix, now, true)
+}
+
+// RevokeReplaced is RevokeToken with c on another token of the same
+// agent's, one that replaced the token of prefix (PUT /token). Core
+// refusing c's token (401) then says nothing of the token of prefix: c's
+// was itself replaced and revoked meanwhile (another new token given at
+// once), and the token of prefix may still work. That is failed,
+// core_refused, for its owner to revoke it; never already_invalid.
+func RevokeReplaced(ctx context.Context, c *core.Client, prefix string, now time.Time) Revocation {
+	return revoke(ctx, c, prefix, now, false)
+}
+
+// revoke is RevokeToken (itself, c on the token of prefix) and
+// RevokeReplaced.
+func revoke(ctx context.Context, c *core.Client, prefix string, now time.Time, itself bool) Revocation {
 	if prefix == "" {
 		return Revocation{Outcome: Failed, Problem: ProblemCoreRefused}
 	}
 	creds, err := c.Credentials(ctx)
 	if err != nil {
-		return failedRevocation(err)
+		return failedRevocation(err, itself)
 	}
 	id := ""
 	for _, cr := range creds {
@@ -254,7 +281,7 @@ func RevokeToken(ctx context.Context, c *core.Client, prefix string, now time.Ti
 	env, err := c.RevokeCredential(ctx, id)
 	switch {
 	case err != nil:
-		r := failedRevocation(err)
+		r := failedRevocation(err, itself)
 		r.CredentialID = id
 		return r
 	case env.Status == core.StatusExecuted:
@@ -267,14 +294,18 @@ func RevokeToken(ctx context.Context, c *core.Client, prefix string, now time.Ti
 	return Revocation{Outcome: Failed, Problem: ProblemCoreRefused, CredentialID: id}
 }
 
-// failedRevocation is a call of RevokeToken's that Core did not carry out.
-func failedRevocation(err error) Revocation {
+// failedRevocation is a call of revoke's that Core did not carry out;
+// itself is whether its client is on the token being revoked, whose 401
+// says the token is dead already.
+func failedRevocation(err error, itself bool) Revocation {
 	var ee *core.EnvelopeError
 	var tr *core.TransientError
 	var rl *core.RateLimitedError
 	switch {
-	case errors.Is(err, core.ErrUnauthenticated):
+	case errors.Is(err, core.ErrUnauthenticated) && itself:
 		return Revocation{Outcome: AlreadyInvalid}
+	case errors.Is(err, core.ErrUnauthenticated):
+		return Revocation{Outcome: Failed, Problem: ProblemCoreRefused}
 	case errors.As(err, &ee) && ee.Envelope.Status == core.StatusDenied && ee.Envelope.Reason() == reasonActorNotActive:
 		return Revocation{Outcome: Failed, Problem: ProblemAgentSuspended}
 	case errors.As(err, &ee):

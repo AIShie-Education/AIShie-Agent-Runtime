@@ -126,9 +126,10 @@ func TestInspect(t *testing.T) {
 	}
 }
 
-// RevokeToken revokes the token of a prefix with the agent's own token, or
-// a replacement's; says a dead one was dead already; and says why it
-// failed for a suspended agent and a Core not answering.
+// RevokeReplaced revokes the token of a prefix with a replacement's, and
+// RevokeToken with the token itself; each says a dead one was dead
+// already, and why it failed for a suspended agent and a Core not
+// answering.
 func TestRevokeToken(t *testing.T) {
 	w := newWorld(t, fakecore.Options{})
 	now := time.Now()
@@ -140,7 +141,7 @@ func TestRevokeToken(t *testing.T) {
 	// A replacement revokes the token it replaces.
 	next, err := w.fc.IssueLabelledToken(w.agent.ID, "next")
 	w.ok(err)
-	r := RevokeToken(t.Context(), w.client(next.Token), prefix, now)
+	r := RevokeReplaced(t.Context(), w.client(next.Token), prefix, now)
 	if r.Outcome != Revoked || r.Problem != "" || r.CredentialID == "" {
 		t.Fatalf("%+v", r)
 	}
@@ -148,10 +149,10 @@ func TestRevokeToken(t *testing.T) {
 		t.Errorf("the revoked token still works: %v", err)
 	}
 	// Dead already: listed revoked, or never listed.
-	if r := RevokeToken(t.Context(), w.client(next.Token), prefix, now); r.Outcome != AlreadyInvalid {
+	if r := RevokeReplaced(t.Context(), w.client(next.Token), prefix, now); r.Outcome != AlreadyInvalid {
 		t.Errorf("again: %+v", r)
 	}
-	if r := RevokeToken(t.Context(), w.client(next.Token), "aaaaaaaaaaaa", now); r.Outcome != AlreadyInvalid {
+	if r := RevokeReplaced(t.Context(), w.client(next.Token), "aaaaaaaaaaaa", now); r.Outcome != AlreadyInvalid {
 		t.Errorf("a prefix of no token: %+v", r)
 	}
 	// The token itself, already revoked, is refused: dead already.
@@ -189,6 +190,39 @@ func TestRevokeToken(t *testing.T) {
 	}
 	if r := RevokeToken(t.Context(), w.client(next.Token), "", now); r.Outcome != Failed {
 		t.Errorf("no prefix: %+v", r)
+	}
+}
+
+// A token that replaced another revokes it as RevokeToken does; but when
+// Core refuses it (401), it was itself replaced meanwhile, which says
+// nothing of the token it replaced: that one is failed, core_refused, and
+// left working for its owner to revoke, never already_invalid.
+func TestRevokeReplaced(t *testing.T) {
+	w := newWorld(t, fakecore.Options{})
+	now := time.Now()
+	prefix := Prefix(w.agent.Token)
+	next, err := w.fc.IssueLabelledToken(w.agent.ID, "next")
+	w.ok(err)
+	third, err := w.fc.IssueLabelledToken(w.agent.ID, "third")
+	w.ok(err)
+	// next is replaced by third, and revoked with it, before next revokes
+	// the first token.
+	if r := RevokeReplaced(t.Context(), w.client(third.Token), next.Prefix, now); r.Outcome != Revoked {
+		t.Fatalf("third revoking next: %+v", r)
+	}
+	r := RevokeReplaced(t.Context(), w.client(next.Token), prefix, now)
+	if r.Outcome != Failed || r.Problem != ProblemCoreRefused {
+		t.Errorf("with a replacing token Core refuses: %+v, want failed (core_refused)", r)
+	}
+	if _, err := w.client(w.agent.Token).Me(t.Context()); err != nil {
+		t.Errorf("the first token was revoked after all: %v", err)
+	}
+	// With a replacing token that works, it is revoked.
+	if r := RevokeReplaced(t.Context(), w.client(third.Token), prefix, now); r.Outcome != Revoked {
+		t.Errorf("third revoking the first: %+v", r)
+	}
+	if r := RevokeReplaced(t.Context(), w.client(third.Token), prefix, now); r.Outcome != AlreadyInvalid {
+		t.Errorf("again: %+v", r)
 	}
 }
 

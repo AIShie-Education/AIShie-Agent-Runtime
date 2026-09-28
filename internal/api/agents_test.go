@@ -724,3 +724,238 @@ func TestTokenBucket(t *testing.T) {
 		t.Errorf("GET /agents: %d", a.code)
 	}
 }
+
+// raceStore runs each hook once, at the first call of its method after it
+// is set: another request that lands between a request's read of a row and
+// its write.
+type raceStore struct {
+	store.Store
+	mu    sync.Mutex
+	hooks map[string]func()
+}
+
+// raced is a host world whose store runs raceStore's hooks.
+func raced(t *testing.T) (*hostWorld, *raceStore) {
+	rs := &raceStore{hooks: map[string]func(){}}
+	h := newHostWorld(t, fakecore.Options{}, func(o *Options) { rs.Store, o.Store = o.Store, rs })
+	return h, rs
+}
+
+// on runs f once, before the next call of method, or after the next
+// successful one for "after " and a method.
+func (s *raceStore) on(method string, f func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.hooks[method] = f
+}
+
+func (s *raceStore) fire(method string) {
+	s.mu.Lock()
+	f := s.hooks[method]
+	delete(s.hooks, method)
+	s.mu.Unlock()
+	if f != nil {
+		f()
+	}
+}
+
+func (s *raceStore) HostedAgentByActor(ctx context.Context, coreActorID string) (*store.HostedAgent, error) {
+	s.fire("HostedAgentByActor")
+	return s.Store.HostedAgentByActor(ctx, coreActorID)
+}
+
+func (s *raceStore) UpdateHostedAgent(ctx context.Context, a store.HostedAgent, secrets ...store.Secret) (*store.HostedAgent, error) {
+	out, err := s.Store.UpdateHostedAgent(ctx, a, secrets...)
+	if err == nil {
+		s.fire("after UpdateHostedAgent")
+	}
+	return out, err
+}
+
+func (s *raceStore) SetHostedAgentPaused(ctx context.Context, id string, paused bool, version int) (*store.HostedAgent, error) {
+	s.fire("SetHostedAgentPaused")
+	return s.Store.SetHostedAgentPaused(ctx, id, paused, version)
+}
+
+func (s *raceStore) DeleteHostedAgent(ctx context.Context, id string, cond store.DeleteIf) error {
+	s.fire("DeleteHostedAgent")
+	return s.Store.DeleteHostedAgent(ctx, id, cond)
+}
+
+// A new token put in (PUT /token) after DELETE revoked the one it read, and
+// before the row goes: without If-Match, DELETE revokes the new token in
+// its turn and deletes the row holding it, so that no token of the agent's
+// is left working, and says which it revoked; with If-Match, it is 412,
+// and the row is kept with its new token.
+func TestDeleteRacesANewToken(t *testing.T) {
+	t.Run("without If-Match", func(t *testing.T) {
+		h, rs := raced(t)
+		v := h.connect(h.yuki, h.helper.Token)
+		next := h.token(h.helper.ID)
+		var put answer
+		rs.on("DeleteHostedAgent", func() { put = h.call("PUT", "agents/"+v.ID+"/token", h.yuki, tokenBody(next.Token, "")) })
+		var d Deleted
+		a := h.call("DELETE", "agents/"+v.ID, h.yuki, "")
+		a.decode(t, &d)
+		if put.code != http.StatusOK {
+			t.Fatalf("the new token: %d %s", put.code, put.body)
+		}
+		if a.code != http.StatusOK || d.Token.Prefix != next.Prefix || d.Token.Revocation != probe.Revoked || d.Token.Problem != nil {
+			t.Errorf("DELETE: %d %s", a.code, a.body)
+		}
+		if _, err := h.st.HostedAgent(context.Background(), v.ID); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("the row: %v", err)
+		}
+		for _, c := range h.fc.Credentials(h.helper.ID) {
+			if c.RevokedAt == nil {
+				t.Errorf("the agent's token %s (%s) still works, its row gone", c.Prefix, c.Label)
+			}
+		}
+		ev := h.events("agent.delete")
+		if len(ev) != 1 || ev[0].Outcome != "ok" || !strings.Contains(string(ev[0].Detail), `"token_hint":"ais_`+next.Prefix) ||
+			!strings.Contains(string(ev[0].Detail), `"revocation":"revoked"`) {
+			t.Errorf("the audit: %+v", ev)
+		}
+		h.noSecrets(a, put)
+	})
+	t.Run("with If-Match", func(t *testing.T) {
+		h, rs := raced(t)
+		v := h.connect(h.yuki, h.helper.Token)
+		next := h.token(h.helper.ID)
+		var put answer
+		rs.on("DeleteHostedAgent", func() { put = h.call("PUT", "agents/"+v.ID+"/token", h.yuki, tokenBody(next.Token, "")) })
+		a := h.call("DELETE", "agents/"+v.ID, h.yuki, "", "If-Match", `"1"`)
+		if e := wantRefused(t, a, http.StatusPreconditionFailed, CodeVersionMismatch, ReasonVersionMismatch); e.Details["current_version"] != float64(2) {
+			t.Errorf("current_version: %v", e.Details)
+		}
+		row, err := h.st.HostedAgent(context.Background(), v.ID)
+		if err != nil || probe.HintPrefix(row.TokenHint) != next.Prefix || put.code != http.StatusOK {
+			t.Fatalf("the row: %+v %v; the new token: %d", row, err, put.code)
+		}
+		for _, c := range h.fc.Credentials(h.helper.ID) {
+			if live := c.RevokedAt == nil; live != (c.Prefix == next.Prefix) {
+				t.Errorf("credential %s (%s): works %v", c.Prefix, c.Label, live)
+			}
+		}
+	})
+}
+
+// pause and resume hold If-Match to their write, not only to their read: a
+// write that lands in between is 412, and nothing is paused; without
+// If-Match, the pause is written over it.
+func TestPauseRacesAWrite(t *testing.T) {
+	h, rs := raced(t)
+	v := h.connect(h.yuki, h.helper.Token)
+	ctx := context.Background()
+	rename := func() {
+		row, err := h.st.HostedAgent(ctx, v.ID)
+		h.ok(err)
+		row.DisplayName = "Renamed meanwhile"
+		_, err = h.st.UpdateHostedAgent(ctx, *row)
+		h.ok(err)
+	}
+	rs.on("SetHostedAgentPaused", rename)
+	a := h.call("POST", "agents/"+v.ID+"/pause", h.yuki, "", "If-Match", `"1"`)
+	if e := wantRefused(t, a, http.StatusPreconditionFailed, CodeVersionMismatch, ReasonVersionMismatch); e.Details["current_version"] != float64(2) {
+		t.Errorf("current_version: %v", e.Details)
+	}
+	if row, err := h.st.HostedAgent(ctx, v.ID); err != nil || row.Paused || row.Version != 2 {
+		t.Errorf("paused over another write: %+v %v", row, err)
+	}
+	rs.on("SetHostedAgentPaused", rename)
+	var got HostedAgent
+	a = h.call("POST", "agents/"+v.ID+"/pause", h.yuki, "")
+	a.decode(t, &got)
+	if a.code != http.StatusOK || !got.Paused || got.Version != 4 {
+		t.Errorf("without If-Match: %d %s", a.code, a.body)
+	}
+	if ev := h.events("agent.pause"); len(ev) != 2 || ev[0].Outcome != ReasonVersionMismatch || ev[1].Outcome != "ok" {
+		t.Errorf("the audit: %+v", ev)
+	}
+}
+
+// Two new tokens given at once: the second replaces the first in the row
+// before the first revokes the token it replaced, and revokes the first.
+// Core then refuses the first's own token (401), which says nothing of the
+// token it replaced: that one is said to have failed (core_refused), for
+// its owner to revoke, and never to have been dead already.
+func TestReplaceTokenRacesAnother(t *testing.T) {
+	h, rs := raced(t)
+	v := h.connect(h.yuki, h.helper.Token)
+	b, c := h.token(h.helper.ID), h.token(h.helper.ID)
+	path := "agents/" + v.ID + "/token"
+	var second answer
+	rs.on("after UpdateHostedAgent", func() { second = h.call("PUT", path, h.yuki, tokenBody(c.Token, "")) })
+	var r1, r2 TokenReplaced
+	first := h.call("PUT", path, h.yuki, tokenBody(b.Token, ""))
+	first.decode(t, &r1)
+	second.decode(t, &r2)
+	if second.code != http.StatusOK || r2.PreviousToken.Prefix != b.Prefix || r2.PreviousToken.Revocation != probe.Revoked || r2.Agent.Token.Prefix != c.Prefix {
+		t.Errorf("the second: %d %s", second.code, second.body)
+	}
+	original := probe.Prefix(h.helper.Token)
+	if first.code != http.StatusOK || r1.PreviousToken.Prefix != original || r1.PreviousToken.Revocation != probe.Failed ||
+		r1.PreviousToken.Problem == nil || *r1.PreviousToken.Problem != probe.ProblemCoreRefused {
+		t.Errorf("the first: %d %s", first.code, first.body)
+	}
+	live := map[string]bool{}
+	for _, cr := range h.fc.Credentials(h.helper.ID) {
+		live[cr.Prefix] = cr.RevokedAt == nil
+	}
+	if !live[original] || live[b.Prefix] || !live[c.Prefix] {
+		t.Errorf("working: %v", live)
+	}
+	if row, err := h.st.HostedAgent(context.Background(), v.ID); err != nil || probe.HintPrefix(row.TokenHint) != c.Prefix {
+		t.Errorf("the row: %+v %v", row, err)
+	}
+	ev := h.events("agent.token_replace")
+	if len(ev) != 2 || !strings.Contains(string(ev[1].Detail), `"revocation":"failed"`) || !strings.Contains(string(ev[1].Detail), `"revocation_problem":"core_refused"`) {
+		t.Errorf("the first's audit: %+v", ev)
+	}
+}
+
+// Taking over an earlier owner's row asks Core again, with the token, just
+// before the row is deleted: an agent Core gave back meanwhile, revoking
+// its tokens, is refused (token_refused), and so is one while Core cannot
+// be reached (core_unavailable); the earlier owner's row is kept, and
+// nothing is audited as taken over, until Core says the agent is the
+// caller's.
+func TestTakeoverAsksCoreAgain(t *testing.T) {
+	h, rs := raced(t)
+	ctx := context.Background()
+	old := h.connect(h.yuki, h.helper.Token)
+	for _, m := range h.seatsOf(h.helper.ID) {
+		h.ok(h.fc.RemoveSeat(m))
+	}
+	h.ok(h.fc.SetOwner(h.helper.ID, h.ken.ID))
+	kens := h.token(h.helper.ID)
+	rs.on("HostedAgentByActor", func() { h.ok(h.fc.SetOwner(h.helper.ID, h.yuki.ID)) })
+	wantRefused(t, h.call("POST", "agents", h.ken, tokenBody(kens.Token, "")), http.StatusUnprocessableEntity, CodeFailedPrecondition, probe.ReasonTokenRefused)
+	if _, err := h.st.HostedAgent(ctx, old.ID); err != nil {
+		t.Errorf("Yuki's row, the agent hers again: %v", err)
+	}
+
+	h.ok(h.fc.SetOwner(h.helper.ID, h.ken.ID))
+	kens = h.token(h.helper.ID)
+	rs.on("HostedAgentByActor", func() {
+		h.fc.Inject(func(fakecore.InjectedCall) *fakecore.Injection {
+			return &fakecore.Injection{Status: http.StatusBadGateway}
+		})
+	})
+	wantRefused(t, h.call("POST", "agents", h.ken, tokenBody(kens.Token, "")), http.StatusServiceUnavailable, CodeUnavailable, probe.ReasonCoreUnavailable)
+	h.fc.Inject(nil)
+	if _, err := h.st.HostedAgent(ctx, old.ID); err != nil {
+		t.Errorf("Yuki's row, Core not answering: %v", err)
+	}
+	if ev := h.events("agent.takeover"); len(ev) != 0 {
+		t.Errorf("taken over: %+v", ev)
+	}
+
+	v := h.connect(h.ken, kens.Token)
+	if _, err := h.st.HostedAgent(ctx, old.ID); !errors.Is(err, store.ErrNotFound) || v.OwnerActorID != h.ken.ID {
+		t.Errorf("once Core answers: %v, %+v", err, v)
+	}
+	if ev := h.events("agent.takeover"); len(ev) != 1 || ev[0].TargetID != old.ID {
+		t.Errorf("the audit: %+v", ev)
+	}
+}

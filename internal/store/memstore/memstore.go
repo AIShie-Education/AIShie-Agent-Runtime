@@ -954,13 +954,17 @@ func (s *Store) UpdateHostedAgent(_ context.Context, a store.HostedAgent, secret
 	return &out, nil
 }
 
-// SetHostedAgentPaused pauses or resumes the agent, whatever its version.
-func (s *Store) SetHostedAgentPaused(_ context.Context, id string, paused bool) (*store.HostedAgent, error) {
+// SetHostedAgentPaused pauses or resumes the agent, at version when it is
+// not 0, whatever its version otherwise.
+func (s *Store) SetHostedAgentPaused(_ context.Context, id string, paused bool, version int) (*store.HostedAgent, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	a, ok := s.hosted[id]
-	if !ok {
+	switch {
+	case !ok:
 		return nil, fmt.Errorf("hosted agent %s: %w", id, store.ErrNotFound)
+	case version != 0 && a.Version != version:
+		return nil, fmt.Errorf("hosted agent %s at version %d: %w", id, version, store.ErrConflict)
 	}
 	a.Paused, a.Version, a.UpdatedAt = paused, a.Version+1, s.clock()
 	s.hosted[id] = a
@@ -969,13 +973,17 @@ func (s *Store) SetHostedAgentPaused(_ context.Context, id string, paused bool) 
 	return &out, nil
 }
 
-// DeleteHostedAgent destroys the agent, its courses and its secrets.
-func (s *Store) DeleteHostedAgent(_ context.Context, id string) error {
+// DeleteHostedAgent destroys the agent, its courses and its secrets, if it
+// is still as cond says.
+func (s *Store) DeleteHostedAgent(_ context.Context, id string, cond store.DeleteIf) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	a, ok := s.hosted[id]
-	if !ok {
+	switch {
+	case !ok:
 		return fmt.Errorf("hosted agent %s: %w", id, store.ErrNotFound)
+	case cond.TokenSecretID != "" && a.TokenSecretID != cond.TokenSecretID, cond.Version != 0 && a.Version != cond.Version:
+		return fmt.Errorf("hosted agent %s: %w", id, store.ErrConflict)
 	}
 	for k := range s.courses {
 		if k.agent == id {

@@ -158,7 +158,7 @@ func TestHostedAgentsRunBesideYAML(t *testing.T) {
 	}
 
 	// Paused: no more calls to Core.
-	_, err = h.st.SetHostedAgentPaused(context.Background(), "agt_yuki", true)
+	_, err = h.st.SetHostedAgentPaused(context.Background(), "agt_yuki", true, 0)
 	w.ok(err)
 	wk.sup.Update(h.build(yaml))
 	wk.waitState("agt_yuki", store.AgentPaused)
@@ -171,7 +171,7 @@ func TestHostedAgentsRunBesideYAML(t *testing.T) {
 		t.Errorf("%d calls to Core by the paused agent", more)
 	}
 	// Resumed: it runs again.
-	_, err = h.st.SetHostedAgentPaused(context.Background(), "agt_yuki", false)
+	_, err = h.st.SetHostedAgentPaused(context.Background(), "agt_yuki", false, 0)
 	w.ok(err)
 	wk.sup.Update(h.build(yaml))
 	wk.waitState("agt_yuki", store.AgentRunning)
@@ -210,7 +210,7 @@ func TestHostedTokenChangeRestartsAnUnauthorizedAgent(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	n := len(w.calls(own.actor.ID, ""))
 	// Another agent's change: this one is not tried again.
-	_, err := h.st.SetHostedAgentPaused(context.Background(), "agt_ken", true)
+	_, err := h.st.SetHostedAgentPaused(context.Background(), "agt_ken", true, 0)
 	w.ok(err)
 	wk.sup.Update(h.build(yaml))
 	wk.waitState("agt_ken", store.AgentPaused)
@@ -472,7 +472,7 @@ func TestHostedOwnerChangedWaitsForItsRow(t *testing.T) {
 	wk.waitState("agt_yuki", store.AgentOwnerChanged)
 	wk.waitState("agt_ken", store.AgentRunning)
 
-	_, err := h.st.SetHostedAgentPaused(context.Background(), "agt_ken", true)
+	_, err := h.st.SetHostedAgentPaused(context.Background(), "agt_ken", true, 0)
 	w.ok(err)
 	wk.sup.Update(h.build(yaml))
 	wk.waitState("agt_ken", store.AgentPaused)

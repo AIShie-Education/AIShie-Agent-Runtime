@@ -271,17 +271,18 @@ func (s *Store) UpdateHostedAgent(ctx context.Context, a store.HostedAgent, secr
 	return out, nil
 }
 
-// SetHostedAgentPaused pauses or resumes the agent, whatever its version.
-func (s *Store) SetHostedAgentPaused(ctx context.Context, id string, paused bool) (*store.HostedAgent, error) {
+// SetHostedAgentPaused pauses or resumes the agent, at version when it is
+// not 0, whatever its version otherwise.
+func (s *Store) SetHostedAgentPaused(ctx context.Context, id string, paused bool, version int) (*store.HostedAgent, error) {
 	var out *store.HostedAgent
 	err := s.readCommitted(ctx, func(tx pgx.Tx) error {
 		var err error
 		out, err = scanHosted(tx.QueryRow(ctx, `
 			UPDATE hosted_agent SET paused = $2, version = version + 1, updated_at = now()
-			 WHERE id = $1
-			RETURNING `+hostedColumns, id, paused))
+			 WHERE id = $1 AND ($3::int = 0 OR version = $3::int)
+			RETURNING `+hostedColumns, id, paused, version))
 		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("hosted agent %s: %w", id, store.ErrNotFound)
+			return missingOrMoved(ctx, tx, id)
 		}
 		return err
 	})
@@ -291,15 +292,32 @@ func (s *Store) SetHostedAgentPaused(ctx context.Context, id string, paused bool
 	return out, nil
 }
 
+// missingOrMoved is why a write of the agent id that named what it must
+// still be found no row: ErrNotFound when it is gone, ErrConflict when it
+// is there but has moved on.
+func missingOrMoved(ctx context.Context, tx pgx.Tx, id string) error {
+	var there bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM hosted_agent WHERE id = $1)`, id).Scan(&there); err != nil {
+		return err
+	}
+	if there {
+		return fmt.Errorf("hosted agent %s: %w", id, store.ErrConflict)
+	}
+	return fmt.Errorf("hosted agent %s: %w", id, store.ErrNotFound)
+}
+
 // DeleteHostedAgent destroys the agent, its courses (by cascade) and its
-// secrets, in one transaction.
-func (s *Store) DeleteHostedAgent(ctx context.Context, id string) error {
+// secrets, in one transaction, if it is still as cond says.
+func (s *Store) DeleteHostedAgent(ctx context.Context, id string, cond store.DeleteIf) error {
 	err := s.readCommitted(ctx, func(tx pgx.Tx) error {
 		var token, key string
-		err := tx.QueryRow(ctx, `DELETE FROM hosted_agent WHERE id = $1 RETURNING token_secret_id, COALESCE(key_secret_id, '')`, id).
+		err := tx.QueryRow(ctx, `
+			DELETE FROM hosted_agent
+			 WHERE id = $1 AND ($2::text = '' OR token_secret_id = $2::text) AND ($3::int = 0 OR version = $3::int)
+			RETURNING token_secret_id, COALESCE(key_secret_id, '')`, id, cond.TokenSecretID, cond.Version).
 			Scan(&token, &key)
 		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("hosted agent %s: %w", id, store.ErrNotFound)
+			return missingOrMoved(ctx, tx, id)
 		}
 		if err != nil {
 			return err

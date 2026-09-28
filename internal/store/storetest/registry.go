@@ -330,7 +330,7 @@ func testRegistry(t *testing.T, open Opener) {
 		s, ctx := open(t), t.Context()
 		create(t, s, hosted("agt_1", "actor-1", "owner1", "sec_t1"), sealed("sec_t1", "ten_owner1", store.SecretCoreToken))
 		for i, paused := range []bool{true, true, false} {
-			got, err := s.SetHostedAgentPaused(ctx, "agt_1", paused)
+			got, err := s.SetHostedAgentPaused(ctx, "agt_1", paused, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -338,8 +338,58 @@ func testRegistry(t *testing.T, open Opener) {
 				t.Errorf("SetHostedAgentPaused(%v) = paused %v at version %d", paused, got.Paused, got.Version)
 			}
 		}
-		if _, err := s.SetHostedAgentPaused(ctx, "agt_9", true); !errors.Is(err, store.ErrNotFound) {
+		if _, err := s.SetHostedAgentPaused(ctx, "agt_9", true, 0); !errors.Is(err, store.ErrNotFound) {
 			t.Errorf("pausing an agent not there: %v", err)
+		}
+	})
+
+	t.Run("paused and resumed at the version named, and at no other", func(t *testing.T) {
+		s, ctx := open(t), t.Context()
+		create(t, s, hosted("agt_1", "actor-1", "owner1", "sec_t1"), sealed("sec_t1", "ten_owner1", store.SecretCoreToken))
+		got, err := s.SetHostedAgentPaused(ctx, "agt_1", true, 1)
+		if err != nil || !got.Paused || got.Version != 2 {
+			t.Fatalf("at its version: %+v, %v", got, err)
+		}
+		last := rev(t, s)
+		if _, err := s.SetHostedAgentPaused(ctx, "agt_1", false, 1); !errors.Is(err, store.ErrConflict) {
+			t.Errorf("at a version it has left: %v, want ErrConflict", err)
+		}
+		if got := getHosted(t, s, "agt_1"); !got.Paused || got.Version != 2 {
+			t.Errorf("a refused resume wrote: %+v", got)
+		}
+		if r := rev(t, s); r != last {
+			t.Errorf("a refused resume moved the revision from %d to %d", last, r)
+		}
+		if _, err := s.SetHostedAgentPaused(ctx, "agt_9", true, 1); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("an agent not there, at a version: %v", err)
+		}
+	})
+
+	t.Run("deleted only as it was read", func(t *testing.T) {
+		s, ctx := open(t), t.Context()
+		a := *create(t, s, hosted("agt_1", "actor-1", "owner1", "sec_t1"), sealed("sec_t1", "ten_owner1", store.SecretCoreToken))
+		// A new token put in since the delete read it (PUT /token).
+		a.TokenSecretID, a.TokenHint = "sec_t2", "ais_newprefix0000…"
+		if _, err := s.UpdateHostedAgent(ctx, a, sealed("sec_t2", "ten_owner1", store.SecretCoreToken)); err != nil {
+			t.Fatal(err)
+		}
+		last := rev(t, s)
+		for _, cond := range []store.DeleteIf{{TokenSecretID: "sec_t1"}, {Version: 1}, {TokenSecretID: "sec_t2", Version: 1}} {
+			if err := s.DeleteHostedAgent(ctx, "agt_1", cond); !errors.Is(err, store.ErrConflict) {
+				t.Errorf("DeleteHostedAgent(%+v): %v, want ErrConflict", cond, err)
+			}
+		}
+		getHosted(t, s, "agt_1")
+		getSecret(t, s, "sec_t2")
+		if r := rev(t, s); r != last {
+			t.Errorf("refused deletes moved the revision from %d to %d", last, r)
+		}
+		if err := s.DeleteHostedAgent(ctx, "agt_1", store.DeleteIf{TokenSecretID: "sec_t2", Version: 2}); err != nil {
+			t.Fatalf("as it is: %v", err)
+		}
+		missingSecret(t, s, "sec_t2")
+		if err := s.DeleteHostedAgent(ctx, "agt_1", store.DeleteIf{TokenSecretID: "sec_t2"}); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("gone, with a condition: %v, want ErrNotFound", err)
 		}
 	})
 
@@ -406,7 +456,7 @@ func testRegistry(t *testing.T, open Opener) {
 				t.Fatal(err)
 			}
 		}
-		if err := s.DeleteHostedAgent(ctx, "agt_1"); err != nil {
+		if err := s.DeleteHostedAgent(ctx, "agt_1", store.DeleteIf{}); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := s.HostedAgent(ctx, "agt_1"); !errors.Is(err, store.ErrNotFound) {
@@ -423,7 +473,7 @@ func testRegistry(t *testing.T, open Opener) {
 		if cs, _ := s.HostedCourses(ctx, "agt_2"); len(cs) != 1 {
 			t.Errorf("another agent's courses: %+v", cs)
 		}
-		if err := s.DeleteHostedAgent(ctx, "agt_1"); !errors.Is(err, store.ErrNotFound) {
+		if err := s.DeleteHostedAgent(ctx, "agt_1", store.DeleteIf{}); !errors.Is(err, store.ErrNotFound) {
 			t.Errorf("deleting it again: %v, want ErrNotFound", err)
 		}
 		// Its Core actor may be hosted again.
@@ -459,7 +509,7 @@ func testRegistry(t *testing.T, open Opener) {
 			t.Fatal(err)
 		}
 		still("a refused update")
-		if _, err := s.SetHostedAgentPaused(ctx, "agt_1", true); err != nil {
+		if _, err := s.SetHostedAgentPaused(ctx, "agt_1", true, 0); err != nil {
 			t.Fatal(err)
 		}
 		moved("pause")
@@ -489,7 +539,7 @@ func testRegistry(t *testing.T, open Opener) {
 			t.Fatal(err)
 		}
 		still("reads, a person, a secret")
-		if err := s.DeleteHostedAgent(ctx, "agt_1"); err != nil {
+		if err := s.DeleteHostedAgent(ctx, "agt_1", store.DeleteIf{}); err != nil {
 			t.Fatal(err)
 		}
 		moved("delete")

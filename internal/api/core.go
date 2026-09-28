@@ -102,20 +102,43 @@ func (s *Server) inspectToken(ctx context.Context, token string, want probe.Want
 	c := probe.NewClient(s.o.CoreBaseURL, token, s.coreHTTP)
 	ins, err := probe.Inspect(ctx, c, cat, want)
 	if err != nil {
-		var pe *probe.Error
-		reason := probe.ReasonCoreUnavailable
-		if errors.As(err, &pe) {
-			reason = pe.Reason
-		}
-		if reason == probe.ReasonCoreUnavailable {
-			s.o.Log.Warn("Core could not be reached to inspect a token", "err", err)
-		}
-		e := tokenErrors[reason]
-		e.Reason = reason
-		return nil, &e
+		return nil, s.tokenRefusal(err)
 	}
 	return &inspected{token: token, prefix: probe.Prefix(token), hint: vault.Hint(store.SecretCoreToken, token), client: c,
 		me: ins.Me, seats: ins.Memberships}, nil
+}
+
+// recheck asks Core again, with ins's token, whether it is still what
+// inspectToken found it to be, held to want (probe.Check: me_get alone),
+// for a request about to act on it; the error is the refusal to answer.
+func (s *Server) recheck(ctx context.Context, ins *inspected, want probe.Want) *Error {
+	cat, err := s.catalogue(ctx)
+	if err != nil {
+		s.o.Log.Warn("Core's catalogue could not be read", "err", err)
+		e := tokenErrors[probe.ReasonCoreUnavailable]
+		e.Reason = probe.ReasonCoreUnavailable
+		return &e
+	}
+	if _, err := probe.Check(ctx, ins.client, cat, want); err != nil {
+		return s.tokenRefusal(err)
+	}
+	return nil
+}
+
+// tokenRefusal is probe's refusal of a token (Inspect, Check) as the API
+// answers it.
+func (s *Server) tokenRefusal(err error) *Error {
+	var pe *probe.Error
+	reason := probe.ReasonCoreUnavailable
+	if errors.As(err, &pe) {
+		reason = pe.Reason
+	}
+	if reason == probe.ReasonCoreUnavailable {
+		s.o.Log.Warn("Core could not be reached to inspect a token", "err", err)
+	}
+	e := tokenErrors[reason]
+	e.Reason = reason
+	return &e
 }
 
 // wantOf is the agent a request means: its core_actor_id when given (it

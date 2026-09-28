@@ -129,7 +129,7 @@ func TestWatcherPollPath(t *testing.T) {
 
 	// A rebuild that fails is tried again at the next poll.
 	r.fail.Store(true)
-	if _, err := st.SetHostedAgentPaused(t.Context(), "agt_1", true); err != nil {
+	if _, err := st.SetHostedAgentPaused(t.Context(), "agt_1", true, 0); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(100 * time.Millisecond)

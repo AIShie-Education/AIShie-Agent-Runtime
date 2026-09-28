@@ -650,12 +650,15 @@ type Registry interface {
 	// agent referred to and no longer does (a token or a key replaced) is
 	// destroyed in it.
 	UpdateHostedAgent(ctx context.Context, a HostedAgent, secrets ...Secret) (*HostedAgent, error)
-	// SetHostedAgentPaused pauses or resumes the agent, whatever its
-	// version, and returns it at the next version.
-	SetHostedAgentPaused(ctx context.Context, id string, paused bool) (*HostedAgent, error)
+	// SetHostedAgentPaused pauses or resumes the agent and returns it at
+	// the next version: whatever its version when version is 0, and
+	// otherwise only if it is still at version (If-Match), ErrConflict
+	// when it has been written since. ErrNotFound when it is gone.
+	SetHostedAgentPaused(ctx context.Context, id string, paused bool, version int) (*HostedAgent, error)
 	// DeleteHostedAgent destroys the agent, its courses and its secrets, in
-	// one transaction; ErrNotFound when it is not there.
-	DeleteHostedAgent(ctx context.Context, id string) error
+	// one transaction, if it still is as cond says: ErrConflict when it is
+	// not, ErrNotFound when it is not there.
+	DeleteHostedAgent(ctx context.Context, id string, cond DeleteIf) error
 
 	// PutHostedCourse writes an agent's settings for a course, replacing
 	// those it had; ErrNotFound when the agent is not there. A zero
@@ -673,6 +676,18 @@ type Registry interface {
 	// RegistryRev is the registry's revision: it moves on with every write
 	// to a hosted agent or course, and with nothing else.
 	RegistryRev(ctx context.Context) (int64, error)
+}
+
+// DeleteIf is what a hosted agent must still be for DeleteHostedAgent to
+// delete it; its zero value deletes it as it is. A caller that acted on
+// the agent as it read it (revoked its token in Core) deletes it only as
+// it read it, and not a row written since in its place.
+type DeleteIf struct {
+	// TokenSecretID, when set, is the token the agent must still hold: a
+	// new token put in since (PUT /token) is not deleted unrevoked.
+	TokenSecretID string
+	// Version, when not 0, is the version it must still be at (If-Match).
+	Version int
 }
 
 // CheckHostedAgent refuses an agent a store must not keep: without its id

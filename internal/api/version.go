@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
@@ -51,3 +52,24 @@ func versionMismatch(current int) Error {
 // over, and did not.
 var errVersionRequired = Error{Code: CodeVersionRequired, Reason: ReasonVersionRequired,
 	Message: `this write needs If-Match: the agent's version as an entity tag, such as "7"`}
+
+// heldTo is the version a write is held to in the store: the one If-Match
+// names, or 0, any, when it names none.
+func heldTo(version int, named bool) int {
+	if named {
+		return version
+	}
+	return 0
+}
+
+// writeMismatch answers 412 version_mismatch for a write of the agent id
+// that the store refused at the version it was held to, naming the
+// version the agent is at now; last, the version read before, when it
+// cannot be read again.
+func (s *Server) writeMismatch(ctx context.Context, w http.ResponseWriter, id string, last int) {
+	current := last
+	if again, err := s.o.Store.HostedAgent(ctx, id); err == nil {
+		current = again.Version
+	}
+	WriteError(w, versionMismatch(current))
+}

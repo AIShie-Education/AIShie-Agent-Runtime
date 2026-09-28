@@ -71,7 +71,7 @@ func TestStatesNameTheVersionInForce(t *testing.T) {
 	}
 
 	// Paused (3), then written again while paused (4): paused, at each.
-	_, err := h.st.SetHostedAgentPaused(ctx, "agt_yuki", true)
+	_, err := h.st.SetHostedAgentPaused(ctx, "agt_yuki", true, 0)
 	w.ok(err)
 	wk.sup.Update(h.build(yaml))
 	wk.waitVersion("agt_yuki", store.AgentPaused, 3)
@@ -82,7 +82,7 @@ func TestStatesNameTheVersionInForce(t *testing.T) {
 	wk.sup.Update(h.build(yaml))
 	wk.waitVersion("agt_yuki", store.AgentPaused, 4)
 	// Resumed (5): running at it.
-	_, err = h.st.SetHostedAgentPaused(ctx, "agt_yuki", false)
+	_, err = h.st.SetHostedAgentPaused(ctx, "agt_yuki", false, 0)
 	w.ok(err)
 	wk.sup.Update(h.build(yaml))
 	wk.waitVersion("agt_yuki", store.AgentRunning, 5)

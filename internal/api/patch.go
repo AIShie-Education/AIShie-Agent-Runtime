@@ -246,11 +246,7 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, c *Caller, au *a
 		WriteError(w, errAgentNotFound)
 		return
 	case errors.Is(err, store.ErrConflict):
-		current := version
-		if again, rerr := s.o.Store.HostedAgent(ctx, row.ID); rerr == nil {
-			current = again.Version
-		}
-		WriteError(w, versionMismatch(current))
+		s.writeMismatch(ctx, w, row.ID, version)
 		return
 	case err != nil:
 		s.storeUnavailable(w, "a hosted agent updated", err)

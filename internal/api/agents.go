@@ -293,7 +293,7 @@ func (s *Server) connect(w http.ResponseWriter, r *http.Request, c *Caller, au *
 		default:
 			// Core gave the agent to the caller since an earlier owner
 			// connected it, and revoked every token it had then.
-			if !s.takeOver(ctx, w, r, row) {
+			if !s.takeOver(ctx, w, r, c, ins, row) {
 				return
 			}
 		}
@@ -318,9 +318,16 @@ func (s *Server) connect(w http.ResponseWriter, r *http.Request, c *Caller, au *
 
 // takeOver deletes and purges an earlier owner's row of an agent the
 // caller now owns in Core, and audits it; it reports whether connecting
-// may go on, having answered when not.
-func (s *Server) takeOver(ctx context.Context, w http.ResponseWriter, r *http.Request, row *store.HostedAgent) bool {
-	if err := s.o.Store.DeleteHostedAgent(ctx, row.ID); err != nil && !errors.Is(err, store.ErrNotFound) {
+// may go on, having answered when not. Core is asked again, with the
+// token, just before: since the token was inspected, the agent may have
+// been given to someone else, and its tokens revoked with it, and another
+// person's row is deleted only while Core says the agent is the caller's.
+func (s *Server) takeOver(ctx context.Context, w http.ResponseWriter, r *http.Request, c *Caller, ins *inspected, row *store.HostedAgent) bool {
+	if e := s.recheck(ctx, ins, probe.Want{ActorID: ins.me.ID, Owner: c.ActorID}); e != nil {
+		WriteError(w, *e)
+		return false
+	}
+	if err := s.o.Store.DeleteHostedAgent(ctx, row.ID, store.DeleteIf{}); err != nil && !errors.Is(err, store.ErrNotFound) {
 		s.storeUnavailable(w, "an earlier owner's hosted agent deleted", err)
 		return false
 	}
@@ -523,21 +530,19 @@ func (s *Server) replaceToken(w http.ResponseWriter, r *http.Request, c *Caller,
 		WriteError(w, errAgentNotFound)
 		return
 	case errors.Is(err, store.ErrConflict):
-		current := row.Version
-		if again, rerr := s.o.Store.HostedAgent(ctx, row.ID); rerr == nil {
-			current = again.Version
-		}
-		WriteError(w, versionMismatch(current))
+		s.writeMismatch(ctx, w, row.ID, row.Version)
 		return
 	case err != nil:
 		s.storeUnavailable(w, "a hosted agent's token replaced", err)
 		return
 	}
 	// The new token, the agent's own, revokes the one it replaces: the
-	// old secret is never opened.
+	// old secret is never opened. Core refusing the new token means another
+	// has replaced it meanwhile, and says nothing of the old one: that is
+	// failed, for its owner to revoke.
 	rctx, rcancel := context.WithTimeout(ctx, revokeTimeout)
 	defer rcancel()
-	rev := probe.RevokeToken(rctx, ins.client, probe.HintPrefix(oldHint), s.o.Now())
+	rev := probe.RevokeReplaced(rctx, ins.client, probe.HintPrefix(oldHint), s.o.Now())
 	au.detail["old_hint"], au.detail["revocation"] = oldHint, rev.Outcome
 	if rev.Problem != "" {
 		au.detail["revocation_problem"] = rev.Problem
@@ -567,7 +572,9 @@ func (s *Server) replayToken(ctx context.Context, w http.ResponseWriter, row *st
 }
 
 // pause is POST /agents/{id}/pause (paused) and …/resume: the agent set
-// to it. Already so, nothing is written, and nothing audited.
+// to it, at the version If-Match names when it names one (a write since is
+// 412), and at any otherwise. Already so, nothing is written, and nothing
+// audited.
 func (s *Server) pause(paused bool) func(http.ResponseWriter, *http.Request, *Caller, *auditing) {
 	return func(w http.ResponseWriter, r *http.Request, c *Caller, au *auditing) {
 		version, named, bad := ifMatch(r)
@@ -587,10 +594,13 @@ func (s *Server) pause(paused bool) func(http.ResponseWriter, *http.Request, *Ca
 			s.writeAgent(ctx, w, http.StatusOK, row)
 			return
 		}
-		updated, err := s.o.Store.SetHostedAgentPaused(ctx, row.ID, paused)
+		updated, err := s.o.Store.SetHostedAgentPaused(ctx, row.ID, paused, heldTo(version, named))
 		switch {
 		case errors.Is(err, store.ErrNotFound):
 			WriteError(w, errAgentNotFound)
+			return
+		case errors.Is(err, store.ErrConflict):
+			s.writeMismatch(ctx, w, row.ID, row.Version)
 			return
 		case err != nil:
 			s.storeUnavailable(w, "a hosted agent paused", err)
@@ -630,11 +640,19 @@ func revokeParam(w http.ResponseWriter, r *http.Request) (bool, bool) {
 	return false, false
 }
 
+// deleteAttempts bounds DELETE's revocation and deletion when a new token
+// is put in the row between them.
+const deleteAttempts = 3
+
 // remove is DELETE /agents/{id}: the agent's token revoked in Core with
 // itself (D7, unless revoke_token=false), then the agent, its courses and
 // its secrets destroyed in one transaction, which stops it on every
 // worker, and what the store held of it purged, its ledger kept. The row
-// is deleted whatever became of the revocation.
+// is deleted whatever became of the revocation, but only while it holds
+// the token that was revoked, and is at the version If-Match names when it
+// names one: a new token put in meanwhile (PUT /token) is revoked in its
+// turn, and the row deleted holding it, at most deleteAttempts times;
+// with If-Match, a write meanwhile is 412.
 func (s *Server) remove(w http.ResponseWriter, r *http.Request, c *Caller, au *auditing) {
 	revoke, ok := revokeParam(w, r)
 	if !ok {
@@ -649,24 +667,43 @@ func (s *Server) remove(w http.ResponseWriter, r *http.Request, c *Caller, au *a
 		WriteError(w, *bad)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), revokeTimeout+2*storeTimeout)
+	// Each attempt's revocation has revokeTimeout, and the whole stays
+	// within the server's WriteTimeout.
+	ctx, cancel := context.WithTimeout(r.Context(), deleteAttempts*revokeTimeout+2*storeTimeout)
 	defer cancel()
 	row := s.ownRow(ctx, w, r.PathValue("id"), c)
 	if row == nil || !checkVersion(w, row, version, named) {
 		return
 	}
-	au.detail["agent_id"], au.detail["core_actor_id"], au.detail["token_hint"] = row.ID, row.CoreActorID, row.TokenHint
-	rev := probe.Revocation{Outcome: probe.NotAttempted}
-	if revoke {
-		rev = s.revokeStored(ctx, row)
+	var rev probe.Revocation
+	var err error
+	for attempt := range deleteAttempts {
+		au.detail["agent_id"], au.detail["core_actor_id"], au.detail["token_hint"] = row.ID, row.CoreActorID, row.TokenHint
+		rev = probe.Revocation{Outcome: probe.NotAttempted}
+		if revoke {
+			rev = s.revokeStored(ctx, row)
+		}
+		err = s.o.Store.DeleteHostedAgent(ctx, row.ID, store.DeleteIf{TokenSecretID: row.TokenSecretID, Version: heldTo(version, named)})
+		if !errors.Is(err, store.ErrConflict) || named || attempt == deleteAttempts-1 {
+			break
+		}
+		// A new token was put in the row after its token was revoked: the
+		// row is read again, and the token now in force revoked in its
+		// turn, so that no token is left working for an agent deleted.
+		if row = s.ownRow(ctx, w, row.ID, c); row == nil {
+			return
+		}
 	}
 	au.detail["revocation"] = rev.Outcome
 	if rev.Problem != "" {
 		au.detail["revocation_problem"] = rev.Problem
 	}
-	switch err := s.o.Store.DeleteHostedAgent(ctx, row.ID); {
+	switch {
 	case errors.Is(err, store.ErrNotFound):
 		WriteError(w, errAgentNotFound)
+		return
+	case errors.Is(err, store.ErrConflict):
+		s.writeMismatch(ctx, w, row.ID, row.Version)
 		return
 	case err != nil:
 		s.storeUnavailable(w, "a hosted agent deleted", err)

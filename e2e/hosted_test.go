@@ -157,7 +157,7 @@ func hostedAgentAnswers(t *testing.T, w *world) {
 	}
 
 	// Paused, it stops; its state says so.
-	if _, err := st.SetHostedAgentPaused(t.Context(), id, true); err != nil {
+	if _, err := st.SetHostedAgentPaused(t.Context(), id, true, 0); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, answerWait, "the hosted agent paused", func() bool {
