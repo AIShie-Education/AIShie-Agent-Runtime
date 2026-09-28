@@ -729,8 +729,10 @@ The API needs `CORE_BASE_URL`, `API_AUDIENCE`, `DATABASE_URL` and
   route (404 `no_route`, 405 with `Allow`); limits, as token buckets of at
   most 10,000 keys each (per address, 120 a minute, bursts of 60, for
   requests without an assertion and those whose assertion was refused, and
-  30 a minute for refusals alone; per person, 120 a minute, bursts of 40),
-  answered 429 with `Retry-After`; the assertion; a query (none is taken)
+  30 a minute for refusals alone; per person, 120 a minute, bursts of 40,
+  and for the routes that take a token 10 a minute, bursts of 5, and
+  `keys/test` 6 a minute, bursts of 3, and 100 a UTC day), answered 429
+  with `Retry-After`; the assertion; a query (none is taken)
   and a body (JSON only, at most 64 KB, no key twice, no member the route
   does not take, nothing after the object; a route of no body takes an
   empty one or `{}`).
@@ -741,12 +743,67 @@ The API needs `CORE_BASE_URL`, `API_AUDIENCE`, `DATABASE_URL` and
   words. A 401 is always the assertion's, and carries `WWW-Authenticate:
   Bearer realm="aishie-runtime"`, with `error="invalid_token"` when one was
   sent.
-- **The routes** so far: `GET /info`, which anyone may ask, cached a
-  minute: `api: "aishie-runtime"`, `api_version: 1`, the version and
-  commit, the audience to ask Core for, the issuer, and the features
-  offered; and `GET /me`: the person's actor id and name, whether they are
-  an administrator, and how many agents they host. `GET /me` records the
-  person (`person`), at most every five minutes.
+- **The routes.** `GET /info`, which anyone may ask, cached a minute:
+  `api: "aishie-runtime"`, `api_version: 1`, the version and commit, the
+  audience to ask Core for, the issuer, and the features offered
+  (connecting by token and the owner's own key when the API has a Core
+  and a vault, as `run` always gives it; never the school's key yet).
+  `GET /me`: the person's actor id and name, whether they are an
+  administrator, and how many agents they host; it records the person
+  (`person`), at most every five minutes. The rest are a hosted agent's
+  life, each the owner's alone (another's agent is 404, never 403):
+  - `POST /agents/inspect` and `POST /agents` take an agent's token and
+    ask Core, with it, what it is (`internal/probe`): `me_get`, then
+    `me_memberships`, refused in order when Core refuses the token or
+    cannot be reached, when it is a person's, a suspended agent's,
+    another agent's than the one meant, an agent without an owner (or a
+    Core too old to say) or someone else's. Connecting seals the token
+    in a new row (`needs_model`) and records the agent's seats; the same
+    token again replays the row; another token of an agent hosted
+    already is `already_hosted`; an agent Core has given the caller since
+    an earlier owner connected it is taken over, the earlier row deleted
+    and purged; one the operator's YAML runs is `operator_agent`. Both
+    answers list the agent's other live tokens (`other_tokens`, with
+    Core's `credential_list`) and whether one was used in the last 15
+    minutes, for the front end to warn that an agent has one brain at a
+    time.
+  - `GET /agents` and `GET /agents/{id}`: the agent as its owner reads
+    it, with its `version` as a strong ETag, its seats, the proposals
+    waiting, today's answers and cost, its model and key hint, and a
+    `status` the API works out from the row and the worker's state: paused,
+    then no model (`needs_model`), then `starting` until the worker has
+    written a state for the row's version, then the state's own, with the
+    reason the worker wrote (`token_refused`, `settings_rejected`,
+    `agent_suspended`, `owner_changed`, …).
+  - `PATCH /agents/{id}`, by merge-patch and only with `If-Match` (428
+    without, 412 at another version): the owner's model, from the
+    provider offers of `GET /models`, and their key, sealed; a model on a
+    key of another provider, a denied model, or a row the registry would
+    not run (`registry.Check`, the same path as `Build`, for this one
+    row) is refused before anything is written. `POST /keys/test` tries a
+    key with one output token, and neither stores nor returns it.
+  - `PUT /agents/{id}/token`: a new token of the same agent, sealed in
+    place of the old, whose secret is destroyed with the write; the new
+    token then revokes the old in Core (`credential_list`, then
+    `credential_revoke` of that credential alone, D7). `POST …/pause` and
+    `…/resume` set the row's flag.
+  - `DELETE /agents/{id}`: the stored token opened, the one secret the
+    API ever opens, to revoke itself in Core (unless
+    `revoke_token=false`); then the row, its courses and its secrets
+    destroyed in one transaction, and the agent's notes, attempts,
+    cursors, seats, state and leases purged, its ledger kept. An agent
+    suspended in Core cannot revoke its own tokens: the answer says so,
+    and its owner revokes them in AIShie.
+- **Hosted agents' models** (D9) are called at the providers' own
+  endpoints alone, which the API makes from the provider, an endpoint
+  choice, an Azure resource or an AWS region (patterns with no dots),
+  and the registry checks again. The worker calls them through
+  `internal/netguard`: the dialer resolves the host itself and dials
+  only public addresses (never loopback, private, link-local and the
+  metadata address, CGNAT, or the other reserved ranges, IPv4-mapped
+  forms included), checks the address again as it connects, and no
+  redirect is followed. Behind `EGRESS_PROXY` only the proxy is dialed,
+  and the proxy must refuse the same.
 - **The audit** (D11): `Server.Audit` records an event in `audit`
   (migration 0005) after the change it is about has committed: who, their
   session, their address, the action, its target, the outcome and a

@@ -206,10 +206,31 @@ API_TRUSTED_PROXIES=127.0.0.1/32
 ```
 
 and deploy the running image again. `curl -s 127.0.0.1:9091/runtime/api/v1/info`
-answers with the audience; `/status` is not there, and on `HTTP_ADDR` it
-refuses any request a proxy forwarded, so pointing Caddy at `9090` by
-mistake exposes nothing. In the compose stack (aishie-deploy), the stack
-sets all of this itself.
+answers with the audience, and `features` says the API connects agents by
+their tokens and takes their owners' own keys; `/status` is not there, and
+on `HTTP_ADDR` it refuses any request a proxy forwarded, so pointing Caddy
+at `9090` by mistake exposes nothing. In the compose stack (aishie-deploy),
+the stack sets all of this itself.
+
+Through the API, a person connects an agent of theirs by a token Core
+issued it, chooses its model and gives their own key for it, tries a key,
+pauses and resumes the agent, gives it a new token and deletes it. What
+the runtime does with Core on their behalf is with the agent's own token:
+it asks Core what the token is, and revokes the token a new one replaces,
+and an agent's token when the agent is deleted. An agent suspended in Core
+cannot revoke its tokens; its owner then revokes them in AIShie, as the
+front end says. Every change, and every refusal, is in the audit
+(`docs/design.md` §11.4), with hints of tokens and keys, never the values.
+
+A hosted agent's model is called only at the providers' own endpoints,
+which the runtime makes from the provider its owner chose: no one gives it
+a URL. The runtime also refuses, when it dials, any address that is not on
+the public internet (loopback, private, link-local and the cloud metadata
+address, carrier-grade NAT, and the rest of the reserved ranges, whatever
+DNS says), and follows no redirect. Behind `EGRESS_PROXY` it dials only
+the proxy, which then resolves and connects: the proxy must refuse those
+addresses itself, or a hosted agent's calls are only as closed as the
+proxy is.
 
 ## The key that seals secrets
 
@@ -270,7 +291,7 @@ running (above): a restart does not read the file again.
 | `CORE_BASE_URL` | the Core that hosted agents, those people connect rather than an operator writing YAML, connect to: `https://lms.example.edu`, within `CORE_BASE_URL_ALLOWLIST`. `setup-server.sh` sets it to the Core it was given. Unset, no hosted agent runs, and each one's state says so. |
 | `LOG_FORMAT`, `LOG_LEVEL` | `json` (the default) or `text`; `info` by default. |
 | `LOG_REDACT_EXTRA` | comma-separated regular expressions removed from every log line, beside the tokens and keys the runtime always removes. |
-| `EGRESS_PROXY` | the proxy for every call out (Core, the providers, Core's file downloads); without it, the usual `HTTPS_PROXY`. |
+| `EGRESS_PROXY` | the proxy for every call out (Core, the providers, Core's file downloads); without it, the usual `HTTPS_PROXY`. It must refuse the addresses the runtime refuses hosted agents' models ([above](#the-api-for-the-front-end)): the runtime can check only the proxy's. |
 | `SHUTDOWN_GRACE` | how long the runtime lets answers in flight finish on SIGTERM (`15s`). `aishie-runtime-deploy` gives Docker that and 15 seconds more to stop it. |
 | `WORKER_ID`, `PRICES` | this worker's name in the leases (the host's name and the process id), and a price table's path when the `runtime:` document names none. |
 | `KMS_KEY_ID` | the key that seals the secrets kept in the database: `local:/secrets/kek/v1` ([above](#the-key-that-seals-secrets)). `setup-server.sh` adds it. Unset, no sealed secret opens. |
