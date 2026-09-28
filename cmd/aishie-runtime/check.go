@@ -56,6 +56,10 @@ func cmdCheck(ctx context.Context, args []string, getenv func(string) string, st
 		p("prices: none; the costs of model calls will be unknown")
 	}
 	p("the configuration passes: %d agents", len(l.cfg.Agents))
+	if len(l.cfg.Agents) == 0 {
+		p("%s", noAgentsNote)
+		return exitOK
+	}
 	if !*live {
 		return exitOK
 	}

@@ -77,6 +77,7 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 	}
 	log.Info("aishie-runtime started", "version", version.Version, "commit", version.Commit, "worker", sup.WorkerID(),
 		"addr", srv.Addr(), "agents", len(l.cfg.Agents), "store", kind, "prices", l.pricesPath)
+	warnNoAgents(log, l.cfg)
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -150,4 +151,18 @@ func reload(env config.Env, sup *worker.Supervisor, log *slog.Logger) {
 	sup.SetPrices(l.prices)
 	sup.Reload(l.cfg)
 	log.Info("SIGHUP: the configuration was read again", "agents", len(l.cfg.Agents), "prices", l.pricesPath)
+	warnNoAgents(log, l.cfg)
+}
+
+// noAgentsNote says what a runtime with no agent does, and how one is added.
+const noAgentsNote = "no agent is configured: the runtime starts and waits. Add an agent's YAML to CONFIG, " +
+	"check it (aishie-runtime check --live), and send the runtime SIGHUP (docker kill -s HUP aishie-runtime)"
+
+// warnNoAgents logs, at start and on every reload, that there is no agent:
+// the runtime is healthy and does nothing, which is right before the first
+// agent and a mistake after the last, so it is said each time.
+func warnNoAgents(log *slog.Logger, cfg *config.Config) {
+	if len(cfg.Agents) == 0 {
+		log.Warn(noAgentsNote)
+	}
 }

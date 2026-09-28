@@ -174,6 +174,9 @@ worker that was still running it. Within one worker, one Core actor is one
 agent: a second agent configured with the same token goes to state `error`,
 naming the first. `SIGHUP` reloads the configuration and the price table:
 agents added, removed, paused or changed are started, stopped or restarted.
+A configuration with no agent is valid: the supervisor runs and waits, and
+`run` (at start and on every reload) and `check` say so, so that a server
+can be deployed before its first agent.
 
 An agent (`worker.Agent`) starts with `me_get` (the token works), the
 catalogue, and `me_memberships`. It reads memberships again every
