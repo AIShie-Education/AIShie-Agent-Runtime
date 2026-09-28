@@ -1478,3 +1478,56 @@ func TestOwners(t *testing.T) {
 		})
 	}
 }
+
+// TestAddFile: a file added to a course is a published material, its
+// version the file, which document_get gives a download_url for and the
+// fake serves as it was given, with its type; document_versions lists it
+// for whoever reads drafts; without a type recorded, none is served.
+func TestAddFile(t *testing.T) {
+	const pptx = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+	w := newFakeWorld(t, Options{})
+	deck := []byte("PK\x03\x04 a deck of slides")
+	id, err := w.fc.AddFile(w.co.ID, "Week 3 slides", pptx, deck)
+	if err != nil {
+		t.Fatal(err)
+	}
+	untyped, err := w.fc.AddFile(w.co.ID, "Notes", "", []byte("plain"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.fc.AddFile("0192f3c1-0000-7000-8000-00000000abcd", "x", "", nil); err == nil {
+		t.Error("a file was added to no course")
+	}
+	for _, c := range []struct {
+		id, ct string
+		data   []byte
+	}{{id, pptx, deck}, {untyped, "", []byte("plain")}} {
+		a := mustCall(t, w.agentC, "document_get", inCourseArgs(w, "document_id", c.id))
+		url := a.str("result", "version", "download_url")
+		if !strings.HasPrefix(url, w.srv.URL+blobPath) || a.str("result", "version", "content_type") != c.ct || a.str("result", "status") != "active" {
+			t.Fatalf("document_get: %s", a.Text)
+		}
+		resp, err := w.srv.Client().Get(url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var buf bytes.Buffer
+		_, _ = buf.ReadFrom(resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode != 200 || !bytes.Equal(buf.Bytes(), c.data) || resp.Header.Get("Content-Type") != c.ct && c.ct != "" {
+			t.Errorf("download: %d %q %q", resp.StatusCode, resp.Header.Get("Content-Type"), buf.String())
+		}
+	}
+	if docs := list(mustCall(t, w.agentC, "document_list", inCourseArgs(w)), "documents"); len(docs) != 5 {
+		t.Errorf("%d documents, want the three canned and the two added", len(docs))
+	}
+	v := mustCall(t, w.as("sato"), "document_versions", inCourseArgs(w, "document_id", id))
+	versions := list(v, "versions")
+	if len(versions) != 1 {
+		t.Fatalf("versions: %s", v.Text)
+	}
+	got := versions[0].(map[string]any)
+	if got["has_file"] != true || got["published"] != true || got["content_type"] != pptx || fmt.Sprint(got["byte_size"]) != fmt.Sprint(len(deck)) {
+		t.Errorf("version %v", got)
+	}
+}

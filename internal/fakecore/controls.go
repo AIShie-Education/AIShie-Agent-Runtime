@@ -1,6 +1,7 @@
 package fakecore
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base32"
 	"encoding/base64"
@@ -209,6 +210,29 @@ func (c *Core) AddCourse(code string) Course {
 	}
 	return Course{ID: co.id, Code: co.code, Section: co.section, Title: co.title, AssignmentID: hw1.id,
 		InstructionsID: instructions.id, SyllabusID: syllabus.id, SlidesID: slides.id, ComponentID: bucket.id}
+}
+
+// AddFile adds a material to the course, published, whose one version is
+// a file: data, of contentType ("" for a file whose type was not
+// recorded), as a person uploads a deck of slides or a handout.
+// document_get gives it a download_url as Core does, and serves it. It
+// returns the document's id.
+func (c *Core) AddFile(courseID, title, contentType string, data []byte) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	co := c.courses[courseID]
+	if co == nil {
+		return "", fmt.Errorf("fakecore: AddFile: no course %s", courseID)
+	}
+	now := c.now()
+	d := &document{id: newID(), kind: kindMaterial, title: title, course: co, sortOrder: len(co.documents), createdAt: now,
+		versionID: newID(), authorMemberID: newID(), versionCreatedAt: now, file: bytes.Clone(data), fileToken: fileToken()}
+	if contentType != "" {
+		d.contentType = &contentType
+	}
+	co.documents = append(co.documents, d)
+	c.blobs[d.fileToken] = d
+	return d.id, nil
 }
 
 func ptr[T any](v T) *T { return &v }

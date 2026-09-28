@@ -267,6 +267,18 @@ func (w *fakeWorld) revokeTutorToken() {
 	w.ok(w.fc.Revoke(w.tutorA.Token))
 }
 
+func (w *fakeWorld) assignment() string { return w.co.AssignmentID }
+func (w *fakeWorld) material() string   { return w.co.SyllabusID }
+
+// submit hands in the student's work on the canned HW1 (AddWork, whose
+// grade the roster does not show).
+func (w *fakeWorld) submit(student int) string {
+	w.t.Helper()
+	work, err := w.fc.AddWork(w.co.ID, w.seats[student].ID, "My answers.", "90")
+	w.ok(err)
+	return work.SubmissionID
+}
+
 // fixturePath is where a scenario's record from a real Core is kept.
 func fixturePath(name string) string { return filepath.Join("testdata", "fixtures", name+".json") }
 

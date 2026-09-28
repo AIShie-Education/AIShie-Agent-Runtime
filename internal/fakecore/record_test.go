@@ -173,6 +173,9 @@ type liveWorld struct {
 	own      *mcpClient
 	ownM     string
 	clients  map[string]*mcpClient
+	// rootComponent is the course's grade tree's root; hw and syllabus
+	// are made when first asked for (assignment, material).
+	rootComponent, hw, syllabus string
 }
 
 func (lc *liveCore) newWorld(t *testing.T) *liveWorld {
@@ -182,8 +185,9 @@ func (lc *liveCore) newWorld(t *testing.T) *liveWorld {
 		clients: map[string]*mcpClient{}}
 	term := str(lc.result(lc.admin, "POST", "/v1/terms", map[string]any{"name": fmt.Sprintf("Recording %d %s", lc.n, uuid.NewString()[:8]),
 		"starts_on": "2026-09-01", "ends_on": "2026-12-20"}), "id")
-	w.courseID = str(lc.result(lc.admin, "POST", "/v1/courses", map[string]any{"dept_id": lc.dept, "term_id": term, "code": "CS101",
-		"section": "A", "title": "CS101"}), "course_id")
+	co := lc.result(lc.admin, "POST", "/v1/courses", map[string]any{"dept_id": lc.dept, "term_id": term, "code": "CS101",
+		"section": "A", "title": "CS101"})
+	w.courseID, w.rootComponent = str(co, "course_id"), str(co, "root_component_id")
 	c := "/v1/courses/" + w.courseID
 	lc.result(lc.admin, "POST", c+"/activate", map[string]any{})
 	w.sato = lc.register("Sato")
@@ -464,4 +468,42 @@ func (w *liveWorld) reactivateTutor() {
 func (w *liveWorld) revokeTutorToken() {
 	w.t.Helper()
 	w.lc.result(w.sato.token, "POST", "/v1/me/agents/"+w.tutor.id+"/credentials/"+w.tokenID+"/revoke", map[string]any{})
+}
+
+// assignment is HW1, published: Sato makes a component for it and it, as
+// the fake's canned course has it.
+func (w *liveWorld) assignment() string {
+	w.t.Helper()
+	if w.hw != "" {
+		return w.hw
+	}
+	bucket := str(w.lc.result(w.sato.token, "POST", w.path("/components"), map[string]any{"parent_id": w.rootComponent,
+		"name": "Assignments", "weight": 100}), "id")
+	w.hw = str(w.lc.result(w.sato.token, "POST", w.path("/assignments"), map[string]any{"title": "HW1", "points_possible": 100,
+		"component_id": bucket}), "id")
+	w.lc.result(w.sato.token, "POST", w.path("/assignments/"+w.hw+"/publish"), map[string]any{})
+	return w.hw
+}
+
+// submit is a student handing in work on HW1: a draft, then submitted.
+func (w *liveWorld) submit(student int) string {
+	w.t.Helper()
+	id := str(w.lc.result(w.people[student].token, "POST", w.path("/submissions"), map[string]any{"assignment_id": w.assignment(),
+		"body": "My answers."}), "submission_id")
+	w.lc.result(w.people[student].token, "POST", w.path("/submissions/"+id+"/submit"), map[string]any{})
+	return id
+}
+
+// material is the syllabus: Sato's text, made and published, as the fake's
+// canned course has it.
+func (w *liveWorld) material() string {
+	w.t.Helper()
+	if w.syllabus != "" {
+		return w.syllabus
+	}
+	res := w.lc.result(w.sato.token, "POST", w.path("/documents"), map[string]any{"kind": "material", "title": "Syllabus",
+		"body_md": "# CS101 syllabus"})
+	w.syllabus = str(res, "document_id")
+	w.lc.result(w.sato.token, "POST", w.path("/documents/"+w.syllabus+"/publish"), map[string]any{"version_id": str(res, "version_id")})
+	return w.syllabus
 }

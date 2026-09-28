@@ -93,6 +93,12 @@ type world interface {
 	newcomer(name string) string
 	// actorOf is the actor id of "yuki" or of "tutor".
 	actorOf(who string) string
+	// assignment is a published assignment (HW1), material a published
+	// material of text (the syllabus), and submit a student handing in
+	// work on the assignment: its submission's id.
+	assignment() string
+	material() string
+	submit(student int) string
 }
 
 // steps is what a scenario recorded, in order.
@@ -989,6 +995,7 @@ var scenarios = []scenario{
 	}},
 	modelWrites,
 	memberWrites,
+	rosterReads,
 }
 
 // modelWrites is a write a model makes through its seat's perms (the
@@ -1082,4 +1089,34 @@ var memberWrites = scenario{name: "member_writes", about: "member_lookup_actor, 
 		action, _ := proposed.Structured["action_id"].(string)
 		w.approve(action)
 		lookup("lookup_after_approval", "actor_id", aoi)
+	}}
+
+// rosterReads are where students stand on an assignment and what versions
+// a document has, as the seats a model reads through see them (the
+// runtime's docs/design.md §4): an instructor sees every student by name,
+// those who have not started among them; a student, a student's own agent
+// and a tutor listed for one student see that one alone, and no names;
+// the course tutor, who reads nobody's work and no drafts, is denied both.
+var rosterReads = scenario{name: "roster_reads", about: "submission_roster by an instructor (names, pages), a student, a student's own agent, a listed tutor and the course tutor (denied), for an assignment that is not there too; document_versions by an instructor, a student's own agent and the course tutor (both denied), for a document that is not there too",
+	run: func(t *testing.T, w world, s *steps) {
+		hw := w.assignment()
+		w.submit(0)
+		sato := w.as("sato")
+		roster := func(more ...any) map[string]any {
+			return inCourseArgs(w, append([]any{"assignment_id", hw}, more...)...)
+		}
+		wantStatus(t, callAs(t, sato, s, "roster_as_an_instructor", "submission_roster", roster()), "executed")
+		callAs(t, sato, s, "roster_a_page", "submission_roster", roster("limit", 1))
+		callAs(t, w.as("ken"), s, "roster_as_a_student", "submission_roster", roster())
+		callAs(t, w.ownAgent(), s, "roster_as_a_students_agent", "submission_roster", roster())
+		_, lab := w.listedTutor(0)
+		callAs(t, lab, s, "roster_as_a_listed_tutor", "submission_roster", roster())
+		call(t, w, s, "roster_as_the_course_tutor", "submission_roster", roster())
+		callAs(t, sato, s, "roster_of_no_assignment", "submission_roster", inCourseArgs(w, "assignment_id", "0192f3c1-0000-7000-8000-00000000abcd"))
+		doc := w.material()
+		versions := func(id string) map[string]any { return inCourseArgs(w, "document_id", id) }
+		wantStatus(t, callAs(t, sato, s, "versions_as_an_instructor", "document_versions", versions(doc)), "executed")
+		callAs(t, w.ownAgent(), s, "versions_as_a_students_agent", "document_versions", versions(doc))
+		call(t, w, s, "versions_as_the_course_tutor", "document_versions", versions(doc))
+		callAs(t, sato, s, "versions_of_no_document", "document_versions", versions("0192f3c1-0000-7000-8000-00000000abcd"))
 	}}
