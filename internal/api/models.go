@@ -250,7 +250,7 @@ type KeyTest struct {
 // is audited.
 func (s *Server) testKey(w http.ResponseWriter, r *http.Request, c *Caller, au *auditing) {
 	var req keyTestRequest
-	if !decodeBody(w, r, &req, false) {
+	if !readBody(w, r, &req) {
 		return
 	}
 	if req.Key != "" {

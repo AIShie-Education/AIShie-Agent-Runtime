@@ -18,7 +18,7 @@ import (
 // cross-origin writes refused (http.CrossOriginProtection); routing, with
 // no_route and method_not_allowed (routed). Each route then takes the
 // per-address or per-person limits, and its assertion (public, authed),
-// then its query and body (noBody), then does what it does.
+// then its query and body (noBody, readBody), then does what it does.
 
 // recorder keeps what the log line and the metrics say of a request: its
 // status, route, reason, person and hosted agent.

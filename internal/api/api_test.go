@@ -552,6 +552,48 @@ func TestBodies(t *testing.T) {
 	}
 }
 
+// exactNames takes a member by exactly its field's name, which
+// encoding/json alone does not: it reads a name in any case, K (the Kelvin
+// sign) as k among them, into the field. Fields of an embedded struct are
+// the struct's own; a field tagged "-" and an unexported one are none.
+func TestExactNames(t *testing.T) {
+	type choice struct {
+		Provider string `json:"provider"`
+	}
+	type body struct {
+		choice
+		Key   string `json:"key,omitempty"`
+		Skip  string `json:"-"`
+		Plain int
+		quiet int
+	}
+	var loose body
+	if err := json.Unmarshal([]byte(`{"\u212aey":"k"}`), &loose); err != nil || loose.Key != "k" {
+		t.Fatalf("encoding/json no longer folds K into k: %+v %v", loose, err)
+	}
+	_ = loose.quiet
+	for raw, want := range map[string]struct {
+		twice   bool
+		unknown string
+	}{
+		`{"provider":"p","key":"k","Plain":1}`: {},
+		`{}`:                                   {},
+		`{"PROVIDER":"p"}`:                     {false, "PROVIDER"},
+		`{"\u212aey":"k"}`:                     {false, "\u212aey"},
+		`{"key":"a","Key":"b"}`:                {true, ""},
+		`{"Key":"b","key":"a"}`:                {true, ""},
+		`{"plain":1}`:                          {false, "plain"},
+		`{"Skip":"x"}`:                         {false, "Skip"},
+		`{"quiet":1}`:                          {false, "quiet"},
+		`{"choice":{}}`:                        {false, "choice"},
+	} {
+		twice, unknown := exactNames([]byte(raw), &body{})
+		if twice != want.twice || unknown != want.unknown {
+			t.Errorf("exactNames(%s) = %v %q, want %v %q", raw, twice, unknown, want.twice, want.unknown)
+		}
+	}
+}
+
 // Each bucket answers 429 rate_limited with Retry-After and
 // retry_after_seconds past its allowance: a person's calls; an address's
 // requests without an assertion, and its refused assertions. Another

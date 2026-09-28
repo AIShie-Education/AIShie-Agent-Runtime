@@ -5,42 +5,57 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/jsonstrict"
 )
 
-// noBody refuses a query parameter (no route of R4 takes one), and a body
-// that is not empty or {} (the API contract, §1), answering the refusal; it
-// reports whether the request may go on.
-func noBody(w http.ResponseWriter, r *http.Request) bool {
-	if len(r.URL.Query()) > 0 || strings.Contains(r.URL.RawQuery, ";") {
-		names := make([]string, 0, len(r.URL.Query()))
-		for k := range r.URL.Query() {
-			names = append(names, k)
-		}
-		slices.Sort(names)
-		field := ""
-		if len(names) > 0 {
-			field = names[0]
-		}
-		WriteError(w, Error{Code: CodeInvalidArgument, Reason: ReasonUnknownParameter, Message: "this route takes no query parameter",
-			Details: map[string]any{"field": field}})
-		return false
+// noQuery refuses a query parameter, answering the refusal
+// (unknown_parameter, naming the first): no route takes one but DELETE,
+// which reads its own (the API contract, §1). It reports whether the
+// request may go on.
+func noQuery(w http.ResponseWriter, r *http.Request) bool {
+	q := r.URL.Query()
+	if len(q) == 0 && !strings.Contains(r.URL.RawQuery, ";") {
+		return true
 	}
+	field := ""
+	if names := slices.Sorted(maps.Keys(q)); len(names) > 0 {
+		field = names[0]
+	}
+	WriteError(w, Error{Code: CodeInvalidArgument, Reason: ReasonUnknownParameter, Message: "this route takes no query parameter",
+		Details: map[string]any{"field": field}})
+	return false
+}
+
+// noBody refuses a query parameter and a body that is not empty or {} (the
+// API contract, §1), answering the refusal; it reports whether the request
+// may go on.
+func noBody(w http.ResponseWriter, r *http.Request) bool {
 	var none struct{}
-	return decodeBody(w, r, &none, true)
+	return noQuery(w, r) && decodeBody(w, r, &none, true)
+}
+
+// readBody reads the body of a route that takes one, and no query, into v,
+// as decodeBody does, answering a refusal; it reports whether the request
+// may go on.
+func readBody(w http.ResponseWriter, r *http.Request, v any) bool {
+	return noQuery(w, r) && decodeBody(w, r, v, false)
 }
 
 // decodeBody reads r's body into v, as the API contract's §3.4 reads one:
 // at most MaxBodyBytes (body_too_large), JSON by its Content-Type
-// (not_json), no key given twice (malformed_json, jsonstrict), no member v
-// does not have (unknown_field, with its JSON Pointer), and nothing after
-// the object (malformed_json). An empty body is v as it is when empty is
+// (not_json), no key given twice, in one case or in two (malformed_json,
+// jsonstrict and exactNames), no member v does not have by exactly its
+// name (unknown_field, with its JSON Pointer), and nothing after the
+// object (malformed_json). An empty body is v as it is when empty is
 // allowed, and missing_field otherwise. It answers a refusal, and reports
-// whether the request may go on.
+// whether the request may go on. The query is the route's to refuse
+// (readBody, noBody).
 func decodeBody(w http.ResponseWriter, r *http.Request, v any, empty bool) bool {
 	refuse := func(reason, msg string, details map[string]any) bool {
 		WriteError(w, Error{Code: CodeInvalidArgument, Reason: reason, Message: msg, Details: details})
@@ -65,6 +80,12 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any, empty bool) bool 
 	}
 	if t := bytes.TrimSpace(raw); t[0] != '{' {
 		return refuse(ReasonMalformedJSON, "the body must be one JSON object", nil)
+	}
+	switch twice, unknown := exactNames(raw, v); {
+	case twice:
+		return refuse(ReasonMalformedJSON, "the body names a key twice in one object, in two cases", nil)
+	case unknown != "":
+		return refuse(ReasonUnknownField, "the body has a member this route does not take", map[string]any{"field": "/" + pointerEscape(unknown)})
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
@@ -94,4 +115,93 @@ func unknownField(err error) (string, bool) {
 // pointerEscape escapes a member's name for a JSON Pointer (RFC 6901).
 func pointerEscape(s string) string {
 	return strings.ReplaceAll(strings.ReplaceAll(s, "~", "~0"), "/", "~1")
+}
+
+// exactNames holds the members of the object raw to the fields of the
+// struct v points to by exactly their names, as encoding/json does not:
+// it reads a member into a field whose name it matches in any case, and
+// of two such the last, so that {"token": a, "TOKEN": b} would be read as
+// b. It reports whether two members' names differ in case alone (twice:
+// a member named twice, as the reader would take them), and else the
+// first member that is not exactly a field's name (unknown). An object
+// that cannot be read, or a v that is not a struct's pointer, is left to
+// the decoding that follows.
+func exactNames(raw []byte, v any) (twice bool, unknown string) {
+	t := reflect.TypeOf(v)
+	if t == nil || t.Kind() != reflect.Pointer || t.Elem().Kind() != reflect.Struct {
+		return false, ""
+	}
+	names, ok := memberNames(raw)
+	if !ok {
+		return false, ""
+	}
+	folded := make(map[string]bool, len(names))
+	for _, n := range names {
+		f := strings.ToLower(strings.ToUpper(n))
+		if folded[f] {
+			return true, ""
+		}
+		folded[f] = true
+	}
+	fields := map[string]bool{}
+	fieldNames(t.Elem(), fields)
+	for _, n := range names {
+		if !fields[n] {
+			return false, n
+		}
+	}
+	return false, ""
+}
+
+// memberNames are the names of the members of the object raw, in order;
+// false when raw is not one object that can be read.
+func memberNames(raw []byte) ([]string, bool) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return nil, false
+	}
+	var names []string
+	for dec.More() {
+		t, err := dec.Token()
+		if err != nil {
+			return nil, false
+		}
+		name, _ := t.(string)
+		names = append(names, name)
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			return nil, false
+		}
+	}
+	return names, true
+}
+
+// fieldNames adds to into the names of the members encoding/json reads
+// into a struct of type t: each exported field's, as its tag names it or
+// by its own name, and those of the structs it embeds.
+func fieldNames(t reflect.Type, into map[string]bool) {
+	for i := range t.NumField() {
+		f := t.Field(i)
+		tag := f.Tag.Get("json")
+		if tag == "-" {
+			continue
+		}
+		name, _, _ := strings.Cut(tag, ",")
+		if ft := f.Type; f.Anonymous && name == "" {
+			if ft.Kind() == reflect.Pointer {
+				ft = ft.Elem()
+			}
+			if ft.Kind() == reflect.Struct {
+				fieldNames(ft, into)
+				continue
+			}
+		}
+		if !f.IsExported() {
+			continue
+		}
+		if name == "" {
+			name = f.Name
+		}
+		into[name] = true
+	}
 }

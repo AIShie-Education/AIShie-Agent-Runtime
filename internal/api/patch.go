@@ -48,11 +48,18 @@ const (
 func isNull(raw json.RawMessage) bool { return string(bytes.TrimSpace(raw)) == "null" }
 
 // decodeMember reads a member's object into v, as the body is read: no
-// member v does not have (unknown_field, at the pointer at plus its name),
+// key given twice in two cases (malformed_json), no member v does not have
+// by exactly its name (unknown_field, at the pointer at plus its name),
 // nothing but one object (invalid_field at at).
 func decodeMember(raw json.RawMessage, v any, at string) *Error {
 	if t := bytes.TrimSpace(raw); len(t) == 0 || t[0] != '{' {
 		return fieldError(CodeInvalidArgument, ReasonInvalidField, at, "must be an object")
+	}
+	switch twice, unknown := exactNames(raw, v); {
+	case twice:
+		return &Error{Code: CodeInvalidArgument, Reason: ReasonMalformedJSON, Message: "the body names a key twice in one object, in two cases"}
+	case unknown != "":
+		return fieldError(CodeInvalidArgument, ReasonUnknownField, at+"/"+pointerEscape(unknown), "a member this route does not take")
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
@@ -144,7 +151,7 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, c *Caller, au *a
 		return
 	}
 	var req patchRequest
-	if !decodeBody(w, r, &req, false) {
+	if !readBody(w, r, &req) {
 		return
 	}
 	p, e := s.readPatch(req)

@@ -42,9 +42,10 @@ func (s *Server) authed(h func(http.ResponseWriter, *http.Request, *Caller)) htt
 }
 
 // authedBody is authed for a route that reads its own query and body
-// (decodeBody). A refused assertion is counted and logged at debug with its
-// reason alone, and takes from the client address's allowances; past
-// them, the answer is 429 rather than 401.
+// (readBody, or DELETE's revokeParam and decodeBody). A refused assertion
+// is counted and logged at debug with its reason alone, and takes from the
+// client address's allowances; past them, the answer is 429 rather than
+// 401.
 func (s *Server) authedBody(h func(http.ResponseWriter, *http.Request, *Caller)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token, sent, bad := bearer(r)

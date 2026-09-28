@@ -192,7 +192,7 @@ func (s *Server) limitedKeyTest(h func(http.ResponseWriter, *http.Request, *Call
 // answered a refusal.
 func readToken(w http.ResponseWriter, r *http.Request, c *Caller, au *auditing) (tokenRequest, probe.Want, bool) {
 	var req tokenRequest
-	if !decodeBody(w, r, &req, false) {
+	if !readBody(w, r, &req) {
 		return req, probe.Want{}, false
 	}
 	au.detail["token_hint"] = vault.Hint(store.SecretCoreToken, req.Token)
@@ -467,7 +467,7 @@ func (s *Server) replaceToken(w http.ResponseWriter, r *http.Request, c *Caller,
 		return
 	}
 	var req tokenRequest
-	if !decodeBody(w, r, &req, false) {
+	if !readBody(w, r, &req) {
 		return
 	}
 	if req.CoreActorID != "" {

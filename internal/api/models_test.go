@@ -487,3 +487,94 @@ func TestPatchRefuses(t *testing.T) {
 	}
 	h.noSecrets(a)
 }
+
+// The routes that read a body take no query (the contract's §1): each
+// refuses a parameter as unknown_parameter, naming it, before it asks Core
+// or a provider anything, or writes anything.
+func TestBodyRoutesTakeNoQuery(t *testing.T) {
+	h, p, _ := newModelWorld(t, config.Runtime{})
+	v := h.connect(h.yuki, h.helper.Token)
+	next := h.token(h.helper.ID)
+	calls := len(h.fc.Calls())
+	for _, tc := range []struct {
+		method, path, body string
+		headers            []string
+	}{
+		{"POST", "agents/inspect?x=1", tokenBody(h.helper.Token, ""), nil},
+		{"POST", "agents?x=1", tokenBody(next.Token, ""), nil},
+		{"PUT", "agents/" + v.ID + "/token?x=1", tokenBody(next.Token, ""), nil},
+		{"PATCH", "agents/" + v.ID + "?x=1", ownOpenAI, []string{"If-Match", `"1"`}},
+		{"POST", "keys/test?x=1", keysTest("openai", "gpt-4.1-mini", ownKey), nil},
+		{"POST", "keys/test?revoke_token=true", keysTest("openai", "gpt-4.1-mini", ownKey), nil},
+	} {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			a := h.call(tc.method, tc.path, h.yuki, tc.body, tc.headers...)
+			e := wantRefused(t, a, http.StatusBadRequest, CodeInvalidArgument, ReasonUnknownParameter)
+			if want := strings.SplitN(strings.SplitN(tc.path, "?", 2)[1], "=", 2)[0]; e.Details["field"] != want {
+				t.Errorf("field %v, want %s", e.Details["field"], want)
+			}
+		})
+	}
+	if n := len(h.fc.Calls()); n != calls {
+		t.Errorf("Core was asked %d times", n-calls)
+	}
+	p.mu.Lock()
+	if len(p.seen) != 0 {
+		t.Errorf("the provider was asked %d times", len(p.seen))
+	}
+	p.mu.Unlock()
+	if rows, err := h.st.HostedAgents(context.Background()); err != nil || len(rows) != 1 || rows[0].Version != 1 {
+		t.Errorf("written: %+v %v", rows, err)
+	}
+}
+
+// A member is read into a field only by exactly the field's name: another
+// case is a member the route does not take (unknown_field), and two names
+// that differ in case alone are a member named twice (malformed_json),
+// which encoding/json alone would read as the last of them. Nothing is
+// asked of Core or a provider for them.
+func TestMemberNamesAreExact(t *testing.T) {
+	h, p, _ := newModelWorld(t, config.Runtime{})
+	v := h.connect(h.yuki, h.helper.Token)
+	next := h.token(h.helper.ID)
+	calls := len(h.fc.Calls())
+	own := `"own":{"provider":"openai","model":"gpt-4.1-mini"}`
+	for _, tc := range []struct {
+		name, method, path, body string
+		reason, field            string
+	}{
+		{"a token given twice, in two cases", "POST", "agents/inspect", `{"token":"not-a-token","TOKEN":"` + h.helper.Token + `"}`, ReasonMalformedJSON, ""},
+		{"the token in another case", "POST", "agents/inspect", `{"Token":"` + h.helper.Token + `"}`, ReasonUnknownField, "/Token"},
+		{"connect's token in another case", "POST", "agents", `{"TOKEN":"` + next.Token + `"}`, ReasonUnknownField, "/TOKEN"},
+		{"a new token in another case", "PUT", "agents/" + v.ID + "/token", `{"toKen":"` + next.Token + `"}`, ReasonUnknownField, "/toKen"},
+		{"a member of an embedded choice in another case", "POST", "keys/test", `{"Provider":"openai","model":"gpt-4.1-mini","key":"` + ownKey + `"}`, ReasonUnknownField, "/Provider"},
+		{"a key given twice, in two cases", "POST", "keys/test", `{"provider":"openai","model":"gpt-4.1-mini","key":"sk-a-key-of-no-use-0000","KEY":"` + ownKey + `"}`, ReasonMalformedJSON, ""},
+		{"PATCH's model in another case", "PATCH", "agents/" + v.ID, `{"Model":{` + own + `}}`, ReasonUnknownField, "/Model"},
+		{"PATCH's own model in another case", "PATCH", "agents/" + v.ID, `{"model":{"Own":{"provider":"openai","model":"gpt-4.1-mini"}}}`, ReasonUnknownField, "/model/Own"},
+		{"a model named twice, in two cases", "PATCH", "agents/" + v.ID, `{"model":{"own":{"provider":"openai","model":"gpt-4.1-mini","MODEL":"o3"}}}`, ReasonMalformedJSON, ""},
+		{"the key's value in another case", "PATCH", "agents/" + v.ID, `{"own_key":{"Value":"` + ownKey + `"}}`, ReasonUnknownField, "/own_key/Value"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var headers []string
+			if tc.method == "PATCH" {
+				headers = []string{"If-Match", `"1"`}
+			}
+			a := h.call(tc.method, tc.path, h.yuki, tc.body, headers...)
+			e := wantRefused(t, a, http.StatusBadRequest, CodeInvalidArgument, tc.reason)
+			if field, _ := e.Details["field"].(string); field != tc.field {
+				t.Errorf("field %q, want %q", field, tc.field)
+			}
+		})
+	}
+	if n := len(h.fc.Calls()); n != calls {
+		t.Errorf("Core was asked %d times", n-calls)
+	}
+	p.mu.Lock()
+	if len(p.seen) != 0 {
+		t.Errorf("the provider was asked %d times", len(p.seen))
+	}
+	p.mu.Unlock()
+	if rows, err := h.st.HostedAgents(context.Background()); err != nil || len(rows) != 1 || rows[0].Version != 1 {
+		t.Errorf("written: %+v %v", rows, err)
+	}
+}
