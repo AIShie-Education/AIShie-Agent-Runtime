@@ -47,6 +47,8 @@ type Store struct {
 	hosted   map[string]store.HostedAgent
 	courses  map[seatKey]store.HostedCourse
 	rev      int64
+	audit    []store.AuditEvent
+	auditID  int64
 }
 
 type lease struct {

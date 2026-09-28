@@ -53,8 +53,11 @@
 //   - Lists come back in a fixed order: attempts by number, or oldest first;
 //     seats by member id; seats gone by when they went; agent states by
 //     agent id; secrets by id; hosted agents by id; their courses by agent,
-//     then course; usage by day, then course; askers by member id. Ids sort bytewise, and rows written at one
+//     then course; usage by day, then course; askers by member id; audit
+//     events by time, then id. Ids sort bytewise, and rows written at one
 //     instant keep the order they were written in.
+//   - An audit event's id is the store's, increasing; its detail is a JSON
+//     object, {} for none, and comes back as the same JSON.
 package storetest
 
 import (
@@ -88,6 +91,7 @@ func Run(t *testing.T, open func(t *testing.T) store.Store) {
 		{"Secrets", testSecrets},
 		{"Registry", testRegistry},
 		{"Reports", testReports},
+		{"Audit", testAudit},
 	} {
 		t.Run(g.name, func(t *testing.T) { g.run(t, open) })
 	}

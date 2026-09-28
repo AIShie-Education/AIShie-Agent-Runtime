@@ -44,6 +44,7 @@ type Store interface {
 	Secrets
 	Registry
 	Reports
+	Audit
 	Close() error
 }
 
@@ -713,6 +714,60 @@ func CheckAgentSecrets(a HostedAgent, secrets []Secret, have func(id string) (*S
 		}
 	}
 	return nil
+}
+
+// AuditEvent is one thing done through the runtime's API, or refused, as
+// the audit keeps it (docs/design.md §11.4): ids, hints, providers,
+// models and results; never a secret, a name, an email, or text anyone
+// wrote.
+type AuditEvent struct {
+	// ID is the store's, given when the event is recorded.
+	ID int64 `json:"id"`
+	// At is when; zero is the store's now.
+	At time.Time `json:"at"`
+	// ActorID is the person, "" for none (a refusal before one was known).
+	ActorID string `json:"actor_id"`
+	// SessionID is the Core credential the person's assertion names.
+	SessionID string `json:"session_id"`
+	// IP is the client's address.
+	IP string `json:"ip"`
+	// Action is what was done, such as agent.connect.
+	Action string `json:"action"`
+	// TargetType and TargetID are what it was done to, such as
+	// hosted_agent and its id.
+	TargetType string `json:"target_type"`
+	TargetID   string `json:"target_id"`
+	// Outcome is ok, or the reason it was refused.
+	Outcome string `json:"outcome"`
+	// Detail is a JSON object; empty is {}.
+	Detail json.RawMessage `json:"detail"`
+}
+
+// Audit is the audit of the runtime's API.
+type Audit interface {
+	// RecordAudit records e, and returns its id.
+	RecordAudit(ctx context.Context, e AuditEvent) (int64, error)
+	// AuditEvents lists up to limit events recorded at or after since,
+	// oldest first (by time, then id).
+	AuditEvents(ctx context.Context, since time.Time, limit int) ([]AuditEvent, error)
+	// PruneAudit destroys the events recorded before before, and says how
+	// many it destroyed.
+	PruneAudit(ctx context.Context, before time.Time) (int64, error)
+}
+
+// CheckAuditEvent refuses an event a store must not keep, without its
+// action and outcome, or whose detail is not a JSON object, and returns it
+// with its detail as stored ({} for none).
+func CheckAuditEvent(e AuditEvent) (AuditEvent, error) {
+	if e.Action == "" || e.Outcome == "" {
+		return e, errors.New("store: audit event: action and outcome required")
+	}
+	detail, err := jsonObject(e.Detail)
+	if err != nil {
+		return e, errors.New("store: audit event: detail must be a JSON object")
+	}
+	e.Detail = detail
+	return e, nil
 }
 
 // UsageRow is what an agent used in one course on one UTC day: ids and

@@ -9,11 +9,23 @@ import (
 // for an agent no longer configured (config.Defaults' own).
 const defaultRetentionDays = 30
 
+// AuditRetention is how long the API's audit is kept: about 13 months
+// (the product owner's D11).
+const AuditRetention = 400 * 24 * time.Hour
+
 // housekeep purges the memory of seats gone longer ago than their agent's
 // retention_days_after_removal (§2.5): notes, attempts and cursors, then the
-// seat's row. The ledger's ids and numbers stay. Any worker may do it; it
-// is the same work done twice at worst.
+// seat's row. The ledger's ids and numbers stay. It also destroys the
+// audit's events older than AuditRetention. Any worker may do it; it is
+// the same work done twice at worst.
 func (s *Supervisor) housekeep(ctx context.Context) {
+	if n, err := s.o.Store.PruneAudit(ctx, s.o.Now().Add(-AuditRetention)); err != nil {
+		if ctx.Err() == nil {
+			s.log.Warn("housekeeping: the audit not pruned", "err", err)
+		}
+	} else if n > 0 {
+		s.log.Info("housekeeping: the audit's oldest events were destroyed", "events", n)
+	}
 	cfg := s.config()
 	if cfg == nil {
 		return

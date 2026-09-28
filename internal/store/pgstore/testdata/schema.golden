@@ -43,6 +43,16 @@ attempt.error_code text
 attempt.reason text
 attempt.created_at timestamp with time zone not null
 attempt.updated_at timestamp with time zone not null
+audit.id bigint not null identity
+audit.at timestamp with time zone not null
+audit.actor_id text not null
+audit.session_id text not null
+audit.ip text not null
+audit.action text not null
+audit.target_type text not null
+audit.target_id text not null
+audit.outcome text not null
+audit.detail jsonb not null
 cursor.agent_id text not null
 cursor.member_id text not null
 cursor.kind text not null
@@ -137,6 +147,8 @@ agent_state agent_state_pkey PRIMARY KEY (agent_id)
 answer answer_pkey PRIMARY KEY (agent_id, id)
 attempt attempt_pkey PRIMARY KEY (agent_id, key)
 attempt attempt_state_known CHECK ((state = ANY (ARRAY['sending'::text, 'executed'::text, 'proposed'::text, 'failed'::text, 'denied'::text, 'error'::text, 'rejected'::text, 'cancelled'::text])))
+audit audit_detail_object CHECK ((jsonb_typeof(detail) = 'object'::text))
+audit audit_pkey PRIMARY KEY (id)
 cursor cursor_pkey PRIMARY KEY (agent_id, member_id, kind)
 hosted_agent hosted_agent_core_actor_id_key UNIQUE (core_actor_id)
 hosted_agent hosted_agent_id_shape CHECK ((id ~ '^agt_[A-Za-z0-9_-]{1,60}$'::text))
@@ -172,6 +184,10 @@ CREATE INDEX attempt_action_idx ON public.attempt USING btree (agent_id, action_
 CREATE INDEX attempt_member_state_idx ON public.attempt USING btree (agent_id, member_id, state)
 CREATE INDEX attempt_message_idx ON public.attempt USING btree (agent_id, conversation_id, message_id)
 CREATE UNIQUE INDEX attempt_pkey ON public.attempt USING btree (agent_id, key)
+CREATE INDEX audit_actor_idx ON public.audit USING btree (actor_id, at)
+CREATE INDEX audit_at_idx ON public.audit USING btree (at)
+CREATE UNIQUE INDEX audit_pkey ON public.audit USING btree (id)
+CREATE INDEX audit_target_idx ON public.audit USING btree (target_type, target_id, at)
 CREATE UNIQUE INDEX cursor_pkey ON public.cursor USING btree (agent_id, member_id, kind)
 CREATE UNIQUE INDEX hosted_agent_core_actor_id_key ON public.hosted_agent USING btree (core_actor_id)
 CREATE UNIQUE INDEX hosted_agent_key_secret_id_key ON public.hosted_agent USING btree (key_secret_id)
