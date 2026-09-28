@@ -251,7 +251,7 @@ func (c *claim) generate(ctx context.Context, r passResult, read *core.Messages,
 	if err != nil {
 		return c.failedHere(r, "the question is not in the conversation read", err)
 	}
-	l, err := newLoop(c, r.msg, r.no, access, sys, hist)
+	l, err := newLoop(c, r.msg, r.no, access, c.guard(read), sys, hist)
 	if err != nil {
 		return c.failedHere(r, "the toolset could not be built", err)
 	}
@@ -275,15 +275,25 @@ func (c *claim) generate(ctx context.Context, r passResult, read *core.Messages,
 	return c.post(ctx, r, end.body, end.kind)
 }
 
-// access is what this conversation's model is offered (accessFor): the
-// seat's writes only when its owner opened it. The opener is Core's, as
-// the conversation was read.
-func (c *claim) access(read *core.Messages) toolset.Access {
-	opener := read.Conversation.Opener.MemberID
-	if opener == "" {
-		opener = c.opener
+// openerOf is the conversation's opener: Core's, as the conversation was
+// read.
+func (c *claim) openerOf(read *core.Messages) string {
+	if opener := read.Conversation.Opener.MemberID; opener != "" {
+		return opener
 	}
-	return accessFor(c.a.cfg, c.eff.Tools, c.s.membership(), opener)
+	return c.opener
+}
+
+// access is what this conversation's model is offered (accessFor): the
+// seat's writes only when its owner opened it.
+func (c *claim) access(read *core.Messages) toolset.Access {
+	return accessFor(c.a.cfg, c.eff.Tools, c.s.membership(), c.openerOf(read))
+}
+
+// guard is the seats this conversation's model never changes
+// (toolset.SeatGuard): the agent's own, its principal's and the opener's.
+func (c *claim) guard(read *core.Messages) toolset.SeatGuard {
+	return toolset.SeatGuard{Self: c.s.id, Principal: deref(c.s.membership().PrincipalMemberID), Opener: c.openerOf(read)}
 }
 
 // system is the system prompt for this answer, whose model is offered set,

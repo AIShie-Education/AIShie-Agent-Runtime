@@ -359,6 +359,34 @@ func (w *liveWorld) ownerAgent(perms map[string]string) (string, *mcpClient) {
 	return seat, c
 }
 
+// registrar is an agent nobody owns: the administrator registers it and
+// issues its token, and Sato seats it with member.add.
+func (w *liveWorld) registrar(perms map[string]string) (string, *mcpClient) {
+	w.t.Helper()
+	id := str(w.lc.result(w.lc.admin, "POST", "/v1/actors", map[string]any{"kind": "agent", "display_name": "CS101 Registrar"}), "actor_id")
+	token := str(w.lc.result(w.lc.admin, "POST", "/v1/actors/"+id+"/tokens", map[string]any{"label": "runtime"}), "token")
+	seat := str(w.lc.result(w.sato.token, "POST", w.path("/members"), map[string]any{"actor_id": id, "preset": "ta", "perms": perms}), "member_id")
+	c := newMCPClient(w.lc.base, token, w.lc.hc)
+	if h, err := c.initialize(context.Background()); err != nil || h.Status != http.StatusOK {
+		w.t.Fatalf("initialize: %v %d %s", err, h.Status, h.Body)
+	}
+	return seat, c
+}
+
+func (w *liveWorld) newcomer(name string) string { return w.lc.register(name).id }
+
+func (w *liveWorld) actorOf(who string) string {
+	w.t.Helper()
+	switch who {
+	case "yuki":
+		return w.lc.yuki.id
+	case "tutor":
+		return w.tutor.id
+	}
+	w.t.Fatalf("nobody called %q in this world", who)
+	return ""
+}
+
 // setLevel is Sato setting a permission of a seat.
 func (w *liveWorld) setLevel(seat, perm, level string) {
 	w.t.Helper()

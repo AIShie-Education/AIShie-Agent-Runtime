@@ -215,6 +215,28 @@ func (w *fakeWorld) setLevel(seat, perm, level string) {
 	w.ok(w.fc.SetLevel(seat, perm, level))
 }
 
+func (w *fakeWorld) registrar(perms map[string]string) (string, *mcpClient) {
+	w.t.Helper()
+	a := w.fc.AddUnownedAgent("CS101 Registrar")
+	m, err := w.fc.Seat(a.ID, w.co.ID, SeatOptions{Preset: "ta", Perms: perms})
+	w.ok(err)
+	return m.ID, w.client(a.Token)
+}
+
+func (w *fakeWorld) newcomer(name string) string { return w.fc.AddPerson(name).ID }
+
+func (w *fakeWorld) actorOf(who string) string {
+	w.t.Helper()
+	switch who {
+	case "yuki":
+		return w.people[0].ID
+	case "tutor":
+		return w.tutorA.ID
+	}
+	w.t.Fatalf("nobody called %q in this world", who)
+	return ""
+}
+
 func (w *fakeWorld) askOwn(body string) (string, string) {
 	w.t.Helper()
 	w.ownAgent()

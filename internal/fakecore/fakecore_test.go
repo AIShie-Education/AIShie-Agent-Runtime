@@ -659,11 +659,11 @@ func TestModelReads(t *testing.T) {
 
 func TestUnimplementedTools(t *testing.T) {
 	w := newFakeWorld(t, Options{})
-	wantEnvelope(t, mustCall(t, w.agentC, "member_list", inCourseArgs(w)), "error", codeForbidden, "not_implemented")
+	wantEnvelope(t, mustCall(t, w.agentC, "member_delegate_defaults", inCourseArgs(w)), "error", codeForbidden, "not_implemented")
 	wantEnvelope(t, mustCall(t, w.agentC, "course_archive", inCourseArgs(w, "idempotency_key", "k")), "error", codeForbidden, "not_implemented")
-	wantEnvelope(t, mustCall(t, w.agentC, "member_list", map[string]any{"course_id": "00000000-0000-7000-8000-000000000000"}),
+	wantEnvelope(t, mustCall(t, w.agentC, "member_delegate_defaults", map[string]any{"course_id": "00000000-0000-7000-8000-000000000000"}),
 		"error", codeNotFound, "")
-	wantEnvelope(t, mustCall(t, w.agentC, "member_list", map[string]any{"course_id": w.co.ID, "no_such_argument": 1}),
+	wantEnvelope(t, mustCall(t, w.agentC, "member_delegate_defaults", map[string]any{"course_id": w.co.ID, "no_such_argument": 1}),
 		"error", codeInvalidArgument, "")
 }
 

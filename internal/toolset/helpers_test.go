@@ -52,7 +52,7 @@ var (
 	// tutorPerms is a course tutor's: the material, nobody's work (§2.7).
 	tutorPerms = map[string]string{
 		"conversation_answer": "autonomous", "document_read": "autonomous",
-		"submission_read": "denied", "grade_read": "denied",
+		"submission_read": "denied", "grade_read": "denied", "member_read": "denied", "member_manage": "denied",
 	}
 	// delegatePerms is a student's own agent's: its principal's work too
 	// (§2.6).

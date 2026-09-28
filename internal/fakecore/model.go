@@ -241,6 +241,10 @@ type member struct {
 	perms           map[string]level
 	principal       *member
 	answersCourse   bool
+	// presetID is the preset it was seated from, as Core keeps it; ""
+	// for none. createdAt is when it was seated.
+	presetID  string
+	createdAt time.Time
 }
 
 type conversation struct {

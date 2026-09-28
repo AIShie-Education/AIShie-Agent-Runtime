@@ -26,6 +26,7 @@ var scenarios = []scenario{
 	{"denied", denied},
 	{"proposals", proposals},
 	{"owner-writes", ownerWrites},
+	{"member-writes", memberWrites},
 	{"binary", theBinary},
 	{"hosted-agent-from-the-registry", hostedAgentAnswers},
 	{"api-takes-cores-assertion", apiTakesCoresAssertion},

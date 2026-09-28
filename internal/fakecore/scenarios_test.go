@@ -85,6 +85,14 @@ type world interface {
 	ownerAgent(perms map[string]string) (seat string, c *mcpClient)
 	// setLevel is Sato setting one permission of seat (member.update_perms).
 	setLevel(seat, perm, level string)
+	// registrar is an agent nobody owns, which the administrator registers
+	// and Sato seats with member.add (preset ta), with perms over the
+	// preset's: its seat and its client.
+	registrar(perms map[string]string) (seat string, c *mcpClient)
+	// newcomer registers a person, seated nowhere: their actor id.
+	newcomer(name string) string
+	// actorOf is the actor id of "yuki" or of "tutor".
+	actorOf(who string) string
 }
 
 // steps is what a scenario recorded, in order.
@@ -980,6 +988,7 @@ var scenarios = []scenario{
 		rawCall("integer_written_as_a_float", "event_list", raw(`{"course_id":%q,"since_seq":1.0,"limit":1e1}`, w.course()))
 	}},
 	modelWrites,
+	memberWrites,
 }
 
 // modelWrites is a write a model makes through its seat's perms (the
@@ -1016,3 +1025,61 @@ func digest(v any) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
 }
+
+// memberWrites is the roster and seating someone, as a model makes them
+// through a seat that manages the course's members (the runtime's
+// docs/design.md §4): an agent nobody owns, which Sato seated with
+// member_manage.
+var memberWrites = scenario{name: "member_writes", about: "member_lookup_actor, member_add, member_get and member_list by an agent nobody owns that manages the course's members: whom an id names, a seat proposed at confirm_required and approved, executed at autonomous and replayed, refused for a seat already there, for more than the agent holds, for an agent someone owns and for arguments Core refuses; the seats as Core shows them, and the roster denied to a student",
+	run: func(t *testing.T, w world, s *steps) {
+		// A ta's seat, with the submission_write a student's has, which it
+		// could not give otherwise.
+		seat, c := w.registrar(map[string]string{"member_manage": "confirm_required", "submission_write": "autonomous"})
+		aoi, ren := w.newcomer("Aoi"), w.newcomer("Ren")
+		lookup := func(name string, more ...any) toolAnswer {
+			return callAs(t, c, s, name, "member_lookup_actor", inCourseArgs(w, more...))
+		}
+		wantStatus(t, lookup("lookup_newcomer", "actor_id", aoi), "executed")
+		lookup("lookup_seated", "actor_id", w.actorOf("yuki"))
+		lookup("lookup_owned_agent", "actor_id", w.actorOf("tutor"))
+		lookup("lookup_neither")
+		lookup("lookup_both", "actor_id", aoi, "email", "aoi@example.invalid")
+		lookup("lookup_unknown_email", "email", " nobody@example.invalid ")
+		lookup("lookup_unknown_id", "actor_id", "0192f3c1-0000-7000-8000-00000000abcd")
+		add := func(name, key string, more ...any) toolAnswer {
+			return callAs(t, c, s, name, "member_add", inCourseArgs(w, append([]any{"idempotency_key", key}, more...)...))
+		}
+		proposed := add("add_proposed", "tool:x:m:1:1", "actor_id", aoi, "preset", "student")
+		wantStatus(t, proposed, "proposed")
+		w.setLevel(seat, "member_manage", "autonomous")
+		made := add("add_executed", "tool:x:m:2:1", "actor_id", ren, "preset", "student")
+		wantStatus(t, made, "executed")
+		add("add_replayed", "tool:x:m:2:1", "actor_id", ren, "preset", "student")
+		add("add_seated", "tool:x:m:2:2", "actor_id", ren, "preset", "observer")
+		add("add_more_than_it_holds", "tool:x:m:2:3", "actor_id", aoi, "preset", "instructor")
+		add("add_a_level_more", "tool:x:m:2:4", "actor_id", aoi, "preset", "student", "perms", map[string]any{"grade_post": "autonomous"})
+		add("add_owned_agent", "tool:x:m:2:5", "actor_id", w.actorOf("tutor"), "preset", "observer")
+		add("add_unknown_preset", "tool:x:m:2:6", "actor_id", aoi, "preset", "wizard")
+		add("add_no_preset", "tool:x:m:2:7", "actor_id", aoi)
+		add("add_bad_role", "tool:x:m:2:8", "actor_id", aoi, "preset", "student", "role", "dean")
+		add("add_bad_perm", "tool:x:m:2:9", "actor_id", aoi, "preset", "student", "perms", map[string]any{"grade_all": "autonomous", "zzz": "x"})
+		add("add_bad_level", "tool:x:m:2:10", "actor_id", aoi, "preset", "student", "perms", map[string]any{"grade_read": "sometimes"})
+		add("add_unknown_actor", "tool:x:m:2:11", "actor_id", "0192f3c1-0000-7000-8000-00000000abcd", "preset", "student")
+		add("add_listed_nobody_there", "tool:x:m:2:12", "actor_id", aoi, "preset", "observer", "student_scope", "listed",
+			"listed_students", []string{w.tutorSeat()})
+		add("add_listed_for_all", "tool:x:m:2:13", "actor_id", aoi, "preset", "observer", "listed_students", []string{w.studentSeat(0)})
+		id, _ := resultOf(made, "member_id").(string)
+		get := func(name, member string) toolAnswer {
+			return callAs(t, c, s, name, "member_get", inCourseArgs(w, "member_id", member))
+		}
+		get("get_added", id)
+		get("get_itself", seat)
+		get("get_tutor", w.tutorSeat())
+		get("get_missing", "0192f3c1-0000-7000-8000-00000000abcd")
+		callAs(t, c, s, "list_students", "member_list", inCourseArgs(w, "role", "student"))
+		callAs(t, c, s, "list_page", "member_list", inCourseArgs(w, "limit", 2))
+		callAs(t, w.as("yuki"), s, "list_as_a_student", "member_list", inCourseArgs(w))
+		action, _ := proposed.Structured["action_id"].(string)
+		w.approve(action)
+		lookup("lookup_after_approval", "actor_id", aoi)
+	}}
