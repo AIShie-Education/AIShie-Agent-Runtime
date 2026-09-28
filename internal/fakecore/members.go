@@ -42,9 +42,13 @@ type memberView struct {
 	OwnerActorID      *string           `json:"owner_actor_id,omitempty"`
 	OwnerName         *string           `json:"owner_name,omitempty"`
 	AnswersCourse     bool              `json:"answers_course"`
+	// SiteChat, for an agent's seat: whether people in the site may ask
+	// it (me_site_chat); absent for a person's.
+	SiteChat *bool `json:"site_chat,omitempty"`
+	ceilings
 }
 
-func viewMember(m *member) memberView {
+func (c *Core) viewMember(m *member) memberView {
 	v := memberView{ID: m.id, ActorID: m.actor.id, DisplayName: m.actor.name, Kind: m.actor.kind, Role: m.role, Status: m.status,
 		ExpiresAt: m.expiresAt, StudentScope: m.studentScope, AssignmentScope: m.assignmentScope,
 		Perms: make(map[string]string, len(allPerms)), CreatedAt: m.createdAt, AnswersCourse: m.answersCourse}
@@ -60,6 +64,10 @@ func viewMember(m *member) memberView {
 	if o := m.actor.owner; o != nil {
 		v.OwnerActorID, v.OwnerName = ptr(o.id), ptr(o.name)
 	}
+	if m.actor.kind == "agent" {
+		v.SiteChat = ptr(c.takesSiteChat(m.actor))
+	}
+	v.ceilings = ceilingsOf(m)
 	return v
 }
 
@@ -100,7 +108,7 @@ func memberList() *impl {
 					(!in.IncludeRemoved && m.status == statusRemoved) {
 					continue
 				}
-				out.Members = append(out.Members, viewMember(m))
+				out.Members = append(out.Members, c.viewMember(m))
 			}
 			if n := len(out.Members); n > 0 && n == limit {
 				out.Next = &out.Members[n-1].ID
@@ -140,7 +148,7 @@ func memberGet() *impl {
 			if err != nil {
 				return nil, err
 			}
-			v := viewMember(m)
+			v := c.viewMember(m)
 			v.ListedStudents, v.ListedAssignments = sortedIDs(m.students), sortedIDs(m.assignments)
 			return v, nil
 		},
@@ -351,6 +359,9 @@ func memberAdd() *impl {
 			}
 			m, err := c.seatNew(ec, in.ActorID.String(), role, name, perms, expiresAt)
 			if err != nil {
+				return nil, err
+			}
+			if err := toCeilings(m.actor.kind == "agent", nil, m.perms, in.Perms); err != nil {
 				return nil, err
 			}
 			if err := c.writeScope(m, studentScope, students, listsItself, assignmentScope, assignments); err != nil {

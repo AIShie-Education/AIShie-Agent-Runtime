@@ -21,8 +21,9 @@ type openIn struct {
 	Body               *string   `json:"body,omitempty"`
 }
 
-// checkOpen is conversation_open's rule: a title and a body that fit, and a
-// respondent the caller may address.
+// checkOpen is conversation_open's rule: a title and a body that fit, a
+// respondent the caller may address, and then, of an agent, that it takes
+// conversations in the site.
 func (c *Core) checkOpen(m, respondent *member, in openIn) error {
 	if _, err := optionalText("title", in.Title, 200); err != nil {
 		return err
@@ -35,7 +36,7 @@ func (c *Core) checkOpen(m, respondent *member, in openIn) error {
 	if why := refusal(m, respondent, c.now()); why != "" {
 		return notAddressable("you may not address that member", why)
 	}
-	return nil
+	return c.answersElsewhere(respondent)
 }
 
 func conversationOpen() *impl {
@@ -88,7 +89,8 @@ type askIn struct {
 var errNotOpener = forbid("only whoever opened a conversation asks in it; the member it is addressed to answers, with conversation.answer")
 
 // checkAsk is conversation_ask's rule: the caller opened it, it is open, the
-// body fits, and the caller may still address its respondent.
+// body fits, the caller may still address its respondent, and the
+// respondent, if an agent, still takes conversations in the site.
 func (c *Core) checkAsk(m *member, cv *conversation, body string) error {
 	if cv.opener != m {
 		return errNotOpener
@@ -102,7 +104,7 @@ func (c *Core) checkAsk(m *member, cv *conversation, body string) error {
 	if why := refusal(m, cv.respondent, c.now()); why != "" {
 		return notAddressable("the respondent is no longer available to you; start a new conversation with someone who is", why)
 	}
-	return nil
+	return c.answersElsewhere(cv.respondent)
 }
 
 func conversationAsk() *impl {
@@ -159,6 +161,8 @@ type decideOut struct {
 	Outcome  string          `json:"outcome"`
 	Result   json.RawMessage `json:"result,omitempty"`
 	Error    *apiError       `json:"error,omitempty"`
+	// ByOwner: the proposer's owner decided it.
+	ByOwner bool `json:"by_owner,omitempty"`
 }
 
 // sameParty reports whether two actors are one party for four eyes: the
@@ -167,9 +171,58 @@ func sameParty(x, y *actor) bool {
 	return x == y || x.owner == y || y.owner == x || (x.owner != nil && x.owner == y.owner)
 }
 
+// ownAgentsJudge is action_decide's and action_review's Gate.OwnAgents: an
+// agent's owner decides or reviews their own agent's action at autonomous
+// where they could have done it themselves just now without anyone's
+// confirmation (ownerJudges), whatever their own action_decide.
+func ownAgentsJudge(c *Core, caller *actor, seat *member, tgt target) level {
+	if tgt.id == nil {
+		return denied
+	}
+	a := c.actions[*tgt.id]
+	if a == nil {
+		return denied
+	}
+	if _, may := c.ownerJudges(caller, seat, a); may {
+		return autonomous
+	}
+	return denied
+}
+
+// ownerJudges says whether caller, from seat, is the owner of the agent
+// that did a (owner), and whether they could have done a themselves just
+// now without anyone's confirmation (may): their own level for it
+// autonomous, its target within their reach (Core's pipeline.ownerJudges).
+func (c *Core) ownerJudges(caller *actor, seat *member, a *action) (owner, may bool) {
+	if a.member == nil || a.member == seat || a.actor == caller || a.actor.owner != caller {
+		return false, false
+	}
+	t := c.cat.byName[a.actionType]
+	if t == nil || t.impl == nil {
+		return true, false
+	}
+	args, err := t.decodeArgs(a.payload)
+	if err != nil {
+		return true, false
+	}
+	got, err := c.authorize(t, args, caller, seat)
+	if err != nil {
+		return true, false
+	}
+	return true, got.decision.level == autonomous
+}
+
+// errOwnerNotAutonomous refuses an agent's owner who could not have done
+// what their agent did without someone's confirmation.
+func errOwnerNotAutonomous(what string) *apiError {
+	return forbid("you %s what your agent did only where you would do it yourself without anyone's confirmation; "+
+		"here your own level for it is lower, or it is beyond your reach, so someone else %ss it", what, what).
+		with("reason", "owner_not_autonomous")
+}
+
 func actionDecide() *impl {
 	return define(spec[decideIn]{
-		gate: gate{perms: []string{permActionDecide}},
+		gate: gate{perms: []string{permActionDecide}, ownAgents: ownAgentsJudge},
 		resolve: func(c *Core, co *course, in decideIn) (target, error) {
 			a := c.actions[in.ActionID.String()]
 			if a == nil || a.course != co {
@@ -200,40 +253,68 @@ func (c *Core) decide(ec *execCtx, in decideIn) (any, error) {
 	if ec.member == nil || prop.member == nil {
 		return nil, forbid("only a course member decides a member's proposal")
 	}
+	byOwner := false
 	if prop.member == ec.member || sameParty(prop.actor, ec.actor) {
-		return nil, forbid("nobody decides their own proposal, nor their agent's, nor their owner's")
+		// An agent decides nothing its owner proposed, nor another of the
+		// owner's agents anything it did. Its owner decides what it
+		// proposed only where they could have done it themselves without
+		// anyone's confirmation.
+		owner, may := c.ownerJudges(ec.actor, ec.member, prop)
+		switch {
+		case owner && !may:
+			return nil, errOwnerNotAutonomous("decide")
+		case !may:
+			return nil, forbid("nobody decides their own proposal, nor their owner's, nor another agent's of their owner")
+		}
+		byOwner = true
 	}
 	if c.judgesOwn(prop, ec.member, ec.actor) {
 		return nil, forbid("nobody decides their own proposal, even at one remove: this one decides or reviews an action of yours")
 	}
+	// said is what an event, and the record of a rejection, say of the
+	// decision: that the proposer's owner made it, when they did.
+	said := func(m map[string]any) map[string]any {
+		if byOwner {
+			if m == nil {
+				m = map[string]any{}
+			}
+			m["by_owner"] = true
+		}
+		return m
+	}
+	cancel := func(code string, details map[string]any) decideOut {
+		o := c.cancelProposal(ec, prop, code, details)
+		o.ByOwner = byOwner
+		return o
+	}
 	if ttl := c.proposalTTL(); ttl > 0 && prop.createdAt.Add(ttl).Before(ec.now) {
-		return c.cancelProposal(ec, prop, cancelExpired, nil), nil
+		return cancel(cancelExpired, nil), nil
 	}
 	if in.Decision == "reject" {
-		prop.result = mustJSON(map[string]any{"decision": map[string]any{
-			"decision": "reject", "reason": in.Reason, "by_action_id": ec.actionID}})
+		prop.result = mustJSON(map[string]any{"decision": said(map[string]any{
+			"decision": "reject", "reason": in.Reason, "by_action_id": ec.actionID})})
 		c.finish(prop, actRejected, ec.member, ec.now)
-		ec.emit(proposalEvent("action.rejected", prop, ec.actionID, nil))
-		return decideOut{ActionID: prop.id, Outcome: actRejected}, nil
+		ec.emit(proposalEvent("action.rejected", prop, ec.actionID, said(nil)))
+		return decideOut{ActionID: prop.id, Outcome: actRejected, ByOwner: byOwner}, nil
 	}
 
 	t := c.cat.byName[prop.actionType]
 	if t == nil || t.impl == nil {
-		return c.cancelProposal(ec, prop, cancelToolRemoved, nil), nil
+		return cancel(cancelToolRemoved, nil), nil
 	}
 	args, err := t.decodeArgs(prop.payload)
 	if err != nil {
-		return c.cancelProposal(ec, prop, cancelToolRemoved, map[string]any{"detail": err.Error()}), nil
+		return cancel(cancelToolRemoved, map[string]any{"detail": err.Error()}), nil
 	}
 	a, err := c.authorize(t, args, prop.actor, prop.member)
 	if e, ok := asAPI(err); ok && e.Code == codeNotFound {
-		return c.cancelProposal(ec, prop, cancelTargetGone, nil), nil
+		return cancel(cancelTargetGone, nil), nil
 	}
 	if err != nil {
 		return nil, err
 	}
 	if !a.decision.level.allowed() {
-		return c.cancelProposal(ec, prop, cancelReauthorization, map[string]any{"authz_reason": a.decision.reason}), nil
+		return cancel(cancelReauthorization, map[string]any{"authz_reason": a.decision.reason}), nil
 	}
 	child := &execCtx{now: ec.now, actor: prop.actor, member: a.decision.member, course: prop.course, actionID: prop.id,
 		createdAt: prop.createdAt}
@@ -245,8 +326,8 @@ func (c *Core) decide(ec *execCtx, in decideIn) (any, error) {
 		}
 		prop.result = errorResult(e)
 		c.finish(prop, actFailed, ec.member, ec.now)
-		ec.emit(proposalEvent("action.approved", prop, ec.actionID, map[string]any{"outcome": actFailed, "error": e.Code}))
-		return decideOut{ActionID: prop.id, Outcome: actFailed, Error: e}, nil
+		ec.emit(proposalEvent("action.approved", prop, ec.actionID, said(map[string]any{"outcome": actFailed, "error": e.Code})))
+		return decideOut{ActionID: prop.id, Outcome: actFailed, Error: e, ByOwner: byOwner}, nil
 	}
 	full, err := json.Marshal(res)
 	if err != nil {
@@ -254,11 +335,11 @@ func (c *Core) decide(ec *execCtx, in decideIn) (any, error) {
 	}
 	prop.result = full
 	c.finish(prop, actExecuted, ec.member, ec.now)
-	ec.emit(proposalEvent("action.approved", prop, ec.actionID, map[string]any{"outcome": actExecuted}))
+	ec.emit(proposalEvent("action.approved", prop, ec.actionID, said(map[string]any{"outcome": actExecuted})))
 	for _, e := range child.events {
 		ec.emit(e)
 	}
-	return decideOut{ActionID: prop.id, Outcome: actExecuted, Result: full}, nil
+	return decideOut{ActionID: prop.id, Outcome: actExecuted, Result: full, ByOwner: byOwner}, nil
 }
 
 // judgesOwn reports whether a is a decision or a review about an action of
@@ -293,7 +374,7 @@ type reviewIn struct {
 
 func actionReview() *impl {
 	return define(spec[reviewIn]{
-		gate: gate{perms: []string{permActionDecide}},
+		gate: gate{perms: []string{permActionDecide}, ownAgents: ownAgentsJudge},
 		resolve: func(c *Core, co *course, in reviewIn) (target, error) {
 			a := c.actions[in.ActionID.String()]
 			if a == nil || a.course != co {
@@ -339,8 +420,19 @@ func (c *Core) review(ec *execCtx, in reviewIn) (any, error) {
 	if ec.member == nil {
 		return nil, forbid("only a course member reviews")
 	}
+	byOwner := false
 	if row.member == ec.member || sameParty(row.actor, ec.actor) {
-		return nil, forbid("nobody reviews their own action, nor their agent's, nor their owner's")
+		// An agent does not review its owner's action, nor a sibling's;
+		// its owner reviews what it did only where they could have done
+		// it themselves without anyone's confirmation.
+		owner, may := c.ownerJudges(ec.actor, ec.member, row)
+		switch {
+		case owner && !may:
+			return nil, errOwnerNotAutonomous("review")
+		case !may:
+			return nil, forbid("nobody reviews their own action, nor their owner's, nor another agent's of their owner")
+		}
+		byOwner = true
 	}
 	if c.judgesOwn(row, ec.member, ec.actor) {
 		return nil, forbid("nobody reviews their own action, even at one remove: this one decides or reviews an action of yours")
@@ -354,11 +446,16 @@ func (c *Core) review(ec *execCtx, in reviewIn) (any, error) {
 	if in.Outcome == reviewEscalated {
 		typ = "action.escalated"
 	}
-	ec.emit(proposalEvent(typ, row, ec.actionID, nil))
+	var extra map[string]any
+	if byOwner {
+		extra = map[string]any{"by_owner": true}
+	}
+	ec.emit(proposalEvent(typ, row, ec.actionID, extra))
 	return struct {
 		ActionID    string `json:"action_id"`
 		ReviewState string `json:"review_state"`
-	}{row.id, in.Outcome}, nil
+		ByOwner     bool   `json:"by_owner,omitempty"`
+	}{row.id, in.Outcome, byOwner}, nil
 }
 
 // escalatedBy reports whether act, or anyone of its party, escalated a: an

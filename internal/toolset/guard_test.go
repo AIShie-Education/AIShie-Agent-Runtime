@@ -32,7 +32,7 @@ func registrarSet(t testing.TB) *Set {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := s.Writes(); !slices.Equal(got, memberWrites) {
+	if got := s.Writes(); !slices.Equal(got, managingWrites) {
 		t.Fatalf("the registrar's set offers the writes %v", got)
 	}
 	return s

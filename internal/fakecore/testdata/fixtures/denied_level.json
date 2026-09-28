@@ -85,6 +85,29 @@
        "course_id": "<id:2>",
        "course_status": "active",
        "member_id": "<id:7>",
+       "perm_ceiling_reasons": {
+        "action_decide": "agent_decides_by_proposal",
+        "agent_delegate": "agent_never"
+       },
+       "perm_ceilings": {
+        "action_decide": "confirm_required",
+        "agent_delegate": "denied",
+        "assignment_write": "autonomous",
+        "conversation_answer": "autonomous",
+        "conversation_ask": "autonomous",
+        "document_read": "autonomous",
+        "document_read_draft": "autonomous",
+        "document_write": "autonomous",
+        "grade_post": "autonomous",
+        "grade_read": "autonomous",
+        "grade_submit": "autonomous",
+        "member_invite": "autonomous",
+        "member_manage": "autonomous",
+        "member_read": "autonomous",
+        "rubric_read": "autonomous",
+        "submission_read": "autonomous",
+        "submission_write": "autonomous"
+       },
        "perms": {
         "action_decide": "denied",
         "agent_delegate": "denied",
@@ -97,6 +120,7 @@
         "grade_post": "denied",
         "grade_read": "denied",
         "grade_submit": "denied",
+        "member_invite": "denied",
         "member_manage": "denied",
         "member_read": "denied",
         "rubric_read": "denied",

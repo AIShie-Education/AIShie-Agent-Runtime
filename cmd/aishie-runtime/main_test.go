@@ -230,7 +230,7 @@ func fakeCore(t *testing.T) (*fakecore.Core, *httptest.Server) {
 func TestCatalogue(t *testing.T) {
 	_, srv := fakeCore(t)
 	code, out, errs := runCmd(t, env(), "catalogue", "--core", srv.URL)
-	if code != exitOK || !strings.HasPrefix(out, worker.SnapshotCatalogueHash+"  104 tools") {
+	if code != exitOK || !strings.HasPrefix(out, worker.SnapshotCatalogueHash+"  131 tools") {
 		t.Fatalf("catalogue: %d\n%s%s", code, out, errs)
 	}
 	for _, snapshot := range []string{"../../internal/core/testdata/catalogue.json", "../../internal/core/testdata/catalogue.sha256"} {
@@ -263,11 +263,25 @@ type liveWorld struct {
 	co      fakecore.Course
 	yuki    fakecore.Member
 	own     fakecore.Member
+	ownA    string
 	tutor   fakecore.Member
 	config  string
 	secrets string
 	llm     *fakellm.Server
 	coreURL string
+}
+
+// answersInSite waits for the runtime to declare that Yuki's agent answers
+// in the site (me_site_chat), before which Core takes no question for it.
+func (w *liveWorld) answersInSite(t *testing.T) {
+	t.Helper()
+	deadline := time.Now().Add(20 * time.Second)
+	for !w.fc.SiteChat(w.ownA) {
+		if time.Now().After(deadline) {
+			t.Fatal("the runtime never declared that Yuki's agent answers in the site")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func newLiveWorld(t *testing.T) *liveWorld {
@@ -291,6 +305,7 @@ func newLiveWorld(t *testing.T) *liveWorld {
 		t.Fatal(err)
 	}
 	w.own = must(fc.Seat(ownA.ID, w.co.ID, fakecore.SeatOptions{Preset: "delegate", Principal: w.yuki.ID}))
+	w.ownA = ownA.ID
 	tutorA, err := fc.AddAgent("CS101 Tutor", sato.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -464,6 +479,7 @@ func TestRunServesAndStops(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
+	w.answersInSite(t)
 	conv, _, err := w.fc.Ask(w.co.ID, w.yuki.ID, w.own.ID, "When is HW1 due?")
 	if err != nil {
 		t.Fatal(err)
@@ -693,6 +709,7 @@ func TestSecondSignalStopsAtOnce(t *testing.T) {
 	cmd, out, exited := child(t, "run", "CONFIG="+w.config, "SECRETS_DIR="+w.secrets, "HTTP_ADDR=127.0.0.1:0",
 		"LOG_FORMAT=json", "SHUTDOWN_GRACE=60s", "DATABASE_URL=", "WORKER_ID=child")
 	out.wait(t, `"msg":"aishie-runtime started"`)
+	w.answersInSite(t)
 	if _, _, err := w.fc.Ask(w.co.ID, w.yuki.ID, w.own.ID, "Will you finish?"); err != nil {
 		t.Fatal(err)
 	}

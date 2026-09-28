@@ -2,7 +2,7 @@
   "additionalProperties": false,
   "properties": {
     "clear_points_possible": {
-      "description": "turn a directly graded component back into a bucket",
+      "description": "turn a directly graded component back into a bucket; not once a grade has been entered on it",
       "type": "boolean"
     },
     "component_id": {
@@ -14,6 +14,10 @@
       "maximum": 2147483647,
       "minimum": -2147483648,
       "type": "integer"
+    },
+    "existing_grades": {
+      "description": "rescale or keep_scores: what becomes of grades already entered on a directly graded component when its points_possible changes, required once any has been; as for assignment.update. Needs grade_submit and grade_post as well (optional; omit or null)",
+      "type": "string"
     },
     "name": {
       "description": "(optional; omit or null)",

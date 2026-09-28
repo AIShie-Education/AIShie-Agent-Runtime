@@ -33,8 +33,8 @@ func loadCatalogue(t testing.TB) []catTool {
 	if err := json.Unmarshal(raw, &cat); err != nil {
 		t.Fatal(err)
 	}
-	if len(cat.Tools) != 104 {
-		t.Fatalf("the snapshot has %d tools, want 104", len(cat.Tools))
+	if len(cat.Tools) != 131 {
+		t.Fatalf("the snapshot has %d tools, want 131", len(cat.Tools))
 	}
 	return cat.Tools
 }

@@ -200,11 +200,20 @@ func (lc *liveCore) newWorld(t *testing.T) *liveWorld {
 	tok := lc.result(w.sato.token, "POST", "/v1/me/agents/"+w.tutor.id+"/tokens", map[string]any{"label": "runtime"})
 	w.tutor.token, w.tokenID = str(tok, "token"), str(tok, "credential_id")
 	w.tutorM = str(lc.result(w.sato.token, "POST", c+"/delegates", map[string]any{"actor_id": w.tutor.id, "preset": "course_tutor"}), "member_id")
+	lc.declareSiteChat(w.tutor.token)
 	w.agentC = newMCPClient(lc.base, w.tutor.token, lc.hc)
 	if a, err := w.agentC.initialize(context.Background()); err != nil || a.Status != http.StatusOK {
 		t.Fatalf("initialize: %v %d %s", err, a.Status, a.Body)
 	}
 	return w
+}
+
+// declareSiteChat declares, with an agent's token, that it takes
+// conversations in the site, as the runtime running it does: without it,
+// Core refuses anyone a conversation with the agent (agent_answers_elsewhere).
+func (lc *liveCore) declareSiteChat(token string) {
+	lc.t.Helper()
+	lc.result(token, "POST", "/v1/me/site-chat", map[string]any{"on": true})
 }
 
 func (w *liveWorld) course() string           { return w.courseID }
@@ -302,6 +311,7 @@ func (w *liveWorld) ownAgent() *mcpClient {
 	if w.ownM = str(inner, "member_id"); w.ownM == "" {
 		w.t.Fatalf("the delegate approved, but: %v", res)
 	}
+	w.lc.declareSiteChat(token)
 	w.own = newMCPClient(w.lc.base, token, w.lc.hc)
 	if h, err := w.own.initialize(context.Background()); err != nil || h.Status != http.StatusOK {
 		w.t.Fatalf("initialize: %v %d %s", err, h.Status, h.Body)
@@ -341,6 +351,7 @@ func (w *liveWorld) listedTutor(student int) (string, *mcpClient) {
 	token := str(w.lc.result(w.sato.token, "POST", "/v1/me/agents/"+id+"/tokens", map[string]any{"label": "runtime"}), "token")
 	seat := str(w.lc.result(w.sato.token, "POST", w.path("/delegates"), map[string]any{"actor_id": id, "preset": "tutor",
 		"student_scope": "listed", "listed_students": []string{w.seats[student]}, "answers_course": true}), "member_id")
+	w.lc.declareSiteChat(token)
 	c := newMCPClient(w.lc.base, token, w.lc.hc)
 	if h, err := c.initialize(context.Background()); err != nil || h.Status != http.StatusOK {
 		w.t.Fatalf("initialize: %v %d %s", err, h.Status, h.Body)
@@ -356,6 +367,7 @@ func (w *liveWorld) ownerAgent(perms map[string]string) (string, *mcpClient) {
 	token := str(w.lc.result(w.sato.token, "POST", "/v1/me/agents/"+id+"/tokens", map[string]any{"label": "runtime"}), "token")
 	seat := str(w.lc.result(w.sato.token, "POST", w.path("/delegates"), map[string]any{"actor_id": id, "preset": "delegate",
 		"perms": perms}), "member_id")
+	w.lc.declareSiteChat(token)
 	c := newMCPClient(w.lc.base, token, w.lc.hc)
 	if h, err := c.initialize(context.Background()); err != nil || h.Status != http.StatusOK {
 		w.t.Fatalf("initialize: %v %d %s", err, h.Status, h.Body)
@@ -370,6 +382,7 @@ func (w *liveWorld) registrar(perms map[string]string) (string, *mcpClient) {
 	id := str(w.lc.result(w.lc.admin, "POST", "/v1/actors", map[string]any{"kind": "agent", "display_name": "CS101 Registrar"}), "actor_id")
 	token := str(w.lc.result(w.lc.admin, "POST", "/v1/actors/"+id+"/tokens", map[string]any{"label": "runtime"}), "token")
 	seat := str(w.lc.result(w.sato.token, "POST", w.path("/members"), map[string]any{"actor_id": id, "preset": "ta", "perms": perms}), "member_id")
+	w.lc.declareSiteChat(token)
 	c := newMCPClient(w.lc.base, token, w.lc.hc)
 	if h, err := c.initialize(context.Background()); err != nil || h.Status != http.StatusOK {
 		w.t.Fatalf("initialize: %v %d %s", err, h.Status, h.Body)

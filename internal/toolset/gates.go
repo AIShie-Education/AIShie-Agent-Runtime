@@ -94,6 +94,10 @@ var Gates = map[string]Gate{
 	"action_list_proposed":       {Any: []string{"action_decide"}},
 	"action_list_pending_review": {Any: []string{"action_decide"}},
 	"action_get":                 {Any: []string{"action_decide"}},
+	// The course's join links as their makers and revokers see them, never
+	// a token, on member_invite, as Core gates them: what a seat that may
+	// revoke one reads first.
+	"course_join_link_list": {Any: []string{"member_invite"}},
 }
 
 // WriteGates are the gates of the writes a model may be offered, where the
@@ -115,34 +119,57 @@ var Gates = map[string]Gate{
 // every call again at its own level: these only keep from the model what
 // it could never do.
 var WriteGates = map[string]Gate{
-	"assignment_create":         {Any: []string{"assignment_write"}},
-	"assignment_update":         {Any: []string{"assignment_write"}},
-	"assignment_publish":        {Any: []string{"assignment_write"}},
-	"assignment_unpublish":      {Any: []string{"assignment_write"}},
-	"component_create":          {Any: []string{"assignment_write"}},
-	"component_update":          {Any: []string{"assignment_write"}},
-	"component_move":            {Any: []string{"assignment_write"}},
-	"document_create":           {Any: []string{"document_write", "submission_write", "grade_submit"}},
-	"document_add_version":      {Any: []string{"document_write", "submission_write", "grade_submit"}},
-	"document_publish":          {Any: []string{"document_write", "submission_write", "grade_submit"}},
-	"document_archive":          {Any: []string{"document_write", "submission_write", "grade_submit"}},
-	"grade_submit":              {Any: []string{"grade_submit"}},
-	"grade_post":                {Any: []string{"grade_post"}},
-	"grade_regrade":             {All: []string{"grade_submit", "grade_post"}},
-	"submission_create":         {Any: []string{"submission_write"}},
-	"submission_update_draft":   {Any: []string{"submission_write"}},
-	"submission_submit":         {Any: []string{"submission_write"}},
-	"submission_set_lateness":   {Any: []string{"grade_submit"}},
-	"submission_record_missing": {Any: []string{"grade_submit"}},
-	"member_add":                {Any: []string{"member_manage"}},
-	"member_update_perms":       {Any: []string{"member_manage"}},
-	"member_update_perms_bulk":  {Any: []string{"member_manage"}},
-	"member_rescope":            {Any: []string{"member_manage"}},
-	"member_pause":              {Any: []string{"member_manage"}},
-	"member_resume":             {Any: []string{"member_manage"}},
-	"member_remove":             {Any: []string{"member_manage"}},
-	"action_decide":             {Any: []string{"action_decide"}},
-	"action_review":             {Any: []string{"action_decide"}},
+	"assignment_create":    {Any: []string{"assignment_write"}},
+	"assignment_update":    {Any: []string{"assignment_write"}},
+	"assignment_publish":   {Any: []string{"assignment_write"}},
+	"assignment_unpublish": {Any: []string{"assignment_write"}},
+	"component_create":     {Any: []string{"assignment_write"}},
+	"component_update":     {Any: []string{"assignment_write"}},
+	"component_move":       {Any: []string{"assignment_write"}},
+	"document_create":      {Any: []string{"document_write", "submission_write", "grade_submit"}},
+	"document_add_version": {Any: []string{"document_write", "submission_write", "grade_submit"}},
+	"document_publish":     {Any: []string{"document_write", "submission_write", "grade_submit"}},
+	"document_archive":     {Any: []string{"document_write", "submission_write", "grade_submit"}},
+	// Renaming a document or moving it in the list, and bringing back one
+	// archived: whoever may archive it, as document_archive.
+	"document_update":    {Any: []string{"document_write", "submission_write", "grade_submit"}},
+	"document_unarchive": {Any: []string{"document_write", "submission_write", "grade_submit"}},
+	"grade_submit":       {Any: []string{"grade_submit"}},
+	"grade_post":         {Any: []string{"grade_post"}},
+	"grade_regrade":      {All: []string{"grade_submit", "grade_post"}},
+	// A total overridden, its override cleared, or its feedback written:
+	// each writes what a student is shown at once, and Core gates them as
+	// a regrade, on both grade permissions at the lower of their levels.
+	"grade_override_total": {All: []string{"grade_submit", "grade_post"}},
+	"grade_clear_override": {All: []string{"grade_submit", "grade_post"}},
+	"grade_comment_total":  {All: []string{"grade_submit", "grade_post"}},
+	// Ungraded work no longer counted as zero: gated as posting as final
+	// is, on grade_post.
+	"grade_undo_ungraded_as_zero": {Any: []string{"grade_post"}},
+	"submission_create":           {Any: []string{"submission_write"}},
+	"submission_update_draft":     {Any: []string{"submission_write"}},
+	"submission_submit":           {Any: []string{"submission_write"}},
+	"submission_set_lateness":     {Any: []string{"grade_submit"}},
+	"submission_record_missing":   {Any: []string{"grade_submit"}},
+	"member_add":                  {Any: []string{"member_manage"}},
+	"member_update_perms":         {Any: []string{"member_manage"}},
+	"member_update_perms_bulk":    {Any: []string{"member_manage"}},
+	"member_rescope":              {Any: []string{"member_manage"}},
+	"member_pause":                {Any: []string{"member_manage"}},
+	"member_resume":               {Any: []string{"member_manage"}},
+	"member_remove":               {Any: []string{"member_manage"}},
+	// A seat's roster role, a fact of the roster that grants nothing, is
+	// changed as any other member write, and kept off the same seats.
+	"member_set_role": {Any: []string{"member_manage"}},
+	// The course's title and description, which Core lets whoever manages
+	// its members change from their seat: a course write, not the
+	// platform's administration of courses that course_update is.
+	"course_update_details": {Any: []string{"member_manage"}},
+	// A join link revoked before its ten minutes are up: it seats nobody
+	// after. (Making one is denied: BuiltinDeny.)
+	"course_join_link_revoke": {Any: []string{"member_invite"}},
+	"action_decide":           {Any: []string{"action_decide"}},
+	"action_review":           {Any: []string{"action_decide"}},
 }
 
 // DefaultAllow is the allowlist when an agent's configuration names none:
@@ -151,13 +178,14 @@ var WriteGates = map[string]Gate{
 var DefaultAllow = append(slices.Clone(defaultReads), sortedKeys(WriteGates)...)
 
 // defaultReads are the read tools of §2.3, the versions of a document and
-// where students stand on an assignment, the roster's, and the queues of
-// proposals.
+// where students stand on an assignment, the roster's, the queues of
+// proposals, and the course's join links.
 var defaultReads = []string{
 	"course_get", "document_list", "document_get", "document_versions", "assignment_list", "assignment_get",
 	"submission_list", "submission_get", "submission_roster", "grade_list", "grade_get", "component_tree", "gradebook_get",
 	"member_list", "member_get", "member_lookup_actor",
 	"action_list_proposed", "action_list_pending_review", "action_get",
+	"course_join_link_list",
 }
 
 // BuiltinDeny is never offered to a model, whatever the configuration or
@@ -198,14 +226,31 @@ var BuiltinDeny = []string{
 	// model must never change (SeatGuard).
 	"member_add_delegate", "member_delegate_defaults",
 	// The platform's own administration, which Core gates on a platform
-	// role and no course permission grants: courses made, changed,
-	// activated, archived, listed across the platform, their instructors
-	// seated; presets, terms and departments.
-	"course_create", "course_update", "course_activate", "course_archive", "course_seat_instructor", "course_list",
-	"preset_*", "term_*", "department_*",
+	// or department administrator's role and no course permission grants:
+	// courses made, changed, activated, archived, moved between
+	// departments, listed across the platform, their instructors seated;
+	// presets, terms and departments.
+	"course_create", "course_update", "course_activate", "course_archive", "course_move", "course_seat_instructor",
+	"course_list", "preset_*", "term_*", "department_*",
 	// A signed upload URL is for bytes, which the model cannot send, and
 	// is a credential for the upload besides.
 	"document_upload_url",
+	// Purging a document or a version, uploaded by mistake, deletes its
+	// text and file for good: an administrator's tool, which no course
+	// permission grants.
+	"document_purge",
+	// A join link seats whoever opens it as a student, at once and by no
+	// proposal, and its token, returned once, is a credential that would
+	// be in the model's text. Revoking one, and listing them, are gated
+	// on member_invite.
+	"course_join_link_create",
+	// Core's memory of the agent: entries about its owner, about each
+	// asker, and the course's, reached by the conversation the call names.
+	// The runtime keeps each conversation's memory itself and answers one
+	// conversation from that conversation alone (design §6); a memory
+	// tool would let the model read what it keeps about other askers by
+	// naming their conversations, and write about people.
+	"memory_*",
 }
 
 // BuiltinDenied reports whether name is on the built-in deny list.

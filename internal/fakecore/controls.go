@@ -287,11 +287,14 @@ func (c *Core) AddUnownedAgent(name string) Actor {
 }
 
 // SetOwner gives the agent agentID the person ownerID as its owner, or
-// takes its owner away when ownerID is "", as an administrator's
-// actor.set_owner does in Core: refused while the agent is seated in a
-// course that is not archived, and revoking every token the agent has,
-// since whoever owned it before may hold them. IssueToken issues it the
-// next.
+// takes its owner away when ownerID is "", as an administrator could in a
+// Core from before 169cf50: refused while the agent is seated in a course
+// that is not archived, and revoking every token the agent has, since
+// whoever owned it before may hold them. IssueToken issues it the next.
+// Core no longer does it at all (its owner is fixed when it is registered,
+// and the database refuses a change): SetOwner is for the runtime's
+// defences against an owner that changes, and for tests' agents nobody
+// owns, which AddUnownedAgent makes as Core does.
 func (c *Core) SetOwner(agentID, ownerID string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -468,19 +471,18 @@ func (c *Core) Seat(actorID, courseID string, o SeatOptions) (Member, error) {
 	}
 	for i, p := range allPerms {
 		m.perms[p] = pr.levels[i]
-		if principal != nil {
-			m.perms[p] = min(m.perms[p], delegateCap(principal, p))
-		}
 	}
 	for p, name := range o.Perms {
 		l, err := parseLevel(name)
 		if err != nil || !validPerm(p) {
 			return Member{}, fmt.Errorf("fakecore: Seat: %s: %s is not a permission and level", p, name)
 		}
-		if principal != nil && l > delegateCap(principal, p) {
-			return Member{}, fmt.Errorf("fakecore: Seat: a delegate may not hold %s at %s: its principal holds less", p, name)
-		}
 		m.perms[p] = l
+	}
+	// No more than the seat may hold at all, as Core's seat() has it: a
+	// preset's level cut down, a level named refused.
+	if err := toCeilings(a.kind == "agent", principal, m.perms, o.Perms); err != nil {
+		return Member{}, fmt.Errorf("fakecore: Seat: %w", err)
 	}
 	if err := c.scopeSeat(m, pr, o); err != nil {
 		return Member{}, err
@@ -728,9 +730,10 @@ func (c *Core) SetLevel(memberID, perm, lvl string) error {
 	if !validPerm(perm) {
 		return fmt.Errorf("fakecore: SetLevel: there is no permission %q", perm)
 	}
-	if p := m.principal; p != nil && l > m.perms[perm] && l > delegateCap(p, perm) {
-		return fmt.Errorf("fakecore: SetLevel: the delegate's principal holds %s at %s, so the delegate cannot hold it at %s",
-			perm, delegateCap(p, perm), l)
+	// A change that widens a seat is held to its ceilings, as Core's
+	// grant() holds it.
+	if limit, why := ceiling(m.actor.kind == "agent", m.principal, perm); l > m.perms[perm] && l > limit {
+		return fmt.Errorf("fakecore: SetLevel: %w", errAboveCeiling(perm, l, limit, why))
 	}
 	m.perms[perm] = l
 	c.flushStamped([]*event{memberEvent("member.updated", m, nil)})
@@ -840,7 +843,17 @@ func (c *Core) judge(a *action, also func(*member) bool) (*member, error) {
 			return m, nil
 		}
 	}
-	return nil, errors.New("fakecore: nobody in the course may judge that action: seat someone who decides actions and is not of its actor's party")
+	// Else the agent's owner, where they could have done it themselves
+	// without anyone's confirmation, as Core lets them.
+	if o := a.actor.owner; o != nil {
+		if m := c.seatOf(o, a.course); m != nil && m.counts(now) && also(m) {
+			if _, may := c.ownerJudges(o, m, a); may {
+				return m, nil
+			}
+		}
+	}
+	return nil, errors.New("fakecore: nobody in the course may judge that action: seat someone who decides actions and is not of " +
+		"its actor's party, or give its actor's owner the level to do it themselves")
 }
 
 func (c *Core) decideAs(control, actionID, decision string, reason *string) (string, error) {

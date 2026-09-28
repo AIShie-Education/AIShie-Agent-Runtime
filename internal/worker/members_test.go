@@ -13,9 +13,10 @@ import (
 )
 
 // The course's members, managed by a model through a seat that holds
-// member_manage (design §4): only an instructor gives one, Core never
-// gives it to anyone's delegate, and the runtime keeps every member write
-// off the agent's own seat and off the seat of whoever it acts for.
+// member_manage (design §4): only someone who manages them gives one, and
+// Core gives a delegate no more of it than its principal holds, so a
+// student's own agent none; the runtime keeps every member write off the
+// agent's own seat and off the seat of whoever it acts for.
 
 // registrar seats an agent nobody owns, as an instructor seats one with
 // member.add: a ta's seat, with the submission_write a student holds (or
@@ -164,15 +165,17 @@ func TestMemberWrites(t *testing.T) {
 
 // TestMemberToolsFollowPerms: the roster is offered wherever the seat's
 // perms allow it, as any read is; a member write only where member_manage
-// is allowed, which Core never allows a delegate. Sato's own assistant,
-// given member_read, reads the roster in his conversation and changes
-// nobody; his course tutor, whose member_read is denied, answers Yuki with
-// no member tool at all.
+// is allowed, which Core allows a delegate no further than its principal:
+// never a student's own agent. Sato's own assistant, given member_read,
+// reads the roster in his conversation and changes nobody; his course
+// tutor, whose member_read is denied, answers Yuki with no member tool at
+// all.
 func TestMemberToolsFollowPerms(t *testing.T) {
 	w := newWorld(t)
 	own := w.ownerAgent("sato-assistant", map[string]string{"member_read": "autonomous"})
-	if err := w.fc.SetLevel(own.seat.ID, "member_manage", "autonomous"); err == nil {
-		t.Fatal("the fake gave a delegate member_manage, which Core never does")
+	yukis := w.ownAgent("yuki-helper", 0)
+	if err := w.fc.SetLevel(yukis.seat.ID, "member_manage", "autonomous"); err == nil {
+		t.Fatal("the fake gave a student's agent member_manage, which Core never does")
 	}
 	tu := w.tutor("tutor")
 	ownModel := scripted.New(scripted.Reply("Here is the roster."))

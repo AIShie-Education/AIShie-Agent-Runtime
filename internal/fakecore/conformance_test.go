@@ -72,6 +72,9 @@ func newFakeWorld(t *testing.T, o Options) *fakeWorld {
 		t.Fatal(err)
 	}
 	w.tutorM = must(fc.Seat(w.tutorA.ID, w.co.ID, SeatOptions{Preset: "course_tutor", Principal: w.sato.ID}))
+	// Every agent of the world takes conversations in the site, as the
+	// runtime running it declares (me.site_chat).
+	w.ok(fc.DeclareSiteChat(w.tutorA.ID))
 	w.agentC = newMCPClient(srv.URL, w.tutorA.Token, srv.Client())
 	if a, err := w.agentC.initialize(context.Background()); err != nil || a.Status != 200 {
 		t.Fatalf("initialize: %v %d %s", err, a.Status, a.Body)
@@ -143,6 +146,7 @@ func (w *fakeWorld) ownAgent() *mcpClient {
 	w.ok(err)
 	w.ownM, err = w.fc.Seat(a.ID, w.co.ID, SeatOptions{Preset: "delegate", Principal: w.seats[0].ID})
 	w.ok(err)
+	w.ok(w.fc.DeclareSiteChat(a.ID))
 	w.own = newMCPClient(w.srv.URL, a.Token, w.srv.Client())
 	if h, err := w.own.initialize(context.Background()); err != nil || h.Status != 200 {
 		w.t.Fatalf("initialize: %v %d %s", err, h.Status, h.Body)
@@ -186,6 +190,7 @@ func (w *fakeWorld) listedTutor(student int) (string, *mcpClient) {
 	m, err := w.fc.Seat(a.ID, w.co.ID, SeatOptions{Preset: "tutor", Principal: w.sato.ID, StudentScope: scopeListed,
 		ListedStudents: []string{w.seats[student].ID}, AnswersCourse: &yes})
 	w.ok(err)
+	w.ok(w.fc.DeclareSiteChat(a.ID))
 	return m.ID, w.client(a.Token)
 }
 
@@ -207,6 +212,7 @@ func (w *fakeWorld) ownerAgent(perms map[string]string) (string, *mcpClient) {
 	w.ok(err)
 	m, err := w.fc.Seat(a.ID, w.co.ID, SeatOptions{Preset: "delegate", Principal: w.sato.ID, Perms: perms})
 	w.ok(err)
+	w.ok(w.fc.DeclareSiteChat(a.ID))
 	return m.ID, w.client(a.Token)
 }
 
@@ -220,6 +226,7 @@ func (w *fakeWorld) registrar(perms map[string]string) (string, *mcpClient) {
 	a := w.fc.AddUnownedAgent("CS101 Registrar")
 	m, err := w.fc.Seat(a.ID, w.co.ID, SeatOptions{Preset: "ta", Perms: perms})
 	w.ok(err)
+	w.ok(w.fc.DeclareSiteChat(a.ID))
 	return m.ID, w.client(a.Token)
 }
 

@@ -120,6 +120,10 @@ type gate struct {
 	// self: the tool is about the caller alone (me_get): an active actor
 	// may call it.
 	self bool
+	// ownAgents, with perms, is what an agent's owner may do about a
+	// target of their own agent's however little perms give them (Core's
+	// Gate.OwnAgents): the level it returns, when higher, is theirs.
+	ownAgents func(c *Core, caller *actor, seat *member, tgt target) level
 }
 
 // target is what a call acts on, as its tool resolves it.
@@ -387,17 +391,35 @@ func (c *Core) authorize(t *toolDef, in any, act *actor, asMember *member) (auth
 	} else {
 		res.decision = check(im.gate.perms)
 	}
-	if !res.decision.level.allowed() {
+	// An agent's owner, whose seat counts, goes on to see whether the
+	// target is their own agent's, however little the perms give them;
+	// anyone else denied stops here.
+	owner := im.gate.ownAgents != nil && res.decision.member != nil && res.decision.level < autonomous &&
+		(res.decision.level.allowed() || res.decision.reason == reasonPermDenied)
+	if !res.decision.level.allowed() && !owner {
 		return res, nil
 	}
 	tgt, err := im.resolve(c, co, in)
 	if err != nil {
+		if _, ok := asAPI(err); ok && !res.decision.level.allowed() {
+			// Let as far as the target only as an owner: whether it
+			// exists is none of their business.
+			return res, nil
+		}
 		return res, err
 	}
 	if tgt.typ == "" {
 		tgt.typ = res.target.typ
 	}
 	res.target = tgt
+	if owner {
+		if l := im.gate.ownAgents(c, act, res.decision.member, tgt); l > res.decision.level {
+			res.decision = decision{level: l, member: res.decision.member}
+		}
+		if !res.decision.level.allowed() {
+			return res, nil
+		}
+	}
 	if len(tgt.perms) > 0 {
 		if res.decision = check(tgt.perms); !res.decision.level.allowed() {
 			return res, nil
