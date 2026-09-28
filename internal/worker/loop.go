@@ -450,7 +450,7 @@ func (l *loop) runTools(ctx context.Context, resp *llm.Response) error {
 		pdf = fl.FileLimits()
 	}
 	parts, err := l.set.Run(ctx, toolset.Runner{
-		Client: l.c.a.client, Files: l.c.a.s.files, Texts: l.c.a.s.texts, MaxParallel: eff.Tools.MaxParallelTools,
+		Client: l.c.a.client, Files: l.c.a.s.files, Texts: l.c.a.s.texts, OCR: l.c.a.s.o.OCR, MaxParallel: eff.Tools.MaxParallelTools,
 		FileInput: l.m.ad.Capabilities().FileInput, PDFLimits: pdf, Writes: l.writes, Guard: l.guard,
 	}, l.c.s.course, run)
 	l.accountWrites()

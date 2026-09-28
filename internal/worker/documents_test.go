@@ -2,6 +2,8 @@ package worker
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -14,6 +16,8 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/doctext/doctexttest"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/scripted"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/ocr"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/memstore"
 )
 
 // fileResult is what a document_get result says of its file: the record
@@ -127,7 +131,7 @@ func TestCourseDocumentsReachTheModel(t *testing.T) {
 	res, _ := resultsOf(t, noFiles.Requests()[1])
 	if s := res[2]; s.File.GivenAs != "not_given" || s.FileText != "" ||
 		s.File.Note != "the file could not be given to the model: this model does not take files, and the PDF has no text to read: "+
-			"it looks scanned, or like pictures of text; ask for a version with selectable text" {
+			"it looks scanned, or like pictures of text; the runtime has no OCR here to recognize its text; ask for a version with selectable text" {
 		t.Errorf("Ken's scan: %+v", s)
 	}
 }
@@ -213,5 +217,107 @@ func TestLongDeckReadInParts(t *testing.T) {
 	}
 	if n := counter.blobs.Load(); n != 1 {
 		t.Errorf("the deck was fetched %d times, want once", n)
+	}
+}
+
+// gatedRecognizer recognizes a file as text once released, counting its
+// runs.
+type gatedRecognizer struct {
+	release chan struct{}
+	runs    atomic.Int32
+	text    string
+}
+
+func (g *gatedRecognizer) Recognize(ctx context.Context, _ []byte, _ ocr.Kind, pages int, progress func(done, of int)) (*ocr.Result, error) {
+	g.runs.Add(1)
+	progress(0, pages)
+	select {
+	case <-g.release:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	progress(pages, pages)
+	return &ocr.Result{Text: g.text, Sections: []ocr.Section{{N: 1}}, Pages: 1, Of: 1}, nil
+}
+
+func (*gatedRecognizer) Describe() string { return "gated 1.0" }
+
+// TestScanReadByOCR: a scanned handout reaches a model that takes no files
+// as what OCR recognized of it, end to end. The first question starts its
+// recognition, in the background, and the model is told it is in
+// progress, with the call to ask again; asked again once it is done, the
+// model is given the text, marked as OCR's, and answers from it. The file
+// was fetched once and recognized once, and its text is kept in the store
+// by its checksum.
+func TestScanReadByOCR(t *testing.T) {
+	w := newWorld(t)
+	scan := doctexttest.PDF(doctexttest.PDFPage{Image: true})
+	scanID, err := w.fc.AddFile(w.co.ID, "Old handout", "application/pdf", scan)
+	w.ok(err)
+	rec := &gatedRecognizer{release: make(chan struct{}), text: "## Page 1\n期中考試範圍：第一章到第五章"}
+	st := memstore.New()
+	svc := ocr.NewService(t.Context(), ocr.ServiceOptions{Recognizer: rec, Config: ocr.Config{Wait: time.Second}, Store: st, Holder: "w1"})
+	t.Cleanup(svc.Wait)
+
+	var results []fileResult
+	var askAgain string
+	again := func(_ context.Context, req *llm.Request) (*llm.Response, error) {
+		res, _ := resultsOf(t, req)
+		results = append(results, res...)
+		var raw struct {
+			File struct {
+				OCR      string `json:"ocr"`
+				AskAgain *struct {
+					Arguments json.RawMessage `json:"arguments"`
+				} `json:"ask_again"`
+			} `json:"file"`
+		}
+		_ = json.Unmarshal([]byte(req.Messages[len(req.Messages)-1].Parts[0].Content), &raw)
+		if raw.File.OCR != "in_progress" || raw.File.AskAgain == nil {
+			return nil, fmt.Errorf("the first result: %+v", res)
+		}
+		askAgain = string(raw.File.AskAgain.Arguments)
+		close(rec.release)
+		return scripted.CallTool("document_get", askAgain)(context.Background(), req)
+	}
+	answer := func(_ context.Context, req *llm.Request) (*llm.Response, error) {
+		res, _ := resultsOf(t, req)
+		results = append(results, res...)
+		return scripted.Reply("第一章到第五章")(context.Background(), req)
+	}
+	m := scripted.New(scripted.CallTool("document_get", `{"document_id":"`+scanID+`"}`), again, answer).
+		WithCapabilities(llm.Capabilities{ParallelToolCalls: true, ToolChoiceNone: true})
+	counter := &countBlobs{next: http.DefaultTransport}
+	ken := w.ownAgent("ken-helper", 1)
+	w.start(w.config(nil, w.agentDoc("ken-helper", "text", nil, nil)), models{"text": m},
+		workerOpts{edit: func(o *Options) {
+			o.OCR = svc
+			o.HTTPClient = &http.Client{Timeout: 5 * time.Second, Transport: counter}
+			o.HostedHTTPClient = o.HTTPClient
+		}})
+	c, _ := w.ask(1, ken, "期中考範圍是什麼？")
+	if a := w.waitAnswers(c, 1); a[0].Body != "第一章到第五章" {
+		t.Errorf("Ken's answer: %q", a[0].Body)
+	}
+	w.ok(m.Err())
+	if len(results) != 2 {
+		t.Fatalf("%d results", len(results))
+	}
+	if r := results[0]; r.File.GivenAs != "not_given" || r.FileText != "" || !strings.Contains(r.File.Note, "the runtime is recognizing its text now (OCR)") {
+		t.Errorf("the first result: %+v", r)
+	}
+	if !strings.Contains(askAgain, scanID) {
+		t.Errorf("ask_again %s", askAgain)
+	}
+	if r := results[1]; r.File.GivenAs != "text" || r.File.ExtractedFrom != "ocr" || r.FileText != rec.text ||
+		!strings.Contains(r.File.Note, "may hold recognition errors") {
+		t.Errorf("asked again: %+v", r)
+	}
+	if n := counter.blobs.Load(); n != 1 || rec.runs.Load() != 1 {
+		t.Errorf("fetched %d times, recognized %d times; want once each", n, rec.runs.Load())
+	}
+	sum := sha256.Sum256(scan)
+	if kept, err := st.OCRText(t.Context(), "sha256:"+hex.EncodeToString(sum[:])); err != nil || kept.Text != rec.text || kept.Engine != "gated 1.0" {
+		t.Errorf("kept %+v %v", kept, err)
 	}
 }

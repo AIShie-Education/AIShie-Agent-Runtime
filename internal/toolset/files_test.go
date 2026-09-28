@@ -187,7 +187,8 @@ func TestRunFiles(t *testing.T) {
 			size: len(scanned), fileInput: true, pdfLimits: llm.FileLimits{PDFPages: 10}, givenAs: givenFile, fetched: true, wantFile: true},
 		{name: "a scanned PDF is not given where the model takes no files", path: "/scanned.pdf", title: "Scan", ct: "application/pdf",
 			size: len(scanned), givenAs: givenNot, fetched: true,
-			note: "this model does not take files, and the PDF has no text to read: it looks scanned, or like pictures of text; ask for a version with selectable text"},
+			note: "this model does not take files, and the PDF has no text to read: it looks scanned, or like pictures of text; " +
+				"the runtime has no OCR here to recognize its text; ask for a version with selectable text"},
 		{name: "a scanned PDF of more pages than its provider takes is not given", path: "/scanned.pdf", title: "Scan", ct: "application/pdf",
 			size: len(scanned), fileInput: true, pdfLimits: llm.FileLimits{PDFPages: 1}, givenAs: givenNot, fetched: true,
 			note: "it has 2 pages, more than the 1 this model takes in a file, and the PDF has no text to read"},
@@ -195,7 +196,8 @@ func TestRunFiles(t *testing.T) {
 			size: len(garbled), fileInput: true, pdfLimits: llm.FileLimits{PDFPages: 10}, givenAs: givenFile, fetched: true, wantFile: true},
 		{name: "a PDF whose fonts do not map is not given where the model takes no files", path: "/garbled.pdf", title: "Midterm", ct: "application/pdf",
 			size: len(garbled), givenAs: givenNot, fetched: true,
-			note: "this model does not take files, and the PDF's text cannot be read: its fonts do not map to text; ask for a version with selectable text"},
+			note: "this model does not take files, and the PDF's text cannot be read: its fonts do not map to text; " +
+				"the runtime has no OCR here to recognize its text; ask for a version with selectable text"},
 		{name: "a PDF that needs a password is given to no model", path: "/locked.pdf", title: "Answers", ct: "application/pdf",
 			size: len(locked), fileInput: true, pdfLimits: llm.FileLimits{PDFPages: 10}, givenAs: givenNot, fetched: true, note: "password-protected"},
 		{name: "a PDF that does not read is not given where the model takes no files", path: "/syllabus.pdf", title: "Syllabus", ct: "application/pdf",

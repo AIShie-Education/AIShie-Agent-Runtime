@@ -14,6 +14,7 @@ import (
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/doctext"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/ocr"
 )
 
 // FileFetcher fetches a document's file from the short-lived URL Core gave
@@ -121,8 +122,14 @@ type fileRecord struct {
 	GivenAs string `json:"given_as"`
 	// ExtractedFrom is the format the runtime read the text from (pptx,
 	// docx, xlsx or pdf) when the text is not the file's own but the
-	// runtime's reading of it.
+	// runtime's reading of it; ExtractedOCR when its OCR recognized it.
 	ExtractedFrom string `json:"extracted_from,omitempty"`
+	// OCR says where the runtime's OCR of a file with no text of its own
+	// stands, when it gives none of it (yet): OCRInProgress or OCRBusy,
+	// and AskAgain is the call that asks for it again; OCRFailed or
+	// OCRUnavailable.
+	OCR      string    `json:"ocr,omitempty"`
+	AskAgain *nextPart `json:"ask_again,omitempty"`
 	// Part and Parts: a text too long for one result is given in parts,
 	// and file_text is part Part of Parts; PartHolds says which slides,
 	// pages or sheets it holds, and NextPart is the call that reads the
@@ -239,8 +246,9 @@ const (
 		"ask for it as .pptx, .docx or .xlsx, or as a PDF"
 	notePassword  = notGiven + "it is password-protected; ask for a copy without a password"
 	noteNoFiles   = notGiven + "this model does not take files"
-	noteNoText    = "the PDF has no text to read: it looks scanned, or like pictures of text; ask for a version with selectable text"
-	noteUnmapped  = "the PDF's text cannot be read: its fonts do not map to text; ask for a version with selectable text"
+	noteNoText    = "the PDF has no text to read: it looks scanned, or like pictures of text"
+	noteUnmapped  = "the PDF's text cannot be read: its fonts do not map to text"
+	askSelectable = "; ask for a version with selectable text"
 	noteMalformed = notGiven + "it could not be read: it is damaged, or not the kind of file it says it is"
 )
 
@@ -287,7 +295,7 @@ func (r Runner) giveFile(ctx context.Context, d *docFile) given {
 		if kind == kindUnknown {
 			rec.ContentType = kept.mt
 		}
-		return r.giveReading(g, kept, "")
+		return r.giveReading(ctx, g, d, kept, "", nil)
 	}
 	f, err := r.Files.Fetch(ctx, d.url, r.MaxFileBytes)
 	switch {
@@ -313,7 +321,7 @@ func (r Runner) giveFile(ctx context.Context, d *docFile) given {
 	}
 	past := ""
 	switch {
-	case kind == kindImage:
+	case kind == kindImage && r.FileInput:
 		rec.GivenAs = givenFile
 		g.file = &llm.File{Name: fileName(d.title, mt), MIME: mt, Data: f.Data}
 		return g
@@ -343,14 +351,14 @@ func (r Runner) giveFile(ctx context.Context, d *docFile) given {
 			r.Texts.put(key, rd)
 		}
 	}
-	return r.giveReading(g, rd, past)
+	return r.giveReading(ctx, g, d, rd, past, f.Data)
 }
 
 // givesFile reports whether a file of kind may be given to this model as
-// a file part, which takes its bytes, not its text: an image, or a PDF to
+// a file part, which takes its bytes, not its text: an image or a PDF, to
 // a model that takes files.
 func (r Runner) givesFile(kind fileKind) bool {
-	return kind == kindImage || kind == kindPDF && r.FileInput
+	return (kind == kindImage || kind == kindPDF) && r.FileInput
 }
 
 // read reads the text of a file of media type mt, of kind (text, a PDF or
@@ -367,6 +375,10 @@ func (r Runner) read(ctx context.Context, mt string, kind fileKind, data []byte)
 		format = doctext.PDF
 	case kindOffice:
 		format, _ = doctext.FormatOf(mt)
+	case kindImage:
+		// An image has no text to read but OCR's (giveOCR): what is kept
+		// is its checksum, which OCR's text is kept by.
+		return rd, true
 	default:
 		rd.err = fmt.Errorf("%w: it is not a file the runtime reads the text of", doctext.ErrMalformed)
 		return rd, true
@@ -379,12 +391,16 @@ func (r Runner) read(ctx context.Context, mt string, kind fileKind, data []byte)
 
 // giveReading gives a file's text as rd read it; past, for a PDF, says why
 // the model's provider does not take it as a file, when that is why it is
-// given as text.
-func (r Runner) giveReading(g given, rd *fileReading, past string) given {
+// given as text. data is the file's bytes when they were fetched for this
+// call, which OCR is started with; nil when rd was kept, and OCR, should it
+// need them, fetches them again.
+func (r Runner) giveReading(ctx context.Context, g given, d *docFile, rd *fileReading, past string, data []byte) given {
 	rec := g.rec
 	rec.ByteSize = rd.size
 	kind := classify(rd.mt)
 	switch {
+	case kind == kindImage:
+		return r.giveOCR(ctx, g, d, rd, ocrFile{kind: ocr.Image, why: noteNoFiles}, data)
 	case kind == kindText && rd.res != nil:
 		if rd.res.Text == "" {
 			rec.Note = "the file is empty"
@@ -394,7 +410,7 @@ func (r Runner) giveReading(g given, rd *fileReading, past string) given {
 		g.text = rd.res.Text
 		return g
 	case kind == kindPDF:
-		return r.givePDFText(g, rd, past)
+		return r.givePDFText(ctx, g, d, rd, past, data)
 	case rd.err != nil:
 		rec.Note = extractNote(rd.err)
 		return g
@@ -403,8 +419,9 @@ func (r Runner) giveReading(g given, rd *fileReading, past string) given {
 }
 
 // givePDFText gives a PDF's text, where that reads as text: to a model
-// that takes no files, or past what its provider takes (past says why).
-func (r Runner) givePDFText(g given, rd *fileReading, past string) given {
+// that takes no files, or past what its provider takes (past says why);
+// where it does not, what OCR recognizes of it (giveOCR).
+func (r Runner) givePDFText(ctx context.Context, g given, d *docFile, rd *fileReading, past string, data []byte) given {
 	rec := g.rec
 	res, err := rd.res, rd.err
 	switch {
@@ -420,11 +437,11 @@ func (r Runner) givePDFText(g given, rd *fileReading, past string) given {
 			why = noteNoText
 		}
 		if past != "" {
-			rec.Note = notGiven + past + ", and " + why
+			why = notGiven + past + ", and " + why
 		} else {
-			rec.Note = noteNoFiles + ", and " + why
+			why = noteNoFiles + ", and " + why
 		}
-		return g
+		return r.giveOCR(ctx, g, d, rd, ocrFile{kind: ocr.PDF, pages: res.Of, why: why, ask: askSelectable}, data)
 	}
 	g = r.extracted(g, res)
 	if past != "" {
@@ -459,7 +476,8 @@ func sniff(f *FetchedFile) (mt string, kind fileKind, why string) {
 }
 
 // refusal says why a file of media type mt, of kind, cannot be given to
-// this model, or "" when it can, or might be once read.
+// this model, or "" when it can, or might be once read: an image to a
+// model that takes no files, only where OCR reads it.
 func (r Runner) refusal(mt string, kind fileKind) string {
 	switch kind {
 	case kindOther:
@@ -467,8 +485,8 @@ func (r Runner) refusal(mt string, kind fileKind) string {
 	case kindOldOffice:
 		return noteOldOffice
 	case kindImage:
-		if !r.FileInput {
-			return noteNoFiles
+		if ok, why := r.ocrAvailable(); !r.FileInput && !ok {
+			return noteNoFiles + noOCR(why)
 		}
 	}
 	return ""

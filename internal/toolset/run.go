@@ -45,6 +45,10 @@ type Runner struct {
 	// so that a file read in parts is fetched and read once; nil keeps
 	// nothing.
 	Texts *TextCache
+	// OCR recognizes the text of a scanned PDF or an image for a model
+	// that cannot take the file; nil recognizes nothing, and the model is
+	// told there is no OCR here.
+	OCR OCR
 	// Writes is the answer's account of its writes: their keys and their
 	// budget. Nil refuses every write, whatever the set offers.
 	Writes *Writes

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/ocr"
 )
 
 func envOf(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
@@ -20,6 +22,30 @@ func TestFromEnvDefaults(t *testing.T) {
 		e.DatabaseURL != "" || e.ConfigPaths != nil || e.CoreBaseURLAllowlist != nil || e.LogRedactExtra != nil ||
 		!strings.HasPrefix(e.WorkerID, host+"-") || e.Level() != slog.LevelInfo {
 		t.Fatalf("defaults: %+v", e)
+	}
+	if e.OCR != (ocr.Config{}) || e.OCR.WithDefaults().Mode != ocr.ModeAuto {
+		t.Fatalf("OCR's defaults: %+v", e.OCR)
+	}
+}
+
+func TestFromEnvOCR(t *testing.T) {
+	e, err := FromEnv(envOf(map[string]string{
+		"OCR": "On", "OCR_LANGUAGES": "chi_sim+eng", "OCR_MAX_PAGES": "80", "OCR_DPI": "200", "OCR_PAGE_TIMEOUT": "2m",
+		"OCR_TIMEOUT": "30m", "OCR_MEMORY_MB": "2048", "OCR_CONCURRENCY": "2", "OCR_QUEUE": "4", "OCR_WAIT": "0",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := ocr.Config{Mode: ocr.ModeOn, Languages: "chi_sim+eng", MaxPages: 80, DPI: 200, PageTimeout: 2 * time.Minute,
+		Timeout: 30 * time.Minute, MemoryMB: 2048, Concurrency: 2, Queue: 4, Wait: -1}
+	if e.OCR != want {
+		t.Fatalf("OCR %+v, want %+v", e.OCR, want)
+	}
+	if e.OCR.WithDefaults().Wait != 0 {
+		t.Errorf("OCR_WAIT=0 waits %s", e.OCR.WithDefaults().Wait)
+	}
+	if e, _ := FromEnv(envOf(map[string]string{"OCR_WAIT": "2s"})); e.OCR.Wait != 2*time.Second {
+		t.Errorf("OCR_WAIT=2s waits %s", e.OCR.Wait)
 	}
 }
 
@@ -91,6 +117,16 @@ func TestFromEnvRefuses(t *testing.T) {
 		{"CORE_BASE_URL", "lms.example.edu", "CORE_BASE_URL: must be an absolute URL"},
 		{"CORE_BASE_URL", "http://lms.example.edu", "CORE_BASE_URL: must be https"},
 		{"CORE_BASE_URL", "https://root:hunter2@lms.example.edu", "CORE_BASE_URL: must hold no user name or password"},
+		{"OCR", "yes", `OCR: mode "yes" is not auto, on or off`},
+		{"OCR_LANGUAGES", "chi_sim+../eng", `OCR: "../eng" is not a language name`},
+		{"OCR_MAX_PAGES", "0", "OCR_MAX_PAGES"},
+		{"OCR_DPI", "1200", "OCR: a resolution of 1200 dpi"},
+		{"OCR_PAGE_TIMEOUT", "0", "OCR_PAGE_TIMEOUT: it must be more than 0"},
+		{"OCR_TIMEOUT", "an hour", "OCR_TIMEOUT"},
+		{"OCR_MEMORY_MB", "64", "OCR: 64 MB is too little"},
+		{"OCR_CONCURRENCY", "16", "OCR: 16 at once"},
+		{"OCR_QUEUE", "-1", "OCR_QUEUE"},
+		{"OCR_WAIT", "-5s", "OCR_WAIT"},
 	} {
 		t.Run(tc.key+"="+tc.value, func(t *testing.T) {
 			_, err := FromEnv(envOf(map[string]string{tc.key: tc.value}))
@@ -180,7 +216,8 @@ func TestEnvHelp(t *testing.T) {
 	help := EnvHelp()
 	for _, v := range []string{"DATABASE_URL", "CONFIG", "HTTP_ADDR", "CORE_BASE_URL_ALLOWLIST", "EGRESS_PROXY", "LOG_REDACT_EXTRA",
 		"LOG_LEVEL", "LOG_FORMAT", "SECRETS_DIR", "WORKER_ID", "SHUTDOWN_GRACE", "PRICES", "KMS_KEY_ID", "CORE_BASE_URL",
-		"API_ADDR", "API_AUDIENCE", "CORE_ASSERTION_KEY", "ADMIN_ACTOR_IDS", "API_TRUSTED_PROXIES"} {
+		"API_ADDR", "API_AUDIENCE", "CORE_ASSERTION_KEY", "ADMIN_ACTOR_IDS", "API_TRUSTED_PROXIES", "OCR", "OCR_LANGUAGES",
+		"OCR_MAX_PAGES", "OCR_DPI", "OCR_PAGE_TIMEOUT", "OCR_TIMEOUT", "OCR_MEMORY_MB", "OCR_CONCURRENCY", "OCR_QUEUE", "OCR_WAIT"} {
 		if !strings.Contains(help, "  "+v+" ") {
 			t.Errorf("EnvHelp lacks %s", v)
 		}

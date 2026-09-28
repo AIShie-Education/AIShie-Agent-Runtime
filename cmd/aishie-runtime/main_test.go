@@ -106,6 +106,25 @@ func TestCheckExamples(t *testing.T) {
 	}
 }
 
+// TestCheckOCR: check says whether OCR runs here, and why not; with
+// OCR=on, a runtime without its programs does not pass.
+func TestCheckOCR(t *testing.T) {
+	examples := []string{"CONFIG", "../../examples/runtime.yaml,../../examples/agents"}
+	code, out, errs := runCmd(t, env(append(examples, "OCR", "off")...), "check")
+	if code != exitOK || !strings.Contains(out, "ocr: off (OCR=off)") {
+		t.Errorf("OCR=off: %d\n%s%s", code, out, errs)
+	}
+	t.Setenv("PATH", t.TempDir())
+	code, out, errs = runCmd(t, env(examples...), "check")
+	if code != exitOK || !strings.Contains(out, "ocr: off: ocr: not available: tesseract, pdftoppm, prlimit not installed") {
+		t.Errorf("OCR=auto, without the programs: %d\n%s%s", code, out, errs)
+	}
+	code, out, errs = runCmd(t, env(append(examples, "OCR", "on")...), "check")
+	if code != exitFailure || !strings.Contains(errs, "OCR=on, and OCR cannot run here") {
+		t.Errorf("OCR=on, without the programs: %d\n%s%s", code, out, errs)
+	}
+}
+
 func TestCheckRefusesDollarsWithoutPrices(t *testing.T) {
 	code, out, errs := runCmd(t, env("CONFIG", "../../examples/agents/delegate.yaml"), "check")
 	if code != exitFailure || !strings.Contains(errs, `agent "yuki-helper": it has a quota in dollars, and there is no price table`) {

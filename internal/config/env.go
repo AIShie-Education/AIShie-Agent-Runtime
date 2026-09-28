@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/ocr"
 )
 
 // Env is the process's settings from its environment (§8.3).
@@ -74,6 +76,10 @@ type Env struct {
 	// the proxies in front of the API, whose X-Forwarded-For is believed
 	// for the address the audit records.
 	APITrustedProxies []string
+	// OCR is how the text of scanned PDFs and images is recognized for
+	// the models that cannot take the files (package ocr); its zero
+	// fields are its defaults.
+	OCR ocr.Config
 }
 
 // Defaults of the environment's settings.
@@ -105,6 +111,16 @@ var envVars = []struct{ name, help string }{
 	{"CORE_ASSERTION_KEY", "Core's assertion key, pinned (an Ed25519 public key as a JWK's x); unset, it is fetched from CORE_BASE_URL/v1/auth/keys"},
 	{"ADMIN_ACTOR_IDS", "comma-separated Core actor ids: the runtime's administrators are those of Core's (platform_role root or admin) named here; unset, all of Core's"},
 	{"API_TRUSTED_PROXIES", "comma-separated addresses or CIDRs of the proxies in front of the API, whose X-Forwarded-For the audit believes"},
+	{"OCR", "auto, on or off: recognize the text of scanned PDFs and of images for models that cannot take the files (default auto: on when tesseract, pdftoppm and prlimit are installed, as in the image; on refuses to start without them)"},
+	{"OCR_LANGUAGES", "tesseract's languages, joined by + (default " + ocr.DefaultLanguages + ")"},
+	{"OCR_MAX_PAGES", fmt.Sprintf("the pages of a PDF recognized, the rest said to be left out (default %d)", ocr.DefaultMaxPages)},
+	{"OCR_DPI", fmt.Sprintf("the resolution a PDF's pages are rendered at, 72 to 600 (default %d)", ocr.DefaultDPI)},
+	{"OCR_PAGE_TIMEOUT", "how long rendering or recognizing one page may take, such as 2m (default 90s)"},
+	{"OCR_TIMEOUT", "how long one file may take in all, such as 30m (default 15m)"},
+	{"OCR_MEMORY_MB", fmt.Sprintf("the address space each OCR program may take, in MB (default %d)", ocr.DefaultMemoryMB)},
+	{"OCR_CONCURRENCY", fmt.Sprintf("the files this process recognizes at once, 1 to 8 (default %d)", ocr.DefaultConcurrency)},
+	{"OCR_QUEUE", fmt.Sprintf("the files that may wait for their turn; past them a file is not started, and the model is told to ask later (default %d)", ocr.DefaultQueue)},
+	{"OCR_WAIT", "how long a question about a file being recognized waits for its text before the model is told to ask again, never past half the answer's time left; 0 waits not at all (default " + ocr.DefaultWait.String() + ")"},
 }
 
 // EnvHelp lists the environment variables FromEnv reads, for the help
@@ -207,10 +223,60 @@ func FromEnv(getenv func(string) string) (Env, error) {
 			e.ShutdownGrace = d
 		}
 	}
+	e.OCR = ocrFromEnv(get, bad)
 	if err := errors.Join(errs...); err != nil {
 		return Env{}, err
 	}
 	return e, nil
+}
+
+// ocrFromEnv reads OCR's settings (OCR_*); an unset one is its default.
+func ocrFromEnv(get func(string) string, bad func(string, ...any)) ocr.Config {
+	c := ocr.Config{Mode: strings.ToLower(get("OCR")), Languages: get("OCR_LANGUAGES")}
+	whole := func(name string, into *int, least int) {
+		v := get(name)
+		if v == "" {
+			return
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil || n < least {
+			bad("%s: %q is not a whole number of at least %d", name, v, least)
+			return
+		}
+		*into = n
+	}
+	duration := func(name string, into *time.Duration, zero time.Duration) {
+		v := get(name)
+		if v == "" {
+			return
+		}
+		d, err := time.ParseDuration(v)
+		switch {
+		case err != nil || d < 0:
+			bad("%s: %q is not a duration such as 30s", name, v)
+		case d == 0 && zero == 0:
+			bad("%s: it must be more than 0", name)
+		case d == 0:
+			*into = zero
+		default:
+			*into = d
+		}
+	}
+	whole("OCR_MAX_PAGES", &c.MaxPages, 1)
+	whole("OCR_DPI", &c.DPI, 1)
+	whole("OCR_MEMORY_MB", &c.MemoryMB, 1)
+	whole("OCR_CONCURRENCY", &c.Concurrency, 1)
+	whole("OCR_QUEUE", &c.Queue, 1)
+	duration("OCR_PAGE_TIMEOUT", &c.PageTimeout, 0)
+	duration("OCR_TIMEOUT", &c.Timeout, 0)
+	// OCR_WAIT=0 is no wait, which ocr.Config says as less than 0.
+	duration("OCR_WAIT", &c.Wait, -1)
+	if err := c.Check(); err != nil {
+		for _, e := range strings.Split(err.Error(), "\n") {
+			bad("%s", strings.Replace(e, "ocr: ", "OCR: ", 1))
+		}
+	}
+	return c
 }
 
 // checkAPI checks the API's settings (docs/deploying.md): with API_ADDR,
