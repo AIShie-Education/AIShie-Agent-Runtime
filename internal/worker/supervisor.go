@@ -456,6 +456,12 @@ func (s *Supervisor) agentEnded(r *runner, ag *Agent, err error) {
 	var state, detail string
 	var blocked *blockedError
 	switch {
+	case isUnauthenticated(err) && r.cfg.Hosted != nil:
+		// Its owner gave the token, and gives the next one: no file of
+		// the operator's holds it.
+		r.blocked = true
+		state, detail = store.AgentUnauthorized,
+			"Core refused the agent's token (401): connect the agent again with a new token"
 	case isUnauthenticated(err):
 		r.blocked = true
 		state, detail = store.AgentUnauthorized,

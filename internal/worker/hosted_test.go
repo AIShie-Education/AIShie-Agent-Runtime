@@ -193,7 +193,12 @@ func TestHostedTokenChangeRestartsAnUnauthorizedAgent(t *testing.T) {
 	wk.waitState("agt_yuki", store.AgentRunning)
 
 	w.ok(w.fc.Revoke(own.actor.Token))
-	wk.waitState("agt_yuki", store.AgentUnauthorized)
+	// What its owner reads says what the owner does: no file of theirs
+	// holds the token.
+	if st := wk.waitState("agt_yuki", store.AgentUnauthorized); !strings.Contains(st.Detail, "connect the agent again with a new token") ||
+		strings.Contains(st.Detail, "token_ref") {
+		t.Errorf("the unauthorized hosted agent's detail: %q", st.Detail)
+	}
 	time.Sleep(50 * time.Millisecond)
 	n := len(w.calls(own.actor.ID, ""))
 	// Another agent's change: this one is not tried again.

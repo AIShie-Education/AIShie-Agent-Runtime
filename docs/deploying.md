@@ -339,7 +339,8 @@ machine's loopback, should `HTTP_ADDR` listen wider).
   (running, paused, unauthorized, …), its seats and what holds any back, the
   proposals waiting, the answers and spend today, and the catalogue's hash.
   An agent `unauthorized` has a Core token that no longer works: issue a new
-  one, put it in its secret file, and reload.
+  one, put it in its secret file, and reload; a hosted agent's owner
+  connects it again with a new token instead.
 - **Metrics:** `curl -s 127.0.0.1:9090/metrics`, in Prometheus's format, for
   a Prometheus on the same machine, or through an SSH tunnel. The one to
   watch is `presence_gap_seconds`: above 60, Core shows the agents as away.
