@@ -41,8 +41,7 @@ func readPDF(data []byte, b *budget) (*Result, error) {
 			if text := cleanText(pt.sb.String()); text != "" {
 				res.Parts++
 				q.add(text)
-				out.para()
-				out.line(fmt.Sprintf("## Page %d", i+1))
+				out.section(SectionPage, i+1, fmt.Sprintf("## Page %d", i+1))
 				out.line(text)
 			}
 			stopped = true
@@ -52,8 +51,7 @@ func readPDF(data []byte, b *budget) (*Result, error) {
 		res.Images += pt.images
 		text := cleanText(pt.sb.String())
 		q.add(text)
-		out.para()
-		out.line(fmt.Sprintf("## Page %d", i+1))
+		out.section(SectionPage, i+1, fmt.Sprintf("## Page %d", i+1))
 		if text == "" {
 			empty++
 			out.line("[no text on this page]")
@@ -68,7 +66,7 @@ func readPDF(data []byte, b *budget) (*Result, error) {
 	if res.Unreadable == "" && empty > 0 {
 		res.Notes = append(res.Notes, fmt.Sprintf("%d of its %d pages have no text: they may be scanned, or pictures of text", empty, res.Parts))
 	}
-	res.Text = out.done()
+	out.finish(res)
 	return res, nil
 }
 

@@ -71,13 +71,12 @@ func readPPTX(data []byte, b *budget) (*Result, error) {
 		switch {
 		case err != nil && cutShort(err) && r.res.Parts > 0:
 			r.res.Notes = append(r.res.Notes, restNote(err))
-			r.res.Text = out.done()
+			out.finish(r.res)
 			return r.res, nil
 		case errors.Is(err, ErrMalformed):
 			// One slide damaged: the others are read.
 			r.res.Parts++
-			out.para()
-			out.line(head)
+			out.section(SectionSlide, i+1, head)
 			out.line("[this slide could not be read]")
 			continue
 		case err != nil:
@@ -90,8 +89,7 @@ func readPPTX(data []byte, b *budget) (*Result, error) {
 		if s.title != "" {
 			head += ": " + s.title
 		}
-		out.para()
-		out.line(head)
+		out.section(SectionSlide, i+1, head)
 		for _, l := range s.lines {
 			out.line(l)
 		}
@@ -99,7 +97,7 @@ func readPPTX(data []byte, b *budget) (*Result, error) {
 			out.line("Notes: " + strings.Join(s.notes, "\n"))
 		}
 	}
-	r.res.Text = out.done()
+	out.finish(r.res)
 	return r.res, nil
 }
 

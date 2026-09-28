@@ -115,7 +115,31 @@ type Result struct {
 	// Unreadable, for a PDF, says why its text does not read as text: "" when
 	// it does; UnreadableNoText or UnreadableUnmapped when not.
 	Unreadable string
+	// Sections are where each slide, page or sheet begins in Text, in
+	// order: what a text too long for one result is cut into parts by.
+	// A document's (DOCX) text has none.
+	Sections []Section
 }
+
+// Section is where one slide, page or sheet begins in a Result's Text: the
+// byte offset of its heading. The offsets are the reader's own, not found
+// by searching the text, so a slide whose text reads like a heading is not
+// taken for one.
+type Section struct {
+	// Kind is SectionSlide, SectionPage or SectionSheet.
+	Kind string
+	// N is its number, from 1, as its heading gives it.
+	N int
+	// Offset is where its heading begins in Text.
+	Offset int
+}
+
+// Kinds of Section.
+const (
+	SectionSlide = "slide"
+	SectionPage  = "page"
+	SectionSheet = "sheet"
+)
 
 // Why a PDF's text does not read (Result.Unreadable).
 const (
@@ -364,6 +388,18 @@ type textOut struct {
 	cut bool
 	// blanks is how many newlines end what is written.
 	blanks int
+	// sections are where each slide, page or sheet's heading begins.
+	sections []Section
+}
+
+// section begins a slide, page or sheet: an empty line, then its heading
+// on a line of its own, whose offset is recorded.
+func (t *textOut) section(kind string, n int, head string) {
+	t.para()
+	if !t.cut {
+		t.sections = append(t.sections, Section{Kind: kind, N: n, Offset: t.b.Len()})
+	}
+	t.line(head)
 }
 
 func newTextOut(max int) *textOut { return &textOut{max: max, blanks: 2} }
@@ -408,8 +444,18 @@ func (t *textOut) para() {
 // done is the text, with the mark of the cut if there was one.
 func (t *textOut) done() string {
 	s := strings.TrimRight(t.b.String(), "\n")
+	// A heading the cut left nothing of begins no section.
+	for len(t.sections) > 0 && t.sections[len(t.sections)-1].Offset >= len(s) {
+		t.sections = t.sections[:len(t.sections)-1]
+	}
 	if t.cut {
 		s += fmt.Sprintf("\n\n[The rest of the file is not given: its text passed the %d KiB the runtime reads.]", t.max>>10)
 	}
 	return s
+}
+
+// finish sets res's text and sections from t.
+func (t *textOut) finish(res *Result) {
+	res.Text = t.done()
+	res.Sections = t.sections
 }

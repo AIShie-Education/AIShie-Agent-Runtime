@@ -64,6 +64,7 @@ func hold(t *testing.T, data []byte, f Format) {
 	if res.Parts > res.Of && f != DOCX {
 		t.Errorf("%d parts read of %d", res.Parts, res.Of)
 	}
+	holdSections(t, res)
 	if f == PDF {
 		if _, err := PDFPages(ctx, data, lim); err != nil && !errors.Is(err, ErrLimit) && !errors.Is(err, ErrMalformed) &&
 			!errors.Is(err, ErrEncrypted) && !errors.Is(err, context.DeadlineExceeded) {

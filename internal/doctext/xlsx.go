@@ -69,8 +69,7 @@ func readXLSX(data []byte, b *budget) (*Result, error) {
 		switch {
 		case rl.is("chartsheet"):
 			res.Charts++
-			out.para()
-			out.line(head)
+			out.section(SectionSheet, i+1, head)
 			out.line("[chart]")
 		case rl.is("worksheet") && rl.target != "":
 			rows, cut, err := readSheet(p, rl.target, shared)
@@ -78,11 +77,10 @@ func readXLSX(data []byte, b *budget) (*Result, error) {
 			case err != nil && cutShort(err) && res.Parts > 1:
 				res.Parts--
 				res.Notes = append(res.Notes, restNote(err))
-				res.Text = out.done()
+				out.finish(res)
 				return res, nil
 			case errors.Is(err, ErrMalformed):
-				out.para()
-				out.line(head)
+				out.section(SectionSheet, i+1, head)
 				out.line("[this sheet could not be read]")
 				continue
 			case err != nil:
@@ -92,18 +90,16 @@ func readXLSX(data []byte, b *budget) (*Result, error) {
 				head += " (" + cut + ")"
 				res.Notes = append(res.Notes, fmt.Sprintf("sheet %q is cut: %s", oneLine(sh.name), cut))
 			}
-			out.para()
-			out.line(head)
+			out.section(SectionSheet, i+1, head)
 			for _, r := range rows {
 				out.line(r)
 			}
 		default:
-			out.para()
-			out.line(head)
+			out.section(SectionSheet, i+1, head)
 			out.line("[not read: a sheet of a kind the runtime does not read]")
 		}
 	}
-	res.Text = out.done()
+	out.finish(res)
 	return res, nil
 }
 
