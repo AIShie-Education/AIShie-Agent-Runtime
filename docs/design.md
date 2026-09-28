@@ -659,8 +659,8 @@ document a YAML file would hold, and runs it beside the YAML agents:
 ### 11.3 Where M2 departs from the handout
 
 - **The UI lives in AIShiteru-Frontend** (the product owner's D1), not in a
-  `runtime-web` of the runtime's (§8.3): the runtime will serve a versioned
-  JSON API only, and no HTML. People will authenticate to it with a
+  `runtime-web` of the runtime's (§8.3): the runtime serves a versioned
+  JSON API only (§11.4), and no HTML. People authenticate to it with a
   short-lived assertion Core mints for its signed-in person (Ed25519, the
   runtime as audience), not as an OIDC client of the institution (D2); the
   runtime never sees Core's session cookie, and `OIDC_*` is not a runtime
