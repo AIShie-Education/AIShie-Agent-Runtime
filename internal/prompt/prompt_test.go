@@ -163,6 +163,31 @@ func TestSystemWithMemberWrites(t *testing.T) {
 	}
 }
 
+// TestSystemWithDecisions: a model offered a decision on proposals is told
+// that it recommends, and a person confirms; that it decides only when
+// asked, having read the proposal; and to give a one-line reason. Reading
+// the queues alone says nothing of it.
+func TestSystemWithDecisions(t *testing.T) {
+	in := Input{
+		Base: Builtin(false),
+		Seat: Seat{AgentName: "Sato's assistant", Course: "CS101 (A)", AskerName: "Sato", AnswerLevel: core.LevelAutonomous,
+			Tools: []string{"action_get", "action_list_proposed"}, Writes: []string{"action_decide", "action_review"}},
+	}
+	text, _ := System(in)
+	for _, want := range []string{
+		"Deciding or reviewing someone's proposal (action_decide, action_review) is a recommendation, not a decision: it waits for a person to confirm it.",
+		"Make one only when Sato asks, after reading the proposal in full (action_get), and always give a one-line reason (reason, or note).",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the prompt lacks %q:\n%s", want, text)
+		}
+	}
+	in.Seat.Writes = []string{"document_create"}
+	if text, _ := System(in); strings.Contains(text, "proposal (action_decide") {
+		t.Errorf("a prompt without decisions speaks of them:\n%s", text)
+	}
+}
+
 // TestTutorPromptStaysReadOnly: the built-in course tutor's prompt offers
 // no action, whatever the runtime adds.
 func TestTutorPromptStaysReadOnly(t *testing.T) {

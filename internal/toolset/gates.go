@@ -89,6 +89,11 @@ var Gates = map[string]Gate{
 	"member_list":         {Any: []string{"member_read"}},
 	"member_get":          {Any: []string{"member_read"}},
 	"member_lookup_actor": {Any: []string{"member_manage"}},
+	// The approval and review queues, and one action in full: what a seat
+	// that decides proposals reads before it recommends a decision.
+	"action_list_proposed":       {Any: []string{"action_decide"}},
+	"action_list_pending_review": {Any: []string{"action_decide"}},
+	"action_get":                 {Any: []string{"action_decide"}},
 }
 
 // WriteGates are the gates of the writes a model may be offered, where the
@@ -102,9 +107,13 @@ var Gates = map[string]Gate{
 // The course's members are managed on member_manage, which only someone who
 // manages them may give a seat, and Core holds every grant to what the
 // granter holds; Run keeps each such write off the seats the model must
-// never change (SeatGuard). CheckCatalogue holds them to the catalogue as
-// it holds the reads, each still a write. Core decides every call again at
-// its own level: these only keep from the model what it could never do.
+// never change (SeatGuard). A proposal is decided or reviewed on
+// action_decide, which Core holds an agent's at confirm_required, so that
+// the model's decision is itself a proposal a person confirms; Run refuses
+// either at any other level (Decides). CheckCatalogue holds them to
+// the catalogue as it holds the reads, each still a write. Core decides
+// every call again at its own level: these only keep from the model what
+// it could never do.
 var WriteGates = map[string]Gate{
 	"assignment_create":         {Any: []string{"assignment_write"}},
 	"assignment_update":         {Any: []string{"assignment_write"}},
@@ -132,6 +141,8 @@ var WriteGates = map[string]Gate{
 	"member_pause":              {Any: []string{"member_manage"}},
 	"member_resume":             {Any: []string{"member_manage"}},
 	"member_remove":             {Any: []string{"member_manage"}},
+	"action_decide":             {Any: []string{"action_decide"}},
+	"action_review":             {Any: []string{"action_decide"}},
 }
 
 // DefaultAllow is the allowlist when an agent's configuration names none:
@@ -140,11 +151,13 @@ var WriteGates = map[string]Gate{
 var DefaultAllow = append(slices.Clone(defaultReads), sortedKeys(WriteGates)...)
 
 // defaultReads are the read tools of §2.3, the versions of a document and
-// where students stand on an assignment, and the roster's.
+// where students stand on an assignment, the roster's, and the queues of
+// proposals.
 var defaultReads = []string{
 	"course_get", "document_list", "document_get", "document_versions", "assignment_list", "assignment_get",
 	"submission_list", "submission_get", "submission_roster", "grade_list", "grade_get", "component_tree", "gradebook_get",
 	"member_list", "member_get", "member_lookup_actor",
+	"action_list_proposed", "action_list_pending_review", "action_get",
 }
 
 // BuiltinDeny is never offered to a model, whatever the configuration or
@@ -164,13 +177,11 @@ var BuiltinDeny = []string{
 	// answers it wrote in other people's conversations, which a worker
 	// answering one conversation must never read.
 	"event_list", "action_list_mine",
-	// A proposal is decided or reviewed by a person: that is the check
-	// confirm_required and pending_review stand for (§6.2), and a model
-	// deciding them on what others wrote would make every such level only
-	// as strong as a prompt. Withdrawing acts on any proposal of the
-	// agent's, the answers the runtime follows in other conversations
-	// among them.
-	"action_decide", "action_review", "action_withdraw",
+	// Withdrawing acts on any proposal of the agent's, the answers the
+	// runtime follows in other conversations among them. (Deciding and
+	// reviewing are gated: the model's decision is a proposal a person
+	// confirms, and Run refuses one that would not be.)
+	"action_withdraw",
 	// Accounts, agents and credentials: platform administration (actor.),
 	// the owner's own management of their agents, their tokens and seats
 	// (agent.), the caller's own tokens and password (credential.), and

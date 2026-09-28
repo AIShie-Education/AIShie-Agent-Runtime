@@ -20,7 +20,7 @@ func TestBuild(t *testing.T) {
 		want  []string
 	}{
 		{
-			name: "a course tutor reads the material and nobody's work: no roster of submissions, no drafts", perms: tutorPerms,
+			name: "a course tutor reads the material and nobody's work: no roster of submissions, no drafts, no proposals", perms: tutorPerms,
 			want: []string{"assignment_get", "assignment_list", "course_get", "document_get", "document_list"},
 		},
 		{
@@ -31,6 +31,11 @@ func TestBuild(t *testing.T) {
 		{
 			name: "document_read_draft reads a document's versions", perms: map[string]string{"document_read": "autonomous", "document_read_draft": "autonomous"},
 			want: []string{"assignment_get", "assignment_list", "course_get", "document_get", "document_list", "document_versions"},
+		},
+		{
+			name:  "action_decide reads the queues of proposals and one in full, and decides none where writes are not",
+			perms: map[string]string{"action_decide": "confirm_required"},
+			want:  []string{"action_get", "action_list_pending_review", "action_list_proposed"},
 		},
 		{
 			name: "rubric_read alone opens the any-gates", perms: map[string]string{"rubric_read": "autonomous"},
@@ -91,7 +96,7 @@ func TestBuild(t *testing.T) {
 			perms: map[string]string{"document_read": "autonomous", "grade_submit": "autonomous",
 				"conversation_answer": "autonomous", "member_manage": "autonomous"},
 			cfg: config.Tools{Allow: []string{"conversation_answer", "conversation_messages", "member_add", "member_add_delegate",
-				"member_delegate_defaults", "member_list", "grade_submit", "document_upload_url", "agent_get", "action_decide",
+				"member_delegate_defaults", "member_list", "grade_submit", "document_upload_url", "agent_get", "action_decide", "action_withdraw",
 				"action_get", "action_list_mine", "course_update", "course_list", "me_get", "document_versions", "submission_roster", "course_get"}},
 			want: []string{"course_get"},
 		},
@@ -134,13 +139,13 @@ func TestBuildNeverOffersDenied(t *testing.T) {
 		"document_create"} {
 		Gates[name] = Gate{Any: []string{"document_read"}}
 	}
-	for _, name := range []string{"conversation_answer", "member_add_delegate", "action_decide", "agent_create", "credential_issue_token",
+	for _, name := range []string{"conversation_answer", "member_add_delegate", "action_withdraw", "agent_create", "credential_issue_token",
 		"course_archive", "course_get"} {
 		WriteGates[name] = Gate{Any: []string{"document_read"}}
 	}
 	allow := []string{
 		"document_upload_url", "conversation_messages", "member_delegate_defaults", "agent_list", "grade_submit", "document_create",
-		"course_get", "conversation_answer", "member_add_delegate", "action_decide", "agent_create", "credential_issue_token",
+		"course_get", "conversation_answer", "member_add_delegate", "action_withdraw", "agent_create", "credential_issue_token",
 		"course_archive",
 	}
 	for _, access := range []Access{ReadOnly, ReadWrite} {
@@ -158,15 +163,17 @@ func TestBuildNeverOffersDenied(t *testing.T) {
 }
 
 // Seats' perms for writes: an instructor's own agent, whose document_write
-// the instructor set at confirm_required, and which grades nothing and,
-// being a delegate, manages no members (Core never gives a delegate
-// member_manage); and an agent an instructor seated to manage the course's
-// members, whose member_manage is at confirm_required.
+// the instructor set at confirm_required, whose decisions on proposals are
+// proposals of its own (action_decide at confirm_required, as Core holds an
+// agent's), and which grades nothing and, being a delegate, manages no
+// members (Core never gives a delegate member_manage); and an agent an
+// instructor seated to manage the course's members, whose member_manage is
+// at confirm_required.
 var (
 	ownerPerms = map[string]string{
 		"conversation_answer": "autonomous", "document_read": "autonomous", "document_read_draft": "autonomous",
 		"document_write": "confirm_required", "grade_submit": "denied", "grade_post": "autonomous",
-		"assignment_write": "denied", "submission_write": "denied", "member_manage": "denied", "action_decide": "autonomous",
+		"assignment_write": "denied", "submission_write": "denied", "member_manage": "denied", "action_decide": "confirm_required",
 	}
 	registrarPerms = map[string]string{
 		"conversation_answer": "autonomous", "document_read": "autonomous", "member_read": "autonomous",
@@ -186,10 +193,12 @@ var memberWrites = []string{"member_add", "member_pause", "member_remove", "memb
 func TestBuildWrites(t *testing.T) {
 	cat := snapshot(t)
 	reads := []string{"assignment_get", "assignment_list", "course_get", "document_get", "document_list"}
-	// ownerReads are the instructor's own agent's: it reads drafts.
-	ownerReads := append(slices.Clone(reads), "document_versions")
+	// ownerReads are the instructor's own agent's: it reads drafts, and
+	// the queues of proposals.
+	ownerReads := append(slices.Clone(reads), "action_get", "action_list_pending_review", "action_list_proposed", "document_versions")
 	slices.Sort(ownerReads)
 	docWrites := []string{"document_add_version", "document_archive", "document_create", "document_publish"}
+	decides := []string{"action_decide", "action_review"}
 	withReads := func(writes ...string) []string {
 		out := append(slices.Clone(reads), writes...)
 		slices.Sort(out)
@@ -211,7 +220,8 @@ func TestBuildWrites(t *testing.T) {
 		{
 			name: "its owner's conversation is offered the writes the seat's perms allow", perms: ownerPerms,
 			cfg: config.Tools{Writes: true}, access: ReadWrite,
-			want: withOwnerReads(append([]string{"grade_post"}, docWrites...)...), wantWrites: append(slices.Clone(docWrites[:3]), "document_publish", "grade_post"),
+			want:       withOwnerReads(append(append([]string{"grade_post"}, docWrites...), decides...)...),
+			wantWrites: append(append(slices.Clone(docWrites), "grade_post"), decides...),
 		},
 		{
 			name: "anyone else's conversation is offered none", perms: ownerPerms,
@@ -247,8 +257,8 @@ func TestBuildWrites(t *testing.T) {
 		},
 		{
 			name: "deny takes writes away, by name or beginning", perms: ownerPerms,
-			cfg: config.Tools{Writes: true, Deny: []string{"document_archive", "grade_*"}}, access: ReadWrite,
-			want: withOwnerReads("document_add_version", "document_create", "document_publish"),
+			cfg: config.Tools{Writes: true, Deny: []string{"document_archive", "grade_*", "action_*"}}, access: ReadWrite,
+			want: withReads("document_add_version", "document_create", "document_publish", "document_versions"),
 		},
 		{
 			name: "mode none offers no write either", perms: ownerPerms,
@@ -301,7 +311,8 @@ func TestBuildWrites(t *testing.T) {
 // TestBuiltinDenyNeverOffered is the built-in list against every tool of
 // the catalogue: a seat holding every permission at autonomous, in its
 // owner's conversation with writes on and every tool allowed, is offered
-// exactly the gated tools, none the list denies.
+// exactly the gated tools, none the list denies; and every tool, read or
+// write, is one or the other.
 func TestBuiltinDenyNeverOffered(t *testing.T) {
 	cat := snapshot(t)
 	all := map[string]string{}
@@ -328,8 +339,8 @@ func TestBuiltinDenyNeverOffered(t *testing.T) {
 			}
 			continue
 		}
-		if tool.Kind == KindWrite && !s.Has(name) {
-			t.Errorf("the write %s is neither offered nor denied: give it a gate, or a line in BuiltinDeny", name)
+		if !s.Has(name) {
+			t.Errorf("the %s %s is neither offered nor denied: give it a gate, or a line in BuiltinDeny", tool.Kind, name)
 		}
 	}
 	if denied == 0 {
@@ -518,7 +529,7 @@ func TestBuiltinDenied(t *testing.T) {
 	denied := []string{"agent_create", "agent_issue_token", "agent_withdraw", "credential_list", "credential_issue_token",
 		"credential_set_password", "actor_get", "actor_register", "actor_set_owner", "me_get", "me_memberships", "me_site_chat",
 		"member_add_delegate", "member_delegate_defaults",
-		"action_decide", "action_review", "action_withdraw", "conversation_answer", "conversation_open", "conversation_retract",
+		"action_withdraw", "conversation_answer", "conversation_open", "conversation_retract",
 		"conversation_messages", "conversation_inbox", "preset_create", "course_create", "course_update", "course_archive",
 		"course_activate", "course_seat_instructor", "course_list", "term_list", "department_list", "document_upload_url",
 		"action_list_mine", "event_list"}
@@ -530,7 +541,7 @@ func TestBuiltinDenied(t *testing.T) {
 	for _, name := range []string{"course_get", "document_get", "action_get", "courses_get", "agentx", "document_create",
 		"grade_submit", "submission_submit", "assignment_update", "memberx", "member_add", "member_update_perms",
 		"member_update_perms_bulk", "member_rescope", "member_pause", "member_resume", "member_remove", "member_list", "member_get",
-		"member_lookup_actor", "member_add_delegates"} {
+		"member_lookup_actor", "member_add_delegates", "action_decide", "action_review", "action_get", "action_list_proposed"} {
 		if BuiltinDenied(name) {
 			t.Errorf("%s is denied", name)
 		}

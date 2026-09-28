@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -831,5 +832,56 @@ func TestRunWriteUnreachable(t *testing.T) {
 	}
 	if len(w.Records) != 2 || w.Records[0].Status != StatusUnreachable || w.Records[1].Status != "executed" || !w.Records[1].Replayed || w.Sent() != 1 {
 		t.Errorf("records %+v, sent %d", w.Records, w.Sent())
+	}
+}
+
+// TestRunDecisions: a model's decision or review of a proposal goes to
+// Core only from a seat whose action_decide is confirm_required, where Core
+// makes it a proposal a person confirms; at pending_review or autonomous,
+// levels Core never gives an agent, it is refused before Core, counted as
+// guarded, and takes no number of the answer's writes.
+func TestRunDecisions(t *testing.T) {
+	decide := call("d", "action_decide", `{"action_id":"0192f3c1-0000-7000-8000-00000000a001","decision":"approve","reason":"The answer is right."}`)
+	review := call("r", "action_review", `{"action_id":"0192f3c1-0000-7000-8000-00000000a002","outcome":"reviewed"}`)
+	for _, level := range []string{"confirm_required", "pending_review", "autonomous"} {
+		t.Run(level, func(t *testing.T) {
+			perms := maps.Clone(ownerPerms)
+			perms["action_decide"] = level
+			s, err := snapshot(t).Build(perms, config.Tools{Writes: true}, ReadWrite, toolschema.OpenAI, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !s.Has("action_decide") || !s.Has("action_review") || !s.Has("action_get") {
+				t.Fatalf("offered %v", s.Names())
+			}
+			f := &fakeCore{respond: func(context.Context, string, json.RawMessage) (*core.Envelope, error) {
+				return &core.Envelope{Status: core.StatusProposed, ActionID: "a-9", ReviewState: "none"}, nil
+			}}
+			w := keys(1, 10)
+			r := runner(f)
+			r.Writes = w
+			parts, err := s.Run(context.Background(), r, courseID, []llm.Part{decide, review})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if level == "confirm_required" {
+				if len(f.recorded()) != 2 || parts[0].IsError || parts[1].IsError || w.Sent() != 2 || len(w.Guarded) != 0 {
+					t.Errorf("calls %v, parts %+v, sent %d, guarded %v", f.recorded(), parts, w.Sent(), w.Guarded)
+				}
+				return
+			}
+			if n := len(f.recorded()); n != 0 {
+				t.Errorf("%d calls reached Core", n)
+			}
+			for _, p := range parts {
+				code, msg := errorOf(t, p)
+				if !p.IsError || code != core.CodeForbidden || !strings.Contains(msg, "action_decide is "+level) {
+					t.Errorf("result %s", p.Content)
+				}
+			}
+			if w.Sent() != 0 || !slices.Equal(w.Guarded, []string{"action_decide", "action_review"}) {
+				t.Errorf("sent %d, guarded %v", w.Sent(), w.Guarded)
+			}
+		})
 	}
 }

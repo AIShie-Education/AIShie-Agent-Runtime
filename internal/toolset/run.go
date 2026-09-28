@@ -106,8 +106,10 @@ type Writes struct {
 	// Refused are the tools of the writes refused because the budget was
 	// spent, in the order the model made them.
 	Refused []string
-	// Guarded are the tools of the member writes SeatGuard refused, in the
-	// order the model made them.
+	// Guarded are the tools of the writes refused before Core for what
+	// they would change or how they would be decided: member writes
+	// SeatGuard refused, and decisions the seat would make alone
+	// (Decides); in the order the model made them.
 	Guarded []string
 }
 
@@ -183,9 +185,11 @@ func (w *Writes) claim(tool string, args json.RawMessage) (sent, bool) {
 // conversation's course, whatever the model wrote (toolschema.Reverse,
 // Validate); a member write that would change a seat r.Guard keeps, which
 // for a change to every seat of a role the runtime reads with member_get
-// (SeatGuard). A write is then numbered and bound to its idempotency key
-// (Writes), whatever key the model wrote; one past the answer's budget, or
-// one that repeats another call of the same turn exactly, is refused.
+// (SeatGuard); a decision or review from a seat whose action_decide is not
+// confirm_required (Decides). A write is then numbered and bound to its
+// idempotency key (Writes), whatever key the model wrote; one past the
+// answer's budget, or one that repeats another call of the same turn
+// exactly, is refused.
 // Core's answer is Core's envelope as JSON, is_error unless executed or
 // proposed (a proposal is Core's normal answer at confirm_required, not a
 // failure), with every download_url taken out and cut to MaxResultBytes
@@ -223,6 +227,13 @@ func (s *Set) Run(ctx context.Context, r Runner, courseID string, calls []llm.Pa
 		p := s.prepare(r, courseID, call)
 		if p.done || !p.write {
 			preps[i] = p
+			continue
+		}
+		if Decides(call.Name) && s.decide != core.LevelConfirmRequired {
+			r.Writes.Guarded = append(r.Writes.Guarded, call.Name)
+			preps[i] = refusedCall(p.res, core.CodeForbidden, fmt.Sprintf(
+				"the runtime did not send this: a model's decision or review must wait for a person to confirm it, and this seat's action_decide is %s, "+
+					"which Core should never give an agent; tell the person to decide it themselves", cut(levelOf(s.decide), maxNameInMessage)))
 			continue
 		}
 		if guarded(call.Name) {
@@ -324,6 +335,22 @@ func (s *Set) Run(ctx context.Context, r Runner, courseID string, calls []llm.Pa
 		}
 	}
 	return parts, nil
+}
+
+// Decides reports whether a write of tool decides or reviews a proposal:
+// Run sends one only from a seat whose action_decide is confirm_required,
+// where Core makes the decision itself a proposal that a person confirms.
+// At pending_review a decision would take effect before anyone looked, and
+// at autonomous without anyone looking; Core holds an agent's to
+// confirm_required, and the runtime holds it there again.
+func Decides(tool string) bool { return tool == "action_decide" || tool == "action_review" }
+
+// levelOf is a seat's level as a refusal names it.
+func levelOf(level string) string {
+	if level == "" {
+		return "not set"
+	}
+	return level
 }
 
 func isContextError(err error) bool {
