@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
@@ -61,7 +62,9 @@ func HostedOwnerProblem(cfg *config.Agent, me *core.Actor, cat *core.Catalogue) 
 	switch {
 	case h == nil:
 		return nil
-	case me.OwnerActorID != "" && me.OwnerActorID == h.OwnerActorID:
+	case me.OwnerActorID != "" && strings.EqualFold(me.OwnerActorID, h.OwnerActorID):
+		// Actor ids are UUIDs, which Core writes in lower case; the
+		// runtime compares them in any.
 		return nil
 	case me.OwnerActorID != "":
 		return &OwnerProblem{State: store.AgentOwnerChanged, Detail: ownerChangedDetail}

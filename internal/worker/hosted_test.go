@@ -385,6 +385,11 @@ func TestHostedOwnerCheck(t *testing.T) {
 			h.host("agt_yuki", own, "", hostedSettings("m1"))
 			return own, own.owner.ID
 		}, state: store.AgentRunning},
+		{name: "Core names the person who connected it, the row in capitals", connect: func(w *world, h *hosting) (agent, string) {
+			own := w.ownAgent("agt_yuki", 0)
+			h.hostAs("agt_yuki", own, strings.ToUpper(own.owner.ID), "", hostedSettings("m1"))
+			return own, own.owner.ID
+		}, state: store.AgentRunning},
 		{name: "Core names another owner", connect: func(w *world, h *hosting) (agent, string) {
 			own := w.ownAgent("agt_yuki", 0)
 			h.hostAs("agt_yuki", own, w.students[1].ID, "", hostedSettings("m1"))
