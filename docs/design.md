@@ -180,9 +180,13 @@ whole spend. A renewal gets min(5 s, a third of the lease) to finish; one
 that fails or does not finish stops the agent at once. On shutdown or
 removal the agent is recorded `stopped` before its lease is let go, so a
 takeover (`lease_takeovers_total`) counts only a lease that lapsed on a
-worker that was still running it. Within one worker, one Core actor is one
-agent: a second agent configured with the same token goes to state `error`,
-naming the first. `SIGHUP` reloads the configuration and the price table:
+worker that was still running it. A hosted agent's state names the
+version of its row the worker had put in force, and the store never
+writes a state of an older version over one of a newer: a worker that
+read the registry late (every worker writes the state of a paused or a
+rejected agent) cannot undo what the agent's holder wrote. Within one
+worker, one Core actor is one agent: a second agent configured with the
+same token goes to state `error`, naming the first. `SIGHUP` reloads the configuration and the price table:
 agents added, removed, paused or changed are started, stopped or restarted.
 A configuration with no agent is valid: the supervisor runs and waits, and
 `run` (at start and on every reload) and `check` say so, so that a server
@@ -249,10 +253,14 @@ at each answer from `answers_course` as `me_memberships` last showed it.
 
 A 401 anywhere stops the agent (state `unauthorized`). So does an MCP
 envelope with status `error` and code `unauthenticated`, which the real Core
-sends where REST answers 401 when the token's actor no longer exists. A
-reload starts an unauthorized or failed agent again even when its
-configuration has not changed, because a new token goes into the same
-secret file (`docs/deploying.md`). Tokens and model keys are read when an
+sends where REST answers 401 when the token's actor no longer exists. An
+instance whose configuration was replaced while it wound down (a hosted
+agent's new token put in force before the old instance's answer in
+progress ended) records nothing as it ends: its 401 is most often the old
+token's, which the new one revoked, and the agent starts on its new token
+at the next lease tick. A reload starts an unauthorized or failed agent
+again even when its configuration has not changed, because a new token
+goes into the same secret file (`docs/deploying.md`). Tokens and model keys are read when an
 agent starts, so a rotated one takes effect at the next start. A paused
 agent makes no calls at all.
 
@@ -442,7 +450,7 @@ The prompt's hash is kept per answer.
 | `note` | (agent, member, conversation) → kind, text, message id |
 | `seat` | (agent, member) → course, seen_at, gone_at, and the seat as `me_memberships` last showed it: course code, title and section, status, `answers_course`, principal, perms |
 | `llm_call`, `answer` | the ledger: ids and numbers |
-| `agent_state` | the owner's page's state |
+| `agent_state` | the owner's page's state, and the version of a hosted agent's row it is of: never replaced by a state of an older version |
 | `secret` | sealed secrets (§11.1): id, tenant, kind, the key's id, the wrapped data key, nonce, ciphertext, hint |
 | `person` | who has used the API: Core actor, name, platform role, last seen |
 | `hosted_agent` | the registry (§11.2): id `agt_…`, Core actor (unique), owner and whether Core said so, tenant, name, token and own key (secrets, with hints), paused, settings (jsonb), version |
@@ -732,9 +740,12 @@ The API needs `CORE_BASE_URL`, `API_AUDIENCE`, `DATABASE_URL` and
   30 a minute for refusals alone; per person, 120 a minute, bursts of 40,
   and for the routes that take a token 10 a minute, bursts of 5, and
   `keys/test` 6 a minute, bursts of 3, and 100 a UTC day), answered 429
-  with `Retry-After`; the assertion; a query (none is taken)
-  and a body (JSON only, at most 64 KB, no key twice, no member the route
-  does not take, nothing after the object; a route of no body takes an
+  with `Retry-After`; the assertion; a query (none is taken, but
+  `DELETE`'s `revoke_token`: a route that reads a body refuses one too)
+  and a body (JSON only, at most 64 KB, no key twice, in one case or in
+  two, no member the route does not take by exactly its name, since
+  `encoding/json` alone reads a member into a field whose name it matches
+  in any case, nothing after the object; a route of no body takes an
   empty one or `{}`).
 - **Refusals** are Core's envelope, `{"error": {"code", "message",
   "details": {"reason", …}}}`: Core's codes and HTTP statuses, with
@@ -762,11 +773,12 @@ The API needs `CORE_BASE_URL`, `API_AUDIENCE`, `DATABASE_URL` and
     token again replays the row; another token of an agent hosted
     already is `already_hosted`; an agent Core has given the caller since
     an earlier owner connected it is taken over, the earlier row deleted
-    and purged; one the operator's YAML runs is `operator_agent`. Both
-    answers list the agent's other live tokens (`other_tokens`, with
-    Core's `credential_list`) and whether one was used in the last 15
-    minutes, for the front end to warn that an agent has one brain at a
-    time.
+    and purged, once Core, asked again with the token just before, still
+    says the agent is the caller's; one the operator's YAML runs is
+    `operator_agent`. Both answers list the agent's other live tokens
+    (`other_tokens`, with Core's `credential_list`) and whether one was
+    used in the last 15 minutes, for the front end to warn that an agent
+    has one brain at a time.
   - `GET /agents` and `GET /agents/{id}`: the agent as its owner reads
     it, with its `version` as a strong ETag, its seats, the proposals
     waiting, today's answers and cost, its model and key hint, and a
@@ -781,19 +793,31 @@ The API needs `CORE_BASE_URL`, `API_AUDIENCE`, `DATABASE_URL` and
     key of another provider, a denied model, or a row the registry would
     not run (`registry.Check`, the same path as `Build`, for this one
     row) is refused before anything is written. `POST /keys/test` tries a
-    key with one output token, and neither stores nor returns it.
+    key with one output token, and neither stores nor returns it; its
+    hint is audited once it has passed as a key a provider may be sent.
+    A key that is a Core token, or holds one anywhere (`ais_` or
+    `aisinv_` and a public prefix, as Core makes them), is refused by
+    both, and nothing of it is kept.
   - `PUT /agents/{id}/token`: a new token of the same agent, sealed in
     place of the old, whose secret is destroyed with the write; the new
     token then revokes the old in Core (`credential_list`, then
-    `credential_revoke` of that credential alone, D7). `POST …/pause` and
-    `…/resume` set the row's flag.
+    `credential_revoke` of that credential alone, D7). Core refusing the
+    new token (401) means another new token replaced it meanwhile, and
+    says nothing of the old one, which is then said to have failed
+    (`core_refused`), for its owner to revoke. `POST …/pause` and
+    `…/resume` set the row's flag, at the version `If-Match` names when
+    it names one (412 when the row was written after it was read).
   - `DELETE /agents/{id}`: the stored token opened, the one secret the
     API ever opens, to revoke itself in Core (unless
     `revoke_token=false`); then the row, its courses and its secrets
     destroyed in one transaction, and the agent's notes, attempts,
-    cursors, seats, state and leases purged, its ledger kept. An agent
-    suspended in Core cannot revoke its own tokens: the answer says so,
-    and its owner revokes them in AIShie.
+    cursors, seats, state and leases purged, its ledger kept. The row is
+    deleted only while it holds the token that was revoked, and is at the
+    version `If-Match` names when it names one: a new token put in
+    meanwhile is revoked in its turn and the row deleted holding it (three
+    tries at most), and with `If-Match` the write meanwhile is 412. An
+    agent suspended in Core cannot revoke its own tokens: the answer says
+    so, and its owner revokes them in AIShie.
 - **Hosted agents' models** (D9) are called at the providers' own
   endpoints alone, which the API makes from the provider, an endpoint
   choice, an Azure resource or an AWS region (patterns with no dots),
@@ -801,9 +825,14 @@ The API needs `CORE_BASE_URL`, `API_AUDIENCE`, `DATABASE_URL` and
   `internal/netguard`: the dialer resolves the host itself and dials
   only public addresses (never loopback, private, link-local and the
   metadata address, CGNAT, or the other reserved ranges, IPv4-mapped
-  forms included), checks the address again as it connects, and no
-  redirect is followed. Behind `EGRESS_PROXY` only the proxy is dialed,
-  and the proxy must refuse the same.
+  forms included, and the IPv4-compatible and IPv4-translated ones
+  whole), checks the address again as it connects, and no redirect is
+  followed; `check --live` tries a hosted agent's model through it too.
+  Behind `EGRESS_PROXY` only the proxy is dialed, and the proxy must
+  refuse the same. A hosted agent's model is its owner's text: its calls
+  are counted (`llm_calls_total`, `llm_tokens_total`) under the name the
+  price table gives it, the model or the glob that prices it, and under
+  `other` when none does, so that no owner's text is a metric's label.
 - **The audit** (D11): `Server.Audit` records an event in `audit`
   (migration 0005) after the change it is about has committed: who, their
   session, their address, the action, its target, the outcome and a

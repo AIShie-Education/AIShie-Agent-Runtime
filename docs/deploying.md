@@ -174,8 +174,9 @@ an agent's owner (`me.get`'s `owner_actor_id`, since Core's C1): a hosted
 agent runs only while Core names as its owner the person who connected it,
 and is stopped otherwise, in state `owner_changed`, or in state `error` on
 an older Core, which cannot say. `check --live` checks the owner as `run`
-does. A hosted agent whose id or Core
-actor is a YAML agent's does not run: the operator's configuration wins.
+does, and tries a hosted agent's model as `run` calls it (below). A hosted
+agent whose id or Core actor is a YAML agent's does not run: the
+operator's configuration wins.
 
 ## The API for the front end
 
@@ -217,20 +218,21 @@ issued it, chooses its model and gives their own key for it, tries a key,
 pauses and resumes the agent, gives it a new token and deletes it. What
 the runtime does with Core on their behalf is with the agent's own token:
 it asks Core what the token is, and revokes the token a new one replaces,
-and an agent's token when the agent is deleted. An agent suspended in Core
-cannot revoke its tokens; its owner then revokes them in AIShie, as the
-front end says. Every change, and every refusal, is in the audit
+and an agent's token when the agent is deleted, a new token given while it
+is being deleted among them. An agent suspended in Core cannot revoke its
+tokens; its owner then revokes them in AIShie, as the front end says. Every change, and every refusal, is in the audit
 (`docs/design.md` §11.4), with hints of tokens and keys, never the values.
 
 A hosted agent's model is called only at the providers' own endpoints,
 which the runtime makes from the provider its owner chose: no one gives it
 a URL. The runtime also refuses, when it dials, any address that is not on
 the public internet (loopback, private, link-local and the cloud metadata
-address, carrier-grade NAT, and the rest of the reserved ranges, whatever
-DNS says), and follows no redirect. Behind `EGRESS_PROXY` it dials only
-the proxy, which then resolves and connects: the proxy must refuse those
-addresses itself, or a hosted agent's calls are only as closed as the
-proxy is.
+address, carrier-grade NAT, the IPv6 forms that hold an IPv4 address, and
+the rest of the reserved ranges, whatever DNS says), and follows no
+redirect; `check --live` tries a hosted agent's model the same way. Behind
+`EGRESS_PROXY` it dials only the proxy, which then resolves and connects:
+the proxy must refuse those addresses itself, or a hosted agent's calls
+are only as closed as the proxy is.
 
 ## The key that seals secrets
 
@@ -414,6 +416,9 @@ machine's loopback, should `HTTP_ADDR` listen wider).
 - **Metrics:** `curl -s 127.0.0.1:9090/metrics`, in Prometheus's format, for
   a Prometheus on the same machine, or through an SSH tunnel. The one to
   watch is `presence_gap_seconds`: above 60, Core shows the agents as away.
+  A hosted agent's model calls are counted under the model's name as the
+  price table gives it, or `other` when the table does not price it: the
+  model its owner typed is never a label.
 - **Logs:** `docker logs -f aishie-runtime`. One JSON line per event: ids,
   counts, outcomes and timings, never what anyone wrote, and no token or
   key. Docker keeps the last 100 MB.
