@@ -34,6 +34,9 @@ type Runner struct {
 	// MaxFileBytes bounds a file fetched for the model (rule 6);
 	// DefaultMaxFileBytes when 0 or less.
 	MaxFileBytes int64
+	// Writes is the answer's account of its writes: their keys and their
+	// budget. Nil refuses every write, whatever the set offers.
+	Writes *Writes
 }
 
 // Defaults of Runner.
@@ -65,6 +68,93 @@ func (r Runner) withDefaults() Runner {
 // codes, so that the model reads every result the same way.
 const codeUnavailable = "unavailable"
 
+// Writes is one answer's account of the writes its model makes (design
+// §4). The loop keeps one for the whole answer, across its turns, and Run
+// uses it between them, never two Runs at once.
+//
+// Run numbers the writes it sends to Core in the order the model made
+// them, from 1, before any is sent, and binds each to the idempotency key
+// Key gives its number: the same answer tried again (the same attempt,
+// after its model or the worker failed) numbers its writes the same, and
+// Core replays what it did the first time instead of doing it twice; a new
+// attempt's keys are new. A write the answer has already sent, the same
+// tool with the same arguments, goes under the key it went under then and
+// takes no number, so that a model that makes it again, after a proposal or
+// an answer Core did not give, meets Core's replay. At most Max writes are
+// sent: past it, a write is an is_error result that reaches nobody.
+type Writes struct {
+	// Max is how many writes the answer may send (per_answer.max_writes).
+	Max int
+	// Key is the idempotency key of the answer's nth write, from 1.
+	Key func(n int) string
+
+	sent int
+	keys map[string]sent
+	// Records are the writes sent to Core, in the order the model made
+	// them, and what came of each.
+	Records []WriteRecord
+	// Refused are the tools of the writes refused because the budget was
+	// spent, in the order the model made them.
+	Refused []string
+}
+
+// sent is a write already sent, by its tool and arguments.
+type sent struct {
+	n   int
+	key string
+}
+
+// WriteRecord is one write sent to Core and what came of it, in ids and
+// codes: never its arguments.
+type WriteRecord struct {
+	// N is the write's number, and Key its idempotency key: a write sent
+	// again has the number and key it had the first time.
+	N    int
+	Key  string
+	Tool string
+	// Status is Core's envelope status (executed, proposed, denied,
+	// failed, error), or StatusUnreachable when Core did not answer.
+	Status   string
+	Code     string
+	Reason   string
+	ActionID string
+	Replayed bool
+	// IDs are the result's own ids, its top-level members named *_id.
+	IDs map[string]string
+}
+
+// StatusUnreachable is a WriteRecord's status when Core did not answer:
+// the write may or may not have been done.
+const StatusUnreachable = "unreachable"
+
+// Sent is how many writes the answer has numbered and sent.
+func (w *Writes) Sent() int {
+	if w == nil {
+		return 0
+	}
+	return w.sent
+}
+
+// claim numbers a write of tool with args, or finds the number and key it
+// had when the answer sent it before; ok is false when the budget is spent.
+func (w *Writes) claim(tool string, args json.RawMessage) (sent, bool) {
+	id := tool + "\x00" + string(args)
+	if prev, ok := w.keys[id]; ok {
+		return prev, true
+	}
+	if w.sent >= w.Max {
+		w.Refused = append(w.Refused, tool)
+		return sent{}, false
+	}
+	w.sent++
+	if w.keys == nil {
+		w.keys = map[string]sent{}
+	}
+	sn := sent{n: w.sent, key: w.Key(w.sent)}
+	w.keys[id] = sn
+	return sn, true
+}
+
 // Run runs the model's tool calls (the tool_call parts of calls; any other
 // part is passed over) and returns one tool_result part per call, in call
 // order, with Name and CallID set, followed by the file parts of any files
@@ -74,13 +164,18 @@ const codeUnavailable = "unavailable"
 // A call is checked before it reaches Core, and any failure is an is_error
 // result the model can correct itself from, with no call to Core: a tool
 // not offered here ("no such tool here", naming those that are); a tool on
-// the built-in deny list or not a read, checked again whatever built the
-// set; arguments that are not a JSON object (rule 1); arguments Core's
-// schema refuses once course_id is set to courseID, the conversation's
-// course, whatever the model wrote (toolschema.Reverse, Validate). Core's
-// answer is Core's envelope as JSON, is_error unless executed, with every
-// download_url taken out and cut to MaxResultBytes keeping status and error
-// whole.
+// the built-in deny list, or a write without r.Writes, checked again
+// whatever built the set; arguments that are not a JSON object (rule 1);
+// arguments Core's schema refuses once course_id is set to courseID, the
+// conversation's course, whatever the model wrote (toolschema.Reverse,
+// Validate). A write is then numbered and bound to its idempotency key
+// (Writes), whatever key the model wrote; one past the answer's budget, or
+// one that repeats another call of the same turn exactly, is refused.
+// Core's answer is Core's envelope as JSON, is_error unless executed or
+// proposed (a proposal is Core's normal answer at confirm_required, not a
+// failure), with every download_url taken out and cut to MaxResultBytes
+// keeping status and error whole. Every write sent is recorded in
+// r.Writes.Records, in call order.
 //
 // A call Core did not answer is one of two things. Fatal: a 401
 // (core.ErrUnauthenticated: the agent must stop) or ctx done (the answer's
@@ -88,7 +183,8 @@ const codeUnavailable = "unavailable"
 // error and no parts: the answer cannot go on. Anything else (a 5xx or a
 // 429 the retrying caller underneath gave up on, a protocol error) is an
 // is_error result saying Core could not be reached, and the model answers
-// without it.
+// without it; for a write, that it may or may not have been done, and that
+// the same call again is never done twice.
 func (s *Set) Run(ctx context.Context, r Runner, courseID string, calls []llm.Part) ([]llm.Part, error) {
 	r = r.withDefaults()
 	var toolCalls []llm.Part
@@ -103,6 +199,39 @@ func (s *Set) Run(ctx context.Context, r Runner, courseID string, calls []llm.Pa
 	if r.Client == nil {
 		return nil, errors.New("toolset: the runner has no Core client")
 	}
+	// Every call is checked, and every write numbered, in call order and
+	// before any is sent: a write's number must not hang on which call
+	// Core answers first.
+	preps := make([]prepared, len(toolCalls))
+	thisTurn := map[string]string{}
+	for i, call := range toolCalls {
+		p := s.prepare(r, courseID, call)
+		if p.done || !p.write {
+			preps[i] = p
+			continue
+		}
+		id := call.Name + "\x00" + string(p.args)
+		if first, ok := thisTurn[id]; ok {
+			preps[i] = refusedCall(p.res, core.CodeInvalidArgument, fmt.Sprintf(
+				"this call repeats call %s of this turn exactly: it is made once, and its result is that call's", cut(first, maxNameInMessage)))
+			continue
+		}
+		thisTurn[id] = call.ID
+		sn, ok := r.Writes.claim(call.Name, p.args)
+		if !ok {
+			preps[i] = refusedCall(p.res, core.CodeFailedPrecondition, fmt.Sprintf(
+				"the changes this answer may make are spent (%d): %s was not made; tell the person what is left undone", r.Writes.Max, call.Name))
+			continue
+		}
+		args, err := bindKey(p.args, sn.key)
+		if err != nil {
+			preps[i] = refusedCall(p.res, core.CodeInvalidArgument, argumentMessage(call.Name, err))
+			continue
+		}
+		p.args, p.n, p.key = args, sn.n, sn.key
+		preps[i] = p
+	}
+
 	parent := ctx
 	ctx, cancel := context.WithCancel(core.WithPriority(parent, core.PriorityAnswer))
 	defer cancel()
@@ -110,12 +239,17 @@ func (s *Set) Run(ctx context.Context, r Runner, courseID string, calls []llm.Pa
 	type outcome struct {
 		part llm.Part
 		file *llm.File
+		env  *core.Envelope
 		err  error
 	}
-	outs := make([]outcome, len(toolCalls))
+	outs := make([]outcome, len(preps))
 	sem := make(chan struct{}, r.MaxParallel)
 	var wg sync.WaitGroup
-	for i, call := range toolCalls {
+	for i, p := range preps {
+		if p.done {
+			outs[i] = outcome{part: p.res}
+			continue
+		}
 		wg.Go(func() {
 			select {
 			case sem <- struct{}{}:
@@ -124,11 +258,11 @@ func (s *Set) Run(ctx context.Context, r Runner, courseID string, calls []llm.Pa
 				return
 			}
 			defer func() { <-sem }()
-			part, file, err := s.runOne(ctx, r, courseID, call)
+			part, file, env, err := s.send(ctx, r, p)
 			if err != nil {
 				cancel()
 			}
-			outs[i] = outcome{part, file, err}
+			outs[i] = outcome{part, file, env, err}
 		})
 	}
 	wg.Wait()
@@ -152,8 +286,11 @@ func (s *Set) Run(ctx context.Context, r Runner, courseID string, calls []llm.Pa
 		return nil, ctxErr
 	}
 	parts := make([]llm.Part, 0, len(outs))
-	for _, o := range outs {
+	for i, o := range outs {
 		parts = append(parts, o.part)
+		if p := preps[i]; !p.done && p.write {
+			r.Writes.Records = append(r.Writes.Records, record(p, o.env))
+		}
 	}
 	for _, o := range outs {
 		if o.file != nil {
@@ -167,44 +304,142 @@ func isContextError(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
-// runOne runs one call. Its error is fatal to the answer; everything else
-// is in the result.
-func (s *Set) runOne(ctx context.Context, r Runner, courseID string, call llm.Part) (llm.Part, *llm.File, error) {
+// prepared is one call checked and ready to send, or done: refused before
+// Core, with its result.
+type prepared struct {
+	res  llm.Part
+	done bool
+	t    *offered
+	args json.RawMessage
+	// write, n and key: a write, its number and its idempotency key.
+	write bool
+	n     int
+	key   string
+}
+
+func refusedCall(res llm.Part, code, msg string) prepared {
+	return prepared{res: refuse(res, code, msg), done: true}
+}
+
+// prepare checks one call before it may reach Core (Run).
+func (s *Set) prepare(r Runner, courseID string, call llm.Part) prepared {
 	res := llm.Part{Type: llm.PartToolResult, CallID: call.ID, Name: call.Name}
 	t, ok := s.lookup(call.Name)
 	if !ok {
-		return refuse(res, core.CodeNotFound, s.noSuchTool(call.Name)), nil, nil
+		return refusedCall(res, core.CodeNotFound, s.noSuchTool(call.Name))
 	}
-	// The deny list and reads only hold at every stage (§6.1), whatever
-	// built this set, and before anything of the call is looked at.
-	if BuiltinDenied(call.Name) || t.kind != KindRead {
-		return refuse(res, core.CodeForbidden, call.Name+" is not offered to the model"), nil, nil
+	// The deny list holds at every stage (§6.1), whatever built this set,
+	// and before anything of the call is looked at; so does a write's
+	// need of the answer's keys and budget.
+	write := t.kind == KindWrite
+	if BuiltinDenied(call.Name) || (t.kind != KindRead && !write) || (write && (r.Writes == nil || r.Writes.Key == nil)) {
+		return refusedCall(res, core.CodeForbidden, call.Name+" is not offered to the model")
 	}
 	if call.ArgsError != "" || !isObject(call.Args) {
-		return refuse(res, core.CodeInvalidArgument, fmt.Sprintf(
-			"the arguments to %s are not a JSON object; call it again with its parameters as one JSON object", call.Name)), nil, nil
+		return refusedCall(res, core.CodeInvalidArgument, fmt.Sprintf(
+			"the arguments to %s are not a JSON object; call it again with its parameters as one JSON object", call.Name))
 	}
-	args, err := toolschema.Reverse(t.input, call.Args, map[string]any{"course_id": courseID})
+	bound := map[string]any{"course_id": courseID}
+	if write {
+		// The model's key, if it wrote one, goes: bindKey gives the
+		// runtime's once the write is numbered.
+		bound["idempotency_key"] = ""
+	}
+	args, err := toolschema.Reverse(t.input, call.Args, bound)
 	if err == nil {
 		err = toolschema.Validate(t.input, args)
 	}
 	if err != nil {
-		return refuse(res, core.CodeInvalidArgument, argumentMessage(call.Name, err)), nil, nil
+		return refusedCall(res, core.CodeInvalidArgument, argumentMessage(call.Name, err))
 	}
-	env, err := r.Client.Call(ctx, call.Name, args)
+	return prepared{res: res, t: t, args: args, write: write}
+}
+
+// bindKey is a write's arguments with its idempotency key, which Core's
+// schema describes beside the tool's own (and REST sends as a header):
+// always the runtime's, whatever the model wrote (Reverse took the model's
+// out).
+func bindKey(args json.RawMessage, key string) (json.RawMessage, error) {
+	v, err := decodeJSON(args)
+	if err != nil {
+		return nil, err
+	}
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil, errors.New("toolset: the arguments are not an object")
+	}
+	m["idempotency_key"] = key
+	return json.RawMessage(encodeJSON(m)), nil
+}
+
+// send sends one prepared call. Its error is fatal to the answer;
+// everything else is in the result.
+func (s *Set) send(ctx context.Context, r Runner, p prepared) (llm.Part, *llm.File, *core.Envelope, error) {
+	res := p.res
+	env, err := r.Client.Call(ctx, res.Name, p.args)
 	switch {
 	case errors.Is(err, core.ErrUnauthenticated):
-		return res, nil, err
+		return res, nil, nil, err
 	case ctx.Err() != nil:
-		return res, nil, ctx.Err()
+		return res, nil, nil, ctx.Err()
+	case (err != nil || env == nil) && p.write:
+		return refuse(res, codeUnavailable, "Core could not be reached for this change, and it may or may not have been made. "+
+			"Call it again with exactly the same arguments to find out: it goes under the same key, and is never made twice"), nil, nil, nil
 	case err != nil, env == nil:
 		return refuse(res, codeUnavailable,
-			"Core could not be reached for this call; answer without it, or try it once more"), nil, nil
+			"Core could not be reached for this call; answer without it, or try it once more"), nil, nil, nil
 	}
-	content, file := r.render(ctx, call.Name, env)
+	content, file := r.render(ctx, res.Name, env)
 	res.Content = content
-	res.IsError = env.Status != core.StatusExecuted
-	return res, file, nil
+	res.IsError = env.Status != core.StatusExecuted && env.Status != core.StatusProposed
+	return res, file, env, nil
+}
+
+// record is what came of a write sent: env nil when Core did not answer.
+func record(p prepared, env *core.Envelope) WriteRecord {
+	w := WriteRecord{N: p.n, Key: p.key, Tool: p.res.Name, Status: StatusUnreachable}
+	if env == nil {
+		return w
+	}
+	w.Status, w.Code, w.Reason, w.ActionID, w.Replayed = string(env.Status), env.Code(), env.Reason(), env.ActionID, env.Replayed
+	if env.Status == core.StatusExecuted {
+		w.IDs = resultIDs(env.Result)
+	}
+	return w
+}
+
+// maxIDs bounds the ids a WriteRecord keeps of a result.
+const maxIDs = 8
+
+// resultIDs are a result's top-level members named *_id whose values are
+// short strings: what a write made, never what anyone wrote.
+func resultIDs(raw json.RawMessage) map[string]string {
+	var m map[string]json.RawMessage
+	if len(raw) == 0 || json.Unmarshal(raw, &m) != nil {
+		return nil
+	}
+	out := map[string]string{}
+	for _, k := range sortedKeys(m) {
+		var v string
+		if !strings.HasSuffix(k, "_id") || len(k) > 64 || json.Unmarshal(m[k], &v) != nil || v == "" || len(v) > 64 || !isID(v) {
+			continue
+		}
+		out[k] = v
+		if len(out) == maxIDs {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// isID reports whether v looks like an id: letters, digits, '-' and '_'.
+func isID(v string) bool {
+	return strings.IndexFunc(v, func(c rune) bool {
+		return (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' && c != '_'
+	}) < 0
 }
 
 func (s *Set) lookup(name string) (*offered, bool) {

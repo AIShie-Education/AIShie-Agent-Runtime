@@ -31,6 +31,9 @@ agent:
     mode: derived                  # the seat's perms ∩ allow − deny
     allow: [course_get, document_list, document_get, assignment_list, assignment_get]
     deny: []                       # beside the built-in list (§6.1)
+    # The writes its seat allows, only ever in a conversation its owner
+    # opened: never for the students it answers. Off unless turned on.
+    writes: false
     max_parallel_tools: 4
   answer:
     max_attempts: 3                # §2.4
@@ -38,7 +41,7 @@ agent:
     on_quota_exhausted: canned     # canned | silent
     max_body_chars: 19000          # Core's limit is 20000
   budgets:
-    per_answer: {turns: 8, tool_calls: 12, input_tokens: 150000, output_tokens: 4000, wall_clock_s: 90}
+    per_answer: {turns: 8, tool_calls: 12, max_writes: 10, input_tokens: 150000, output_tokens: 4000, wall_clock_s: 90}
     per_agent_day: {usd: 20.00, answers: 2000}
     per_asker_day: {answers: 30, usd: 0.40}   # keyed on (course_id, opener member_id)
   polling:

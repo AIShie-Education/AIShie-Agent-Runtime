@@ -118,7 +118,7 @@ func TestLiveCore(t *testing.T) {
 	if err := cat.Check(); err != nil {
 		t.Fatalf("the live catalogue fails Check: %v", err)
 	}
-	set, err := cat.Build(perms, config.Tools{}, toolschema.OpenAIStrict, nil)
+	set, err := cat.Build(perms, config.Tools{}, ReadOnly, toolschema.OpenAIStrict, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

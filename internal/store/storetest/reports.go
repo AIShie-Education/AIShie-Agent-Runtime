@@ -27,6 +27,12 @@ func (a asked) answer(id, outcome string, billable bool) store.AnswerRecord {
 	return r
 }
 
+// withWrites is a with the writes its model made.
+func withWrites(a store.AnswerRecord, w store.WriteCounts) store.AnswerRecord {
+	a.Writes = w
+	return a
+}
+
 func testReports(t *testing.T, open Opener) {
 	// Two UTC days, the first from its first instant to its last.
 	day1 := time.Date(2026, time.March, 10, 0, 0, 0, 0, time.UTC)
@@ -51,7 +57,8 @@ func testReports(t *testing.T, open Opener) {
 			[]store.AnswerRecord{
 				early.answer("r1", store.OutcomePosted, true), early.answer("r2", store.OutcomeQuota, false),
 				late.answer("r3", store.OutcomeProposed, true),
-				next.answer("r4", store.OutcomePosted, true), next.answer("r5", store.OutcomeError, false),
+				withWrites(next.answer("r4", store.OutcomePosted, true), store.WriteCounts{Sent: 4, Executed: 1, Proposed: 1, Denied: 1}),
+				withWrites(next.answer("r5", store.OutcomeError, false), store.WriteCounts{Sent: 2, Failed: 1}),
 				after.answer("r6", store.OutcomePosted, true), other.answer("r7", store.OutcomePosted, true),
 				before.answer("r8", store.OutcomePosted, true),
 			})
@@ -70,6 +77,7 @@ func testReports(t *testing.T, open Opener) {
 			{Day: day1, CourseID: "c2", Answers: 1, Outcomes: map[string]int{store.OutcomeProposed: 1},
 				ModelCalls: 1, InputTokens: 300, CacheReadTokens: 1, CacheWriteTokens: 2, OutputTokens: 30, ReasoningTokens: 3, CostPUSD: 3000},
 			{Day: day2, CourseID: "c1", Answers: 1, Outcomes: map[string]int{store.OutcomePosted: 1, store.OutcomeError: 1},
+				Writes:     store.WriteCounts{Sent: 6, Executed: 1, Proposed: 1, Denied: 1, Failed: 1},
 				ModelCalls: 1, InputTokens: 400, CacheReadTokens: 1, CacheWriteTokens: 2, OutputTokens: 40, ReasoningTokens: 3, CostPUSD: 4000},
 		}
 		if !reflect.DeepEqual(got, want) {

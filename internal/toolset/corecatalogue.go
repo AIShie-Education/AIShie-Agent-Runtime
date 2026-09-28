@@ -26,13 +26,13 @@ func FromCore(c *core.Catalogue) *Catalogue {
 }
 
 // CheckCatalogue holds the hand-kept gates to Core's catalogue: every gated
-// tool exists and is a read, and its schema sanitises and compiles
-// (Catalogue.Check).
+// tool exists and is of its gate's kind, and its schema sanitises and
+// compiles (Catalogue.Check).
 func CheckCatalogue(cat *core.Catalogue) error {
 	return FromCore(cat).Check()
 }
 
 // Build is a seat's toolset from Core's catalogue (Catalogue.Build).
-func Build(cat *core.Catalogue, perms map[string]string, cfg config.Tools, dialect toolschema.Dialect, cache *toolschema.Cache) (*Set, error) {
-	return FromCore(cat).Build(perms, cfg, dialect, cache)
+func Build(cat *core.Catalogue, perms map[string]string, cfg config.Tools, access Access, dialect toolschema.Dialect, cache *toolschema.Cache) (*Set, error) {
+	return FromCore(cat).Build(perms, cfg, access, dialect, cache)
 }

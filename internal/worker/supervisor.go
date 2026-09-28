@@ -60,6 +60,10 @@ type Supervisor struct {
 	// actors are the Core actors this worker's agents run as, by base URL
 	// and actor id, and the agent that runs as each.
 	actors map[string]string
+
+	// siteChatAbsent are the catalogues, by hash, that do not offer
+	// me.site_chat, once said.
+	siteChatAbsent sync.Map
 }
 
 // runner is one configured agent that is not paused, and the instance of

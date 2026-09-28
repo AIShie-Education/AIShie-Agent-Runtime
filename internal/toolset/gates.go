@@ -1,16 +1,23 @@
 // Package toolset decides which of Core's tools a seat's model is offered,
 // and runs the calls the model makes (Core's docs/agent-runtime.md §4, §6.1,
-// §3.1 rules 1, 5 and 6).
+// §3.1 rules 1, 5 and 6; docs/design.md §4).
 //
 // A seat is offered
 //
 //	toolset(seat) = { t in the catalogue | t's gate is allowed by the seat's perms,
-//	                  t in allow, not in deny, not in the built-in deny list, and t is a read }
+//	                  t in allow, not in deny, not in the built-in deny list,
+//	                  and t is a read, or a write in a conversation that may have them }
 //
-// and every call the model makes is checked again before it reaches Core:
-// the tool must be one offered, its arguments a JSON object that Core's own
-// schema takes once the runtime has set course_id, and the tool not denied.
-// Core's permissions stand over all of it; the runtime only narrows them.
+// Which conversations may have writes is the worker's to say (ReadWrite):
+// only one the agent's owner opened, and only while tools.writes is on.
+// Every call the model makes is checked again before it reaches Core: the
+// tool must be one offered, its arguments a JSON object that Core's own
+// schema takes once the runtime has set course_id, and the tool not denied;
+// a write is bound to the idempotency key the runtime gives it, and counted
+// against the answer's writes. Core's permissions stand over all of it: a
+// write at confirm_required comes back proposed and waits for a person, at
+// autonomous it is executed, and denied is refused. The runtime only
+// narrows what Core allows.
 package toolset
 
 import (
@@ -20,32 +27,41 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
 )
 
-// Gate is the permissions that let a seat be offered a tool: allowed when
-// any one of them is not denied in the seat's perms. A single-permission
-// gate is an Any of one.
+// Gate is the permissions that let a seat be offered a tool, as Core's own
+// declaration of the tool checks them (its tool.Gate): allowed when any one
+// of Any is not denied in the seat's perms, and every one of All is not
+// either. A single-permission gate is an Any of one; Core's gates of
+// several permissions without Any (grade.regrade's) are All.
 type Gate struct {
 	Any []string
+	All []string
 }
 
 // Allowed reports whether perms, a seat's permission-to-level map from
 // me_memberships, lets the gate through. A permission missing from perms is
 // denied, and so is a level the runtime does not know: the runtime never
-// reads more into a seat than Core wrote there.
+// reads more into a seat than Core wrote there. A gate that names no
+// permission lets nothing through.
 func (g Gate) Allowed(perms map[string]string) bool {
-	return slices.ContainsFunc(g.Any, func(p string) bool {
+	if len(g.Any)+len(g.All) == 0 {
+		return false
+	}
+	allowed := func(p string) bool {
 		switch perms[p] {
 		case core.LevelConfirmRequired, core.LevelPendingReview, core.LevelAutonomous:
 			return true
 		}
 		return false
-	})
+	}
+	return (len(g.Any) == 0 || slices.ContainsFunc(g.Any, allowed)) && !slices.ContainsFunc(g.All, func(p string) bool { return !allowed(p) })
 }
 
 // Gates are the permission gates of the read tools a model may be offered,
 // kept by hand because GET /v1/tools does not name them (§4, §10 item 2).
 // CheckCatalogue holds them to the catalogue whenever its hash changes. A
-// tool with no gate here is never offered: event_list and action_list_mine,
-// which §4 gates on document_read, are left out with BuiltinDeny's reason.
+// tool with no gate here or in WriteGates is never offered: event_list and
+// action_list_mine, which §4 gates on document_read, are left out with
+// BuiltinDeny's reason.
 var Gates = map[string]Gate{
 	"course_get":      {Any: []string{"document_read"}},
 	"assignment_list": {Any: []string{"document_read"}},
@@ -60,26 +76,96 @@ var Gates = map[string]Gate{
 	"gradebook_get":   {Any: []string{"grade_read"}},
 }
 
+// WriteGates are the gates of the writes a model may be offered, where the
+// seat's perms allow them and only in a conversation that may have writes
+// (ReadWrite): the course's work that a person may ask their own agent to
+// do for them, and nothing of the runtime's own or of the platform's. Each
+// is the permissions Core's declaration of the tool checks (internal/tools
+// in AIShiteru-Core): a document's write is any of the three kinds' (the
+// document's kind then names the one that governs, as reading does), and
+// grade_regrade takes both grade permissions, at the lower of their levels.
+// CheckCatalogue holds them to the catalogue as it holds the reads, each
+// still a write. Core decides every call again at its own level: these
+// only keep from the model what it could never do.
+var WriteGates = map[string]Gate{
+	"assignment_create":         {Any: []string{"assignment_write"}},
+	"assignment_update":         {Any: []string{"assignment_write"}},
+	"assignment_publish":        {Any: []string{"assignment_write"}},
+	"assignment_unpublish":      {Any: []string{"assignment_write"}},
+	"component_create":          {Any: []string{"assignment_write"}},
+	"component_update":          {Any: []string{"assignment_write"}},
+	"component_move":            {Any: []string{"assignment_write"}},
+	"document_create":           {Any: []string{"document_write", "submission_write", "grade_submit"}},
+	"document_add_version":      {Any: []string{"document_write", "submission_write", "grade_submit"}},
+	"document_publish":          {Any: []string{"document_write", "submission_write", "grade_submit"}},
+	"document_archive":          {Any: []string{"document_write", "submission_write", "grade_submit"}},
+	"grade_submit":              {Any: []string{"grade_submit"}},
+	"grade_post":                {Any: []string{"grade_post"}},
+	"grade_regrade":             {All: []string{"grade_submit", "grade_post"}},
+	"submission_create":         {Any: []string{"submission_write"}},
+	"submission_update_draft":   {Any: []string{"submission_write"}},
+	"submission_submit":         {Any: []string{"submission_write"}},
+	"submission_set_lateness":   {Any: []string{"grade_submit"}},
+	"submission_record_missing": {Any: []string{"grade_submit"}},
+}
+
 // DefaultAllow is the allowlist when an agent's configuration names none:
-// the read tools of §2.3.
-var DefaultAllow = []string{
+// the read tools of §2.3, and every gated write, which only a conversation
+// that may have writes is offered.
+var DefaultAllow = append(slices.Clone(defaultReads), sortedKeys(WriteGates)...)
+
+// defaultReads are the read tools of §2.3.
+var defaultReads = []string{
 	"course_get", "document_list", "document_get", "assignment_list", "assignment_get",
 	"submission_list", "submission_get", "grade_list", "grade_get", "component_tree", "gradebook_get",
 }
 
-// BuiltinDeny is never offered to a model in M1 and M2, whatever the
-// configuration says (§6.1): a name ending in * covers every tool it
-// begins. Every write is denied besides, by the catalogue's kind.
-//
-// Beside the handout's list, event_list and action_list_mine: the runtime
-// calls them itself, and action_list_mine returns the agent's own actions,
-// the answers it wrote in other people's conversations among them, which a
-// tutor answering one conversation must never read (§6.1).
+// BuiltinDeny is never offered to a model, whatever the configuration or
+// the seat's perms say (§6.1, design §4): a name ending in * covers every
+// tool it begins. The gates above offer nothing beyond them; this list is
+// the second lock, checked again by Build and by Run whatever built the
+// set, and a gate for a tool on it fails Check. Each entry, and why:
 var BuiltinDeny = []string{
-	"agent_*", "credential_*", "actor_*", "member_*",
-	"action_decide", "action_review", "action_withdraw", "action_list_mine", "event_list",
-	"conversation_*", "preset_*", "course_create", "course_update",
-	"term_*", "department_*", "document_upload_url",
+	// The runtime reads and answers conversations itself, from the one
+	// conversation it is answering (§6.1): a conversation tool would let
+	// the model read other people's conversations (a tutor's token reads
+	// every one addressed to it), or open, ask in, answer, close or
+	// retract one in someone else's name.
+	"conversation_*",
+	// The runtime follows the course's events itself (design §5.4), and
+	// action_list_mine returns the agent's own actions, among them the
+	// answers it wrote in other people's conversations, which a worker
+	// answering one conversation must never read.
+	"event_list", "action_list_mine",
+	// A proposal is decided or reviewed by a person: that is the check
+	// confirm_required and pending_review stand for (§6.2), and a model
+	// deciding them on what others wrote would make every such level only
+	// as strong as a prompt. Withdrawing acts on any proposal of the
+	// agent's, the answers the runtime follows in other conversations
+	// among them.
+	"action_decide", "action_review", "action_withdraw",
+	// Accounts, agents and credentials: platform administration (actor.),
+	// the owner's own management of their agents, their tokens and seats
+	// (agent.), the caller's own tokens and password (credential.), and
+	// who the caller is and where it sits (me.), which the runtime reads
+	// itself. A model issuing a token would put a credential in text;
+	// revoking, suspending or withdrawing would stop the agent; registering
+	// or re-owning actors is no one's to do through a model.
+	"actor_*", "agent_*", "credential_*", "me_*",
+	// Member management: seating, removing, pausing and re-scoping members
+	// and delegates, and setting perms. A model changing perms could widen
+	// its own seat or anyone else's, and the product owner's rule is that
+	// an agent's perms are set when it is seated, by people.
+	"member_*",
+	// The platform's own administration, which Core gates on a platform
+	// role and no course permission grants: courses made, changed,
+	// activated, archived, listed across the platform, their instructors
+	// seated; presets, terms and departments.
+	"course_create", "course_update", "course_activate", "course_archive", "course_seat_instructor", "course_list",
+	"preset_*", "term_*", "department_*",
+	// A signed upload URL is for bytes, which the model cannot send, and
+	// is a credential for the upload besides.
+	"document_upload_url",
 }
 
 // BuiltinDenied reports whether name is on the built-in deny list.
@@ -97,6 +183,18 @@ func denied(name string, list []string) bool {
 		}
 		return name == pattern
 	})
+}
+
+// gateOf is name's gate and kind: a read's from Gates, a write's from
+// WriteGates.
+func gateOf(name string) (Gate, string, bool) {
+	if g, ok := Gates[name]; ok {
+		return g, KindRead, true
+	}
+	if g, ok := WriteGates[name]; ok {
+		return g, KindWrite, true
+	}
+	return Gate{}, "", false
 }
 
 // Bound are the arguments the runtime sets and the model never sees: the

@@ -3,12 +3,14 @@ package worker
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/prompt"
@@ -46,8 +48,12 @@ type loop struct {
 
 	m        *model
 	fallback *model
-	set      *toolset.Set
-	decls    []llm.Tool
+	// access is whether the model is offered the seat's writes, and
+	// writes the answer's account of them: nil when it is not.
+	access toolset.Access
+	writes *toolset.Writes
+	set    *toolset.Set
+	decls  []llm.Tool
 	// cap is the output tokens asked for on a turn.
 	cap int
 
@@ -62,6 +68,11 @@ type loopStats struct {
 	In, Out   int64
 	// Cost is in pico-dollars.
 	Cost int64
+	// Writes are the writes the model made, as Core answered them, and
+	// WritesRefused those refused before Core, the answer's writes being
+	// spent.
+	Writes        store.WriteCounts
+	WritesRefused int
 }
 
 // loopEnd is how a loop ended: a body to post and what wrote it; or every
@@ -74,10 +85,17 @@ type loopEnd struct {
 	fatal  error
 }
 
-func newLoop(c *claim, msg, system string, history []llm.Message) (*loop, error) {
+// newLoop is the loop of attempt at answering msg. With access ReadWrite
+// the model is offered the seat's writes, each bound to the key of its
+// number in this attempt (core.ToolKey), at most per_answer.max_writes.
+func newLoop(c *claim, msg string, attempt int, access toolset.Access, system string, history []llm.Message) (*loop, error) {
 	l := &loop{
 		c: c, msg: msg, b: c.eff.Budgets.PerAnswer, start: c.a.now(), system: system, history: history,
-		m: c.s.primary, fallback: c.s.fallback,
+		m: c.s.primary, fallback: c.s.fallback, access: access,
+	}
+	if access == toolset.ReadWrite {
+		conv := c.conv
+		l.writes = &toolset.Writes{Max: l.b.MaxWrites, Key: func(n int) string { return core.ToolKey(conv, msg, attempt, n) }}
 	}
 	l.deadline = l.start.Add(l.b.WallClock())
 	if err := l.use(l.m); err != nil {
@@ -89,7 +107,7 @@ func newLoop(c *claim, msg, system string, history []llm.Message) (*loop, error)
 // use makes m the loop's model: its toolset's declarations in its dialect,
 // and its output cap.
 func (l *loop) use(m *model) error {
-	set, err := l.c.s.toolsFor(m.ad.Dialect())
+	set, err := l.c.s.toolsFor(m.ad.Dialect(), l.access)
 	if err != nil {
 		return err
 	}
@@ -421,8 +439,9 @@ func (l *loop) runTools(ctx context.Context, resp *llm.Response) error {
 	eff := l.c.eff
 	parts, err := l.set.Run(ctx, toolset.Runner{
 		Client: l.c.a.client, Files: l.c.a.s.files, MaxParallel: eff.Tools.MaxParallelTools,
-		FileInput: l.m.ad.Capabilities().FileInput,
+		FileInput: l.m.ad.Capabilities().FileInput, Writes: l.writes,
 	}, l.c.s.course, run)
+	l.accountWrites()
 	if err != nil {
 		return err
 	}
@@ -440,6 +459,91 @@ func (l *loop) runTools(ctx context.Context, resp *llm.Response) error {
 	}
 	l.turns = append(l.turns, llm.Message{Role: llm.RoleTool, Parts: append(results, files...)})
 	return nil
+}
+
+// accountWrites counts the writes a turn made, as Core answered them:
+// in the answer's stats for the ledger, in tool_writes_total by tool and
+// outcome, and in one log line each, of ids and codes (the audit of what
+// the agent did, beside Core's own action log). An executed or proposed
+// write, not a replay, is noted in the conversation's memory, so that a
+// later attempt, whose keys are new, knows what is done already.
+func (l *loop) accountWrites() {
+	w := l.writes
+	if w == nil {
+		return
+	}
+	m := l.c.a.s.o.Metrics
+	for _, rec := range w.Records[l.stats.Writes.Sent:] {
+		l.stats.Writes.Sent++
+		switch rec.Status {
+		case string(core.StatusExecuted):
+			l.stats.Writes.Executed++
+		case string(core.StatusProposed):
+			l.stats.Writes.Proposed++
+		case string(core.StatusDenied):
+			l.stats.Writes.Denied++
+		case string(core.StatusFailed):
+			l.stats.Writes.Failed++
+		}
+		m.ToolWrites.WithLabelValues(rec.Tool, writeOutcome(rec.Status)).Inc()
+		l.c.s.log.Info("a write the model made", "conversation", l.c.conv, "message", l.msg, "tool", rec.Tool, "n", rec.N,
+			"key", rec.Key, "status", rec.Status, "code", rec.Code, "reason", rec.Reason, "action", rec.ActionID, "replayed", rec.Replayed)
+		if !rec.Replayed && (rec.Status == string(core.StatusExecuted) || rec.Status == string(core.StatusProposed)) {
+			addNote(l.c.a, l.c.eff, store.Note{AgentID: l.c.a.id, MemberID: l.c.s.id, ConversationID: l.c.conv,
+				Kind: store.NoteWrote, Text: wroteNote(rec)})
+		}
+	}
+	if refused := w.Refused[l.stats.WritesRefused:]; len(refused) > 0 {
+		l.stats.WritesRefused = len(w.Refused)
+		for _, tool := range refused {
+			m.ToolWrites.WithLabelValues(tool, writeRefused).Inc()
+		}
+		m.BudgetExhausted.WithLabelValues("writes").Inc()
+		l.c.s.log.Info("the writes of the answer are spent: writes were refused", "conversation", l.c.conv, "refused", len(refused))
+	}
+}
+
+// writeRefused is tool_writes_total's outcome for a write refused before
+// Core, the answer's writes being spent.
+const writeRefused = "refused"
+
+// writeOutcome is tool_writes_total's outcome for a write's status: Core's
+// executed, proposed, denied and failed as they are; error for Core's
+// error (an idempotency_conflict, an argument Core refused); unreachable
+// when Core did not answer.
+func writeOutcome(status string) string {
+	switch status {
+	case string(core.StatusExecuted), string(core.StatusProposed), string(core.StatusDenied), string(core.StatusFailed),
+		toolset.StatusUnreachable:
+		return status
+	}
+	return "error"
+}
+
+// wroteNote is a write's note for the conversation's memory: the tool,
+// what came of it, the action and the ids it made; never its arguments.
+func wroteNote(rec toolset.WriteRecord) string {
+	var b strings.Builder
+	b.WriteString(rec.Tool + ": " + rec.Status)
+	if rec.Status == string(core.StatusProposed) {
+		b.WriteString(", waiting for a person's approval")
+	}
+	var ids []string
+	if rec.ActionID != "" {
+		ids = append(ids, "action "+rec.ActionID)
+	}
+	keys := make([]string, 0, len(rec.IDs))
+	for k := range rec.IDs {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	for _, k := range keys {
+		ids = append(ids, k+" "+rec.IDs[k])
+	}
+	if len(ids) > 0 {
+		b.WriteString(" (" + strings.Join(ids, ", ") + ")")
+	}
+	return b.String()
 }
 
 // halve shortens the history after a context overflow: the older half of

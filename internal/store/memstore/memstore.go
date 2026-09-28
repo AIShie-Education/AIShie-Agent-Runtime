@@ -1099,6 +1099,7 @@ func (s *Store) Usage(_ context.Context, agentID string, since, until time.Time)
 			if a.Billable {
 				r.Answers++
 			}
+			r.Writes.Add(a.Writes)
 		}
 	}
 	for k, c := range s.calls {

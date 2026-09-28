@@ -30,7 +30,9 @@ func (s *Store) Usage(ctx context.Context, agentID string, since, until time.Tim
 		return byKey[k]
 	}
 	answers, err := s.pool.Query(ctx, `
-		SELECT date_trunc('day', at AT TIME ZONE 'UTC'), course_id, outcome, count(*), count(*) FILTER (WHERE billable)
+		SELECT date_trunc('day', at AT TIME ZONE 'UTC'), course_id, outcome, count(*), count(*) FILTER (WHERE billable),
+		       sum(writes)::bigint, sum(writes_executed)::bigint, sum(writes_proposed)::bigint,
+		       sum(writes_denied)::bigint, sum(writes_failed)::bigint
 		  FROM answer
 		 WHERE agent_id = $1 AND at >= $2 AND at < $3
 		 GROUP BY 1, 2, 3`, agentID, since, until)
@@ -42,12 +44,14 @@ func (s *Store) Usage(ctx context.Context, agentID string, since, until time.Tim
 		var day time.Time
 		var course, outcome string
 		var n, billable int
-		if err := answers.Scan(&day, &course, &outcome, &n, &billable); err != nil {
+		var w store.WriteCounts
+		if err := answers.Scan(&day, &course, &outcome, &n, &billable, &w.Sent, &w.Executed, &w.Proposed, &w.Denied, &w.Failed); err != nil {
 			return nil, fmt.Errorf("store: usage of %s: %w", agentID, err)
 		}
 		r := row(day, course)
 		r.Outcomes[outcome] += n
 		r.Answers += billable
+		r.Writes.Add(w)
 	}
 	if err := answers.Err(); err != nil {
 		return nil, fmt.Errorf("store: usage of %s: %w", agentID, err)

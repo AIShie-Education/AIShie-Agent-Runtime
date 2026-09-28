@@ -216,6 +216,10 @@ const (
 	// NoteAnswered: an answer was posted; Text is a short record, never the
 	// question.
 	NoteAnswered = "answered"
+	// NoteWrote: the model made a write that Core executed or proposed;
+	// Text is the tool, its status, the action and the ids it made, never
+	// its arguments.
+	NoteWrote = "wrote"
 )
 
 // Note is one thing remembered about one conversation. Memory is keyed on
@@ -360,15 +364,40 @@ type AnswerRecord struct {
 	Key            string    `json:"key"`
 	Outcome        string    `json:"outcome"`
 	// Billable answers count against answer quotas: those a model wrote.
-	Billable     bool   `json:"billable"`
-	Turns        int    `json:"turns"`
-	ToolCalls    int    `json:"tool_calls"`
-	InputTokens  int64  `json:"input_tokens"`
-	OutputTokens int64  `json:"output_tokens"`
-	CostPUSD     int64  `json:"cost_pusd"`
-	KeySource    string `json:"key_source"`
-	PromptHash   string `json:"prompt_hash"`
-	LatencyMS    int64  `json:"latency_ms"`
+	Billable  bool `json:"billable"`
+	Turns     int  `json:"turns"`
+	ToolCalls int  `json:"tool_calls"`
+	// Writes are the tool calls among ToolCalls that were writes sent to
+	// Core, and what Core said of them.
+	Writes       WriteCounts `json:"writes"`
+	InputTokens  int64       `json:"input_tokens"`
+	OutputTokens int64       `json:"output_tokens"`
+	CostPUSD     int64       `json:"cost_pusd"`
+	KeySource    string      `json:"key_source"`
+	PromptHash   string      `json:"prompt_hash"`
+	LatencyMS    int64       `json:"latency_ms"`
+}
+
+// WriteCounts count the writes models made through their seats' perms
+// (docs/design.md §4): those sent to Core, and how many of them Core
+// executed, proposed (waiting for a person), denied and failed, a replay
+// counted as its stored status. A write sent that Core did not answer, or
+// answered with an error, is in Sent alone.
+type WriteCounts struct {
+	Sent     int `json:"sent"`
+	Executed int `json:"executed"`
+	Proposed int `json:"proposed"`
+	Denied   int `json:"denied"`
+	Failed   int `json:"failed"`
+}
+
+// Add adds o to w.
+func (w *WriteCounts) Add(o WriteCounts) {
+	w.Sent += o.Sent
+	w.Executed += o.Executed
+	w.Proposed += o.Proposed
+	w.Denied += o.Denied
+	w.Failed += o.Failed
 }
 
 // SpendScope filters Spend. Empty fields do not filter; at least one must
@@ -854,6 +883,8 @@ type UsageRow struct {
 	// every answer recorded, by its outcome.
 	Answers  int            `json:"answers"`
 	Outcomes map[string]int `json:"outcomes"`
+	// Writes are the writes the answers' models made.
+	Writes WriteCounts `json:"writes"`
 	// ModelCalls, the tokens and the cost are every model call's.
 	ModelCalls       int   `json:"model_calls"`
 	InputTokens      int64 `json:"input_tokens"`

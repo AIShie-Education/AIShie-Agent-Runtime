@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
@@ -18,15 +19,23 @@ import (
 )
 
 // PATCH /agents/{id}: the owner's model and own key (the API contract,
-// §5.9), by merge-patch: a member left out is kept as it is, and null
-// clears it. It is written only over the version If-Match names, and only
-// once the new row passes what the registry holds a row to.
+// §5.9), and whether its model may act for them (tools.writes, design §4),
+// by merge-patch: a member left out is kept as it is, and null clears it.
+// It is written only over the version If-Match names, and only once the
+// new row passes what the registry holds a row to.
 
 // patchRequest is PATCH's body; its members are read in turn, so that a
 // member left out is told from one given as null.
 type patchRequest struct {
 	Model  json.RawMessage `json:"model"`
 	OwnKey json.RawMessage `json:"own_key"`
+	Tools  json.RawMessage `json:"tools"`
+}
+
+// toolsPatch is PATCH's tools: writes true or false, or null for the
+// default, which is true (registry.WritesOf).
+type toolsPatch struct {
+	Writes json.RawMessage `json:"writes"`
 }
 
 type modelPatch struct {
@@ -83,6 +92,10 @@ type patchOf struct {
 	own    *modelSection
 	setKey bool
 	key    *string
+	// setWrites: the patch gives tools.writes, true or false, or nil for
+	// the default.
+	setWrites bool
+	writes    *bool
 }
 
 func (s *Server) readPatch(req patchRequest) (patchOf, *Error) {
@@ -120,6 +133,24 @@ func (s *Server) readPatch(req patchRequest) (patchOf, *Error) {
 				return p, e
 			}
 			p.key = kp.Value
+		}
+	}
+	if req.Tools != nil {
+		p.setWrites = true
+		if !isNull(req.Tools) {
+			var tp toolsPatch
+			if e := decodeMember(req.Tools, &tp, "/tools"); e != nil {
+				return p, e
+			}
+			switch w := string(bytes.TrimSpace(tp.Writes)); w {
+			case "", "null":
+				p.setWrites = tp.Writes != nil
+			case "true", "false":
+				on := w == "true"
+				p.writes = &on
+			default:
+				return p, fieldError(CodeInvalidArgument, ReasonInvalidField, "/tools/writes", "must be true, false or null")
+			}
 		}
 	}
 	if mp.School != nil && !isNull(mp.School) {
@@ -183,6 +214,19 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, c *Caller, au *a
 	if !sameJSON(settings, row.Settings) {
 		next.Settings = settings
 		changed = append(changed, "model.own")
+	}
+	if p.setWrites {
+		ws, err := putWrites(next.Settings, p.writes)
+		if err != nil {
+			s.o.Log.Error("a hosted agent's settings could not be read", "agent", row.ID, "err", err)
+			WriteError(w, Error{Code: CodeInternal, Reason: ReasonInternal, Message: "the agent's settings could not be read"})
+			return
+		}
+		if !sameJSON(ws, next.Settings) {
+			next.Settings = ws
+			changed = append(changed, "tools.writes")
+			au.detail["writes"] = registry.WritesOf(ws)
+		}
 	}
 	var sealed *store.Secret
 	switch {
@@ -261,6 +305,39 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, c *Caller, au *a
 	}
 	au.detail["version"], au.detail["changed"] = updated.Version, changed
 	s.writeAgent(ctx, w, http.StatusOK, updated)
+}
+
+// putWrites is settings with tools.writes set to writes, or taken out for
+// nil (the default); the rest of the settings, tools' other members among
+// them, are kept as they are, and a tools left empty goes.
+func putWrites(settings json.RawMessage, writes *bool) (json.RawMessage, error) {
+	m := map[string]json.RawMessage{}
+	if len(settings) > 0 {
+		if err := json.Unmarshal(settings, &m); err != nil || m == nil {
+			return nil, errors.New("api: the agent's settings are not a JSON object")
+		}
+	}
+	tools := map[string]json.RawMessage{}
+	if raw, ok := m["tools"]; ok && !isNull(raw) {
+		if err := json.Unmarshal(raw, &tools); err != nil || tools == nil {
+			return nil, errors.New("api: the agent's tools settings are not a JSON object")
+		}
+	}
+	if writes == nil {
+		delete(tools, "writes")
+	} else {
+		tools["writes"] = json.RawMessage(strconv.FormatBool(*writes))
+	}
+	if len(tools) == 0 {
+		delete(m, "tools")
+	} else {
+		raw, err := json.Marshal(tools)
+		if err != nil {
+			return nil, err
+		}
+		m["tools"] = raw
+	}
+	return json.Marshal(m)
 }
 
 // problems are why a row does not pass, one by one, redacted and bounded,

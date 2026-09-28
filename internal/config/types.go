@@ -151,8 +151,13 @@ type Tools struct {
 	Allow []string `yaml:"allow"`
 	// Deny is beside the built-in list, which always applies; an entry
 	// ending in * denies every tool whose name begins so (design §4).
-	Deny             []string `yaml:"deny"`
-	MaxParallelTools int      `yaml:"max_parallel_tools"`
+	Deny []string `yaml:"deny"`
+	// Writes lets the model be offered the writes the seat's perms allow,
+	// in a conversation the agent's owner opened (design §4): off by
+	// default, and on for a hosted agent unless its owner turns it off,
+	// since only a hosted agent's owner is known to the runtime.
+	Writes           bool `yaml:"writes"`
+	MaxParallelTools int  `yaml:"max_parallel_tools"`
 }
 
 // Answer is how questions are answered.
@@ -182,8 +187,11 @@ type Budgets struct {
 
 // PerAnswer are the hard caps inside one answer's loop (§7.1).
 type PerAnswer struct {
-	Turns        int     `yaml:"turns"`
+	Turns int `yaml:"turns"`
+	// ToolCalls bounds every tool call, reads and writes; MaxWrites bounds
+	// the writes among them, counted apart from the reads.
 	ToolCalls    int     `yaml:"tool_calls"`
+	MaxWrites    int     `yaml:"max_writes"`
 	InputTokens  int64   `yaml:"input_tokens"`
 	OutputTokens int64   `yaml:"output_tokens"`
 	WallClockS   float64 `yaml:"wall_clock_s"`

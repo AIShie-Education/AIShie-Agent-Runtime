@@ -11,6 +11,7 @@ import (
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/probe"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/registry"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
 )
 
@@ -30,6 +31,7 @@ type HostedAgent struct {
 	Token            TokenInfo  `json:"token"`
 	Model            ModelSlots `json:"model"`
 	OwnKey           *OwnKey    `json:"own_key"`
+	Tools            ToolsView  `json:"tools"`
 	Seats            []Seat     `json:"seats"`
 	SeatsAsOf        *time.Time `json:"seats_as_of"`
 	ProposalsWaiting int        `json:"proposals_waiting"`
@@ -54,6 +56,14 @@ func tokenInfo(hint string) TokenInfo { return TokenInfo{Hint: hint, Prefix: pro
 type ModelSlots struct {
 	Own    *OwnModel `json:"own"`
 	School *struct{} `json:"school"`
+}
+
+// ToolsView is what the agent's model may do beside reading (design §4):
+// Writes, whether it is offered the writes its seats' perms allow in the
+// conversations its owner opens, as its owner set it (true when they have
+// not). Core still decides each write by the seat's perms.
+type ToolsView struct {
+	Writes bool `json:"writes"`
 }
 
 // OwnKey is what may be shown of the owner's stored key: its hint, and the
@@ -158,7 +168,8 @@ func (s *Server) view(ctx context.Context, row *store.HostedAgent) (*HostedAgent
 	v := &HostedAgent{
 		ID: row.ID, Version: row.Version, CoreActorID: row.CoreActorID, OwnerActorID: row.OwnerActorID,
 		DisplayName: row.DisplayName, Status: status, Problem: problem, Paused: row.Paused, Token: tokenInfo(row.TokenHint),
-		Model: ModelSlots{Own: s.ownModelView(own, now)}, Seats: []Seat{}, CreatedAt: row.CreatedAt.UTC(), UpdatedAt: row.UpdatedAt.UTC(),
+		Model: ModelSlots{Own: s.ownModelView(own, now)}, Tools: ToolsView{Writes: registry.WritesOf(row.Settings)},
+		Seats: []Seat{}, CreatedAt: row.CreatedAt.UTC(), UpdatedAt: row.UpdatedAt.UTC(),
 	}
 	if row.KeySecretID != "" {
 		v.OwnKey = &OwnKey{Hint: row.KeyHint}

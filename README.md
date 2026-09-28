@@ -12,6 +12,12 @@ says what an agent may do and how. This repository meets it:
 - **Two kinds of agent.** A student's or instructor's own agent is a delegate
   that answers only its owner. A course tutor answers every student in a
   course.
+- **Agents act for their owners.** In a conversation its owner opened, an
+  agent's model may make the changes its seat's permissions allow, such as
+  writing a document, as Core decides them: done at `autonomous`, waiting
+  for a person's approval at `confirm_required`, refused at `denied`. Anyone
+  else it answers gets reads alone. Each change is keyed so that no retry
+  makes it twice, and the agent tells its owner plainly what it did.
 - **Five model APIs.** OpenAI Chat, which also covers the compatible servers
   (DeepSeek, Azure OpenAI, Ollama, vLLM…), OpenAI Responses, Anthropic,
   Gemini and Bedrock Converse. Each agent can have a fallback model.

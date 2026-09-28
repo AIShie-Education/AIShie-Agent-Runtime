@@ -344,6 +344,27 @@ func (w *liveWorld) listedTutor(student int) (string, *mcpClient) {
 	return seat, c
 }
 
+// ownerAgent is an agent of Sato's, seated with member.add_delegate as an
+// instructor seats an assistant of their own.
+func (w *liveWorld) ownerAgent(perms map[string]string) (string, *mcpClient) {
+	w.t.Helper()
+	id := str(w.lc.result(w.sato.token, "POST", "/v1/me/agents", map[string]any{"display_name": "Sato's assistant"}), "actor_id")
+	token := str(w.lc.result(w.sato.token, "POST", "/v1/me/agents/"+id+"/tokens", map[string]any{"label": "runtime"}), "token")
+	seat := str(w.lc.result(w.sato.token, "POST", w.path("/delegates"), map[string]any{"actor_id": id, "preset": "delegate",
+		"perms": perms}), "member_id")
+	c := newMCPClient(w.lc.base, token, w.lc.hc)
+	if h, err := c.initialize(context.Background()); err != nil || h.Status != http.StatusOK {
+		w.t.Fatalf("initialize: %v %d %s", err, h.Status, h.Body)
+	}
+	return seat, c
+}
+
+// setLevel is Sato setting a permission of a seat.
+func (w *liveWorld) setLevel(seat, perm, level string) {
+	w.t.Helper()
+	w.lc.result(w.sato.token, "POST", w.path("/members/"+seat+"/perms"), map[string]any{"perms": map[string]string{perm: level}})
+}
+
 // pausePrincipal is Mori, the other instructor, pausing Sato's seat.
 func (w *liveWorld) pausePrincipal() {
 	w.t.Helper()

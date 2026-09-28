@@ -14,6 +14,7 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/prompt"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/safety"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolset"
 )
 
 // What wrote an attempt's body (store.Attempt.Kind).
@@ -236,7 +237,12 @@ func nextAttempt(atts []store.Attempt) (n int, busy bool) {
 // generate is steps 6 to 10: the prompt, the loop, the body made safe,
 // and the post.
 func (c *claim) generate(ctx context.Context, r passResult, read *core.Messages, shorter bool) passResult {
-	sys, hash, err := c.system(ctx, read, shorter)
+	access := c.access(read)
+	set, err := c.s.toolsFor(c.s.primary.ad.Dialect(), access)
+	if err != nil {
+		return c.failedHere(r, "the toolset could not be built", err)
+	}
+	sys, hash, err := c.system(ctx, read, shorter, set)
 	if err != nil {
 		return c.failedHere(r, "the memory could not be read", err)
 	}
@@ -245,7 +251,7 @@ func (c *claim) generate(ctx context.Context, r passResult, read *core.Messages,
 	if err != nil {
 		return c.failedHere(r, "the question is not in the conversation read", err)
 	}
-	l, err := newLoop(c, r.msg, sys, hist)
+	l, err := newLoop(c, r.msg, r.no, access, sys, hist)
 	if err != nil {
 		return c.failedHere(r, "the toolset could not be built", err)
 	}
@@ -269,8 +275,20 @@ func (c *claim) generate(ctx context.Context, r passResult, read *core.Messages,
 	return c.post(ctx, r, end.body, end.kind)
 }
 
-// system is the system prompt for this answer and its hash.
-func (c *claim) system(ctx context.Context, read *core.Messages, shorter bool) (string, string, error) {
+// access is what this conversation's model is offered (accessFor): the
+// seat's writes only when its owner opened it. The opener is Core's, as
+// the conversation was read.
+func (c *claim) access(read *core.Messages) toolset.Access {
+	opener := read.Conversation.Opener.MemberID
+	if opener == "" {
+		opener = c.opener
+	}
+	return accessFor(c.a.cfg, c.eff.Tools, c.s.membership(), opener)
+}
+
+// system is the system prompt for this answer, whose model is offered set,
+// and its hash.
+func (c *claim) system(ctx context.Context, read *core.Messages, shorter bool, set *toolset.Set) (string, string, error) {
 	var notes []store.Note
 	if c.eff.Memory.Enabled {
 		var err error
@@ -284,7 +302,7 @@ func (c *claim) system(ctx context.Context, read *core.Messages, shorter bool) (
 		Seat: prompt.Seat{
 			AgentName: c.a.name(), Course: prompt.CourseName(m), AnswersCourse: m.AnswersCourse,
 			AskerName: read.Conversation.Opener.DisplayName, AnswerLevel: read.Conversation.Respondent.AnswerLevel,
-			Tools: c.s.toolNames(),
+			Tools: set.Reads(), Writes: set.Writes(),
 		},
 		AnswerLanguage: c.eff.Prompt.AnswerLanguage, Notes: notes, Now: c.a.now(),
 	})
@@ -653,6 +671,7 @@ func (c *claim) record(r passResult) {
 		ID: uuid.NewString(), At: now, TenantID: c.a.cfg.TenantID, AgentID: c.a.id, CourseID: c.s.course, MemberID: c.s.id,
 		ConversationID: c.conv, MessageID: r.msg, OpenerMemberID: c.opener, Key: r.key, Outcome: r.outcome,
 		Billable: r.kind == kindModel && r.posted, Turns: r.stats.Turns, ToolCalls: r.stats.ToolCalls,
+		Writes:      r.stats.Writes,
 		InputTokens: r.stats.In, OutputTokens: r.stats.Out, CostPUSD: r.stats.Cost, KeySource: c.eff.Model.KeySource,
 		PromptHash: r.hash, LatencyMS: now.Sub(c.claimedAt).Milliseconds(),
 	}
@@ -665,7 +684,7 @@ func (c *claim) record(r passResult) {
 	m.Answers.WithLabelValues(r.outcome).Inc()
 	attrs := []any{"conversation", c.conv, "message", r.msg, "opener", c.opener, "key", r.key, "attempt", r.no,
 		"outcome", r.outcome, "kind", r.kind, "turns", r.stats.Turns, "tool_calls", r.stats.ToolCalls,
-		"input_tokens", r.stats.In, "output_tokens", r.stats.Out, "cost_pusd", r.stats.Cost}
+		"writes", r.stats.Writes.Sent, "input_tokens", r.stats.In, "output_tokens", r.stats.Out, "cost_pusd", r.stats.Cost}
 	if !c.asked.IsZero() {
 		notice := c.claimedAt.Sub(c.asked)
 		m.AnswerLatency.WithLabelValues("notice").Observe(max(notice, 0).Seconds())

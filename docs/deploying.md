@@ -149,8 +149,21 @@ aishie-runtime check --live
 
 `check` loads and validates the configuration as `run` will; `--live` also
 resolves the secrets, connects each agent to Core, shows its seats and what
-its model is offered, and tries each model key with one call. A
+its model is offered (its reads, and the writes its owner's conversations
+are offered besides), and tries each model key with one call. A
 `core.base_url` must be within `CORE_BASE_URL_ALLOWLIST`.
+
+An agent's model reads the course as far as its seat's permissions allow.
+It may also change the course, as far as they allow (writing a document, a
+grade, an assignment: Core decides each change at the seat's level, and
+one at `confirm_required` waits for a person's approval), but only in a
+conversation its owner opened, and only when its configuration says
+`tools: {writes: true}`: a YAML agent's owner is whoever its operator says,
+so writes are off until the operator turns them on. Anyone else the agent
+answers, a course tutor's students among them, gets reads alone. Each
+answer makes at most `budgets.per_answer.max_writes` changes (10), and
+`tools.deny` or `tools.allow` narrow which, as they do reads
+(`docs/design.md` §4).
 
 To apply a change to the agents, check it, then either tell the runtime to
 read its configuration again, or deploy the image that is running again,
@@ -176,7 +189,10 @@ and is stopped otherwise, in state `owner_changed`, or in state `error` on
 an older Core, which cannot say. `check --live` checks the owner as `run`
 does, and tries a hosted agent's model as `run` calls it (below). A hosted
 agent whose id or Core actor is a YAML agent's does not run: the
-operator's configuration wins.
+operator's configuration wins. A hosted agent's owner being known, its
+model may act for them in the conversations they open, as far as its seats'
+permissions allow, unless they turn that off (`tools.writes`, through the
+API).
 
 ## The API for the front end
 

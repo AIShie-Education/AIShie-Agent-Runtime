@@ -345,9 +345,18 @@ type documentSummary struct {
 }
 
 func summarize(doc *document) documentSummary {
-	v := doc.versionID
-	return documentSummary{ID: doc.id, Kind: doc.kind, Title: doc.title, PublishedVersionID: &v, SortOrder: doc.sortOrder,
-		Status: "active", CreatedAt: doc.createdAt}
+	s := documentSummary{ID: doc.id, Kind: doc.kind, Title: doc.title, SortOrder: doc.sortOrder, Status: "active", CreatedAt: doc.createdAt}
+	if !doc.draft {
+		v := doc.versionID
+		s.PublishedVersionID = &v
+	}
+	return s
+}
+
+// hiddenDraft reports whether doc is a draft m cannot see: a course's
+// document not yet published, to anyone who cannot read drafts.
+func hiddenDraft(doc *document, m *member) bool {
+	return doc.draft && courseLevel(doc.kind) && !m.perm(permDocumentReadDraft).allowed()
 }
 
 type documentListIn struct {
@@ -399,7 +408,7 @@ func documentList() *impl {
 					break
 				}
 				if !courseLevel(doc.kind) || !rc.member.perm(readPerm(doc.kind)).allowed() || doc.id <= after ||
-					(in.Kind != nil && *in.Kind != doc.kind) || withheld(doc, rc.member) {
+					(in.Kind != nil && *in.Kind != doc.kind) || withheld(doc, rc.member) || hiddenDraft(doc, rc.member) {
 					continue
 				}
 				out.Documents = append(out.Documents, summarize(doc))
@@ -466,6 +475,9 @@ func documentGet() *impl {
 		},
 		query: func(c *Core, rc *readCtx, in documentGetIn) (any, error) {
 			doc := c.findDocument(rc.course, in.DocumentID)
+			if hiddenDraft(doc, rc.member) {
+				return nil, missing("no such document in this course")
+			}
 			if withheld(doc, rc.member) {
 				if in.VersionID == nil {
 					return nil, missing("no such document in this course")
@@ -475,9 +487,13 @@ func documentGet() *impl {
 			if in.VersionID != nil && in.VersionID.String() != doc.versionID {
 				return nil, missing("no such version of this document")
 			}
-			v := versionView{ID: doc.versionID, Seq: 1, BodyMD: doc.bodyMD, ContentType: doc.contentType,
-				AuthorMemberID: doc.authorMemberID, CreatedAt: doc.versionCreatedAt, Published: true}
-			if doc.file != nil {
+			var version *versionView
+			if doc.versionID != "" {
+				version = &versionView{ID: doc.versionID, Seq: 1, BodyMD: doc.bodyMD, ContentType: doc.contentType,
+					AuthorMemberID: doc.authorMemberID, CreatedAt: doc.versionCreatedAt, Published: !doc.draft}
+			}
+			v := version
+			if doc.file != nil && v != nil {
 				n := int64(len(doc.file))
 				url := rc.base + blobPath + doc.fileToken
 				v.ByteSize, v.DownloadURL = &n, &url
@@ -487,7 +503,7 @@ func documentGet() *impl {
 				SubmissionID *string      `json:"submission_id,omitempty"`
 				GradeID      *string      `json:"grade_id,omitempty"`
 				Version      *versionView `json:"version,omitempty"`
-			}{documentSummary: summarize(doc), Version: &v}
+			}{documentSummary: summarize(doc), Version: v}
 			if doc.submission != nil {
 				out.SubmissionID = &doc.submission.id
 			}

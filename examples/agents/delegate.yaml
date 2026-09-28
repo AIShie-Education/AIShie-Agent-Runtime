@@ -15,6 +15,14 @@ agent:
     key_ref: secret://students/yuki/keys/deepseek
     key_source: own
     params: {max_output_tokens: 1500, temperature: 0.3}
+  tools:
+    # Yuki's agent may make, when she asks it in her own conversation, the
+    # changes its seat's permissions allow (Core decides each; one at
+    # confirm_required waits for an instructor's approval). An operator's
+    # YAML agent has none unless this says so.
+    writes: true
   budgets:
     # A daily limit Yuki set for their own key.
     per_agent_day: {answers: 100, usd: 1.00}
+    # At most this many changes in one answer.
+    per_answer: {max_writes: 5}

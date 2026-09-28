@@ -201,6 +201,20 @@ func (w *fakeWorld) issueTutorToken(label string) (string, string) {
 func (w *fakeWorld) suspendTutor()    { w.t.Helper(); w.ok(w.fc.SuspendActor(w.tutorA.ID)) }
 func (w *fakeWorld) reactivateTutor() { w.t.Helper(); w.ok(w.fc.ReactivateActor(w.tutorA.ID)) }
 
+func (w *fakeWorld) ownerAgent(perms map[string]string) (string, *mcpClient) {
+	w.t.Helper()
+	a, err := w.fc.AddAgent("Sato's assistant", w.satoA.ID)
+	w.ok(err)
+	m, err := w.fc.Seat(a.ID, w.co.ID, SeatOptions{Preset: "delegate", Principal: w.sato.ID, Perms: perms})
+	w.ok(err)
+	return m.ID, w.client(a.Token)
+}
+
+func (w *fakeWorld) setLevel(seat, perm, level string) {
+	w.t.Helper()
+	w.ok(w.fc.SetLevel(seat, perm, level))
+}
+
 func (w *fakeWorld) askOwn(body string) (string, string) {
 	w.t.Helper()
 	w.ownAgent()

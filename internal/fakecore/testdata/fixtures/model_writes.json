@@ -1,0 +1,247 @@
+{
+ "scenario": "model_writes",
+ "steps": [
+  {
+   "args": {
+    "body_md": "# Week 1 notes",
+    "course_id": "<id:1>",
+    "idempotency_key": "tool:x:m:1:1",
+    "kind": "material",
+    "title": "Week 1 notes"
+   },
+   "envelope": {
+    "action_id": "<id:2>",
+    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed.",
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "proposed",
+   "text_is_envelope": true,
+   "tool": "document_create"
+  },
+  {
+   "args": {
+    "body_md": "# Week 1 notes",
+    "course_id": "<id:1>",
+    "idempotency_key": "tool:x:m:1:1",
+    "kind": "material",
+    "title": "Week 1 notes"
+   },
+   "envelope": {
+    "action_id": "<id:2>",
+    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed.",
+    "replayed": true,
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "replayed",
+   "text_is_envelope": true,
+   "tool": "document_create"
+  },
+  {
+   "args": {
+    "body_md": "# Week 2 notes",
+    "course_id": "<id:1>",
+    "idempotency_key": "tool:x:m:1:1",
+    "kind": "material",
+    "title": "Week 2 notes"
+   },
+   "envelope": {
+    "error": {
+     "code": "idempotency_conflict",
+     "details": {
+      "action_id": "<id:2>"
+     },
+     "message": "this idempotency key was already used for a different document.create call; use a new key for a new request"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "conflict",
+   "text_is_envelope": true,
+   "tool": "document_create"
+  },
+  {
+   "args": {
+    "body_md": "# Week 3 notes",
+    "course_id": "<id:1>",
+    "idempotency_key": "tool:x:m:2:1",
+    "kind": "material",
+    "sort_order": 3,
+    "title": "Week 3 notes"
+   },
+   "envelope": {
+    "action_id": "<id:3>",
+    "result": {
+     "document_id": "<id:4>",
+     "version_id": "<id:5>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "executed",
+   "text_is_envelope": true,
+   "tool": "document_create"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "idempotency_key": "tool:x:m:2:2",
+    "kind": "rubric",
+    "title": "Rubric"
+   },
+   "envelope": {
+    "action_id": "<id:6>",
+    "result": {
+     "document_id": "<id:7>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "no_text",
+   "text_is_envelope": true,
+   "tool": "document_create"
+  },
+  {
+   "args": {
+    "body_md": "#  ",
+    "course_id": "<id:1>",
+    "idempotency_key": "tool:x:m:2:3",
+    "kind": "material",
+    "title": " "
+   },
+   "envelope": {
+    "action_id": "<id:8>",
+    "error": {
+     "code": "invalid_argument",
+     "message": "title is required"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "untitled",
+   "text_is_envelope": true,
+   "tool": "document_create"
+  },
+  {
+   "args": {
+    "body_md": "# Exam",
+    "course_id": "<id:1>",
+    "idempotency_key": "tool:x:m:2:4",
+    "kind": "exam",
+    "title": "Exam"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "kind must be material, instructions, rubric, submission or feedback"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "unknown_kind",
+   "text_is_envelope": true,
+   "tool": "document_create"
+  },
+  {
+   "args": {
+    "body_md": "# Mine",
+    "course_id": "<id:1>",
+    "idempotency_key": "tool:x:m:2:5",
+    "kind": "submission",
+    "title": "Mine"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "a submission file needs submission_id, and only that"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "submission_without_its_draft",
+   "text_is_envelope": true,
+   "tool": "document_create"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "document_id": "<id:4>"
+   },
+   "envelope": {
+    "result_fields": [
+     "created_at",
+     "id",
+     "kind",
+     "sort_order",
+     "status",
+     "title",
+     "version"
+    ],
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "draft_to_its_principal",
+   "text_is_envelope": true,
+   "tool": "document_get"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "document_id": "<id:4>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "message": "no such document in this course"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "draft_to_a_student",
+   "text_is_envelope": true,
+   "tool": "document_get"
+  },
+  {
+   "args": {
+    "body_md": "# Week 4 notes",
+    "course_id": "<id:1>",
+    "idempotency_key": "tool:x:m:3:1",
+    "kind": "material",
+    "title": "Week 4 notes"
+   },
+   "envelope": {
+    "action_id": "<id:9>",
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "permission_denied"
+     },
+     "message": "not permitted"
+    },
+    "review_state": "none",
+    "status": "denied"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "denied",
+   "text_is_envelope": true,
+   "tool": "document_create"
+  }
+ ]
+}

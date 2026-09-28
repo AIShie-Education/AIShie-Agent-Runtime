@@ -16,6 +16,7 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/providers"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolset"
 )
 
 // Agent is one hosted agent as this worker runs it (design §5.1): its
@@ -42,6 +43,11 @@ type Agent struct {
 	answers       sync.WaitGroup
 	reseat        chan struct{}
 	detailMu      sync.Mutex
+
+	// siteChat is where the agent stands with its declaration to Core
+	// that it takes conversations in the site: touched only by the
+	// goroutine that starts it and reads its seats.
+	siteChat siteChat
 
 	mu        sync.Mutex
 	seats     map[string]*Seat
@@ -173,6 +179,12 @@ func (a *Agent) start(ctx context.Context) error {
 	a.mu.Unlock()
 	a.log.Info("agent started", "actor", me.ID, "catalogue", cat.Hash(), "transport", a.cfg.Core.Transport,
 		"adapter", a.primary.ad.Name(), "provider", a.primary.ad.Provider(), "model", a.primary.ad.Model())
+	if a.wantsSiteChat() {
+		if err := a.declareSiteChat(ctx); err != nil {
+			a.s.releaseActor(a.cfg.Core.BaseURL, me.ID, a.id)
+			return err
+		}
+	}
 	return nil
 }
 
@@ -345,6 +357,14 @@ func (a *Agent) readMemberships(ctx context.Context) {
 		return
 	}
 	a.reconcile(ctx, ms)
+	// An agent nobody owns takes conversations in the site once a seat
+	// of its answers; one whose declaration Core did not answer is
+	// declared again.
+	if a.siteChat == siteChatPending && (a.wantsSiteChat() || slices.ContainsFunc(ms, core.Membership.Answers)) {
+		if err := a.declareSiteChat(ctx); err != nil {
+			a.stop(err)
+		}
+	}
 }
 
 // reconcile starts a Seat for each seat the agent answers in, updates those
@@ -417,7 +437,7 @@ func (a *Agent) reconcile(ctx context.Context, ms []core.Membership) {
 		a.mu.Unlock()
 		s.start(ctx)
 		a.log.Info("seat started", "member", id, "course", m.CourseID, "answers_course", m.AnswersCourse,
-			"level", m.Level("conversation_answer"), "tools", len(s.toolNames()))
+			"level", m.Level("conversation_answer"), "tools", len(s.toolNames(toolset.ReadOnly)), "owner_writes", len(s.ownerWrites()))
 	}
 	a.refreshDetail()
 }

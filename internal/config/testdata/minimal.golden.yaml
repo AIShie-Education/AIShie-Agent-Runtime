@@ -41,6 +41,7 @@ tools:
     mode: derived
     allow: []
     deny: []
+    writes: false
     max_parallel_tools: 4
 answer:
     max_attempts: 3
@@ -54,6 +55,7 @@ budgets:
     per_answer:
         turns: 8
         tool_calls: 12
+        max_writes: 10
         input_tokens: 150000
         output_tokens: 4000
         wall_clock_s: 90

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -18,7 +19,7 @@ import (
 
 func delegateSet(t testing.TB) *Set {
 	t.Helper()
-	s, err := snapshot(t).Build(delegatePerms, config.Tools{}, toolschema.OpenAIStrict, nil)
+	s, err := snapshot(t).Build(delegatePerms, config.Tools{}, ReadOnly, toolschema.OpenAIStrict, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +152,7 @@ func TestRunRefusesBeforeCore(t *testing.T) {
 }
 
 func TestRunEmptySet(t *testing.T) {
-	s, err := snapshot(t).Build(delegatePerms, config.Tools{Mode: "none"}, toolschema.OpenAI, nil)
+	s, err := snapshot(t).Build(delegatePerms, config.Tools{Mode: "none"}, ReadOnly, toolschema.OpenAI, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,5 +558,278 @@ func TestRunTruncatesOversizedErrors(t *testing.T) {
 				t.Error("a failed envelope is not an error")
 			}
 		})
+	}
+}
+
+// ownerSet is an instructor's own agent's set in the instructor's own
+// conversation: its reads, and document_write's writes, at
+// confirm_required.
+func ownerSet(t testing.TB) *Set {
+	t.Helper()
+	s, err := snapshot(t).Build(ownerPerms, config.Tools{Writes: true}, ReadWrite, toolschema.OpenAIStrict, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.Has("document_create") {
+		t.Fatalf("the owner's set offers %v", s.Names())
+	}
+	return s
+}
+
+// keys is a Writes whose nth key is attempt's in a fixed conversation, as
+// core.ToolKey makes them.
+func keys(attempt, maxWrites int) *Writes {
+	return &Writes{Max: maxWrites, Key: func(n int) string { return core.ToolKey("x", "m", attempt, n) }}
+}
+
+func createDoc(id, title string) llm.Part {
+	return call(id, "document_create", `{"kind":"material","title":"`+title+`","body_md":"# `+title+`","idempotency_key":"the-models-own",`+
+		`"course_id":"0192f3c1-0000-7000-8000-000000000000","grade_id":null,"submission_id":null,"sort_order":null,"upload_token":null}`)
+}
+
+// TestRunWrites: a write is bound to the conversation's course and to the
+// runtime's key, whatever the model wrote; Core's envelope comes back as
+// it is, a proposal not as an error; and what came of it is recorded, ids
+// and codes alone.
+func TestRunWrites(t *testing.T) {
+	f := &fakeCore{respond: func(_ context.Context, tool string, args json.RawMessage) (*core.Envelope, error) {
+		var a struct {
+			Title string `json:"title"`
+		}
+		_ = json.Unmarshal(args, &a)
+		switch a.Title {
+		case "Proposed":
+			return &core.Envelope{Status: core.StatusProposed, ActionID: "a-1", ReviewState: "none"}, nil
+		case "Executed":
+			return &core.Envelope{Status: core.StatusExecuted, ActionID: "a-2", ReviewState: "none",
+				Result: json.RawMessage(`{"document_id":"d-2","version_id":"v-2","title":"Executed"}`)}, nil
+		case "Denied":
+			return &core.Envelope{Status: core.StatusDenied, ActionID: "a-3", Error: &core.Error{Code: core.CodeForbidden,
+				Message: "not permitted", Details: map[string]any{"reason": "level_denied"}}}, nil
+		}
+		return &core.Envelope{Status: core.StatusFailed, ActionID: "a-4", Error: &core.Error{Code: core.CodeInvalidArgument, Message: "title is required"}}, nil
+	}}
+	w := keys(1, 10)
+	r := runner(f)
+	r.Writes = w
+	parts, err := ownerSet(t).Run(context.Background(), r, courseID, []llm.Part{
+		createDoc("c1", "Proposed"), createDoc("c2", "Executed"), createDoc("c3", "Denied"), createDoc("c4", "Failed"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wants := []struct {
+		isError bool
+		content string
+	}{
+		{false, `{"status":"proposed","action_id":"a-1","review_state":"none"}`},
+		{false, `{"status":"executed","action_id":"a-2","review_state":"none","result":{"document_id":"d-2","title":"Executed","version_id":"v-2"}}`},
+		{true, `{"status":"denied","action_id":"a-3","error":{"code":"forbidden","message":"not permitted","details":{"reason":"level_denied"}}}`},
+		{true, `{"status":"failed","action_id":"a-4","error":{"code":"invalid_argument","message":"title is required"}}`},
+	}
+	for i, want := range wants {
+		if parts[i].IsError != want.isError || parts[i].Content != want.content {
+			t.Errorf("result %d: is_error %v, %s\nwant is_error %v, %s", i+1, parts[i].IsError, parts[i].Content, want.isError, want.content)
+		}
+	}
+	calls := f.recorded()
+	if len(calls) != 4 {
+		t.Fatalf("%d calls to Core, want 4", len(calls))
+	}
+	for _, c := range calls {
+		var title string
+		for n, name := range []string{"Proposed", "Executed", "Denied", "Failed"} {
+			if c.args["title"] == name {
+				title = core.ToolKey("x", "m", 1, n+1)
+			}
+		}
+		if c.tool != "document_create" || c.args["course_id"] != courseID || c.args["idempotency_key"] != title || c.priority != core.PriorityAnswer {
+			t.Errorf("Core was called with %s %v at %v; want the conversation's course and the key %s", c.tool, c.args, c.priority, title)
+		}
+		if _, has := c.args["sort_order"]; has {
+			t.Error("sort_order: null, which Core refuses, reached Core")
+		}
+		if v, has := c.args["grade_id"]; !has || v != nil {
+			t.Errorf("grade_id: null, which Core takes, did not reach Core: %v", c.args)
+		}
+	}
+	want := []WriteRecord{
+		{N: 1, Key: core.ToolKey("x", "m", 1, 1), Tool: "document_create", Status: "proposed", ActionID: "a-1"},
+		{N: 2, Key: core.ToolKey("x", "m", 1, 2), Tool: "document_create", Status: "executed", ActionID: "a-2",
+			IDs: map[string]string{"document_id": "d-2", "version_id": "v-2"}},
+		{N: 3, Key: core.ToolKey("x", "m", 1, 3), Tool: "document_create", Status: "denied", Code: "forbidden", Reason: "level_denied", ActionID: "a-3"},
+		{N: 4, Key: core.ToolKey("x", "m", 1, 4), Tool: "document_create", Status: "failed", Code: "invalid_argument", ActionID: "a-4"},
+	}
+	if fmt.Sprint(w.Records) != fmt.Sprint(want) || w.Sent() != 4 || len(w.Refused) != 0 {
+		t.Errorf("records %+v, sent %d, refused %v\nwant    %+v", w.Records, w.Sent(), w.Refused, want)
+	}
+}
+
+// TestRunWriteKeys: writes are numbered in the order the model made them,
+// whichever Core answers first, across the answer's turns; the same write
+// again, in a later turn, goes under its first key and takes no number;
+// the same write twice in one turn is made once; the same answer tried
+// again (its attempt) keys its writes as the first time, and a new attempt
+// anew.
+func TestRunWriteKeys(t *testing.T) {
+	f := &fakeCore{respond: func(ctx context.Context, _ string, args json.RawMessage) (*core.Envelope, error) {
+		var a struct {
+			Title string `json:"title"`
+		}
+		_ = json.Unmarshal(args, &a)
+		if a.Title == "Slow" {
+			time.Sleep(20 * time.Millisecond)
+		}
+		return &core.Envelope{Status: core.StatusProposed, ActionID: "a-" + a.Title}, nil
+	}}
+	s := ownerSet(t)
+	run := func(w *Writes, calls ...llm.Part) []llm.Part {
+		t.Helper()
+		r := runner(f)
+		r.Writes = w
+		parts, err := s.Run(context.Background(), r, courseID, calls)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return parts
+	}
+	keyOf := func(w *Writes) map[string]string {
+		out := map[string]string{}
+		for _, rec := range w.Records {
+			out[rec.ActionID] = rec.Key
+		}
+		return out
+	}
+	first := keys(1, 10)
+	run(first, createDoc("c1", "Slow"), call("c2", "course_get", `{}`), createDoc("c3", "Fast"))
+	parts := run(first, createDoc("c4", "Next"), createDoc("c5", "Slow"), createDoc("c6", "Next"))
+	want := map[string]string{"a-Slow": core.ToolKey("x", "m", 1, 1), "a-Fast": core.ToolKey("x", "m", 1, 2), "a-Next": core.ToolKey("x", "m", 1, 3)}
+	if got := keyOf(first); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("keys %v\nwant %v", got, want)
+	}
+	if first.Sent() != 3 || len(first.Records) != 4 {
+		t.Errorf("sent %d, %d records; want 3 numbered, 4 sent", first.Sent(), len(first.Records))
+	}
+	if code, msg := errorOf(t, parts[2]); code != core.CodeInvalidArgument || !parts[2].IsError || !strings.Contains(msg, "repeats call c4") {
+		t.Errorf("the same write twice in one turn: %s", parts[2].Content)
+	}
+	if n := len(f.recorded()); n != 5 {
+		t.Errorf("%d calls to Core, want 5: the course_get, and four writes", n)
+	}
+
+	// The attempt again, as after its model failed: the same keys.
+	again := keys(1, 10)
+	run(again, createDoc("c1", "Slow"), createDoc("c3", "Fast"))
+	run(again, createDoc("c4", "Next"))
+	if fmt.Sprint(keyOf(again)) != fmt.Sprint(want) {
+		t.Errorf("the attempt tried again keys %v, want %v", keyOf(again), want)
+	}
+	// The next attempt: new keys.
+	next := keys(2, 10)
+	run(next, createDoc("c1", "Slow"))
+	if k := keyOf(next)["a-Slow"]; k != core.ToolKey("x", "m", 2, 1) || k == want["a-Slow"] {
+		t.Errorf("the next attempt's first write is keyed %s", k)
+	}
+}
+
+// TestRunWriteBudget: past per_answer.max_writes a write is an is_error
+// result that reaches nobody; reads are not counted, and go on.
+func TestRunWriteBudget(t *testing.T) {
+	f := &fakeCore{respond: func(context.Context, string, json.RawMessage) (*core.Envelope, error) {
+		return &core.Envelope{Status: core.StatusExecuted, Result: json.RawMessage(`{"document_id":"d"}`)}, nil
+	}}
+	w := keys(1, 2)
+	r := runner(f)
+	r.Writes = w
+	parts, err := ownerSet(t).Run(context.Background(), r, courseID, []llm.Part{
+		createDoc("c1", "One"), call("c2", "course_get", `{}`), createDoc("c3", "Two"), createDoc("c4", "Three"), call("c5", "course_get", `{}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, p := range parts {
+		if (i == 3) != p.IsError {
+			t.Errorf("result %d: is_error %v: %s", i+1, p.IsError, p.Content)
+		}
+	}
+	if code, msg := errorOf(t, parts[3]); code != core.CodeFailedPrecondition || !strings.Contains(msg, "the changes this answer may make are spent (2)") {
+		t.Errorf("the write past the budget: %s", parts[3].Content)
+	}
+	if w.Sent() != 2 || !slices.Equal(w.Refused, []string{"document_create"}) || len(w.Records) != 2 {
+		t.Errorf("sent %d, refused %v, records %d; want 2, [document_create], 2", w.Sent(), w.Refused, len(w.Records))
+	}
+	writes := 0
+	for _, c := range f.recorded() {
+		if c.tool == "document_create" {
+			writes++
+			if c.args["title"] == "Three" {
+				t.Error("the write past the budget reached Core")
+			}
+		}
+	}
+	if writes != 2 {
+		t.Errorf("%d writes reached Core, want 2", writes)
+	}
+	// A write already made is not a new one: it replays under its key,
+	// budget or not.
+	parts, err = ownerSet(t).Run(context.Background(), r, courseID, []llm.Part{createDoc("c6", "One")})
+	if err != nil || parts[0].IsError || len(w.Records) != 3 || w.Records[2].Key != w.Records[0].Key {
+		t.Errorf("the first write again: %v %+v %+v", err, parts, w.Records)
+	}
+}
+
+// TestRunWritesNeedAnAccount: a set that holds writes, run without the
+// answer's keys and budget, refuses every write before Core.
+func TestRunWritesNeedAnAccount(t *testing.T) {
+	f := &fakeCore{}
+	for _, w := range []*Writes{nil, {Max: 5}} {
+		r := runner(f)
+		r.Writes = w
+		parts, err := ownerSet(t).Run(context.Background(), r, courseID, []llm.Part{createDoc("c", "Doc")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if code, _ := errorOf(t, parts[0]); code != core.CodeForbidden || !parts[0].IsError {
+			t.Errorf("a write with %+v: %s", w, parts[0].Content)
+		}
+	}
+	if n := len(f.recorded()); n != 0 {
+		t.Errorf("%d calls reached Core", n)
+	}
+}
+
+// TestRunWriteUnreachable: a write Core did not answer may or may not have
+// been made: the model is told so, and that the same call again is never
+// made twice, which it is not: it goes under the same key.
+func TestRunWriteUnreachable(t *testing.T) {
+	var n atomic.Int32
+	f := &fakeCore{respond: func(context.Context, string, json.RawMessage) (*core.Envelope, error) {
+		if n.Add(1) == 1 {
+			return nil, &core.TransientError{Status: 503, Err: errors.New("unavailable")}
+		}
+		return &core.Envelope{Status: core.StatusExecuted, Replayed: true, Result: json.RawMessage(`{"document_id":"d"}`)}, nil
+	}}
+	w := keys(1, 10)
+	r := runner(f)
+	r.Writes = w
+	s := ownerSet(t)
+	parts, err := s.Run(context.Background(), r, courseID, []llm.Part{createDoc("c1", "Doc")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, msg := errorOf(t, parts[0]); code != "unavailable" || !strings.Contains(msg, "may or may not have been made") ||
+		!strings.Contains(msg, "never made twice") {
+		t.Errorf("the write Core did not answer: %s", parts[0].Content)
+	}
+	parts, err = s.Run(context.Background(), r, courseID, []llm.Part{createDoc("c2", "Doc")})
+	if err != nil || parts[0].IsError {
+		t.Fatalf("the same write again: %v %s", err, parts[0].Content)
+	}
+	calls := f.recorded()
+	if len(calls) != 2 || calls[0].args["idempotency_key"] != calls[1].args["idempotency_key"] {
+		t.Errorf("the write was sent again under another key: %v", calls)
+	}
+	if len(w.Records) != 2 || w.Records[0].Status != StatusUnreachable || w.Records[1].Status != "executed" || !w.Records[1].Replayed || w.Sent() != 1 {
+		t.Errorf("records %+v, sent %d", w.Records, w.Sent())
 	}
 }

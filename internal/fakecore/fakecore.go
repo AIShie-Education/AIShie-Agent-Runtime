@@ -13,11 +13,13 @@
 //
 // The tools the runtime calls (me_*, conversation_*, event_list,
 // action_list_mine, and credential_list and credential_revoke, with which
-// an agent's token revokes a token of its own) are carried out with Core's
-// semantics: authorization,
+// an agent's token revokes a token of its own; me_site_chat, a newer
+// Core's, with Options.SiteChat) are carried out with Core's semantics:
+// authorization,
 // idempotency, proposals and their decisions, the inbox, events and who sees
 // them; so are the writes people make that the test controls go through
-// (conversation_open, conversation_ask, action_decide, action_review). The
+// (conversation_open, conversation_ask, action_decide, action_review), and
+// document_create, a write a model makes through its seat's perms. The
 // model's read tools read canned material per course, under Core's gates
 // and scope rules. Any other tool is refused as never attempted: status
 // error, code not_found for a course that does not exist, forbidden
@@ -56,6 +58,10 @@ type Options struct {
 	// agent (Core's C1): me_get names no one's owner, and the catalogue,
 	// GET /v1/tools and tools/list alike, describes no owner_actor_id.
 	BeforeOwners bool
+	// SiteChat answers as a Core newer than the pinned one, which offers
+	// me.site_chat (sitechat.go): its catalogue has the tool, and the fake
+	// carries it out.
+	SiteChat bool
 }
 
 // Core's defaults.
@@ -88,6 +94,8 @@ type Core struct {
 	blobs            map[string]*document
 	calls            []Call
 	nextKey          int
+	// siteChat is each actor's last me.site_chat (Options.SiteChat).
+	siteChat map[string]bool
 
 	hooks  sync.RWMutex
 	inject func(InjectedCall) *Injection
@@ -115,6 +123,7 @@ func implemented() map[string]*impl {
 		"course.get":            courseGet(),
 		"document.list":         documentList(),
 		"document.get":          documentGet(),
+		"document.create":       documentCreate(),
 		"assignment.list":       assignmentList(),
 		"assignment.get":        assignmentGet(),
 		"submission.list":       submissionList(),
@@ -125,6 +134,7 @@ func implemented() map[string]*impl {
 		"gradebook.get":         gradebookGet(),
 		"credential.list":       credentialList(),
 		"credential.revoke":     credentialRevoke(),
+		"me.site_chat":          meSiteChat(),
 	}
 }
 
@@ -143,6 +153,23 @@ var catalogueBeforeOwners = sync.OnceValues(func() (*catalogue, error) {
 	}
 	return withImpls(raw)
 })
+
+// siteChatCatalogue is the catalogue with me.site_chat, as a Core newer
+// than the pinned one serves it (Options.SiteChat), before C1 or not.
+func siteChatCatalogue(beforeOwners bool) (*catalogue, error) {
+	raw := catalogueJSON
+	if beforeOwners {
+		var err error
+		if raw, err = withoutOwners(raw); err != nil {
+			return nil, err
+		}
+	}
+	raw, err := withSiteChat(raw)
+	if err != nil {
+		return nil, err
+	}
+	return withImpls(raw)
+}
 
 // withImpls loads the catalogue raw, with the fake's implementations.
 func withImpls(raw []byte) (*catalogue, error) {
@@ -165,6 +192,9 @@ func New(o Options) *Core {
 	if o.BeforeOwners {
 		load = catalogueBeforeOwners
 	}
+	if o.SiteChat {
+		load = func() (*catalogue, error) { return siteChatCatalogue(o.BeforeOwners) }
+	}
 	cat, err := load()
 	if err != nil {
 		panic(err)
@@ -180,6 +210,7 @@ func New(o Options) *Core {
 		actors: map[string]*actor{}, tokens: map[string]*credential{}, courses: map[string]*course{},
 		members: map[string]*member{}, conversations: map[string]*conversation{}, messages: map[string]*message{},
 		actions: map[string]*action{}, keys: map[actorKey]*action{}, blobs: map[string]*document{},
+		siteChat: map[string]bool{},
 	}
 	c.system = &actor{id: newID(), kind: "system", name: "system", status: statusActive}
 	c.limiter = newLimiter(o.RatePerMinute, o.RateBurst, c.now)
