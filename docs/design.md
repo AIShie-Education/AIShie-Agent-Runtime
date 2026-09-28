@@ -476,7 +476,8 @@ polling 2 s hot for 120 s, 10 s idle to 30 s, events 45 s, seats 300 s,
   actor whichever started first; the binary picks up an agent connected
   while it runs, told by the notification; and the end to end connects
   Yuki's agent to a runtime on Postgres, which answers her against the real
-  Core.
+  Core, with no token, key or the key that seals them in its logs, in any
+  table of its database, or in its status.
 - `worker`: the fake Core and the scripted model: every row of §5.3's table,
   moved on, duplicates across two workers, denied, 401, 429, quotas,
   budgets, proposals followed, retractions; no token in any log line; the

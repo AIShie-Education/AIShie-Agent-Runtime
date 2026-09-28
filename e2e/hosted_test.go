@@ -40,8 +40,9 @@ import (
 // it in force at once, and it answers Yuki, having opened its token and
 // key from the database, and never logging either.
 func hostedAgentAnswers(t *testing.T, w *world) {
-	st := runtimeStore(t)
-	v := keyring(t)
+	st, dbURL := runtimeStore(t)
+	v, kek := keyring(t)
+	w.addSecret("the key that seals the hosted runtime's secrets", kek)
 	m := newModel(t, fakellm.DefaultResponder)
 	rt := w.startHosted(t, m, st, v)
 
@@ -109,13 +110,66 @@ func hostedAgentAnswers(t *testing.T, w *world) {
 		}
 		return false
 	})
+
+	// What the runtime keeps and shows holds none of it in plaintext: not
+	// its database (the sealed secrets, the registry, the states, the
+	// ledger, every table), nor its status. The logs are searched with
+	// every other log, the key that seals the secrets among what is
+	// searched for.
+	status, err := json.Marshal(rt.sup.Status())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for what, text := range map[string]string{"the hosted runtime's database": dumpDatabase(t, dbURL), "the hosted runtime's status": string(status)} {
+		if strings.TrimSpace(text) == "" {
+			t.Errorf("%s is empty: nothing was searched", what)
+		}
+		for _, s := range w.secrets() {
+			for _, part := range secretParts(s.value) {
+				if strings.Contains(text, part) || strings.Contains(text, hex.EncodeToString([]byte(part))) {
+					t.Errorf("%s holds %s", what, s.what)
+				}
+			}
+		}
+	}
+}
+
+// dumpDatabase is every row of every table of the database at dbURL, as
+// text, bytes in hex: what a backup of it would hold.
+func dumpDatabase(t *testing.T, dbURL string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	conn, err := pgx.Connect(ctx, dbURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(context.Background()) }()
+	rows, err := conn.Query(ctx, `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY 1`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tables, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	for _, table := range tables {
+		var text string
+		q := "SELECT coalesce(string_agg(t::text, E'\\n'), '') FROM " + pgx.Identifier{table}.Sanitize() + " t"
+		if err := conn.QueryRow(ctx, q).Scan(&text); err != nil {
+			t.Fatal(err)
+		}
+		b.WriteString(table + "\n" + text + "\n")
+	}
+	return b.String()
 }
 
 // runtimeStore is a store of the runtime's own in PostgreSQL, on a scratch
 // database of the server at TEST_DATABASE_URL (the local one by default),
 // migrated up, closed and dropped when t ends. Without a server it skips,
 // or fails when CI is true, as the other end-to-end tests do without Core.
-func runtimeStore(t *testing.T) *pgstore.Store {
+func runtimeStore(t *testing.T) (*pgstore.Store, string) {
 	t.Helper()
 	admin := os.Getenv("TEST_DATABASE_URL")
 	if admin == "" {
@@ -158,25 +212,27 @@ func runtimeStore(t *testing.T) *pgstore.Store {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	return st
+	return st, u.String()
 }
 
-// keyring is a vault on a key of its own, in a directory of t's.
-func keyring(t *testing.T) *vault.Vault {
+// keyring is a vault on a key of its own, in a directory of t's, and the
+// key as its file holds it.
+func keyring(t *testing.T) (*vault.Vault, string) {
 	t.Helper()
 	dir := t.TempDir()
 	k := make([]byte, 32)
 	if _, err := rand.Read(k); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "v1"), []byte(base64.StdEncoding.EncodeToString(k)), 0o600); err != nil {
+	text := base64.StdEncoding.EncodeToString(k)
+	if err := os.WriteFile(filepath.Join(dir, "v1"), []byte(text), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	v, err := vault.Open("local:" + filepath.Join(dir, "v1"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	return v
+	return v, text
 }
 
 // startHosted runs the runtime as run does with the registry on: its state

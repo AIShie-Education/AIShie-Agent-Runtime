@@ -47,6 +47,9 @@ type world struct {
 
 	mu   sync.Mutex
 	logs []capture
+	// keys are the secrets of the world's runtimes beside its tokens and
+	// key: the keys that seal what a runtime keeps in its database.
+	keys []secret
 }
 
 // capture is one log the world's runtime or binary wrote.
@@ -181,13 +184,23 @@ func (w *world) path(rest string) string { return "/v1/courses/" + w.course + re
 // holds one; what says whose it is, and never what it is.
 type secret struct{ what, value string }
 
-// secrets are every token and key of the world.
+// secrets are every token and key of the world, and of its runtimes.
 func (w *world) secrets() []secret {
-	return []secret{
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]secret{
 		{"root's token", w.root}, {"the admin's token", w.admin.token},
 		{"Sato's token", w.sato.token}, {"Mori's token", w.mori.token}, {"Yuki's token", w.yuki.token}, {"Ken's token", w.ken.token},
 		{"the token of Yuki's agent", w.own.token}, {"the tutor's token", w.tutor.token}, {"the model key", w.modelKey},
-	}
+	}, w.keys...)
+}
+
+// addSecret records a secret of one of the world's runtimes, which no log
+// may hold either.
+func (w *world) addSecret(what, value string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.keys = append(w.keys, secret{what, value})
 }
 
 // addLog records a log of the world's, for the check that no log holds a
