@@ -176,15 +176,15 @@ func TestRunDeniedAgain(t *testing.T) {
 		return &offered{input: cat.Tools[name].InputSchema, kind: kind}
 	}
 	s := &Set{tools: map[string]*offered{
-		"member_list":  held("member_list", KindRead),
-		"grade_submit": held("grade_submit", KindWrite),
-		"grade_list":   held("grade_list", ""),
-		"course_get":   held("course_get", KindRead),
-	}, names: []string{"course_get", "grade_list", "grade_submit", "member_list"}}
+		"member_delegate_defaults": held("member_delegate_defaults", KindRead),
+		"grade_submit":             held("grade_submit", KindWrite),
+		"grade_list":               held("grade_list", ""),
+		"course_get":               held("course_get", KindRead),
+	}, names: []string{"course_get", "grade_list", "grade_submit", "member_delegate_defaults"}}
 	f := &fakeCore{}
 	parts, err := s.Run(context.Background(), runner(f), courseID, []llm.Part{
-		call("a", "member_list", `{}`),
-		call("b", "member_list", `["not an object"]`),
+		call("a", "member_delegate_defaults", `{}`),
+		call("b", "member_delegate_defaults", `["not an object"]`),
 		call("c", "grade_submit", `{"submission_id":"`+docID+`","score":"87.5"}`),
 		call("d", "grade_list", `{}`),
 		call("e", "course_get", `{}`),

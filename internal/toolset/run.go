@@ -37,6 +37,9 @@ type Runner struct {
 	// Writes is the answer's account of its writes: their keys and their
 	// budget. Nil refuses every write, whatever the set offers.
 	Writes *Writes
+	// Guard is the seats the model's member writes never change; its zero
+	// value refuses every member write.
+	Guard SeatGuard
 }
 
 // Defaults of Runner.
@@ -96,6 +99,9 @@ type Writes struct {
 	// Refused are the tools of the writes refused because the budget was
 	// spent, in the order the model made them.
 	Refused []string
+	// Guarded are the tools of the member writes SeatGuard refused, in the
+	// order the model made them.
+	Guarded []string
 }
 
 // sent is a write already sent, by its tool and arguments.
@@ -168,7 +174,9 @@ func (w *Writes) claim(tool string, args json.RawMessage) (sent, bool) {
 // whatever built the set; arguments that are not a JSON object (rule 1);
 // arguments Core's schema refuses once course_id is set to courseID, the
 // conversation's course, whatever the model wrote (toolschema.Reverse,
-// Validate). A write is then numbered and bound to its idempotency key
+// Validate); a member write that would change a seat r.Guard keeps, which
+// for a change to every seat of a role the runtime reads with member_get
+// (SeatGuard). A write is then numbered and bound to its idempotency key
 // (Writes), whatever key the model wrote; one past the answer's budget, or
 // one that repeats another call of the same turn exactly, is refused.
 // Core's answer is Core's envelope as JSON, is_error unless executed or
@@ -209,6 +217,17 @@ func (s *Set) Run(ctx context.Context, r Runner, courseID string, calls []llm.Pa
 		if p.done || !p.write {
 			preps[i] = p
 			continue
+		}
+		if guarded(call.Name) {
+			why, err := r.Guard.check(ctx, r.Client, courseID, call.Name, p.args)
+			if err != nil {
+				return nil, err
+			}
+			if why != "" {
+				r.Writes.Guarded = append(r.Writes.Guarded, call.Name)
+				preps[i] = refusedCall(p.res, core.CodeForbidden, why)
+				continue
+			}
 		}
 		id := call.Name + "\x00" + string(p.args)
 		if first, ok := thisTurn[id]; ok {

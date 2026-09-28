@@ -13,11 +13,12 @@
 // Every call the model makes is checked again before it reaches Core: the
 // tool must be one offered, its arguments a JSON object that Core's own
 // schema takes once the runtime has set course_id, and the tool not denied;
-// a write is bound to the idempotency key the runtime gives it, and counted
-// against the answer's writes. Core's permissions stand over all of it: a
-// write at confirm_required comes back proposed and waits for a person, at
-// autonomous it is executed, and denied is refused. The runtime only
-// narrows what Core allows.
+// a member write must leave alone the agent's own seat and those of the
+// people it acts for (SeatGuard); a write is bound to the idempotency key
+// the runtime gives it, and counted against the answer's writes. Core's
+// permissions stand over all of it: a write at confirm_required comes back
+// proposed and waits for a person, at autonomous it is executed, and denied
+// is refused. The runtime only narrows what Core allows.
 package toolset
 
 import (
@@ -74,6 +75,12 @@ var Gates = map[string]Gate{
 	"grade_get":       {Any: []string{"grade_read"}},
 	"component_tree":  {Any: []string{"grade_read"}},
 	"gradebook_get":   {Any: []string{"grade_read"}},
+	// The roster, and whom an email or an actor id names, which Core gates
+	// on member_manage: it is for whoever seats people (member_add takes
+	// the actor it finds).
+	"member_list":         {Any: []string{"member_read"}},
+	"member_get":          {Any: []string{"member_read"}},
+	"member_lookup_actor": {Any: []string{"member_manage"}},
 }
 
 // WriteGates are the gates of the writes a model may be offered, where the
@@ -84,9 +91,12 @@ var Gates = map[string]Gate{
 // in AIShiteru-Core): a document's write is any of the three kinds' (the
 // document's kind then names the one that governs, as reading does), and
 // grade_regrade takes both grade permissions, at the lower of their levels.
-// CheckCatalogue holds them to the catalogue as it holds the reads, each
-// still a write. Core decides every call again at its own level: these
-// only keep from the model what it could never do.
+// The course's members are managed on member_manage, which only someone who
+// manages them may give a seat, and Core holds every grant to what the
+// granter holds; Run keeps each such write off the seats the model must
+// never change (SeatGuard). CheckCatalogue holds them to the catalogue as
+// it holds the reads, each still a write. Core decides every call again at
+// its own level: these only keep from the model what it could never do.
 var WriteGates = map[string]Gate{
 	"assignment_create":         {Any: []string{"assignment_write"}},
 	"assignment_update":         {Any: []string{"assignment_write"}},
@@ -107,6 +117,13 @@ var WriteGates = map[string]Gate{
 	"submission_submit":         {Any: []string{"submission_write"}},
 	"submission_set_lateness":   {Any: []string{"grade_submit"}},
 	"submission_record_missing": {Any: []string{"grade_submit"}},
+	"member_add":                {Any: []string{"member_manage"}},
+	"member_update_perms":       {Any: []string{"member_manage"}},
+	"member_update_perms_bulk":  {Any: []string{"member_manage"}},
+	"member_rescope":            {Any: []string{"member_manage"}},
+	"member_pause":              {Any: []string{"member_manage"}},
+	"member_resume":             {Any: []string{"member_manage"}},
+	"member_remove":             {Any: []string{"member_manage"}},
 }
 
 // DefaultAllow is the allowlist when an agent's configuration names none:
@@ -114,10 +131,11 @@ var WriteGates = map[string]Gate{
 // that may have writes is offered.
 var DefaultAllow = append(slices.Clone(defaultReads), sortedKeys(WriteGates)...)
 
-// defaultReads are the read tools of §2.3.
+// defaultReads are the read tools of §2.3, and the roster's.
 var defaultReads = []string{
 	"course_get", "document_list", "document_get", "assignment_list", "assignment_get",
 	"submission_list", "submission_get", "grade_list", "grade_get", "component_tree", "gradebook_get",
+	"member_list", "member_get", "member_lookup_actor",
 }
 
 // BuiltinDeny is never offered to a model, whatever the configuration or
@@ -152,11 +170,13 @@ var BuiltinDeny = []string{
 	// revoking, suspending or withdrawing would stop the agent; registering
 	// or re-owning actors is no one's to do through a model.
 	"actor_*", "agent_*", "credential_*", "me_*",
-	// Member management: seating, removing, pausing and re-scoping members
-	// and delegates, and setting perms. A model changing perms could widen
-	// its own seat or anyone else's, and the product owner's rule is that
-	// an agent's perms are set when it is seated, by people.
-	"member_*",
+	// Seating agents: member_add_delegate brings in an agent of the
+	// caller's own, on agent_delegate, and member_delegate_defaults
+	// previews what it would give one. An agent never seats agents (Core
+	// refuses a delegate's, and no model is to multiply itself); the rest
+	// of member_* is gated on the seat's perms, and kept off the seats the
+	// model must never change (SeatGuard).
+	"member_add_delegate", "member_delegate_defaults",
 	// The platform's own administration, which Core gates on a platform
 	// role and no course permission grants: courses made, changed,
 	// activated, archived, listed across the platform, their instructors

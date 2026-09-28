@@ -49,9 +49,11 @@ type loop struct {
 	m        *model
 	fallback *model
 	// access is whether the model is offered the seat's writes, and
-	// writes the answer's account of them: nil when it is not.
+	// writes the answer's account of them: nil when it is not. guard is
+	// the seats its member writes never change.
 	access toolset.Access
 	writes *toolset.Writes
+	guard  toolset.SeatGuard
 	set    *toolset.Set
 	decls  []llm.Tool
 	// cap is the output tokens asked for on a turn.
@@ -68,11 +70,13 @@ type loopStats struct {
 	In, Out   int64
 	// Cost is in pico-dollars.
 	Cost int64
-	// Writes are the writes the model made, as Core answered them, and
+	// Writes are the writes the model made, as Core answered them;
 	// WritesRefused those refused before Core, the answer's writes being
-	// spent.
+	// spent; and WritesGuarded the member writes refused before Core for
+	// the seats they would have changed (toolset.SeatGuard).
 	Writes        store.WriteCounts
 	WritesRefused int
+	WritesGuarded int
 }
 
 // loopEnd is how a loop ended: a body to post and what wrote it; or every
@@ -87,11 +91,12 @@ type loopEnd struct {
 
 // newLoop is the loop of attempt at answering msg. With access ReadWrite
 // the model is offered the seat's writes, each bound to the key of its
-// number in this attempt (core.ToolKey), at most per_answer.max_writes.
-func newLoop(c *claim, msg string, attempt int, access toolset.Access, system string, history []llm.Message) (*loop, error) {
+// number in this attempt (core.ToolKey), at most per_answer.max_writes,
+// and its member writes kept off the seats guard names.
+func newLoop(c *claim, msg string, attempt int, access toolset.Access, guard toolset.SeatGuard, system string, history []llm.Message) (*loop, error) {
 	l := &loop{
 		c: c, msg: msg, b: c.eff.Budgets.PerAnswer, start: c.a.now(), system: system, history: history,
-		m: c.s.primary, fallback: c.s.fallback, access: access,
+		m: c.s.primary, fallback: c.s.fallback, access: access, guard: guard,
 	}
 	if access == toolset.ReadWrite {
 		conv := c.conv
@@ -439,7 +444,7 @@ func (l *loop) runTools(ctx context.Context, resp *llm.Response) error {
 	eff := l.c.eff
 	parts, err := l.set.Run(ctx, toolset.Runner{
 		Client: l.c.a.client, Files: l.c.a.s.files, MaxParallel: eff.Tools.MaxParallelTools,
-		FileInput: l.m.ad.Capabilities().FileInput, Writes: l.writes,
+		FileInput: l.m.ad.Capabilities().FileInput, Writes: l.writes, Guard: l.guard,
 	}, l.c.s.course, run)
 	l.accountWrites()
 	if err != nil {
@@ -501,10 +506,17 @@ func (l *loop) accountWrites() {
 		m.BudgetExhausted.WithLabelValues("writes").Inc()
 		l.c.s.log.Info("the writes of the answer are spent: writes were refused", "conversation", l.c.conv, "refused", len(refused))
 	}
+	for _, tool := range w.Guarded[l.stats.WritesGuarded:] {
+		l.stats.WritesGuarded++
+		m.ToolWrites.WithLabelValues(tool, writeRefused).Inc()
+		l.c.s.log.Warn("a write the model made was refused before Core: it would have changed a seat the model never changes",
+			"conversation", l.c.conv, "message", l.msg, "tool", tool)
+	}
 }
 
 // writeRefused is tool_writes_total's outcome for a write refused before
-// Core, the answer's writes being spent.
+// Core: the answer's writes being spent, or a member write that would have
+// changed a seat the model never changes (toolset.SeatGuard).
 const writeRefused = "refused"
 
 // writeOutcome is tool_writes_total's outcome for a write's status: Core's
