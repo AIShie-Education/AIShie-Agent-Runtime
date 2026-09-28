@@ -186,8 +186,12 @@ func Document(a store.HostedAgent, courses []store.HostedCourse, coreBaseURL, de
 	if a.KeySecretID != "" {
 		key = secrets.SchemeSealed + a.KeySecretID
 	}
-	model, _ := settings["model"].(map[string]any)
-	if model == nil {
+	model, isMap := settings["model"].(map[string]any)
+	switch {
+	case !isMap && settings["model"] != nil:
+		problems = append(problems, "agent.model: must be a mapping")
+		model = map[string]any{}
+	case model == nil:
 		model = map[string]any{}
 		settings["model"] = model
 	}

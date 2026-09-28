@@ -134,6 +134,7 @@ func TestDocumentRefuses(t *testing.T) {
 			courses: []store.HostedCourse{{AgentID: "agt_1", CourseID: course1, Settings: json.RawMessage(`{"model": {"key_source": "school"}}`)}},
 			want:    []string{"courses." + course1 + ".model: the school's key"}},
 		{name: "settings that are no object", settings: `[1]`, want: []string{"its settings: not a JSON object"}},
+		{name: "a model that is no mapping", settings: `{"model": "gpt-4.1"}`, want: []string{"agent.model: must be a mapping"}},
 		{name: "a course's that are no object", settings: ownModel,
 			courses: []store.HostedCourse{{AgentID: "agt_1", CourseID: course1, Settings: json.RawMessage(`"x"`)}},
 			want:    []string{"courses." + course1 + ": not a JSON object"}},
