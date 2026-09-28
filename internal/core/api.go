@@ -132,6 +132,27 @@ func (c *Client) RevokeCredential(ctx context.Context, id string) (*Envelope, er
 	return c.c.Call(ctx, "credential_revoke", raw)
 }
 
+// ToolSiteChat is me.site_chat over MCP: the brain running an agent
+// declaring, with the agent's token, that it takes conversations in the
+// site. Core takes them for the agent only after that, and only while the
+// token that declared it is live.
+const ToolSiteChat = "me_site_chat"
+
+// SiteChat is me.site_chat {on}, and returns the envelope as it came. A
+// write takes an idempotency key, key, which is left out when it is "":
+// give each declaration a key of its own, since a replay does nothing, and
+// a token's revocation turns the declaration off.
+func (c *Client) SiteChat(ctx context.Context, on bool, key string) (*Envelope, error) {
+	raw, err := json.Marshal(struct {
+		On             bool   `json:"on"`
+		IdempotencyKey string `json:"idempotency_key,omitempty"`
+	}{on, key})
+	if err != nil {
+		return nil, fmt.Errorf("core: %s: %w", ToolSiteChat, err)
+	}
+	return c.c.Call(ctx, ToolSiteChat, raw)
+}
+
 // Send sends a write's exact bytes and returns the envelope as it came:
 // the bytes written ahead, sent again after a timeout (§2.2).
 func (c *Client) Send(ctx context.Context, tool string, args []byte) (*Envelope, error) {

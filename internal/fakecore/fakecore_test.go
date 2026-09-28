@@ -89,10 +89,46 @@ func TestCatalogueSnapshot(t *testing.T) {
 	if len(cat.tools) != 104 || reads != 41 || writes != 63 {
 		t.Errorf("%d tools, %d reads, %d writes; the handout says 104, 41, 63", len(cat.tools), reads, writes)
 	}
+	newer, err := siteChatCatalogue(false)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for name := range implemented() {
-		if cat.byName[name] == nil {
+		// me.site_chat is a newer Core's, in the catalogue with
+		// Options.SiteChat alone.
+		if cat.byName[name] == nil && (name != "me.site_chat" || newer.byName[name] == nil) {
 			t.Errorf("the fake implements %s, which the catalogue does not have", name)
 		}
+	}
+	if len(newer.tools) != len(cat.tools)+1 || cat.byName["me.site_chat"] != nil {
+		t.Errorf("the catalogue with me.site_chat has %d tools", len(newer.tools))
+	}
+}
+
+// TestSiteChat: a fake with Options.SiteChat offers me.site_chat, as a
+// newer Core does, and keeps each actor's declaration; one without it, as
+// the pinned Core, knows no such tool.
+func TestSiteChat(t *testing.T) {
+	w := newFakeWorld(t, Options{SiteChat: true})
+	a := mustCall(t, w.agentC, "me_site_chat", map[string]any{"on": true, "idempotency_key": "site-chat:1"})
+	if wantEnvelope(t, a, "executed", "", ""); a.Structured["result"].(map[string]any)["on"] != true || !w.fc.SiteChat(w.tutorA.ID) {
+		t.Errorf("declared: %s", a.Text)
+	}
+	if w.fc.SiteChat(w.satoA.ID) {
+		t.Error("someone who never declared is declared")
+	}
+	wantEnvelope(t, mustCall(t, w.agentC, "me_site_chat", map[string]any{"on": false, "idempotency_key": "site-chat:1"}),
+		"error", codeIdempotencyConflict, "")
+	wantEnvelope(t, mustCall(t, w.agentC, "me_site_chat", map[string]any{"on": false, "idempotency_key": "site-chat:2"}), "executed", "", "")
+	if w.fc.SiteChat(w.tutorA.ID) {
+		t.Error("the declaration was not taken back")
+	}
+	wantEnvelope(t, mustCall(t, w.agentC, "me_site_chat", map[string]any{"on": true}), "error", codeInvalidArgument, "")
+
+	old := newFakeWorld(t, Options{})
+	if a, err := old.agentC.call(context.Background(), "me_site_chat", map[string]any{"on": true, "idempotency_key": "k"}); err != nil ||
+		(a.RPCError == nil && a.status() != "error") {
+		t.Errorf("the pinned Core's fake took me.site_chat: %v %s", err, a.Body)
 	}
 }
 

@@ -338,7 +338,27 @@ verified changes nothing in how an agent runs. YAML agents are not
 checked: their owner is whoever their operator says.
 
 An agent (`worker.Agent`) starts with `me_get` (the token works), the
-catalogue, and `me_memberships`. It reads memberships again every
+catalogue, and `me_memberships`.
+
+Core takes conversations in the site for an agent only after the brain
+running it declares so, with the agent's own token, and only while that
+token is live: `me.site_chat {on: true}`. The runtime sends it once each
+time it starts running an agent, right after the first successful
+`me_get` for one with an owner (a hosted agent always has one; a YAML
+agent when `me_get` names one), else once a seat of its answers
+(`conversation_answer` not denied), under a key of its own each time
+(`site-chat:` and a random id: after a token's revocation a replay would do
+nothing). A call Core did not answer is sent again at the next read of the
+seats, within 10 s each time; a refusal is logged and left until the next
+start. It is never sent `on: false`: a restart must not flap it, and the
+token's revocation (a new token put in, the agent deleted) turns it off in
+Core. A Core whose catalogue does not offer the tool, the pinned
+571e1f9 among them, or that refuses it as a tool it does not know, has
+nothing to declare, which is logged once per catalogue. The model is
+never offered it (`me_*` is on the built-in deny list, §4). The fake Core
+offers it with `Options.SiteChat`, as a newer Core does.
+
+It reads memberships again every
 `memberships_s`, and at once after a `forbidden`, `not_found` or `denied`,
 and records each seat as it then is (course, status, `answers_course`,
 principal, perms), so that its seats can be shown without its token.
@@ -675,7 +695,10 @@ polling 2 s hot for 120 s, 10 s idle to 30 s, events 45 s, seats 300 s,
   proposed then executed, counted, logged without its arguments and
   remembered; a course tutor's student offered no write, one made up
   refused; an attempt tried again replaying its write, the next keying it
-  anew; the write budget; who is offered writes (`accessFor`).
+  anew; the write budget; who is offered writes (`accessFor`); the site
+  chat declared once per start, by an agent with an owner at once and by one
+  nobody owns once a seat of its answers, never taken back, and not sent to
+  a Core that does not offer it.
 - `e2e`: the pinned Core (`scripts/ci-core.sh`), agents seated over REST, the
   runtime with the scripted OpenAI Chat server behind the real `openai_chat`
   adapter: a student's own agent answers within the latency target and a
