@@ -191,6 +191,16 @@ func (w *fakeWorld) listedTutor(student int) (string, *mcpClient) {
 
 func (w *fakeWorld) pausePrincipal() { w.t.Helper(); w.ok(w.fc.PauseSeat(w.sato.ID)) }
 
+func (w *fakeWorld) issueTutorToken(label string) (string, string) {
+	w.t.Helper()
+	tok, err := w.fc.IssueLabelledToken(w.tutorA.ID, label)
+	w.ok(err)
+	return tok.Token, tok.CredentialID
+}
+
+func (w *fakeWorld) suspendTutor()    { w.t.Helper(); w.ok(w.fc.SuspendActor(w.tutorA.ID)) }
+func (w *fakeWorld) reactivateTutor() { w.t.Helper(); w.ok(w.fc.ReactivateActor(w.tutorA.ID)) }
+
 func (w *fakeWorld) askOwn(body string) (string, string) {
 	w.t.Helper()
 	w.ownAgent()

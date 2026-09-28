@@ -72,6 +72,13 @@ type world interface {
 	listedTutor(student int) (seat string, c *mcpClient)
 	// pausePrincipal pauses Sato's seat, which the tutor is the delegate of.
 	pausePrincipal()
+	// issueTutorToken is Sato issuing the tutor another token labelled
+	// label: the token and its credential's id.
+	issueTutorToken(label string) (token, credentialID string)
+	// suspendTutor and reactivateTutor are Sato suspending the tutor, and
+	// lifting it (agent.suspend, agent.reactivate).
+	suspendTutor()
+	reactivateTutor()
 }
 
 // steps is what a scenario recorded, in order.
@@ -593,6 +600,42 @@ var scenarios = []scenario{
 			t.Fatal(err)
 		}
 		s.http("revoked_token", a)
+	}},
+	{name: "credentials", about: "credential_list and credential_revoke with an agent's own token (D7): its tokens newest first, a revocation, its replay, one not live, a revoked token's 401, a suspended agent denied, and a token revoking itself", run: func(t *testing.T, w world, s *steps) {
+		ctx := context.Background()
+		first := call(t, w, s, "list", "credential_list", map[string]any{})
+		own := ""
+		if creds, ok := resultOf(first, "credentials").([]any); ok && len(creds) == 1 {
+			own, _ = creds[0].(map[string]any)["id"].(string)
+		}
+		if own == "" {
+			t.Fatalf("the tutor's one credential is not listed: %s", first.Body)
+		}
+		second, id := w.issueTutorToken("second runtime")
+		call(t, w, s, "list_two", "credential_list", map[string]any{})
+		revoke := map[string]any{"credential_id": id, "idempotency_key": "aishie-revoke:" + id}
+		wantStatus(t, call(t, w, s, "revoke", "credential_revoke", revoke), "executed")
+		call(t, w, s, "replay", "credential_revoke", revoke)
+		call(t, w, s, "revoke_again", "credential_revoke", map[string]any{"credential_id": id, "idempotency_key": "aishie-revoke:" + id + ":again"})
+		call(t, w, s, "revoke_unknown", "credential_revoke", map[string]any{"credential_id": uuid.NewString(), "idempotency_key": "aishie-revoke:unknown"})
+		ping := map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "me_get", "arguments": map[string]any{}}}
+		a, err := newMCPClient(w.base(), second, nil).post(ctx, ping)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.http("revoked_token", a)
+		call(t, w, s, "list_after", "credential_list", map[string]any{})
+		w.suspendTutor()
+		call(t, w, s, "me_suspended", "me_get", map[string]any{})
+		call(t, w, s, "list_suspended", "credential_list", map[string]any{})
+		call(t, w, s, "revoke_suspended", "credential_revoke", map[string]any{"credential_id": own, "idempotency_key": "aishie-revoke:" + own + ":suspended"})
+		w.reactivateTutor()
+		wantStatus(t, call(t, w, s, "revoke_self", "credential_revoke", map[string]any{"credential_id": own, "idempotency_key": "aishie-revoke:" + own}), "executed")
+		a, err = w.agent().post(ctx, ping)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.http("after_revoking_itself", a)
 	}},
 	{name: "rate_limited", about: "429 with Retry-After and details.retry_after_seconds, at Core's default limit (600 a minute, bursts of 100); REST shares the allowance", rateLimited: true,
 		run: func(t *testing.T, w world, s *steps) {

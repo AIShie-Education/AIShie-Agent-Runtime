@@ -610,3 +610,51 @@ func TestMCPErrorsKeepNoPartOfAToken(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+// Credentials is credential_list, read into Credential; RevokeCredential
+// is credential_revoke of the id under RevokeKey(id), its envelope given
+// back as it came, a refusal included.
+func TestCredentialCalls(t *testing.T) {
+	f := newFakeMCP(t)
+	var args []json.RawMessage
+	f.set(func() {
+		f.call = func(w http.ResponseWriter, id json.RawMessage, name string, a json.RawMessage) {
+			args = append(args, a)
+			switch name {
+			case "credential_list":
+				writeResult(w, id, toolResult(`{"status":"executed","result":{"credentials":[
+					{"id":"c2","kind":"api_token","token_prefix":"k7v2m4qhx3ab","label":"AIShie runtime","created_at":"2026-09-28T10:00:00Z",
+					 "last_used_at":"2026-09-28T10:05:00Z","issued_by_actor_id":"p1","issued_by_name":"Yuki"},
+					{"id":"c1","kind":"api_token","token_prefix":"aaaaaaaaaaaa","created_at":"2026-09-27T10:00:00Z",
+					 "revoked_at":"2026-09-28T09:00:00Z","expires_at":"2027-01-01T00:00:00Z"}]}}`))
+			case "credential_revoke":
+				writeResult(w, id, toolResult(`{"status":"failed","action_id":"a1","review_state":"none",
+					"error":{"code":"not_found","message":"no such live credential on this account"}}`))
+			}
+		}
+	})
+	c := NewClient(NewMCPCaller(MCPOptions{BaseURL: f.URL, Token: testToken}))
+	creds, err := c.Credentials(context.Background())
+	if err != nil || len(creds) != 2 {
+		t.Fatalf("%+v %v", creds, err)
+	}
+	now := time.Date(2026, 9, 28, 11, 0, 0, 0, time.UTC)
+	if c0 := creds[0]; c0.ID != "c2" || c0.Kind != CredentialAPIToken || c0.TokenPrefix != "k7v2m4qhx3ab" || c0.Label != "AIShie runtime" ||
+		c0.LastUsedAt == nil || !c0.LastUsedAt.Equal(now.Add(-55*time.Minute)) || !c0.Live(now) {
+		t.Errorf("the first: %+v", c0)
+	}
+	if c1 := creds[1]; c1.RevokedAt == nil || c1.ExpiresAt == nil || c1.Live(now) {
+		t.Errorf("the second: %+v", c1)
+	}
+	expired := Credential{ExpiresAt: &now}
+	if expired.Live(now) || !expired.Live(now.Add(-time.Second)) {
+		t.Error("a credential is live at the time it expires")
+	}
+	env, err := c.RevokeCredential(context.Background(), "c2")
+	if err != nil || env.Status != StatusFailed || env.Code() != CodeNotFound {
+		t.Fatalf("%+v %v", env, err)
+	}
+	if len(args) != 2 || string(args[0]) != `{}` || string(args[1]) != `{"credential_id":"c2","idempotency_key":"aishie-revoke:c2"}` {
+		t.Errorf("the arguments sent: %s", args)
+	}
+}

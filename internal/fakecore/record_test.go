@@ -396,6 +396,22 @@ func (w *liveWorld) expire(actionID string) bool {
 	return false
 }
 
+func (w *liveWorld) issueTutorToken(label string) (string, string) {
+	w.t.Helper()
+	tok := w.lc.result(w.sato.token, "POST", "/v1/me/agents/"+w.tutor.id+"/tokens", map[string]any{"label": label})
+	return str(tok, "token"), str(tok, "credential_id")
+}
+
+func (w *liveWorld) suspendTutor() {
+	w.t.Helper()
+	w.lc.result(w.sato.token, "POST", "/v1/me/agents/"+w.tutor.id+"/suspend", map[string]any{})
+}
+
+func (w *liveWorld) reactivateTutor() {
+	w.t.Helper()
+	w.lc.result(w.sato.token, "POST", "/v1/me/agents/"+w.tutor.id+"/reactivate", map[string]any{})
+}
+
 func (w *liveWorld) revokeTutorToken() {
 	w.t.Helper()
 	w.lc.result(w.sato.token, "POST", "/v1/me/agents/"+w.tutor.id+"/credentials/"+w.tokenID+"/revoke", map[string]any{})

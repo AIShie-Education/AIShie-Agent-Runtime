@@ -215,7 +215,7 @@ func (c *Core) authenticate(token string) *actor {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	cr := c.tokens[token]
-	if cr == nil || cr.revoked || cr.actor.kind == "system" {
+	if cr == nil || cr.revoked() || cr.actor.kind == "system" {
 		return nil
 	}
 	now := c.now()

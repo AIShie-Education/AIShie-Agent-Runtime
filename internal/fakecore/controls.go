@@ -2,12 +2,15 @@ package fakecore
 
 import (
 	"crypto/rand"
+	"encoding/base32"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -145,14 +148,29 @@ func refused(tool string, out outcome) error {
 	return e
 }
 
-// newToken is a token in Core's shape, ais_…, which the runtime's log
-// redaction knows.
-func newToken() string {
-	b := make([]byte, 24)
-	if _, err := rand.Read(b); err != nil {
-		return "ais_fake_" + newID()
-	}
-	return "ais_fk" + hex.EncodeToString(b)
+// prefixEncoding is how Core writes a token's public prefix: base32, in
+// lower case, of which 12 characters are kept.
+var prefixEncoding = base32.StdEncoding.WithPadding(base32.NoPadding)
+
+// newToken is a token in Core's shape (Core's auth.NewToken), ais_, a
+// public prefix of 12 characters of base32 in lower case, _, and 256 bits
+// of secret in base64url; and its prefix, by which Core lists it.
+func newToken() (token, prefix string) {
+	var p [8]byte
+	var secret [32]byte
+	_, _ = rand.Read(p[:])
+	_, _ = rand.Read(secret[:])
+	prefix = strings.ToLower(prefixEncoding.EncodeToString(p[:]))[:12]
+	return "ais_" + prefix + "_" + base64.RawURLEncoding.EncodeToString(secret[:]), prefix
+}
+
+// issue issues act a token, from issuer, labelled label, and returns the
+// credential. Called with the lock held.
+func (c *Core) issue(act, issuer *actor, label string) *credential {
+	token, prefix := newToken()
+	cr := &credential{id: newID(), token: token, prefix: prefix, actor: act, issuer: issuer, label: label, createdAt: c.now()}
+	c.tokens[token] = cr
+	return cr
 }
 
 // AddCourse makes an active course, section A, titled by its code, with
@@ -175,7 +193,7 @@ func (c *Core) AddCourse(code string) Course {
 	syllabus := doc(kindMaterial, "Syllabus", 0)
 	syllabus.bodyMD = ptr("# " + code + " syllabus\n\nWeekly lectures, one assignment a fortnight, and a final exam.")
 	slides := doc(kindMaterial, "Lecture 1 slides", 1)
-	slides.file, slides.contentType, slides.fileToken = []byte("%PDF-1.4\n% fakecore: lecture 1 slides\n"), ptr("application/pdf"), newToken()[6:]
+	slides.file, slides.contentType, slides.fileToken = []byte("%PDF-1.4\n% fakecore: lecture 1 slides\n"), ptr("application/pdf"), fileToken()
 	c.blobs[slides.fileToken] = slides
 	instructions := doc(kindInstructions, "HW1 instructions", 2)
 	instructions.bodyMD = ptr("Answer the three questions at the end of chapter 1. Show your working.")
@@ -195,12 +213,25 @@ func (c *Core) AddCourse(code string) Course {
 
 func ptr[T any](v T) *T { return &v }
 
+// fileToken is the secret part of a file's download URL.
+func fileToken() string {
+	b := make([]byte, 24)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// addActor registers an actor and issues it a token: a person's, labelled
+// "record" and issued by itself; an agent's, labelled "runtime" and issued
+// by its owner, as the recorder issues them through Core.
 func (c *Core) addActor(name, kind string, owner *actor) Actor {
 	a := &actor{id: newID(), kind: kind, name: name, status: statusActive, owner: owner}
 	c.actors[a.id] = a
-	token := newToken()
-	c.tokens[token] = &credential{token: token, actor: a}
-	return Actor{ID: a.id, Name: name, Kind: kind, Token: token}
+	issuer, label := a, "record"
+	if owner != nil {
+		issuer, label = owner, "runtime"
+	}
+	cr := c.issue(a, issuer, label)
+	return Actor{ID: a.id, Name: name, Kind: kind, Token: cr.token}
 }
 
 // AddPerson registers a person and issues them a token.
@@ -250,25 +281,47 @@ func (c *Core) SetOwner(agentID, ownerID string) error {
 		}
 	}
 	a.owner = owner
+	now := c.now()
 	for _, cr := range c.tokens {
-		if cr.actor == a {
-			cr.revoked = true
+		if cr.actor == a && !cr.revoked() {
+			cr.revokedAt = &now
 		}
 	}
 	return nil
 }
 
-// IssueToken issues the actor another token.
+// IssueToken issues the actor another token, labelled "runtime", from its
+// owner (itself, for an actor nobody owns).
 func (c *Core) IssueToken(actorID string) (string, error) {
+	t, err := c.IssueLabelledToken(actorID, "runtime")
+	return t.Token, err
+}
+
+// Token is a token the fake issued: the token, and its credential as
+// credential_list names it.
+type Token struct {
+	Token        string
+	CredentialID string
+	// Prefix is the 12 characters after ais_ that Core lists it by.
+	Prefix string
+}
+
+// IssueLabelledToken issues the actor another token labelled label, from
+// its owner (itself, for an actor nobody owns), as agent.issue_token and
+// credential.issue_token do.
+func (c *Core) IssueLabelledToken(actorID, label string) (Token, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	a := c.actors[actorID]
 	if a == nil {
-		return "", fmt.Errorf("fakecore: IssueToken: no actor %s", actorID)
+		return Token{}, fmt.Errorf("fakecore: IssueToken: no actor %s", actorID)
 	}
-	token := newToken()
-	c.tokens[token] = &credential{token: token, actor: a}
-	return token, nil
+	issuer := a
+	if a.owner != nil {
+		issuer = a.owner
+	}
+	cr := c.issue(a, issuer, label)
+	return Token{Token: cr.token, CredentialID: cr.id, Prefix: cr.prefix}, nil
 }
 
 // Revoke revokes a token: its next call is a 401.
@@ -279,7 +332,67 @@ func (c *Core) Revoke(token string) error {
 	if cr == nil {
 		return errors.New("fakecore: Revoke: no such token")
 	}
-	cr.revoked = true
+	if !cr.revoked() {
+		now := c.now()
+		cr.revokedAt = &now
+	}
+	return nil
+}
+
+// CredentialRecord is one of an actor's tokens as the fake holds it, for
+// assertions.
+type CredentialRecord struct {
+	ID, Prefix, Label string
+	CreatedAt         time.Time
+	LastUsedAt        *time.Time
+	RevokedAt         *time.Time
+}
+
+// Credentials lists the actor's tokens, newest first, as credential_list
+// orders them, revoked ones included.
+func (c *Core) Credentials(actorID string) []CredentialRecord {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []CredentialRecord
+	for _, cr := range c.credentialsOf(c.actors[actorID]) {
+		r := CredentialRecord{ID: cr.id, Prefix: cr.prefix, Label: cr.label, CreatedAt: cr.createdAt}
+		if cr.lastUsed != nil {
+			t := *cr.lastUsed
+			r.LastUsedAt = &t
+		}
+		if cr.revokedAt != nil {
+			t := *cr.revokedAt
+			r.RevokedAt = &t
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// SuspendActor suspends the actor, as an administrator's actor.suspend or
+// its owner's agent.suspend does: every call it makes is denied
+// (actor_not_active), me_get and the credential tools among them, and its
+// tokens are kept.
+func (c *Core) SuspendActor(actorID string) error {
+	return c.setActorStatus("SuspendActor", actorID, statusSuspended)
+}
+
+// ReactivateActor lifts a suspension: the actor's calls work again.
+func (c *Core) ReactivateActor(actorID string) error {
+	return c.setActorStatus("ReactivateActor", actorID, statusActive)
+}
+
+func (c *Core) setActorStatus(control, actorID, status string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	a := c.actors[actorID]
+	if a == nil {
+		return fmt.Errorf("fakecore: %s: no actor %s", control, actorID)
+	}
+	if a.status == status {
+		return fmt.Errorf("fakecore: %s: the actor is %s already", control, status)
+	}
+	a.status = status
 	return nil
 }
 

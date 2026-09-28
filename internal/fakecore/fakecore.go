@@ -12,7 +12,9 @@
 //   - GET /healthz, and the files document_get's download_url points at.
 //
 // The tools the runtime calls (me_*, conversation_*, event_list,
-// action_list_mine) are carried out with Core's semantics: authorization,
+// action_list_mine, and credential_list and credential_revoke, with which
+// an agent's token revokes a token of its own) are carried out with Core's
+// semantics: authorization,
 // idempotency, proposals and their decisions, the inbox, events and who sees
 // them; so are the writes people make that the test controls go through
 // (conversation_open, conversation_ask, action_decide, action_review). The
@@ -121,6 +123,8 @@ func implemented() map[string]*impl {
 		"grade.get":             gradeGet(),
 		"component.tree":        componentTree(),
 		"gradebook.get":         gradebookGet(),
+		"credential.list":       credentialList(),
+		"credential.revoke":     credentialRevoke(),
 	}
 }
 

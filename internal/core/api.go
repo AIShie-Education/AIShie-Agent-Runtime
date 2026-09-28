@@ -103,6 +103,35 @@ func (c *Client) ActionsMine(ctx context.Context, courseID, after string, exclud
 	return &r, err
 }
 
+// Credentials is credential_list: the caller's own credentials, newest
+// first, revoked ones included; never a secret. Core lets any active actor
+// list its own (a self gate), an agent among them.
+func (c *Client) Credentials(ctx context.Context) ([]Credential, error) {
+	var r struct {
+		Credentials []Credential `json:"credentials"`
+	}
+	err := c.read(ctx, "credential_list", struct{}{}, &r)
+	return r.Credentials, err
+}
+
+// RevokeCredential is credential_revoke of one of the caller's own
+// credentials, under RevokeKey(id), and returns the envelope as it came:
+// executed when it was revoked (or a replay of that), failed not_found when
+// Core knows no live credential of the caller's by that id (someone else's,
+// revoked already, or none), denied when the caller may not act (a
+// suspended actor). An agent's token can revoke itself: the call is
+// answered, and its next use is a 401.
+func (c *Client) RevokeCredential(ctx context.Context, id string) (*Envelope, error) {
+	raw, err := json.Marshal(struct {
+		CredentialID   string `json:"credential_id"`
+		IdempotencyKey string `json:"idempotency_key"`
+	}{id, RevokeKey(id)})
+	if err != nil {
+		return nil, fmt.Errorf("core: credential_revoke: %w", err)
+	}
+	return c.c.Call(ctx, "credential_revoke", raw)
+}
+
 // Send sends a write's exact bytes and returns the envelope as it came:
 // the bytes written ahead, sent again after a timeout (§2.2).
 func (c *Client) Send(ctx context.Context, tool string, args []byte) (*Envelope, error) {

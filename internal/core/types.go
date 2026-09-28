@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"strconv"
+	"time"
 )
 
 // Actor is me_get's result.
@@ -20,6 +21,37 @@ type Actor struct {
 
 // KindAgent is an agent's Actor.Kind; a person's is "human".
 const KindAgent = "agent"
+
+// StatusActive is an actor's Status while it may act; a suspended one's is
+// "suspended".
+const StatusActive = "active"
+
+// Credential is one of the caller's own credentials, from credential_list:
+// never its secret. An API token is named in Core by its TokenPrefix, the
+// 12 characters after ais_, which is all of it the list shows.
+type Credential struct {
+	ID string `json:"id"`
+	// Kind is api_token for a token (CredentialAPIToken); sessions,
+	// passwords and SSO identities have kinds of their own.
+	Kind        string `json:"kind"`
+	TokenPrefix string `json:"token_prefix,omitempty"`
+	Label       string `json:"label,omitempty"`
+	// LastUsedAt is when the credential was last used, as Core notes it:
+	// at most once a minute.
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
+	RevokedAt  *time.Time `json:"revoked_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+}
+
+// CredentialAPIToken is an API token's Credential.Kind.
+const CredentialAPIToken = "api_token"
+
+// Live reports whether the credential works at now: not revoked, and not
+// expired.
+func (c Credential) Live(now time.Time) bool {
+	return c.RevokedAt == nil && (c.ExpiresAt == nil || c.ExpiresAt.After(now))
+}
 
 // Permission levels, as perms maps carry them.
 const (
@@ -238,3 +270,7 @@ func AnswerKey(conversationID, messageID string, attempt int) string {
 
 // CloseKey is the key of closing a conversation.
 func CloseKey(conversationID string) string { return "close:" + conversationID }
+
+// RevokeKey is the key of revoking one of the caller's own credentials:
+// one per credential, so that a revocation sent again is Core's first.
+func RevokeKey(credentialID string) string { return "aishie-revoke:" + credentialID }

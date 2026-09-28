@@ -133,13 +133,23 @@ type actor struct {
 
 func (a *actor) active() bool { return a.status == statusActive }
 
-// credential is an API token.
+// credential is an API token, as Core's credential row keeps one: its id,
+// the public prefix it is listed by, who issued it and for what, and when
+// it was made, last used, and revoked.
 type credential struct {
-	token    string
-	actor    *actor
-	revoked  bool
-	lastUsed *time.Time
+	id        string
+	token     string
+	prefix    string
+	actor     *actor
+	issuer    *actor
+	label     string
+	createdAt time.Time
+	revokedAt *time.Time
+	lastUsed  *time.Time
 }
+
+// revoked reports whether the credential has been revoked.
+func (cr *credential) revoked() bool { return cr.revokedAt != nil }
 
 // course is a course and its canned material.
 type course struct {
