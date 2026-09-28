@@ -161,3 +161,7 @@ workflow. The image serves no port to the internet: it connects out, to
 Core and the model providers. [`docs/deploying.md`](docs/deploying.md) says
 how a server is set up, how the workflow is connected, and how to roll
 back.
+
+## License
+
+AIShie Agent Runtime is source-available under the [Elastic License 2.0](LICENSE) (ELv2). You may use, copy, change and redistribute it on the terms in LICENSE, which include that you may not offer it to others as a hosted or managed service.
