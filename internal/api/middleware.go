@@ -21,13 +21,14 @@ import (
 // then its query and body (noBody), then does what it does.
 
 // recorder keeps what the log line and the metrics say of a request: its
-// status, route, reason and person.
+// status, route, reason, person and hosted agent.
 type recorder struct {
 	http.ResponseWriter
 	status int
 	route  string
 	reason string
 	actor  string
+	agent  string
 }
 
 func (r *recorder) WriteHeader(code int) {
@@ -74,7 +75,7 @@ func (s *Server) logged(next http.Handler) http.Handler {
 		s.m.seconds.WithLabelValues(route).Observe(took.Seconds())
 		s.o.Log.LogAttrs(r.Context(), slog.LevelInfo, "api request", slog.String("method", r.Method), slog.String("route", rec.route),
 			slog.Int("status", rec.status), slog.String("reason", rec.reason), slog.String("actor", rec.actor),
-			slog.String("agent", ""), slog.Int64("ms", took.Milliseconds()))
+			slog.String("agent", rec.agent), slog.Int64("ms", took.Milliseconds()))
 	})
 }
 

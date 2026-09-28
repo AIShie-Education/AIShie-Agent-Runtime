@@ -60,6 +60,28 @@ const (
 	ReasonKeysUnavailable  = "keys_unavailable"
 )
 
+// Reasons of a hosted agent's routes (§2.3).
+const (
+	ReasonAgentNotFound   = "agent_not_found"
+	ReasonVersionRequired = "version_required"
+	ReasonVersionMismatch = "version_mismatch"
+	// The tokens'; the others are probe's (token_refused, …).
+	ReasonTokenMalformed  = "token_malformed"
+	ReasonAlreadyHosted   = "already_hosted"
+	ReasonOperatorAgent   = "operator_agent"
+	ReasonCoreUnavailable = "core_unavailable"
+	// The models' and keys'.
+	ReasonUnknownProvider        = "unknown_provider"
+	ReasonAdapterNotOffered      = "adapter_not_offered"
+	ReasonUnknownEndpoint        = "unknown_endpoint"
+	ReasonKeyMalformed           = "key_malformed"
+	ReasonSchoolKeyNotOffered    = "school_key_not_offered"
+	ReasonOwnKeyRequired         = "own_key_required"
+	ReasonOwnKeyProviderMismatch = "own_key_provider_mismatch"
+	ReasonModelDenied            = "model_denied"
+	ReasonSettingsRejected       = "settings_rejected"
+)
+
 // maxMessage bounds a message, in bytes, as Core's apperr.Clip does.
 const maxMessage = 400
 

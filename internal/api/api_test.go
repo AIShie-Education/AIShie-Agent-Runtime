@@ -37,23 +37,23 @@ const (
 
 var at = time.Date(2026, 9, 28, 10, 0, 0, 0, time.UTC)
 
-// core mints assertions as Core does, and is the key set they check
+// minter mints assertions as Core does, and is the key set they check
 // against.
-type core struct {
+type minter struct {
 	key ed25519.PrivateKey
 	kid string
 }
 
-func newCore(t *testing.T) core {
+func newCore(t *testing.T) minter {
 	t.Helper()
 	pub, key, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return core{key: key, kid: webauth.Thumbprint(pub)}
+	return minter{key: key, kid: webauth.Thumbprint(pub)}
 }
 
-func (c core) Key(_ context.Context, kid string) (ed25519.PublicKey, error) {
+func (c minter) Key(_ context.Context, kid string) (ed25519.PublicKey, error) {
 	if kid != c.kid {
 		return nil, webauth.ErrUnknownKey
 	}
@@ -84,7 +84,7 @@ func claims(sub, role string, edit func(map[string]any)) map[string]any {
 	return c
 }
 
-func (c core) assert(t *testing.T, cl map[string]any) string {
+func (c minter) assert(t *testing.T, cl map[string]any) string {
 	t.Helper()
 	input := b64json(t, map[string]any{"alg": "EdDSA", "typ": "JWT", "kid": c.kid}) + "." + b64json(t, cl)
 	return input + "." + base64.RawURLEncoding.EncodeToString(ed25519.Sign(c.key, []byte(input)))
@@ -158,7 +158,7 @@ func (s *failingStore) RecordAudit(ctx context.Context, e store.AuditEvent) (int
 }
 
 type fixture struct {
-	core core
+	core minter
 	s    *Server
 	st   *failingStore
 	reg  *prometheus.Registry

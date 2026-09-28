@@ -37,6 +37,20 @@ type hosting struct {
 	reported []string
 }
 
+// YAML is the operator's configuration as last loaded, for the API.
+func (h *hosting) YAML() *config.Config {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.yaml
+}
+
+// Prices is the price table in force, for the API.
+func (h *hosting) Prices() *pricing.Table {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.prices
+}
+
 // registryTimeout bounds each build's read of the registry, so that a
 // database that does not answer holds up neither SIGHUP, whose reload
 // waits for the build (and the signals after it wait for the reload), nor

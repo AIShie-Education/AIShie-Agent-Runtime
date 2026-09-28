@@ -17,8 +17,10 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/httpserver"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/metrics"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/netguard"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/pgstore"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/vault"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/version"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/webauth"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/worker"
@@ -90,9 +92,14 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+	hostedClient, err := netguard.Client(client)
+	if err != nil {
+		log.Error("the hosted agents' model client", "err", err)
+		return exitFailure
+	}
 	sup, err := worker.NewSupervisor(worker.Options{
 		Config: cfg, Env: env, Store: st, Metrics: metrics.New(reg), Log: log,
-		Secrets: res, Prices: l.prices, HTTPClient: client, WorkerID: env.WorkerID,
+		Secrets: res, Prices: l.prices, HTTPClient: client, HostedHTTPClient: hostedClient, WorkerID: env.WorkerID,
 	})
 	if err != nil {
 		log.Error("the worker", "err", err)
@@ -103,7 +110,7 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 		log.Error("HTTP_ADDR cannot be listened on", "addr", env.HTTPAddr, "err", err)
 		return exitFailure
 	}
-	apiSrv, err := newAPI(env, client, st, reg, log)
+	apiSrv, err := newAPI(env, apiDeps{client: client, models: hostedClient, st: st, vault: v, actors: sup, hosting: h}, reg, log)
 	if err != nil {
 		log.Error("the API", "err", err)
 		return exitFailure
@@ -205,16 +212,30 @@ wait:
 	return code
 }
 
+// apiDeps are what the API shares with the worker: the egress client (for
+// Core), the hosted-model client (for keys/test), the store, the vault,
+// the supervisor, and the configuration in force.
+type apiDeps struct {
+	client  *http.Client
+	models  *http.Client
+	st      store.Store
+	vault   *vault.Vault
+	actors  api.Actors
+	hosting api.Hosting
+}
+
 // newAPI is the JSON API for the front end (docs/design.md §11.4), or nil
 // when API_ADDR is not set: it takes the assertions Core at CORE_BASE_URL
 // makes for API_AUDIENCE, checked against CORE_ASSERTION_KEY when it is
 // pinned, and otherwise against the keys Core publishes, fetched through
-// client. It keeps what it is given in st, and counts on reg.
-func newAPI(env config.Env, client *http.Client, st store.Store, reg prometheus.Registerer, log *slog.Logger) (*api.Server, error) {
+// the egress client. It keeps what it is given in the store, seals and
+// opens agents' tokens with the vault, asks the supervisor which agents it
+// runs, reads the configuration in force, and counts on reg.
+func newAPI(env config.Env, d apiDeps, reg prometheus.Registerer, log *slog.Logger) (*api.Server, error) {
 	if env.APIAddr == "" {
 		return nil, nil
 	}
-	var keys webauth.Keys = webauth.NewRemoteKeys(env.CoreBaseURL, client)
+	var keys webauth.Keys = webauth.NewRemoteKeys(env.CoreBaseURL, d.client)
 	if env.CoreAssertionKey != "" {
 		pinned, err := webauth.ParsePinnedKey(env.CoreAssertionKey)
 		if err != nil {
@@ -229,7 +250,14 @@ func newAPI(env config.Env, client *http.Client, st store.Store, reg prometheus.
 	return api.New(api.Options{
 		Addr:           env.APIAddr,
 		Verifier:       &webauth.Verifier{Keys: keys, Issuer: env.CoreBaseURL, Audience: env.APIAudience},
-		Store:          st,
+		Store:          d.st,
+		CoreBaseURL:    env.CoreBaseURL,
+		CoreHTTP:       d.client,
+		Vault:          d.vault,
+		Actors:         d.actors,
+		Hosting:        d.hosting,
+		Allowlist:      env.CoreBaseURLAllowlist,
+		ModelHTTP:      d.models,
 		AdminActorIDs:  env.AdminActorIDs,
 		TrustedProxies: proxies,
 		Registerer:     reg,

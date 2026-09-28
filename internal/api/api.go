@@ -27,7 +27,11 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/vault"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/webauth"
 )
 
@@ -46,6 +50,32 @@ type Options struct {
 	Verifier *webauth.Verifier
 	// Store is the runtime's store: the registry, the people, the audit.
 	Store store.Store
+	// CoreBaseURL is the Core hosted agents connect to (CORE_BASE_URL):
+	// the one Core an agent's token is ever sent to.
+	CoreBaseURL string
+	// CoreHTTP carries the calls to Core: the egress client, bounded by
+	// core.DefaultTimeout when it has no timeout of its own.
+	// http.DefaultClient when nil.
+	CoreHTTP *http.Client
+	// Vault seals the tokens and keys people give, and opens a hosted
+	// agent's token to revoke it in Core as the agent is deleted: the one
+	// stored secret the API opens.
+	Vault *vault.Vault
+	// Actors says which of the worker's agents runs as a Core actor (the
+	// supervisor); nil knows of none.
+	Actors Actors
+	// Hosting is the configuration the runtime runs: the operator's YAML
+	// and the price table in force. Nil is none of either.
+	Hosting Hosting
+	// Allowlist is CORE_BASE_URL_ALLOWLIST, which a change's dry run holds
+	// CORE_BASE_URL to, as the registry does.
+	Allowlist []string
+	// ModelHTTP carries keys/test's call to a provider: the hosted-model
+	// client (package netguard), which connects to public addresses alone
+	// and follows no redirect. netguard.Client(CoreHTTP) when nil.
+	ModelHTTP *http.Client
+	// NewAdapter builds keys/test's adapter; providers.New when nil.
+	NewAdapter func(llm.Config) (llm.Adapter, error)
 	// AdminActorIDs, when not empty, narrow the runtime's administrators
 	// to those of Core's it names (ADMIN_ACTOR_IDS), in lower case.
 	AdminActorIDs []string
@@ -60,14 +90,32 @@ type Options struct {
 	Now func() time.Time
 }
 
+// Actors says which agent of the worker's runs as a Core actor at a Core:
+// worker.Supervisor.ActorAgent.
+type Actors interface {
+	ActorAgent(baseURL, actorID string) (agentID string, hosted, ok bool)
+}
+
+// Hosting is the configuration the runtime runs, as the API reads it.
+type Hosting interface {
+	// YAML is the operator's configuration as last loaded: its runtime
+	// settings, and its agents.
+	YAML() *config.Config
+	// Prices is the price table in force, nil for none.
+	Prices() *pricing.Table
+}
+
 // Server is the API.
 type Server struct {
-	o       Options
-	mux     *http.ServeMux
-	handler http.Handler
-	m       *metrics
+	o        Options
+	mux      *http.ServeMux
+	handler  http.Handler
+	m        *metrics
+	coreHTTP *http.Client
+	cats     catalogueCache
 
-	perIP, failures, general *limiter
+	perIP, failures, general, token, keyTest *limiter
+	keyDay                                   *dailyLimiter
 
 	seenMu sync.Mutex
 	// seen is when each person was last recorded (PutPerson), so that
@@ -96,12 +144,21 @@ func New(o Options) *Server {
 	}
 	o.AdminActorIDs = admins
 	s := &Server{
-		o: o, mux: http.NewServeMux(), m: newMetrics(o.Registerer),
+		o: o, mux: http.NewServeMux(), m: newMetrics(o.Registerer), coreHTTP: coreClient(o.CoreHTTP),
 		perIP: newLimiter(RatePerIP), failures: newLimiter(RateFailures), general: newLimiter(RateGeneral),
+		token: newLimiter(RateToken), keyTest: newLimiter(RateKeyTest), keyDay: newDailyLimiter(KeyTestsPerDay),
 		seen: map[string]time.Time{},
 	}
 	s.mux.Handle("GET "+Prefix+"info", s.public(s.info))
 	s.mux.Handle("GET "+Prefix+"me", s.authed(s.me))
+	s.mux.Handle("POST "+Prefix+"agents/inspect", s.authedBody(s.limited(s.token, s.audited("agent.inspect", s.inspect))))
+	s.mux.Handle("POST "+Prefix+"agents", s.authedBody(s.limited(s.token, s.audited("agent.connect", s.connect))))
+	s.mux.Handle("GET "+Prefix+"agents", s.authed(s.list))
+	s.mux.Handle("GET "+Prefix+"agents/{id}", s.authed(s.get))
+	s.mux.Handle("PUT "+Prefix+"agents/{id}/token", s.authedBody(s.limited(s.token, s.audited("agent.token_replace", s.replaceToken))))
+	s.mux.Handle("POST "+Prefix+"agents/{id}/pause", s.authed(s.audited("agent.pause", s.pause(true))))
+	s.mux.Handle("POST "+Prefix+"agents/{id}/resume", s.authed(s.audited("agent.resume", s.pause(false))))
+	s.mux.Handle("DELETE "+Prefix+"agents/{id}", s.authedBody(s.audited("agent.delete", s.remove)))
 
 	guard := http.NewCrossOriginProtection()
 	guard.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -190,4 +247,23 @@ func (s *Server) isAdmin(c *webauth.Claims) bool {
 		return false
 	}
 	return len(s.o.AdminActorIDs) == 0 || slices.Contains(s.o.AdminActorIDs, c.Subject)
+}
+
+// prices is the price table in force, nil for none.
+func (s *Server) prices() *pricing.Table {
+	if s.o.Hosting == nil {
+		return nil
+	}
+	return s.o.Hosting.Prices()
+}
+
+// yaml is the operator's configuration in force: none, an empty one.
+func (s *Server) yaml() *config.Config {
+	if s.o.Hosting == nil {
+		return &config.Config{}
+	}
+	if c := s.o.Hosting.YAML(); c != nil {
+		return c
+	}
+	return &config.Config{}
 }

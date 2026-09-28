@@ -13,8 +13,7 @@ type Rate struct {
 	Burst     int
 }
 
-// The buckets of the API contract (§3.4). R4's routes take the first
-// three; the token and key_test buckets come with the routes they bound.
+// The buckets of the API contract (§3.4).
 var (
 	// RatePerIP is each client address's allowance of unauthenticated
 	// requests and of requests whose assertion was refused.
@@ -24,7 +23,53 @@ var (
 	RateFailures = Rate{PerMinute: 30, Burst: 30}
 	// RateGeneral is each person's allowance of authenticated requests.
 	RateGeneral = Rate{PerMinute: 120, Burst: 40}
+	// RateToken is each person's allowance of requests that ask Core about
+	// a token: inspect, POST /agents, PUT /token.
+	RateToken = Rate{PerMinute: 10, Burst: 5}
+	// RateKeyTest is each person's allowance of keys/test, beside
+	// KeyTestsPerDay.
+	RateKeyTest = Rate{PerMinute: 6, Burst: 3}
 )
+
+// KeyTestsPerDay is each person's allowance of keys/test in a UTC day:
+// each spends a token of their own key, and asks a provider.
+const KeyTestsPerDay = 100
+
+// dailyLimiter counts each key's requests in the current UTC day, up to a
+// limit, bounded by maxBuckets as limiter is.
+type dailyLimiter struct {
+	limit int
+
+	mu    sync.Mutex
+	day   time.Time
+	count map[string]int
+}
+
+func newDailyLimiter(limit int) *dailyLimiter {
+	return &dailyLimiter{limit: limit, count: map[string]int{}}
+}
+
+// take counts one of key's requests at now: ok, or how many whole seconds
+// until the next UTC day.
+func (d *dailyLimiter) take(key string, now time.Time) (bool, int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	y, m, day := now.UTC().Date()
+	today := time.Date(y, m, day, 0, 0, 0, 0, time.UTC)
+	if !today.Equal(d.day) {
+		d.day, d.count = today, map[string]int{}
+	}
+	if d.count[key] >= d.limit {
+		return false, int(math.Ceil(today.Add(24 * time.Hour).Sub(now).Seconds()))
+	}
+	if _, ok := d.count[key]; !ok && len(d.count) >= maxBuckets {
+		// Past the bound, a new key is refused rather than an old one
+		// forgotten: forgetting a count would give its key a new day.
+		return false, int(math.Ceil(today.Add(24 * time.Hour).Sub(now).Seconds()))
+	}
+	d.count[key]++
+	return true, 0
+}
 
 // maxBuckets bounds each limiter: past it, the bucket used least recently
 // goes, which forgets only how little of its allowance it had left.
