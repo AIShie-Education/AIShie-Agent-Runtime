@@ -217,3 +217,25 @@ func TestVerifyWithoutKeys(t *testing.T) {
 		t.Errorf("got %v", err)
 	}
 }
+
+// A signature of which any one bit is changed, written again in base64url,
+// is assertion_invalid, never assertion_malformed: the end-to-end suite
+// tampers with Core's assertions so, and not with a character of their
+// text, which may leave one that is not base64url at all.
+func TestAnyBitOfTheSignatureChangedIsInvalid(t *testing.T) {
+	s := newSigner(t)
+	parts := strings.Split(s.sign(t, s.header(), claimsOf()), ".")
+	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := verifier(keysOf{s.kid: s.public()}, at)
+	for bit := range 8 * len(sig) {
+		tampered := append([]byte(nil), sig...)
+		tampered[bit/8] ^= 1 << (bit % 8)
+		_, err := v.Verify(context.Background(), parts[0]+"."+parts[1]+"."+b64(tampered))
+		if e := (*Error)(nil); !errors.As(err, &e) || e.Reason != ReasonInvalid {
+			t.Fatalf("bit %d changed: %v", bit, err)
+		}
+	}
+}

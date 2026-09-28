@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -82,10 +83,17 @@ func apiTakesCoresAssertion(t *testing.T, w *world) {
 	rt.offset.Store(int64(16 * time.Minute)) // longer than Core makes any
 	rt.wantRefused(t, yukis, webauth.ReasonExpired)
 	rt.offset.Store(0)
+	// A bit of the signature itself is flipped, and the signature written
+	// again: a bit flipped in its base64url text would, about one time in
+	// eleven, leave a character that is not base64url, which is
+	// assertion_malformed.
 	parts := strings.Split(yukis, ".")
-	sig := []byte(parts[2])
+	sig, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil {
+		t.Fatalf("the assertion's signature is not base64url: %v", err)
+	}
 	sig[len(sig)/2] ^= 1
-	rt.wantRefused(t, parts[0]+"."+parts[1]+"."+string(sig), webauth.ReasonInvalid)
+	rt.wantRefused(t, parts[0]+"."+parts[1]+"."+base64.RawURLEncoding.EncodeToString(sig), webauth.ReasonInvalid)
 	if code, _ := rt.get(t, "/status", ""); code != http.StatusNotFound {
 		t.Errorf("GET /status on the API: %d", code)
 	}
