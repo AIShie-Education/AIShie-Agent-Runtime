@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -413,25 +414,29 @@ func (s *Store) PurgeMember(_ context.Context, agentID, memberID string) error {
 	return nil
 }
 
-// copySeat is r with a GoneAt of its own.
+// copySeat is r with a GoneAt and perms of its own.
 func copySeat(r store.SeatRef) store.SeatRef {
 	if r.GoneAt != nil {
 		gone := *r.GoneAt
 		r.GoneAt = &gone
 	}
+	r.Perms = maps.Clone(r.Perms)
+	if r.Perms == nil {
+		r.Perms = map[string]string{}
+	}
 	return r
 }
 
-// SeatSeen records the seat as current, clearing any GoneAt.
-func (s *Store) SeatSeen(_ context.Context, agentID, memberID, courseID string, at time.Time) error {
-	if err := required("agent_id", agentID, "member_id", memberID); err != nil {
+// SeatSeen records the seat as current, as r says it is, clearing any
+// GoneAt.
+func (s *Store) SeatSeen(_ context.Context, r store.SeatRef) error {
+	if err := required("agent_id", r.AgentID, "member_id", r.MemberID); err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.seats[seatKey{agentID, memberID}] = store.SeatRef{
-		AgentID: agentID, MemberID: memberID, CourseID: courseID, SeenAt: s.orNow(at),
-	}
+	r.SeenAt, r.GoneAt = s.orNow(r.SeenAt), nil
+	s.seats[seatKey{r.AgentID, r.MemberID}] = copySeat(r)
 	return nil
 }
 
@@ -1000,4 +1005,100 @@ func (s *Store) RegistryRev(_ context.Context) (int64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.rev, nil
+}
+
+// inSpan reports whether t is in [since, until).
+func inSpan(t, since, until time.Time) bool { return !t.Before(since) && t.Before(until) }
+
+// Usage is agentID's use in [since, until), a row per UTC day and course.
+func (s *Store) Usage(_ context.Context, agentID string, since, until time.Time) ([]store.UsageRow, error) {
+	if err := store.CheckSpan(agentID, since, until); err != nil {
+		return nil, err
+	}
+	since, until = keep(since), keep(until)
+	type key struct {
+		day    time.Time
+		course string
+	}
+	rows := map[key]*store.UsageRow{}
+	row := func(at time.Time, course string) *store.UsageRow {
+		k := key{store.UTCDay(at), course}
+		if rows[k] == nil {
+			rows[k] = &store.UsageRow{Day: k.day, CourseID: course, Outcomes: map[string]int{}}
+		}
+		return rows[k]
+	}
+	s.mu.Lock()
+	for k, a := range s.answers {
+		if k.agent == agentID && inSpan(a.At, since, until) {
+			r := row(a.At, a.CourseID)
+			r.Outcomes[a.Outcome]++
+			if a.Billable {
+				r.Answers++
+			}
+		}
+	}
+	for k, c := range s.calls {
+		if k.agent == agentID && inSpan(c.At, since, until) {
+			r := row(c.At, c.CourseID)
+			r.ModelCalls++
+			r.InputTokens += c.Input
+			r.CacheReadTokens += c.CacheRead
+			r.CacheWriteTokens += c.CacheWrite
+			r.OutputTokens += c.Output
+			r.ReasoningTokens += c.Reasoning
+			r.CostPUSD += c.CostPUSD
+		}
+	}
+	s.mu.Unlock()
+	out := make([]store.UsageRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, *r)
+	}
+	slices.SortFunc(out, func(a, b store.UsageRow) int {
+		return cmp.Or(a.Day.Compare(b.Day), strings.Compare(a.CourseID, b.CourseID))
+	})
+	return out, nil
+}
+
+// AskerUsage is agentID's use in one course in [since, until), a row per
+// asker.
+func (s *Store) AskerUsage(_ context.Context, agentID, courseID string, since, until time.Time) ([]store.AskerUsage, error) {
+	if err := store.CheckSpan(agentID, since, until); err != nil {
+		return nil, err
+	}
+	since, until = keep(since), keep(until)
+	rows := map[string]*store.AskerUsage{}
+	row := func(opener string) *store.AskerUsage {
+		if rows[opener] == nil {
+			rows[opener] = &store.AskerUsage{OpenerMemberID: opener, Outcomes: map[string]int{}}
+		}
+		return rows[opener]
+	}
+	s.mu.Lock()
+	for k, a := range s.answers {
+		if k.agent == agentID && a.CourseID == courseID && inSpan(a.At, since, until) {
+			r := row(a.OpenerMemberID)
+			r.Outcomes[a.Outcome]++
+			if a.Billable {
+				r.Answers++
+			}
+		}
+	}
+	for k, c := range s.calls {
+		if k.agent == agentID && c.CourseID == courseID && inSpan(c.At, since, until) {
+			r := row(c.OpenerMemberID)
+			r.ModelCalls++
+			r.InputTokens += c.Input
+			r.OutputTokens += c.Output
+			r.CostPUSD += c.CostPUSD
+		}
+	}
+	s.mu.Unlock()
+	out := make([]store.AskerUsage, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, *r)
+	}
+	slices.SortFunc(out, func(a, b store.AskerUsage) int { return strings.Compare(a.OpenerMemberID, b.OpenerMemberID) })
+	return out, nil
 }

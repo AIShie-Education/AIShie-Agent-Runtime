@@ -463,3 +463,56 @@ func TestClosedStoreFails(t *testing.T) {
 		t.Fatalf("Cursor on a closed store: err = %v, want a prompt failure", err)
 	}
 }
+
+// A migration keeps the release before it working (CONTRIBUTING.md,
+// Migrations): the seats a release before 0004 wrote come through it with
+// empty snapshots, that release's own write of a seat still works on the
+// new schema, and this one's reads what it wrote.
+func TestSeatSnapshotMigratesTheSeatsBefore(t *testing.T) {
+	u := freshDatabase(t)
+	m, err := newMigrator(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Migrate(3); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// The release before 0004's SeatSeen.
+	before := `INSERT INTO seat (agent_id, member_id, course_id, seen_at, gone_at)
+		VALUES ($1, $2, $3, now(), NULL)
+		ON CONFLICT (agent_id, member_id) DO UPDATE
+		   SET course_id = EXCLUDED.course_id, seen_at = EXCLUDED.seen_at, gone_at = NULL`
+	conn, err := pgx.Connect(t.Context(), u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(context.Background()) }()
+	if _, err := conn.Exec(t.Context(), before, "a1", "m1", "c1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(u, Up); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(t.Context(), before, "a1", "m2", "c2"); err != nil {
+		t.Fatalf("the release before's write on the new schema: %v", err)
+	}
+	s := openOn(t, u)
+	seats, err := s.KnownSeats(t.Context(), "a1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seats) != 2 || seats[0].CourseCode != "" || seats[0].Status != "" || seats[0].Perms == nil || len(seats[0].Perms) != 0 {
+		t.Fatalf("the seats from before: %+v", seats)
+	}
+	if err := s.SeatSeen(t.Context(), store.SeatRef{AgentID: "a1", MemberID: "m1", CourseID: "c1", CourseCode: "CS101",
+		Status: "active", Perms: map[string]string{"conversation_answer": "autonomous"}}); err != nil {
+		t.Fatal(err)
+	}
+	seats, err = s.KnownSeats(t.Context(), "a1")
+	if err != nil || seats[0].CourseCode != "CS101" || seats[0].Perms["conversation_answer"] != "autonomous" {
+		t.Fatalf("a seat written on the new schema: %+v, %v", seats, err)
+	}
+}

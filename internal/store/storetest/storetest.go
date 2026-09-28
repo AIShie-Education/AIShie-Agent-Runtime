@@ -44,10 +44,16 @@
 //     jsonb. The registry's revision moves on with every write to an agent
 //     or a course (a delete of nothing may move it too), and never with a
 //     read, a person or a secret alone.
+//   - A seat keeps what me_memberships last showed of it; perms of none
+//     come back as an empty map.
+//   - Reports span [since, until), and group by the UTC day; a row is
+//     there only when something was recorded in it. Answers count the
+//     billable ones, outcomes every one; calls, tokens and cost are the
+//     model calls', as Spend sums them.
 //   - Lists come back in a fixed order: attempts by number, or oldest first;
 //     seats by member id; seats gone by when they went; agent states by
 //     agent id; secrets by id; hosted agents by id; their courses by agent,
-//     then course. Ids sort bytewise, and rows written at one
+//     then course; usage by day, then course; askers by member id. Ids sort bytewise, and rows written at one
 //     instant keep the order they were written in.
 package storetest
 
@@ -81,6 +87,7 @@ func Run(t *testing.T, open func(t *testing.T) store.Store) {
 		{"Status", testStatus},
 		{"Secrets", testSecrets},
 		{"Registry", testRegistry},
+		{"Reports", testReports},
 	} {
 		t.Run(g.name, func(t *testing.T) { g.run(t, open) })
 	}

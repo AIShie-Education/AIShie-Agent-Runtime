@@ -2,6 +2,7 @@ package storetest
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
@@ -48,7 +49,7 @@ func knownSeats(t *testing.T, s store.Store, agent string) []store.SeatRef {
 
 func seen(t *testing.T, s store.Store, agent, member, course string, when time.Time) {
 	t.Helper()
-	if err := s.SeatSeen(t.Context(), agent, member, course, when); err != nil {
+	if err := s.SeatSeen(t.Context(), store.SeatRef{AgentID: agent, MemberID: member, CourseID: course, SeenAt: when}); err != nil {
 		t.Fatalf("SeatSeen(%s, %s): %v", agent, member, err)
 	}
 }
@@ -172,10 +173,60 @@ func testSeats(t *testing.T, open Opener) {
 		sameSeats(t, "KnownSeats(a2)", knownSeats(t, s, "a2"), []seatWant{{"a2", "m1", "c1", base, time.Time{}}})
 	})
 
+	t.Run("the seat as me_memberships last showed it", func(t *testing.T) {
+		s, ctx := open(t), t.Context()
+		tutor := store.SeatRef{
+			AgentID: "a1", MemberID: "m1", CourseID: "c1", CourseCode: "CS101", CourseTitle: "Introduction to Computing",
+			Section: "A", Status: "active", AnswersCourse: true,
+			Perms: map[string]string{"conversation_answer": "confirm_required", "document_read": "autonomous"}, SeenAt: at(0),
+		}
+		own := store.SeatRef{
+			AgentID: "a1", MemberID: "m2", CourseID: "c2", CourseCode: "MA201", CourseTitle: "Linear Algebra",
+			Status: "active", PrincipalMemberID: "p1", SeenAt: at(0),
+		}
+		for _, r := range []store.SeatRef{tutor, own} {
+			if err := s.SeatSeen(ctx, r); err != nil {
+				t.Fatal(err)
+			}
+		}
+		got := knownSeats(t, s, "a1")
+		own.Perms = map[string]string{} // none are none
+		for i, want := range []store.SeatRef{tutor, own} {
+			sameTime(t, "seen_at", got[i].SeenAt, want.SeenAt)
+			got[i].SeenAt, want.SeenAt = time.Time{}, time.Time{}
+			if !reflect.DeepEqual(got[i], want) {
+				t.Errorf("KnownSeats[%d]:\n got %+v\nwant %+v", i, got[i], want)
+			}
+		}
+		// Read again, the seat is as it is now: paused, and tutoring no
+		// more, its perms changed.
+		changed := tutor
+		changed.Status, changed.AnswersCourse, changed.SeenAt = "paused", false, at(time.Hour)
+		changed.Perms = map[string]string{"conversation_answer": "denied"}
+		if err := s.SeatSeen(ctx, changed); err != nil {
+			t.Fatal(err)
+		}
+		got = knownSeats(t, s, "a1")
+		if got[0].Status != "paused" || got[0].AnswersCourse || !reflect.DeepEqual(got[0].Perms, changed.Perms) {
+			t.Errorf("after a second read: %+v", got[0])
+		}
+		// What a caller does to the perms it got is its own.
+		got[0].Perms["conversation_answer"] = "autonomous"
+		if again := knownSeats(t, s, "a1"); again[0].Perms["conversation_answer"] != "denied" {
+			t.Error("a caller changed the store's perms through the map it was given")
+		}
+		// Gone, it keeps what it was.
+		gone(t, s, "a1", "m1", at(2*time.Hour))
+		went, err := s.SeatsGoneBefore(ctx, at(3*time.Hour))
+		if err != nil || len(went) != 1 || went[0].CourseCode != "CS101" || went[0].Status != "paused" {
+			t.Errorf("SeatsGoneBefore = %+v, %v", went, err)
+		}
+	})
+
 	t.Run("refuses a seat without an agent or member", func(t *testing.T) {
 		s, ctx := open(t), t.Context()
 		for _, c := range [][2]string{{"", "m1"}, {"a1", ""}} {
-			if err := s.SeatSeen(ctx, c[0], c[1], "c1", base); err == nil {
+			if err := s.SeatSeen(ctx, store.SeatRef{AgentID: c[0], MemberID: c[1], CourseID: "c1", SeenAt: base}); err == nil {
 				t.Errorf("SeatSeen(%q, %q) was taken", c[0], c[1])
 			}
 		}

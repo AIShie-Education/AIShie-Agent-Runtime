@@ -220,7 +220,7 @@ func testMemory(t *testing.T, open Opener) {
 				t.Fatal(err)
 			}
 		}
-		if err := s.SeatSeen(ctx, "a1", "m1", "course-1", base); err != nil {
+		if err := s.SeatSeen(ctx, store.SeatRef{AgentID: "a1", MemberID: "m1", CourseID: "course-1", SeenAt: base}); err != nil {
 			t.Fatal(err)
 		}
 

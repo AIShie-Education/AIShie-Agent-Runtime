@@ -291,15 +291,15 @@ func (a *Agent) readMemberships(ctx context.Context) {
 
 // reconcile starts a Seat for each seat the agent answers in, updates those
 // running, and stops those that left or stopped answering. Every seat in
-// me_memberships is recorded as current; one the store knows that is not
-// there any more is recorded gone, and its memory purged once
+// me_memberships is recorded as current, as it now is; one the store knows
+// that is not there any more is recorded gone, and its memory purged once
 // retention_days_after_removal have passed (§2.5).
 func (a *Agent) reconcile(ctx context.Context, ms []core.Membership) {
 	now := a.now()
 	current := make(map[string]core.Membership, len(ms))
 	for _, m := range ms {
 		current[m.MemberID] = m
-		if err := a.store().SeatSeen(ctx, a.id, m.MemberID, m.CourseID, now); err != nil && ctx.Err() == nil {
+		if err := a.store().SeatSeen(ctx, seatSnapshot(a.id, m, now)); err != nil && ctx.Err() == nil {
 			a.log.Warn("seat not recorded", "member", m.MemberID, "err", err)
 		}
 	}
@@ -362,6 +362,19 @@ func (a *Agent) reconcile(ctx context.Context, ms []core.Membership) {
 			"level", m.Level("conversation_answer"), "tools", len(s.toolNames()))
 	}
 	a.refreshDetail()
+}
+
+// seatSnapshot is the seat m as the store keeps it: what me_memberships
+// says of it, so that the API can show it without the agent's token.
+func seatSnapshot(agentID string, m core.Membership, at time.Time) store.SeatRef {
+	r := store.SeatRef{
+		AgentID: agentID, MemberID: m.MemberID, CourseID: m.CourseID, CourseCode: m.Code, CourseTitle: m.Title,
+		Section: m.Section, Status: m.Status, AnswersCourse: m.AnswersCourse, Perms: m.Perms, SeenAt: at,
+	}
+	if m.PrincipalMemberID != nil {
+		r.PrincipalMemberID = *m.PrincipalMemberID
+	}
+	return r
 }
 
 // answersIn reports whether the agent answers in the seat m, and the

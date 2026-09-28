@@ -205,7 +205,9 @@ first, until a reload.
 
 An agent (`worker.Agent`) starts with `me_get` (the token works), the
 catalogue, and `me_memberships`. It reads memberships again every
-`memberships_s`, and at once after a `forbidden`, `not_found` or `denied`.
+`memberships_s`, and at once after a `forbidden`, `not_found` or `denied`,
+and records each seat as it then is (course, status, `answers_course`,
+principal, perms), so that its seats can be shown without its token.
 Each seat that answers (`core.Membership.Answers()`, and the course not
 disabled in the configuration) gets a `Seat`: its inbox poller, its events
 poller, its toolset. A seat that leaves `me_memberships` is stopped, recorded
@@ -408,7 +410,7 @@ The prompt's hash is kept per answer.
 | `attempt` | (agent, key) → the exact bytes, state, action id, posted message id |
 | `cursor` | (agent, member, kind) → value |
 | `note` | (agent, member, conversation) → kind, text, message id |
-| `seat` | (agent, member) → course, seen_at, gone_at |
+| `seat` | (agent, member) → course, seen_at, gone_at, and the seat as `me_memberships` last showed it: course code, title and section, status, `answers_course`, principal, perms |
 | `llm_call`, `answer` | the ledger: ids and numbers |
 | `agent_state` | the owner's page's state |
 | `secret` | sealed secrets (§11.1): id, tenant, kind, the key's id, the wrapped data key, nonce, ciphertext, hint |
@@ -416,6 +418,13 @@ The prompt's hash is kept per answer.
 | `hosted_agent` | the registry (§11.2): id `agt_…`, Core actor (unique), owner and whether Core said so, tenant, name, token and own key (secrets, with hints), paused, settings (jsonb), version |
 | `hosted_course` | (agent, course) → settings (jsonb), who wrote them, when |
 | `registry_rev` | one row: the revision every write to `hosted_agent` or `hosted_course` moves on, by trigger, with `NOTIFY aishie_registry` |
+
+Beside the sums quotas are checked against (`Spend`), two reports read the
+ledger for people, ids and numbers only: `Usage(agent, since, until)`, a
+row per UTC day and course (billable answers, every answer by outcome,
+model calls, tokens and cost), and `AskerUsage(agent, course, since,
+until)`, the same per asker, counts only, never what anyone wrote. The API
+shows an agent's seats from the seat rows, and never needs its token to.
 
 `memstore` keeps the same in memory, for one worker and for tests: it loses
 attempts and memory on restart, so a restarted worker may find its keys
@@ -459,7 +468,9 @@ polling 2 s hot for 120 s, 10 s idle to 30 s, events 45 s, seats 300 s,
   not have; YAML ∪ registry with a YAML agent winning an id, one bad row
   beside good ones, no Core; the official endpoints; the watcher on Postgres
   by notification, by poll, and listening again after its connection is
-  killed. The worker runs hosted agents from their sealed secrets beside
+  killed. `storetest` holds both stores to the seat snapshot, and the
+  reports by day, course and asker, at the UTC day's edges and the span's.
+  The worker runs hosted agents from their sealed secrets beside
   YAML ones, pauses them, keeps an unauthorized one stopped through others'
   changes and starts it again on its new token, and lets YAML win a Core
   actor whichever started first; the binary picks up an agent connected

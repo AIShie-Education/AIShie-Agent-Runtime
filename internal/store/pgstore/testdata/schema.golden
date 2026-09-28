@@ -115,6 +115,13 @@ seat.member_id text not null
 seat.course_id text not null
 seat.seen_at timestamp with time zone not null
 seat.gone_at timestamp with time zone
+seat.course_code text not null default ''::text
+seat.course_title text not null default ''::text
+seat.section text not null default ''::text
+seat.status text not null default ''::text
+seat.answers_course boolean not null default false
+seat.principal_member_id text
+seat.perms jsonb not null default '{}'::jsonb
 secret.id text not null
 secret.tenant_id text not null
 secret.kind text not null
@@ -155,6 +162,7 @@ secret secret_kind_known CHECK ((kind = ANY (ARRAY['core_token'::text, 'model_ke
 secret secret_pkey PRIMARY KEY (id)
 -- indexes
 CREATE UNIQUE INDEX agent_state_pkey ON public.agent_state USING btree (agent_id)
+CREATE INDEX answer_agent_course_idx ON public.answer USING btree (agent_id, course_id, at)
 CREATE INDEX answer_agent_idx ON public.answer USING btree (agent_id, at)
 CREATE INDEX answer_asker_idx ON public.answer USING btree (course_id, opener_member_id, at)
 CREATE INDEX answer_at_idx ON public.answer USING btree (at)
@@ -172,6 +180,7 @@ CREATE UNIQUE INDEX hosted_agent_pkey ON public.hosted_agent USING btree (id)
 CREATE UNIQUE INDEX hosted_agent_token_secret_id_key ON public.hosted_agent USING btree (token_secret_id)
 CREATE UNIQUE INDEX hosted_course_pkey ON public.hosted_course USING btree (agent_id, course_id)
 CREATE UNIQUE INDEX lease_pkey ON public.lease USING btree (name)
+CREATE INDEX llm_call_agent_course_idx ON public.llm_call USING btree (agent_id, course_id, at)
 CREATE INDEX llm_call_agent_idx ON public.llm_call USING btree (agent_id, at)
 CREATE INDEX llm_call_asker_idx ON public.llm_call USING btree (course_id, opener_member_id, at)
 CREATE INDEX llm_call_at_idx ON public.llm_call USING btree (at)

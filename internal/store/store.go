@@ -43,6 +43,7 @@ type Store interface {
 	Status
 	Secrets
 	Registry
+	Reports
 	Close() error
 }
 
@@ -227,20 +228,37 @@ type Memory interface {
 	PurgeMember(ctx context.Context, agentID, memberID string) error
 }
 
-// SeatRef names one seat the runtime has seen.
+// SeatRef is one seat the runtime has seen: its ids, and, as
+// me_memberships last showed it, what the seat is (a snapshot, so that the
+// API can show an agent's seats without its token).
 type SeatRef struct {
-	AgentID  string     `json:"agent_id"`
-	MemberID string     `json:"member_id"`
-	CourseID string     `json:"course_id"`
-	SeenAt   time.Time  `json:"seen_at"`
-	GoneAt   *time.Time `json:"gone_at,omitempty"`
+	AgentID  string `json:"agent_id"`
+	MemberID string `json:"member_id"`
+	CourseID string `json:"course_id"`
+	// CourseCode, CourseTitle and Section name the course.
+	CourseCode  string `json:"course_code"`
+	CourseTitle string `json:"course_title"`
+	Section     string `json:"section"`
+	// Status is the seat's: active, paused, …
+	Status string `json:"status"`
+	// AnswersCourse is true for a course tutor's seat.
+	AnswersCourse bool `json:"answers_course"`
+	// PrincipalMemberID is whom a person's own agent answers, "" for none.
+	PrincipalMemberID string `json:"principal_member_id,omitempty"`
+	// Perms are the seat's levels by permission.
+	Perms  map[string]string `json:"perms,omitempty"`
+	SeenAt time.Time         `json:"seen_at"`
+	GoneAt *time.Time        `json:"gone_at,omitempty"`
 }
 
 // Seats track which member_ids are current, so that memory is purged a
-// while after a seat leaves me_memberships (retention_days_after_removal).
+// while after a seat leaves me_memberships (retention_days_after_removal),
+// and what each seat is.
 type Seats interface {
-	// SeatSeen records the seat as current, clearing any GoneAt.
-	SeatSeen(ctx context.Context, agentID, memberID, courseID string, at time.Time) error
+	// SeatSeen records the seat as current, as s says it is, clearing any
+	// GoneAt; s.SeenAt is when (zero, the store's now), and s.GoneAt is
+	// not read.
+	SeatSeen(ctx context.Context, s SeatRef) error
 	// SeatGone records when the seat was first missed; a later call keeps
 	// the first time.
 	SeatGone(ctx context.Context, agentID, memberID string, at time.Time) error
@@ -691,4 +709,66 @@ func CheckAgentSecrets(a HostedAgent, secrets []Secret, have func(id string) (*S
 		}
 	}
 	return nil
+}
+
+// UsageRow is what an agent used in one course on one UTC day: ids and
+// numbers, never text.
+type UsageRow struct {
+	// Day is the UTC day's start.
+	Day      time.Time `json:"day"`
+	CourseID string    `json:"course_id"`
+	// Answers are the billable answers, those a model wrote; Outcomes are
+	// every answer recorded, by its outcome.
+	Answers  int            `json:"answers"`
+	Outcomes map[string]int `json:"outcomes"`
+	// ModelCalls, the tokens and the cost are every model call's.
+	ModelCalls       int   `json:"model_calls"`
+	InputTokens      int64 `json:"input_tokens"`
+	CacheReadTokens  int64 `json:"cache_read_tokens"`
+	CacheWriteTokens int64 `json:"cache_write_tokens"`
+	OutputTokens     int64 `json:"output_tokens"`
+	ReasoningTokens  int64 `json:"reasoning_tokens"`
+	CostPUSD         int64 `json:"cost_pusd"`
+}
+
+// AskerUsage is what one asker (a conversation's opener) had of an agent in
+// a course: counts, never what anyone wrote.
+type AskerUsage struct {
+	OpenerMemberID string `json:"opener_member_id"`
+	// Answers are the billable answers; Outcomes every answer, by outcome.
+	Answers      int            `json:"answers"`
+	Outcomes     map[string]int `json:"outcomes"`
+	ModelCalls   int            `json:"model_calls"`
+	InputTokens  int64          `json:"input_tokens"`
+	OutputTokens int64          `json:"output_tokens"`
+	CostPUSD     int64          `json:"cost_pusd"`
+}
+
+// Reports sum the ledger for people to read: an agent's use by day and
+// course, and a course's by asker.
+type Reports interface {
+	// Usage is agentID's use in [since, until): a row per UTC day and
+	// course in which anything was recorded, by day, then course.
+	Usage(ctx context.Context, agentID string, since, until time.Time) ([]UsageRow, error)
+	// AskerUsage is agentID's use in one course in [since, until): a row
+	// per asker, by member id.
+	AskerUsage(ctx context.Context, agentID, courseID string, since, until time.Time) ([]AskerUsage, error)
+}
+
+// CheckSpan refuses a report's span that is empty or backwards, or an
+// agent not named.
+func CheckSpan(agentID string, since, until time.Time) error {
+	if agentID == "" {
+		return errors.New("store: a report needs its agent")
+	}
+	if !until.After(since) {
+		return errors.New("store: a report's span must end after it begins")
+	}
+	return nil
+}
+
+// UTCDay is the start of t's UTC day, as reports group by.
+func UTCDay(t time.Time) time.Time {
+	y, m, d := t.UTC().Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
 }
