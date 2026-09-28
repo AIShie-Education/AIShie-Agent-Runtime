@@ -15,7 +15,7 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/providers"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/probe"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/redact"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/secrets"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
@@ -388,8 +388,9 @@ func dialectOf(m config.Model) toolschema.Dialect {
 	return d
 }
 
-// tryModel tries a model's key with one call of one output token: the key
-// works if the provider answers anything but a refusal of it.
+// tryModel tries a model's key with one call of one output token
+// (probe.TryModel, as the API's keys/test does): the key works if the
+// provider answers anything but a refusal of it.
 func tryModel(ctx context.Context, p func(string, ...any), a *config.Agent, m config.Model, res secrets.Resolver, client *http.Client) bool {
 	name := fmt.Sprintf("%s %s (%s)", m.Adapter, m.Model, m.EffectiveProvider())
 	var key string
@@ -400,25 +401,21 @@ func tryModel(ctx context.Context, p func(string, ...any), a *config.Agent, m co
 			return false
 		}
 	}
-	ad, err := providers.New(providers.Config(m, key, client))
-	if err != nil {
-		p("  model %s: FAILED: %s", name, redact.String(err.Error()))
-		return false
-	}
-	_, err = ad.Call(ctx, &llm.Request{Messages: []llm.Message{llm.UserText("Reply with the word OK.")}, ToolMode: llm.ToolAuto,
-		Limits: llm.Limits{MaxOutputTokens: 1}})
-	var le *llm.Error
+	tr, err := probe.TryModel(ctx, m, key, client, nil)
 	switch {
-	case err == nil:
-		p("  model %s: the key works", name)
-	case errors.As(err, &le) && (le.Kind == llm.ErrAuth || le.Kind == llm.ErrNetwork || le.Kind == llm.ErrTimeout):
-		p("  model %s: FAILED: %s", name, le.Kind)
-		return false
-	case errors.As(err, &le):
-		p("  model %s: the key was taken, though the call came back %s (HTTP %d)", name, le.Kind, le.Status)
-	default:
+	case err != nil:
 		p("  model %s: FAILED: %s", name, redact.String(err.Error()))
 		return false
+	case tr.Result == probe.ResultOK:
+		p("  model %s: the key works", name)
+	case tr.Err != nil:
+		p("  model %s: FAILED: %s", name, redact.String(tr.Err.Error()))
+		return false
+	case tr.Result == probe.ResultKeyRefused, tr.Result == probe.ResultUnreachable:
+		p("  model %s: FAILED: %s", name, tr.Kind)
+		return false
+	default:
+		p("  model %s: the key was taken, though the call came back %s (HTTP %d)", name, tr.Kind, tr.HTTPStatus)
 	}
 	return true
 }
