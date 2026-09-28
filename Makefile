@@ -86,6 +86,10 @@ vuln: ## known vulnerabilities in dependencies
 docker: ## build the image locally; never pushes
 	docker build --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --build-arg DATE=$(DATE) -t aishie-runtime:dev .
 
+.PHONY: docker-test
+docker-test: docker ## build the image, then run it as deployed and its OCR on a scanned page (scripts/image_test.sh)
+	scripts/image_test.sh aishie-runtime:dev
+
 .PHONY: ci
 ci: lint script-test test e2e ## everything CI runs, except docker and vuln
 
