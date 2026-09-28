@@ -133,8 +133,8 @@ func TestHostedAgentsRunBesideYAML(t *testing.T) {
 	wk.waitState("agt_yuki", store.AgentRunning)
 	wk.waitState("cs101-tutor", store.AgentRunning)
 	failed := wk.waitState("agt_bad", store.AgentError)
-	if !strings.Contains(failed.Detail, "not run: agent.colour: unknown field") {
-		t.Errorf("the bad agent's detail: %q", failed.Detail)
+	if !strings.Contains(failed.Detail, "not run: agent.colour: unknown field") || failed.Reason != store.ReasonSettingsRejected || failed.ConfigVersion != 1 {
+		t.Errorf("the bad agent's detail: %q (%s, version %d)", failed.Detail, failed.Reason, failed.ConfigVersion)
 	}
 	if st := wk.statusOf("agt_bad"); st.State != store.AgentError || !st.Hosted || st.Running {
 		t.Errorf("the bad agent's status: %+v", st)
@@ -204,8 +204,8 @@ func TestHostedTokenChangeRestartsAnUnauthorizedAgent(t *testing.T) {
 	// What its owner reads says what the owner does: no file of theirs
 	// holds the token.
 	if st := wk.waitState("agt_yuki", store.AgentUnauthorized); !strings.Contains(st.Detail, "connect the agent again with a new token") ||
-		strings.Contains(st.Detail, "token_ref") {
-		t.Errorf("the unauthorized hosted agent's detail: %q", st.Detail)
+		strings.Contains(st.Detail, "token_ref") || st.Reason != store.ReasonTokenRefused {
+		t.Errorf("the unauthorized hosted agent's detail: %q (%s)", st.Detail, st.Reason)
 	}
 	time.Sleep(50 * time.Millisecond)
 	n := len(w.calls(own.actor.ID, ""))
@@ -274,8 +274,8 @@ func TestYAMLWinsACoreActor(t *testing.T) {
 			}
 			wk.waitState("yuki-helper", store.AgentRunning)
 			st := wk.waitState("agt_dup", store.AgentError)
-			if !strings.Contains(st.Detail, `runs here as agent "yuki-helper", of the operator's configuration`) {
-				t.Errorf("the hosted agent's detail: %q", st.Detail)
+			if !strings.Contains(st.Detail, `runs here as agent "yuki-helper", of the operator's configuration`) || st.Reason != store.ReasonOperatorAgent {
+				t.Errorf("the hosted agent's detail: %q (%s)", st.Detail, st.Reason)
 			}
 			eventually(t, "the hosted agent stopped", func() bool { return !wk.statusOf("agt_dup").Running })
 			conv, _ := w.ask(0, own, "Who answers?")
@@ -298,8 +298,8 @@ func TestHostedTokenOfAnotherActor(t *testing.T) {
 	h.host("agt_yuki", own, other.actor.Token, hostedSettings("m1"))
 	wk := h.start(h.build(&config.Config{}), models{"m1": scripted.New()})
 	st := wk.waitState("agt_yuki", store.AgentError)
-	if !strings.Contains(st.Detail, "its token is another Core actor's") {
-		t.Errorf("detail %q", st.Detail)
+	if !strings.Contains(st.Detail, "its token is another Core actor's") || st.Reason != store.ReasonTokenOtherAgent {
+		t.Errorf("detail %q (%s)", st.Detail, st.Reason)
 	}
 	time.Sleep(100 * time.Millisecond)
 	if n := len(w.calls(other.actor.ID, "conversation_inbox")); n != 0 {
@@ -321,8 +321,8 @@ func TestHostedTokenOfAPerson(t *testing.T) {
 	h.host("agt_person", agent{actor: person}, "", hostedSettings("m1"))
 	wk := h.start(h.build(&config.Config{}), models{"m1": scripted.New()})
 	st := wk.waitState("agt_person", store.AgentError)
-	if !strings.Contains(st.Detail, "its token is not an agent's in Core") {
-		t.Errorf("detail %q", st.Detail)
+	if !strings.Contains(st.Detail, "its token is not an agent's in Core") || st.Reason != store.ReasonTokenNotAgent {
+		t.Errorf("detail %q (%s)", st.Detail, st.Reason)
 	}
 	time.Sleep(100 * time.Millisecond)
 	if n := len(w.calls(person.ID, "")); n != 1 {
@@ -378,6 +378,7 @@ func TestHostedOwnerCheck(t *testing.T) {
 		// connect hosts the agent and returns it, with who connected it.
 		connect func(w *world, h *hosting) (agent, string)
 		state   string
+		reason  string
 		detail  string
 	}{
 		{name: "Core names the person who connected it", connect: func(w *world, h *hosting) (agent, string) {
@@ -394,17 +395,17 @@ func TestHostedOwnerCheck(t *testing.T) {
 			own := w.ownAgent("agt_yuki", 0)
 			h.hostAs("agt_yuki", own, w.students[1].ID, "", hostedSettings("m1"))
 			return own, w.students[1].ID
-		}, state: store.AgentOwnerChanged, detail: ownerChangedDetail},
+		}, state: store.AgentOwnerChanged, reason: store.ReasonOwnerChanged, detail: ownerChangedDetail},
 		{name: "Core names no owner", connect: func(w *world, h *hosting) (agent, string) {
 			old := w.unownedAgent("agt_yuki")
 			h.host("agt_yuki", old, "", hostedSettings("m1"))
 			return old, old.owner.ID
-		}, state: store.AgentOwnerChanged, detail: ownerGoneDetail},
+		}, state: store.AgentOwnerChanged, reason: store.ReasonOwnerChanged, detail: ownerGoneDetail},
 		{name: "a Core that does not say who owns an agent", before: true, connect: func(w *world, h *hosting) (agent, string) {
 			own := w.ownAgent("agt_yuki", 0)
 			h.host("agt_yuki", own, "", hostedSettings("m1"))
 			return own, own.owner.ID
-		}, state: store.AgentError, detail: ownerUnknownDetail},
+		}, state: store.AgentError, reason: store.ReasonCoreTooOld, detail: ownerUnknownDetail},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := newWorldWith(t, fakecore.Options{BeforeOwners: tc.before})
@@ -432,8 +433,8 @@ func TestHostedOwnerCheck(t *testing.T) {
 				}
 				return
 			}
-			if st.Detail != tc.detail {
-				t.Errorf("the state says %q, want %q", st.Detail, tc.detail)
+			if st.Detail != tc.detail || st.Reason != tc.reason {
+				t.Errorf("the state says %q (%s), want %q (%s)", st.Detail, st.Reason, tc.detail, tc.reason)
 			}
 			for what, s := range map[string]string{"its token": ag.actor.Token, "the model key": modelKey, "its actor": ag.actor.ID,
 				"who connected it": connectedBy, "its owner": ag.owner.ID, "the other student": w.students[1].ID, "a token's prefix": "ais_"} {

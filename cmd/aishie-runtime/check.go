@@ -273,7 +273,7 @@ func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, res
 		return fail("me_get", err)
 	}
 	p("agent %s: connected as %q (%s, %s)", a.ID, redact.String(me.DisplayName), me.ID, me.Kind)
-	if msg := worker.HostedActorProblem(a, me); msg != "" {
+	if _, msg := worker.HostedActorProblem(a, me); msg != "" {
 		return fail("me_get", errors.New(msg))
 	}
 	// A hosted agent's owner is checked as run checks it at the agent's

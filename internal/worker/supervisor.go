@@ -49,11 +49,12 @@ type Supervisor struct {
 	// changed (Update).
 	retry   bool
 	runners map[string]*runner
-	// paused are the paused agents, whose state has been written.
-	paused map[string]bool
+	// paused are the paused agents, whose state has been written, and the
+	// version of a hosted one's row it was written for.
+	paused map[string]int
 	// rejected are the registry's agents not run, and why, whose state has
 	// been written.
-	rejected map[string]string
+	rejected map[string]rejection
 	// cats are Core's catalogues, fetched once per base URL.
 	cats map[string]*catEntry
 	// actors are the Core actors this worker's agents run as, by base URL
@@ -82,7 +83,15 @@ type runner struct {
 	failures int
 	retryAt  time.Time
 	state    string
+	reason   string
 	detail   string
+}
+
+// rejection is why the registry's agent is not run, as its state says it,
+// and the version of its row that was rejected.
+type rejection struct {
+	detail, reason string
+	version        int
 }
 
 // NewSupervisor checks o and makes a supervisor of o.Config's agents. It
@@ -95,7 +104,7 @@ func NewSupervisor(o Options) (*Supervisor, error) {
 	s := &Supervisor{
 		o: o, log: o.Log.With("worker", o.WorkerID), coreHTTP: coreClient(o.HTTPClient),
 		files: toolset.NewHTTPFetcher(o.HTTPClient), schemas: toolschema.NewCache(),
-		kick: make(chan struct{}, 1), runners: map[string]*runner{}, paused: map[string]bool{}, rejected: map[string]string{},
+		kick: make(chan struct{}, 1), runners: map[string]*runner{}, paused: map[string]int{}, rejected: map[string]rejection{},
 		cats: map[string]*catEntry{}, actors: map[string]string{}, pending: o.Config,
 	}
 	s.prices.Store(o.Prices)
@@ -220,6 +229,9 @@ func (s *Supervisor) apply(ctx context.Context) {
 		why    string
 	}
 	var changes []change
+	// rewrite are agents whose hosted row moved on to a version that runs
+	// them as they run: their state is written again for it.
+	var rewrite []*runner
 	for id, r := range s.runners {
 		a, ok := want[id]
 		switch {
@@ -233,14 +245,21 @@ func (s *Supervisor) apply(ctx context.Context) {
 		case retry && (r.blocked || r.state == store.AgentError):
 			r.cfg, r.blocked, r.failures, r.retryAt = a, false, 0, time.Time{}
 		default:
+			if hostedVersion(r.cfg) != hostedVersion(a) {
+				rewrite = append(rewrite, r)
+			}
 			r.cfg = a
 		}
 	}
 	// A rejected agent's state is error, written below, not stopped.
-	rejected := map[string]string{}
+	rejected := map[string]rejection{}
 	for _, rj := range cfg.Rejected {
 		if _, running := want[rj.AgentID]; rj.AgentID != "" && !running {
-			rejected[rj.AgentID] = rj.Detail()
+			reason := rj.Reason
+			if reason == "" {
+				reason = store.ReasonSettingsRejected
+			}
+			rejected[rj.AgentID] = rejection{detail: rj.Detail(), reason: reason, version: rj.Version}
 		}
 	}
 	for i, c := range changes {
@@ -255,8 +274,11 @@ func (s *Supervisor) apply(ctx context.Context) {
 	}
 	var nowPaused []string
 	for id, a := range want {
-		if a.Paused && !s.paused[id] {
-			s.paused[id] = true
+		if !a.Paused {
+			continue
+		}
+		if v, ok := s.paused[id]; !ok || v != hostedVersion(a) {
+			s.paused[id] = hostedVersion(a)
 			nowPaused = append(nowPaused, id)
 		}
 	}
@@ -266,9 +288,9 @@ func (s *Supervisor) apply(ctx context.Context) {
 		}
 	}
 	var nowRejected []string
-	for id, detail := range rejected {
-		if s.rejected[id] != detail {
-			s.rejected[id] = detail
+	for id, rj := range rejected {
+		if s.rejected[id] != rj {
+			s.rejected[id] = rj
 			nowRejected = append(nowRejected, id)
 		}
 	}
@@ -292,7 +314,7 @@ func (s *Supervisor) apply(ctx context.Context) {
 		// The state is written before the lease goes, so that a worker
 		// taking the agent up reads a handover, not a lapse.
 		if c.why != "" && holds {
-			s.writeState(ctx, c.r.id, store.AgentStopped, c.why)
+			s.writeState(ctx, c.r.id, store.AgentStopped, "", c.why)
 		}
 		if holds {
 			s.releaseLease(c.r.id)
@@ -302,15 +324,35 @@ func (s *Supervisor) apply(ctx context.Context) {
 	slices.Sort(nowPaused)
 	for _, id := range nowPaused {
 		s.o.Metrics.Forget(id)
-		s.writeState(ctx, id, store.AgentPaused, "paused in the configuration: no call is made to Core for it")
+		s.writeState(ctx, id, store.AgentPaused, "", "paused in the configuration: no call is made to Core for it")
 	}
 	slices.Sort(nowRejected)
 	for _, id := range nowRejected {
 		s.o.Metrics.Forget(id)
-		s.log.Warn("a hosted agent is not run: its configuration does not pass", "agent", id)
-		s.writeState(ctx, id, store.AgentError, "not run: "+rejected[id])
+		s.log.Warn("a hosted agent is not run: its configuration does not pass", "agent", id, "reason", rejected[id].reason)
+		s.writeState(ctx, id, store.AgentError, rejected[id].reason, "not run: "+rejected[id].detail)
+	}
+	slices.SortFunc(rewrite, func(x, y *runner) int { return strings.Compare(x.id, y.id) })
+	for _, r := range rewrite {
+		// Written by the worker that holds the agent, which has put the
+		// new version in force: the state it last wrote, as it was.
+		s.mu.Lock()
+		holds, state, reason, detail := r.holds, r.state, r.reason, r.detail
+		s.mu.Unlock()
+		if holds && state != "" {
+			s.writeState(ctx, r.id, state, reason, detail)
+		}
 	}
 	s.updateGauge()
+}
+
+// hostedVersion is the version of a hosted agent's row a configuration was
+// built from; 0 for a YAML agent.
+func hostedVersion(a *config.Agent) int {
+	if a == nil || a.Hosted == nil {
+		return 0
+	}
+	return a.Hosted.Version
 }
 
 // leaseTick takes or renews the lease of every agent that is not paused,
@@ -409,9 +451,17 @@ func (s *Supervisor) startRunner(ctx context.Context, r *runner) {
 	ag := newAgent(s, r.cfg)
 	done := make(chan struct{})
 	r.agent, r.stopPoll, r.stopAnswers, r.done, r.stopping = ag, stopPoll, stopAnswers, done, false
-	r.state, r.detail = store.AgentStarting, ""
+	// A start tried again after a failure keeps the failure's state, and
+	// its reason, until it runs or fails again: its owner reads why it
+	// does not run, not that it starts, at each try.
+	retrying := r.failures > 0
+	if !retrying {
+		r.state, r.reason, r.detail = store.AgentStarting, "", ""
+	}
 	s.mu.Unlock()
-	s.writeState(ctx, r.id, store.AgentStarting, "")
+	if !retrying {
+		s.writeState(ctx, r.id, store.AgentStarting, "", "")
+	}
 	go func() {
 		defer close(done)
 		err := ag.run(pollCtx, answerCtx)
@@ -445,8 +495,9 @@ func (s *Supervisor) stopRunner(r *runner, grace time.Duration) {
 // agentEnded records what became of an instance that returned: Core
 // refused its token (unauthorized, not started again until a reload), a
 // hosted agent's owner is not the one who connected it (owner_changed,
-// likewise), it failed (error, started again after a backoff), or it was
-// stopped.
+// likewise), it failed (error, started again after a backoff, with why:
+// agent_suspended for an agent Core suspended, failing for the rest), or
+// it was stopped.
 func (s *Supervisor) agentEnded(r *runner, ag *Agent, err error) {
 	s.mu.Lock()
 	if r.agent != ag {
@@ -456,7 +507,7 @@ func (s *Supervisor) agentEnded(r *runner, ag *Agent, err error) {
 	r.agent = nil
 	stopping := r.stopping
 	r.stopping = false
-	var state, detail string
+	var state, reason, detail string
 	var blocked *blockedError
 	var owner *OwnerProblem
 	switch {
@@ -464,27 +515,27 @@ func (s *Supervisor) agentEnded(r *runner, ag *Agent, err error) {
 		// Its owner gave the token, and gives the next one: no file of
 		// the operator's holds it.
 		r.blocked = true
-		state, detail = store.AgentUnauthorized,
+		state, reason, detail = store.AgentUnauthorized, store.ReasonTokenRefused,
 			"Core refused the agent's token (401): connect the agent again with a new token"
 	case isUnauthenticated(err):
 		r.blocked = true
-		state, detail = store.AgentUnauthorized,
+		state, reason, detail = store.AgentUnauthorized, store.ReasonTokenRefused,
 			"Core refused the agent's token (401): issue a new token for it in Core, put it where core.token_ref points, and reload"
 	case errors.As(err, &owner):
 		// Stopped until its row changes (its owner connecting it again)
 		// or a reload, as for a refused token: started again as it is,
 		// it would meet the same owner.
 		r.blocked = true
-		state, detail = owner.State, owner.Detail
+		state, reason, detail = owner.State, owner.Reason, owner.Detail
 	case errors.As(err, &blocked):
 		r.blocked = true
-		state, detail = store.AgentError, blocked.Error()
+		state, reason, detail = store.AgentError, blocked.reason, blocked.Error()
 	case stopping:
 	case err != nil:
 		wait := Backoff(r.failures, s.o.Timing.Restart, s.o.Timing.RestartMax, 1)
 		r.failures++
 		r.retryAt = s.o.Now().Add(wait)
-		state, detail = store.AgentError, redact.String(err.Error())
+		state, reason, detail = store.AgentError, reasonOf(err), redact.String(err.Error())
 	}
 	s.mu.Unlock()
 	if state == "" {
@@ -498,7 +549,7 @@ func (s *Supervisor) agentEnded(r *runner, ag *Agent, err error) {
 	default:
 		s.log.Error("agent failed", "agent", r.id, "err", err)
 	}
-	s.writeState(context.Background(), r.id, state, detail)
+	s.writeState(context.Background(), r.id, state, reason, detail)
 }
 
 // shutdown stops every agent, giving answers in progress the shutdown
@@ -522,7 +573,7 @@ func (s *Supervisor) shutdown() {
 				return
 			}
 			// Written before the lease goes: see apply.
-			s.writeState(context.Background(), r.id, store.AgentStopped, "the worker stopped")
+			s.writeState(context.Background(), r.id, store.AgentStopped, "", "the worker stopped")
 			s.releaseLease(r.id)
 			s.o.Metrics.Forget(r.id)
 		})
@@ -544,21 +595,39 @@ func (s *Supervisor) releaseLease(id string) {
 const storeTimeout = 5 * time.Second
 
 // writeState records an agent's state for the owner's page, and in the
-// status the supervisor reports.
-func (s *Supervisor) writeState(ctx context.Context, id, state, detail string) {
+// status the supervisor reports: the state, why (reason, "" when nothing
+// is wrong) and its detail, with the version of a hosted agent's row in
+// force here, so that the API tells a change not yet applied from one
+// that is.
+func (s *Supervisor) writeState(ctx context.Context, id, state, reason, detail string) {
 	detail = redact.String(detail)
 	s.mu.Lock()
 	if r := s.runners[id]; r != nil {
-		r.state, r.detail = state, detail
+		r.state, r.reason, r.detail = state, reason, detail
 	}
+	version := s.configVersion(id)
 	s.mu.Unlock()
 	s.updateGauge()
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), storeTimeout)
 	defer cancel()
-	err := s.o.Store.SetAgentState(ctx, store.AgentState{AgentID: id, State: state, Detail: detail, Worker: s.o.WorkerID, UpdatedAt: s.o.Now()})
+	err := s.o.Store.SetAgentState(ctx, store.AgentState{AgentID: id, State: state, Reason: reason, Detail: detail,
+		Worker: s.o.WorkerID, ConfigVersion: version, UpdatedAt: s.o.Now()})
 	if err != nil {
 		s.log.Warn("agent state not recorded", "agent", id, "state", state, "err", err)
 	}
+}
+
+// configVersion is the version of id's hosted row in force here: its
+// runner's, else its as paused, else as rejected; 0 for a YAML agent and
+// one this worker does not know. Called with mu held.
+func (s *Supervisor) configVersion(id string) int {
+	if r := s.runners[id]; r != nil {
+		return hostedVersion(r.cfg)
+	}
+	if v, ok := s.paused[id]; ok {
+		return v
+	}
+	return s.rejected[id].version
 }
 
 // setDetail records a running agent's detail, when it changed.
@@ -569,7 +638,7 @@ func (s *Supervisor) setDetail(id, detail string) {
 	same := r == nil || r.state == store.AgentRunning && r.detail == detail
 	s.mu.Unlock()
 	if !same {
-		s.writeState(context.Background(), id, store.AgentRunning, detail)
+		s.writeState(context.Background(), id, store.AgentRunning, "", detail)
 	}
 }
 
@@ -653,10 +722,49 @@ func (s *Supervisor) hostedAgent(id string) bool {
 }
 
 // blockedError stops an agent until its configuration changes, or a
-// reload says to try again: what it needs is not in its hands.
-type blockedError struct{ msg string }
+// reload says to try again: what it needs is not in its hands. reason is
+// why, as the API names it.
+type blockedError struct{ reason, msg string }
 
 func (e *blockedError) Error() string { return e.msg }
+
+// reasonError is a failure that says why, as the API names it: the agent
+// is started again after a backoff, as for any failure.
+type reasonError struct {
+	reason string
+	err    error
+}
+
+func (e *reasonError) Error() string { return e.err.Error() }
+
+func (e *reasonError) Unwrap() error { return e.err }
+
+// reasonOf is why err stopped an agent: its reasonError's reason, else
+// failing.
+func reasonOf(err error) string {
+	var re *reasonError
+	if errors.As(err, &re) {
+		return re.reason
+	}
+	return store.ReasonFailing
+}
+
+// ActorAgent says which of this worker's agents runs as the Core actor
+// actorID at baseURL, and whether it is a hosted one: ok is false when
+// none runs as it here. It knows only the agents this worker has started,
+// so a YAML agent another worker runs is not seen: the API asks it as a
+// best effort, the operator's configuration winning at the agent's start
+// whatever it says.
+func (s *Supervisor) ActorAgent(baseURL, actorID string) (agentID string, hosted, ok bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id, ok := s.actors[actorKey(baseURL, strings.ToLower(actorID))]
+	if !ok {
+		return "", false, false
+	}
+	r := s.runners[id]
+	return id, r != nil && r.cfg.Hosted != nil, true
+}
 
 // releaseActor undoes claimActor, when id holds the actor.
 func (s *Supervisor) releaseActor(baseURL, actorID, id string) {

@@ -11,6 +11,7 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/registry"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/pgstore"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/worker"
 )
@@ -66,7 +67,8 @@ func (h *hosting) build(ctx context.Context) (*config.Config, int64, error) {
 	for _, a := range cfg.Agents {
 		if a.Hosted != nil {
 			if p := usdWithoutPrices(&config.Config{Runtime: cfg.Runtime, Agents: []*config.Agent{a}}, h.prices, time.Now()); len(p) > 0 {
-				cfg.Rejected = append(cfg.Rejected, config.Rejection{AgentID: a.ID, Source: registry.SourceName(a.ID), Err: errors.New(p[0])})
+				cfg.Rejected = append(cfg.Rejected, config.Rejection{AgentID: a.ID, Source: registry.SourceName(a.ID), Err: errors.New(p[0]),
+					Reason: store.ReasonSettingsRejected, Version: a.Hosted.Version})
 				continue
 			}
 		}
