@@ -22,6 +22,7 @@ import (
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/doctext/doctexttest"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/fakellm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/metrics"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/netguard"
@@ -41,12 +42,14 @@ import (
 // it in force at once, and it answers Yuki, having opened its token and
 // key from the database, and never logging either. Core's me.get names
 // its owner: the row that names Yuki is marked verified, and an agent of
-// hers whose row names Ken does not run.
+// hers whose row names Ken does not run. Sato uploads his lecture slides
+// as a .pptx, and asked about one, Yuki's helper reads them through Core
+// and answers from the runtime's text of them.
 func hostedAgentAnswers(t *testing.T, w *world) {
 	st, dbURL := runtimeStore(t)
 	v, kek := keyring(t)
 	w.addSecret("the key that seals the hosted runtime's secrets", kek)
-	m := newModel(t, fakellm.DefaultResponder)
+	m := newModel(t, documentsResponder)
 	rt := w.startHosted(t, m, st, v, &config.Config{})
 
 	// Connected, as the API connects an agent.
@@ -99,6 +102,23 @@ func hostedAgentAnswers(t *testing.T, w *world) {
 	}
 	if at := rt.attempt(id, answerKey(conv, msg, 1)); at == nil || at.State != store.AttemptExecuted {
 		t.Errorf("the attempt under answer:{x}:{m}:1 is %s", attemptState(at))
+	}
+
+	// The lecture slides, a .pptx in Core: read by the runtime, never the
+	// model, and given to it as their text, slides and notes.
+	w.upload(t, w.sato, "Week 3 slides", doctexttest.PPTXType, weekThreeSlides)
+	slidesConv, slidesMsg := w.ask(t, w.yuki, w.own.member, slideQuestion)
+	slides := w.waitAnswer(t, w.yuki, slidesConv, w.own.member)
+	if want := "From the pptx: ## Slide 2: 排序的複雜度\n- 合併排序：O(n log n)\n  - 最壞情況也是 O(n log n)\nNotes: Ask who has seen quicksort."; slides.text() != want ||
+		slides.replyTo() != slidesMsg {
+		t.Errorf("the answer about the slides is %q in reply to %s; want %q in reply to %s", slides.text(), slides.replyTo(), want, slidesMsg)
+	}
+	for _, req := range m.Requests() {
+		for _, msg := range req.Messages {
+			if strings.Contains(msg.Text(), "download_url") || strings.Contains(msg.Text(), "/v1/blobs/") {
+				t.Error("a model request holds the slides' download URL")
+			}
+		}
 	}
 
 	// Core's me.get named Yuki as its owner, as its row does: the row is
