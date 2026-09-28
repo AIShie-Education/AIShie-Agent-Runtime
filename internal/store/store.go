@@ -16,6 +16,7 @@
 // zero time is the store's now; FinishAttempt keeps a known action id and
 // posted message id when the outcome has none; PurgeMember removes the
 // seat's notes, attempts and cursors, but not its seat row or the ledger;
+// PurgeAgent removes all an agent has but its ledger;
 // SeatGone of a seat never seen is ErrNotFound; and a ledger row is keyed on
 // (agent_id, ID), so every LLMCall and AnswerRecord needs an ID of its own,
 // and recording one again counts nothing twice.
@@ -44,6 +45,7 @@ type Store interface {
 	Secrets
 	Registry
 	Reports
+	Audit
 	Close() error
 }
 
@@ -168,6 +170,22 @@ type Attempts interface {
 	Unsettled(ctx context.Context, agentID, memberID string) ([]Attempt, error)
 }
 
+// ProposalsWaiting counts one seat's answers waiting for a person's
+// approval: its attempts in state proposed.
+func ProposalsWaiting(ctx context.Context, a Attempts, agentID, memberID string) (int, error) {
+	atts, err := a.Unsettled(ctx, agentID, memberID)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, at := range atts {
+		if at.State == AttemptProposed {
+			n++
+		}
+	}
+	return n, nil
+}
+
 // ErrExists is PutAttempt finding the key taken.
 var ErrExists = errors.New("store: the key is taken")
 
@@ -226,6 +244,12 @@ type Memory interface {
 	// its attempts (whose bytes hold the answers' bodies) and its cursors.
 	// The seat's row goes with ForgetSeat; the ledger stays.
 	PurgeMember(ctx context.Context, agentID, memberID string) error
+	// PurgeAgent removes everything the store holds of an agent but its
+	// ledger (its model calls and answers, kept by D11): the notes,
+	// attempts and cursors of every seat of its, its seats, its state,
+	// and its leases, agent:{id} and conv:{id}:*. An agent it holds
+	// nothing of is nothing.
+	PurgeAgent(ctx context.Context, agentID string) error
 }
 
 // SeatRef is one seat the runtime has seen: its ids, and, as
@@ -241,6 +265,9 @@ type SeatRef struct {
 	Section     string `json:"section"`
 	// Status is the seat's: active, paused, …
 	Status string `json:"status"`
+	// CourseStatus is its course's: active, archived, …; "" for a seat
+	// last seen by a release that did not keep it.
+	CourseStatus string `json:"course_status"`
 	// AnswersCourse is true for a course tutor's seat.
 	AnswersCourse bool `json:"answers_course"`
 	// PrincipalMemberID is whom a person's own agent answers, "" for none.
@@ -386,18 +413,48 @@ const (
 	AgentStopped      = "stopped"
 )
 
+// Why an agent is in its state, as the API's problem.reason names it (the
+// M2 API contract, §6.1): "" when nothing is wrong.
+const (
+	ReasonTokenRefused         = "token_refused"
+	ReasonSettingsRejected     = "settings_rejected"
+	ReasonRuntimeMisconfigured = "runtime_misconfigured"
+	ReasonOperatorAgent        = "operator_agent"
+	ReasonActorInUse           = "actor_in_use"
+	ReasonTokenOtherAgent      = "token_other_agent"
+	ReasonTokenNotAgent        = "token_not_agent"
+	ReasonOwnerChanged         = "owner_changed"
+	ReasonCoreTooOld           = "core_too_old"
+	ReasonAgentSuspended       = "agent_suspended"
+	ReasonFailing              = "failing"
+)
+
 // AgentState is what the owner's page shows about one agent.
 type AgentState struct {
-	AgentID   string    `json:"agent_id"`
-	State     string    `json:"state"`
-	Detail    string    `json:"detail,omitempty"`
-	Worker    string    `json:"worker,omitempty"`
-	UpdatedAt time.Time `json:"updated_at"`
+	AgentID string `json:"agent_id"`
+	State   string `json:"state"`
+	// Reason is why, for a state that is a problem: one of the reasons
+	// above; "" otherwise.
+	Reason string `json:"reason,omitempty"`
+	Detail string `json:"detail,omitempty"`
+	Worker string `json:"worker,omitempty"`
+	// ConfigVersion is the version of a hosted agent's row the worker had
+	// put in force when it wrote the state; 0 for a YAML agent's.
+	ConfigVersion int       `json:"config_version"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // Status is each agent's state.
 type Status interface {
+	// SetAgentState records s as the agent's state, in place of the one
+	// before, unless that one names a later ConfigVersion: a worker that
+	// put an older version of a hosted agent's row in force (a slower
+	// watcher, a late write) never writes over the state of a newer one.
+	// That is not an error: the newer state stands.
 	SetAgentState(ctx context.Context, s AgentState) error
+	// AgentState is one agent's state, or ErrNotFound when none is
+	// recorded.
+	AgentState(ctx context.Context, agentID string) (*AgentState, error)
 	AgentStates(ctx context.Context) ([]AgentState, error)
 }
 
@@ -533,9 +590,12 @@ type HostedAgent struct {
 	// KeySecretID is the owner's own model key, sealed, "" when none is
 	// stored: a secret of kind model_key of its tenant, which the registry
 	// gives every model section on the owner's key. KeyHint is what may be
-	// shown of it.
+	// shown of it, and KeyProvider the provider it was given for, "" when
+	// none was named (a key stored by hand): a key is never sent to
+	// another provider's host.
 	KeySecretID string `json:"key_secret_id,omitempty"`
 	KeyHint     string `json:"key_hint,omitempty"`
+	KeyProvider string `json:"key_provider,omitempty"`
 	// Paused stops every call to Core for the agent.
 	Paused bool `json:"paused"`
 	// Settings are the rest of the agent document (Core's
@@ -595,12 +655,15 @@ type Registry interface {
 	// agent referred to and no longer does (a token or a key replaced) is
 	// destroyed in it.
 	UpdateHostedAgent(ctx context.Context, a HostedAgent, secrets ...Secret) (*HostedAgent, error)
-	// SetHostedAgentPaused pauses or resumes the agent, whatever its
-	// version, and returns it at the next version.
-	SetHostedAgentPaused(ctx context.Context, id string, paused bool) (*HostedAgent, error)
+	// SetHostedAgentPaused pauses or resumes the agent and returns it at
+	// the next version: whatever its version when version is 0, and
+	// otherwise only if it is still at version (If-Match), ErrConflict
+	// when it has been written since. ErrNotFound when it is gone.
+	SetHostedAgentPaused(ctx context.Context, id string, paused bool, version int) (*HostedAgent, error)
 	// DeleteHostedAgent destroys the agent, its courses and its secrets, in
-	// one transaction; ErrNotFound when it is not there.
-	DeleteHostedAgent(ctx context.Context, id string) error
+	// one transaction, if it still is as cond says: ErrConflict when it is
+	// not, ErrNotFound when it is not there.
+	DeleteHostedAgent(ctx context.Context, id string, cond DeleteIf) error
 
 	// PutHostedCourse writes an agent's settings for a course, replacing
 	// those it had; ErrNotFound when the agent is not there. A zero
@@ -618,6 +681,18 @@ type Registry interface {
 	// RegistryRev is the registry's revision: it moves on with every write
 	// to a hosted agent or course, and with nothing else.
 	RegistryRev(ctx context.Context) (int64, error)
+}
+
+// DeleteIf is what a hosted agent must still be for DeleteHostedAgent to
+// delete it; its zero value deletes it as it is. A caller that acted on
+// the agent as it read it (revoked its token in Core) deletes it only as
+// it read it, and not a row written since in its place.
+type DeleteIf struct {
+	// TokenSecretID, when set, is the token the agent must still hold: a
+	// new token put in since (PUT /token) is not deleted unrevoked.
+	TokenSecretID string
+	// Version, when not 0, is the version it must still be at (If-Match).
+	Version int
 }
 
 // CheckHostedAgent refuses an agent a store must not keep: without its id
@@ -713,6 +788,60 @@ func CheckAgentSecrets(a HostedAgent, secrets []Secret, have func(id string) (*S
 		}
 	}
 	return nil
+}
+
+// AuditEvent is one thing done through the runtime's API, or refused, as
+// the audit keeps it (docs/design.md §11.4): ids, hints, providers,
+// models and results; never a secret, a name, an email, or text anyone
+// wrote.
+type AuditEvent struct {
+	// ID is the store's, given when the event is recorded.
+	ID int64 `json:"id"`
+	// At is when; zero is the store's now.
+	At time.Time `json:"at"`
+	// ActorID is the person, "" for none (a refusal before one was known).
+	ActorID string `json:"actor_id"`
+	// SessionID is the Core credential the person's assertion names.
+	SessionID string `json:"session_id"`
+	// IP is the client's address.
+	IP string `json:"ip"`
+	// Action is what was done, such as agent.connect.
+	Action string `json:"action"`
+	// TargetType and TargetID are what it was done to, such as
+	// hosted_agent and its id.
+	TargetType string `json:"target_type"`
+	TargetID   string `json:"target_id"`
+	// Outcome is ok, or the reason it was refused.
+	Outcome string `json:"outcome"`
+	// Detail is a JSON object; empty is {}.
+	Detail json.RawMessage `json:"detail"`
+}
+
+// Audit is the audit of the runtime's API.
+type Audit interface {
+	// RecordAudit records e, and returns its id.
+	RecordAudit(ctx context.Context, e AuditEvent) (int64, error)
+	// AuditEvents lists up to limit events recorded at or after since,
+	// oldest first (by time, then id).
+	AuditEvents(ctx context.Context, since time.Time, limit int) ([]AuditEvent, error)
+	// PruneAudit destroys the events recorded before before, and says how
+	// many it destroyed.
+	PruneAudit(ctx context.Context, before time.Time) (int64, error)
+}
+
+// CheckAuditEvent refuses an event a store must not keep, without its
+// action and outcome, or whose detail is not a JSON object, and returns it
+// with its detail as stored ({} for none).
+func CheckAuditEvent(e AuditEvent) (AuditEvent, error) {
+	if e.Action == "" || e.Outcome == "" {
+		return e, errors.New("store: audit event: action and outcome required")
+	}
+	detail, err := jsonObject(e.Detail)
+	if err != nil {
+		return e, errors.New("store: audit event: detail must be a JSON object")
+	}
+	e.Detail = detail
+	return e, nil
 }
 
 // UsageRow is what an agent used in one course on one UTC day: ids and

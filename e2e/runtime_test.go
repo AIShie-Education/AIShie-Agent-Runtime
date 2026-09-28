@@ -22,6 +22,7 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/fakellm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/metrics"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/netguard"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/redact"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/memstore"
@@ -170,7 +171,10 @@ func (w *world) startRuntime(t *testing.T, m *fakellm.Server, rc runtimeConf) *i
 	rt.sup, err = worker.NewSupervisor(worker.Options{
 		Config: cfg, Store: rt.st, Metrics: metrics.New(rt.reg), Log: logger, WorkerID: rc.workerID,
 		HTTPClient: &http.Client{Transport: rtp},
-		CoreRetry:  core.RetryOptions{Base: 50 * time.Millisecond, Max: time.Second},
+		// No hosted agent runs here; the hosted-model client follows no
+		// redirect, as in production.
+		HostedHTTPClient: netguard.NoRedirects(&http.Client{Transport: rtp}),
+		CoreRetry:        core.RetryOptions{Base: 50 * time.Millisecond, Max: time.Second},
 		Timing: worker.Timing{
 			LeaseEvery: time.Second, LeaseTTL: 5 * time.Second, Restart: 100 * time.Millisecond, RestartMax: time.Second,
 			ModelBackoff: 50 * time.Millisecond, ModelBackoffMax: 500 * time.Millisecond,

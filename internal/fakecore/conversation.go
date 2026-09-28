@@ -370,7 +370,7 @@ func (c *Core) lastSeen(a *actor) *time.Time {
 	}
 	var seen *time.Time
 	for _, cr := range c.tokens {
-		if cr.actor == a && !cr.revoked && cr.lastUsed != nil && (seen == nil || cr.lastUsed.After(*seen)) {
+		if cr.actor == a && !cr.revoked() && cr.lastUsed != nil && (seen == nil || cr.lastUsed.After(*seen)) {
 			t := *cr.lastUsed
 			seen = &t
 		}

@@ -392,3 +392,25 @@ func TestToolNamesTakeCoresCatalogue(t *testing.T) {
 		}
 	}
 }
+
+// DeniedModel is runtime.denied_models' rule, for the API to refuse a model
+// before anything is written: part by part, with globs.
+func TestDeniedModel(t *testing.T) {
+	rt := Runtime{DeniedModels: []string{"*:*:*-preview", "openai_chat:deepseek:*"}}
+	for _, tc := range []struct {
+		adapter, provider, model, pattern string
+	}{
+		{"anthropic", "anthropic", "claude-x-preview", "*:*:*-preview"},
+		{"openai_chat", "deepseek", "deepseek-chat", "openai_chat:deepseek:*"},
+		{"openai_chat", "openai", "gpt-4.1-mini", ""},
+		{"openai_responses", "deepseek", "deepseek-chat", ""},
+	} {
+		p, denied := DeniedModel(rt, tc.adapter, tc.provider, tc.model)
+		if p != tc.pattern || denied != (tc.pattern != "") {
+			t.Errorf("DeniedModel(%s, %s, %s) = %q, %v", tc.adapter, tc.provider, tc.model, p, denied)
+		}
+	}
+	if _, denied := DeniedModel(Runtime{}, "anthropic", "anthropic", "m"); denied {
+		t.Error("no list denies")
+	}
+}

@@ -47,6 +47,8 @@ type Store struct {
 	hosted   map[string]store.HostedAgent
 	courses  map[seatKey]store.HostedCourse
 	rev      int64
+	audit    []store.AuditEvent
+	auditID  int64
 }
 
 type lease struct {
@@ -414,6 +416,44 @@ func (s *Store) PurgeMember(_ context.Context, agentID, memberID string) error {
 	return nil
 }
 
+// PurgeAgent removes everything the store holds of an agent but its
+// ledger: every seat's notes, attempts and cursors, its seats, its state
+// and its leases.
+func (s *Store) PurgeAgent(_ context.Context, agentID string) error {
+	if err := required("agent_id", agentID); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k := range s.notes {
+		if k.agent == agentID {
+			delete(s.notes, k)
+		}
+	}
+	for k := range s.attempts {
+		if k.agent == agentID {
+			delete(s.attempts, k)
+		}
+	}
+	for k := range s.cursors {
+		if k.agent == agentID {
+			delete(s.cursors, k)
+		}
+	}
+	for k := range s.seats {
+		if k.agent == agentID {
+			delete(s.seats, k)
+		}
+	}
+	delete(s.states, agentID)
+	for name := range s.leases {
+		if name == "agent:"+agentID || strings.HasPrefix(name, "conv:"+agentID+":") {
+			delete(s.leases, name)
+		}
+	}
+	return nil
+}
+
 // copySeat is r with a GoneAt and perms of its own.
 func copySeat(r store.SeatRef) store.SeatRef {
 	if r.GoneAt != nil {
@@ -597,16 +637,31 @@ func (s *Store) RecentAnswerCosts(_ context.Context, agentID string, n int) ([]i
 	return out, nil
 }
 
-// SetAgentState records the agent's state, replacing the one before.
+// SetAgentState records the agent's state, replacing the one before
+// unless that one names a later config version.
 func (s *Store) SetAgentState(_ context.Context, st store.AgentState) error {
 	if err := required("agent_id", st.AgentID, "state", st.State); err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if old, ok := s.states[st.AgentID]; ok && old.ConfigVersion > st.ConfigVersion {
+		return nil
+	}
 	st.UpdatedAt = s.orNow(st.UpdatedAt)
 	s.states[st.AgentID] = st
 	return nil
+}
+
+// AgentState is one agent's state, or store.ErrNotFound.
+func (s *Store) AgentState(_ context.Context, agentID string) (*store.AgentState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st, ok := s.states[agentID]
+	if !ok {
+		return nil, fmt.Errorf("the state of agent %s: %w", agentID, store.ErrNotFound)
+	}
+	return &st, nil
 }
 
 // AgentStates lists every agent's state, by agent id.
@@ -903,13 +958,17 @@ func (s *Store) UpdateHostedAgent(_ context.Context, a store.HostedAgent, secret
 	return &out, nil
 }
 
-// SetHostedAgentPaused pauses or resumes the agent, whatever its version.
-func (s *Store) SetHostedAgentPaused(_ context.Context, id string, paused bool) (*store.HostedAgent, error) {
+// SetHostedAgentPaused pauses or resumes the agent, at version when it is
+// not 0, whatever its version otherwise.
+func (s *Store) SetHostedAgentPaused(_ context.Context, id string, paused bool, version int) (*store.HostedAgent, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	a, ok := s.hosted[id]
-	if !ok {
+	switch {
+	case !ok:
 		return nil, fmt.Errorf("hosted agent %s: %w", id, store.ErrNotFound)
+	case version != 0 && a.Version != version:
+		return nil, fmt.Errorf("hosted agent %s at version %d: %w", id, version, store.ErrConflict)
 	}
 	a.Paused, a.Version, a.UpdatedAt = paused, a.Version+1, s.clock()
 	s.hosted[id] = a
@@ -918,13 +977,17 @@ func (s *Store) SetHostedAgentPaused(_ context.Context, id string, paused bool) 
 	return &out, nil
 }
 
-// DeleteHostedAgent destroys the agent, its courses and its secrets.
-func (s *Store) DeleteHostedAgent(_ context.Context, id string) error {
+// DeleteHostedAgent destroys the agent, its courses and its secrets, if it
+// is still as cond says.
+func (s *Store) DeleteHostedAgent(_ context.Context, id string, cond store.DeleteIf) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	a, ok := s.hosted[id]
-	if !ok {
+	switch {
+	case !ok:
 		return fmt.Errorf("hosted agent %s: %w", id, store.ErrNotFound)
+	case cond.TokenSecretID != "" && a.TokenSecretID != cond.TokenSecretID, cond.Version != 0 && a.Version != cond.Version:
+		return fmt.Errorf("hosted agent %s: %w", id, store.ErrConflict)
 	}
 	for k := range s.courses {
 		if k.agent == id {

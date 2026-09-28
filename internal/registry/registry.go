@@ -96,8 +96,13 @@ func Build(ctx context.Context, yaml *config.Config, r Reader, o Options) (*conf
 	for _, a := range yaml.Agents {
 		yamlIDs[a.ID] = true
 	}
-	reject := func(id string, err error) {
-		out.Rejected = append(out.Rejected, config.Rejection{AgentID: id, Source: SourceName(id), Err: err})
+	versions := map[string]int{}
+	for _, a := range hosted {
+		versions[a.ID] = a.Version
+	}
+	reject := func(id, reason string, err error) {
+		out.Rejected = append(out.Rejected, config.Rejection{AgentID: id, Source: SourceName(id), Err: err, Reason: reason,
+			Version: versions[id]})
 	}
 	coreErr := checkCoreBaseURL(o)
 	var sources []config.Source
@@ -105,37 +110,71 @@ func Build(ctx context.Context, yaml *config.Config, r Reader, o Options) (*conf
 	for _, a := range hosted {
 		switch {
 		case yamlIDs[a.ID]:
-			reject(a.ID, errors.New("a YAML agent has this id, and the operator's configuration wins"))
+			reject(a.ID, store.ReasonOperatorAgent, errors.New("a YAML agent has this id, and the operator's configuration wins"))
 			continue
 		case coreErr != nil:
-			reject(a.ID, coreErr)
+			reject(a.ID, store.ReasonRuntimeMisconfigured, coreErr)
 			continue
 		}
 		src, err := Document(a, courses[a.ID], o.CoreBaseURL, defaultKeySource(yaml))
 		if err != nil {
-			reject(a.ID, err)
+			reject(a.ID, store.ReasonSettingsRejected, err)
 			continue
 		}
 		sources = append(sources, src)
 		byID[a.ID] = a
 	}
 	agents, rejected := config.LoadDocuments(yaml, o.Allowlist, sources...)
-	out.Rejected = append(out.Rejected, rejected...)
+	for _, r := range rejected {
+		r.Reason, r.Version = store.ReasonSettingsRejected, versions[r.AgentID]
+		out.Rejected = append(out.Rejected, r)
+	}
 	for _, a := range agents {
 		key := ""
 		if k := byID[a.ID].KeySecretID; k != "" {
 			key = secrets.SchemeSealed + k
 		}
 		if err := checkModels(a, key); err != nil {
-			reject(a.ID, err)
+			reject(a.ID, store.ReasonSettingsRejected, err)
 			continue
 		}
 		row := byID[a.ID]
-		a.Hosted = &config.Hosted{CoreActorID: row.CoreActorID, OwnerActorID: row.OwnerActorID, OwnerVerified: row.OwnerVerified}
+		a.Hosted = &config.Hosted{CoreActorID: row.CoreActorID, OwnerActorID: row.OwnerActorID, OwnerVerified: row.OwnerVerified,
+			Version: row.Version}
 		out.Agents = append(out.Agents, a)
 	}
 	sort.SliceStable(out.Rejected, func(i, j int) bool { return out.Rejected[i].AgentID < out.Rejected[j].AgentID })
 	return out, rev, nil
+}
+
+// Check holds one hosted agent, as its row would be written with its
+// courses, to what Build holds it to: an id no YAML agent of yaml's has, a
+// CORE_BASE_URL, its document, loaded and validated over yaml's runtime
+// settings, and its models. It reads and writes nothing: the API tries a
+// change with it before it writes one. The error is why it would not run,
+// as a Rejection's Detail words it.
+func Check(_ context.Context, yaml *config.Config, row store.HostedAgent, courses []store.HostedCourse, o Options) error {
+	for _, a := range yaml.Agents {
+		if a.ID == row.ID {
+			return errors.New("a YAML agent has this id, and the operator's configuration wins")
+		}
+	}
+	if err := checkCoreBaseURL(o); err != nil {
+		return err
+	}
+	src, err := Document(row, courses, o.CoreBaseURL, defaultKeySource(yaml))
+	if err != nil {
+		return err
+	}
+	agents, rejected := config.LoadDocuments(yaml, o.Allowlist, src)
+	if len(rejected) > 0 {
+		return rejected[0].Err
+	}
+	key := ""
+	if row.KeySecretID != "" {
+		key = secrets.SchemeSealed + row.KeySecretID
+	}
+	return checkModels(agents[0], key)
 }
 
 // checkCoreBaseURL refuses a CORE_BASE_URL no hosted agent can use: none.

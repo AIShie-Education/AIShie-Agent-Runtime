@@ -10,6 +10,7 @@ import (
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/prompt"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolset"
@@ -347,18 +348,39 @@ func (l *loop) timeout(ctx context.Context, forced bool) time.Duration {
 	return min(left, maxCallTimeout)
 }
 
+// otherModel names, in the metrics, a hosted agent's model that the price
+// table does not price.
+const otherModel = "other"
+
+// modelLabel is the model a call's metrics name: a YAML agent's as its
+// operator wrote it; a hosted agent's, which its owner chose and may be
+// any text, as the price table names it (pricing.Table.PricedAs: the
+// model, or the glob that prices it), and otherModel when no row prices
+// it, so that no owner's text becomes a label, and the labels are no more
+// than the table's rows.
+func modelLabel(cfg *config.Agent, prices *pricing.Table, ad llm.Adapter, at time.Time) string {
+	if cfg.Hosted == nil {
+		return ad.Model()
+	}
+	if name, ok := prices.PricedAs(ad.Provider(), ad.Model(), at); ok {
+		return name
+	}
+	return otherModel
+}
+
 // account counts a model call: its turn and tokens, its cost at the day's
 // prices, a ledger row with ids and numbers, and the metrics.
 func (l *loop) account(resp *llm.Response, err error, took time.Duration) {
 	a, ad := l.c.a, l.m.ad
+	prices, now := a.s.priceTable(), a.now()
 	var cost int64
 	var version string
 	if resp != nil {
-		if price, ok := a.s.priceTable().Lookup(ad.Provider(), ad.Model(), a.now()); ok {
+		if price, ok := prices.Lookup(ad.Provider(), ad.Model(), now); ok {
 			cost, version = price.Cost(resp.Usage), price.Version
 		}
 	}
-	a.s.o.Metrics.ObserveLLM(ad.Name(), ad.Model(), resp, err, float64(cost)/1e12, l.m.keySource)
+	a.s.o.Metrics.ObserveLLM(ad.Name(), modelLabel(a.cfg, prices, ad, now), resp, err, float64(cost)/1e12, l.m.keySource)
 	if resp == nil {
 		return
 	}

@@ -11,6 +11,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/jsonstrict"
 )
 
 // apiError is Core's apperr.Error as the wire shows it. Classify by Code and
@@ -230,7 +232,7 @@ func (t *toolDef) decodeArgs(raw []byte) (any, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		raw = []byte("{}")
 	}
-	if err := checkJSON(raw); err != nil {
+	if err := jsonstrict.Check(raw); err != nil {
 		return nil, invalid("arguments: %v", err)
 	}
 	var instance any

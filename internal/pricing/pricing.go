@@ -253,8 +253,29 @@ func Parse(b []byte) (*Table, error) {
 // row changes. Among globs, the latest from wins, then the most specific
 // pattern (the most characters besides *), then the first row.
 func (t *Table) Lookup(provider, model string, at time.Time) (Price, bool) {
-	if t == nil {
+	r := t.lookup(provider, model, at)
+	if r == nil {
 		return Price{}, false
+	}
+	return r.price, true
+}
+
+// PricedAs is what the row Lookup takes for provider's model at at names:
+// the model itself, when a row names it exactly, or the glob that prices
+// it; false when none does. It is always the table's own text, whatever
+// model is asked about, for a metric to be labelled with.
+func (t *Table) PricedAs(provider, model string, at time.Time) (string, bool) {
+	r := t.lookup(provider, model, at)
+	if r == nil {
+		return "", false
+	}
+	return r.model, true
+}
+
+// lookup is the row Lookup takes, nil for none.
+func (t *Table) lookup(provider, model string, at time.Time) *row {
+	if t == nil {
+		return nil
 	}
 	var best *row
 	better := func(r *row) bool {
@@ -282,13 +303,29 @@ func (t *Table) Lookup(provider, model string, at time.Time) (Price, bool) {
 			best = r
 		}
 	}
-	if best == nil {
-		return Price{}, false
-	}
-	return best.price, true
+	return best
 }
 
 func literalLen(pattern string) int { return len(pattern) - strings.Count(pattern, "*") }
+
+// Models are the models the table prices by name for provider at at: its
+// rows that name a model exactly, not a glob, dated at or before at, each
+// model once, in the table's order. A form suggests them.
+func (t *Table) Models(provider string, at time.Time) []string {
+	if t == nil {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, r := range t.rows {
+		if r.provider != provider || r.glob || r.from.After(at) || seen[r.model] {
+			continue
+		}
+		seen[r.model] = true
+		out = append(out, r.model)
+	}
+	return out
+}
 
 // Match reports whether s matches pattern, where * stands for any run of
 // characters, '/' and ':' included, and everything else stands for itself.

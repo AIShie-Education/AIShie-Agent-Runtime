@@ -84,7 +84,7 @@ func (a *Agent) run(pollCtx, answerCtx context.Context) error {
 	a.answerCtx, a.cancelAnswers = context.WithCancelCause(answerCtx)
 	err := a.start(ctx)
 	if err == nil {
-		a.s.writeState(ctx, a.id, store.AgentRunning, "")
+		a.s.writeState(ctx, a.id, store.AgentRunning, "", "")
 		a.loop(ctx)
 	}
 	a.stopSeats()
@@ -127,14 +127,18 @@ func (a *Agent) start(ctx context.Context) error {
 	}
 	client := core.NewClient(authChecked{next: caller})
 	me, err := client.Me(core.WithPriority(ctx, core.PriorityBackground))
-	if isUnauthenticated(err) {
+	switch {
+	case isUnauthenticated(err):
 		return core.ErrUnauthenticated
-	}
-	if err != nil {
+	case isSuspended(err):
+		return errSuspended
+	case err != nil:
 		return fmt.Errorf("me_get: %w", err)
+	case me.Status != "" && me.Status != core.StatusActive:
+		return errSuspended
 	}
-	if msg := HostedActorProblem(a.cfg, me); msg != "" {
-		return &blockedError{msg: msg}
+	if reason, msg := HostedActorProblem(a.cfg, me); msg != "" {
+		return &blockedError{reason: reason, msg: msg}
 	}
 	if p := HostedOwnerProblem(a.cfg, me, cat); p != nil {
 		return p
@@ -145,13 +149,16 @@ func (a *Agent) start(ctx context.Context) error {
 	other, preempted := a.s.claimActor(a.cfg.Core.BaseURL, me.ID, a.id)
 	switch {
 	case other != "" && a.cfg.Hosted != nil && !a.s.hostedAgent(other):
-		return &blockedError{msg: fmt.Sprintf("its Core actor runs here as agent %q, of the operator's configuration, which wins", other)}
+		return &blockedError{reason: store.ReasonOperatorAgent,
+			msg: fmt.Sprintf("its Core actor runs here as agent %q, of the operator's configuration, which wins", other)}
 	case other != "":
-		return fmt.Errorf("its token is agent %q's too: one agent in Core is one agent here, with a token of its own", other)
+		return &reasonError{reason: store.ReasonActorInUse,
+			err: fmt.Errorf("its token is agent %q's too: one agent in Core is one agent here, with a token of its own", other)}
 	}
 	if preempted != nil {
 		a.log.Warn("a hosted agent ran as this agent's Core actor; the operator's configuration wins, and it is stopped", "hosted", preempted.id)
-		preempted.stop(&blockedError{msg: fmt.Sprintf("its Core actor runs here as agent %q, of the operator's configuration, which wins", a.id)})
+		preempted.stop(&blockedError{reason: store.ReasonOperatorAgent,
+			msg: fmt.Sprintf("its Core actor runs here as agent %q, of the operator's configuration, which wins", a.id)})
 	}
 	primary, _, err := a.models(ctx, a.cfg.Model)
 	if err != nil {
@@ -170,21 +177,40 @@ func (a *Agent) start(ctx context.Context) error {
 }
 
 // HostedActorProblem says why the actor me_get names, me, is not one hosted
-// agent cfg may run as, or "" when it is, or cfg is not hosted. Its token
-// must be its own actor's: one pasted for another agent would run that one
-// under this one's settings. And that actor must be an agent: a person's
-// own token would have the runtime act as the person, with every seat of
-// theirs.
-func HostedActorProblem(cfg *config.Agent, me *core.Actor) string {
+// agent cfg may run as, and the reason the API names it by (token_other_agent,
+// token_not_agent); "" when it is, or cfg is not hosted. Its token must be
+// its own actor's: one pasted for another agent would run that one under
+// this one's settings. And that actor must be an agent: a person's own
+// token would have the runtime act as the person, with every seat of
+// theirs. Actor ids are compared in any case.
+func HostedActorProblem(cfg *config.Agent, me *core.Actor) (reason, msg string) {
 	switch h := cfg.Hosted; {
 	case h == nil:
-		return ""
-	case me.ID != h.CoreActorID:
-		return "its token is another Core actor's than the agent's: connect the agent again with a token of its own"
+		return "", ""
+	case !strings.EqualFold(me.ID, h.CoreActorID):
+		return store.ReasonTokenOtherAgent, "its token is another Core actor's than the agent's: connect the agent again with a token of its own"
 	case me.Kind != core.KindAgent:
-		return "its token is not an agent's in Core: a hosted agent runs only on an agent's own token, never a person's"
+		return store.ReasonTokenNotAgent, "its token is not an agent's in Core: a hosted agent runs only on an agent's own token, never a person's"
 	}
-	return ""
+	return "", ""
+}
+
+// errSuspended stops an agent Core has suspended: every call it makes is
+// denied, me_get's among them. It is a failure like any other, tried again
+// after a backoff, so that the agent runs again by itself once it is
+// reactivated.
+var errSuspended = &reasonError{reason: store.ReasonAgentSuspended,
+	err: errors.New("the agent is suspended in Core, which denies every call it makes: it starts again by itself once it is reactivated")}
+
+// reasonActorNotActive is the reason Core's authorization gives for a
+// call of an actor that is not active.
+const reasonActorNotActive = "actor_not_active"
+
+// isSuspended reports whether err is Core denying a call because the
+// actor who made it is not active.
+func isSuspended(err error) bool {
+	var ee *core.EnvelopeError
+	return errors.As(err, &ee) && ee.Envelope.Status == core.StatusDenied && ee.Envelope.Reason() == reasonActorNotActive
 }
 
 // name is what the agent is called in its prompts: its name in Core.
@@ -222,7 +248,9 @@ func (a *Agent) models(ctx context.Context, m config.Model) (*model, *model, err
 	return primary, fallback, nil
 }
 
-// buildModel resolves a model's key and builds its adapter.
+// buildModel resolves a model's key and builds its adapter: a hosted
+// agent's over the hosted-model client (Options.HostedHTTPClient), which
+// connects to public addresses alone and follows no redirect.
 func (a *Agent) buildModel(ctx context.Context, m config.Model) (*model, error) {
 	var key string
 	if m.KeyRef != "" {
@@ -231,7 +259,11 @@ func (a *Agent) buildModel(ctx context.Context, m config.Model) (*model, error) 
 			return nil, err
 		}
 	}
-	ad, err := a.s.o.NewAdapter(providers.Config(m, key, a.s.o.HTTPClient))
+	client := a.s.o.HTTPClient
+	if a.cfg.Hosted != nil {
+		client = a.s.o.HostedHTTPClient
+	}
+	ad, err := a.s.o.NewAdapter(providers.Config(m, key, client))
 	if err != nil {
 		return nil, err
 	}
@@ -301,6 +333,11 @@ func (a *Agent) readMemberships(ctx context.Context) {
 	case isUnauthenticated(err):
 		a.stop(core.ErrUnauthenticated)
 		return
+	case isSuspended(err):
+		// Suspended while it ran: every call it makes is denied until it
+		// is reactivated, which its next start finds out.
+		a.stop(errSuspended)
+		return
 	case err != nil:
 		if ctx.Err() == nil {
 			a.log.Warn("me_memberships failed", "err", err)
@@ -320,7 +357,7 @@ func (a *Agent) reconcile(ctx context.Context, ms []core.Membership) {
 	current := make(map[string]core.Membership, len(ms))
 	for _, m := range ms {
 		current[m.MemberID] = m
-		if err := a.store().SeatSeen(ctx, seatSnapshot(a.id, m, now)); err != nil && ctx.Err() == nil {
+		if err := a.store().SeatSeen(ctx, SeatSnapshot(a.id, m, now)); err != nil && ctx.Err() == nil {
 			a.log.Warn("seat not recorded", "member", m.MemberID, "err", err)
 		}
 	}
@@ -385,12 +422,13 @@ func (a *Agent) reconcile(ctx context.Context, ms []core.Membership) {
 	a.refreshDetail()
 }
 
-// seatSnapshot is the seat m as the store keeps it: what me_memberships
-// says of it, so that the API can show it without the agent's token.
-func seatSnapshot(agentID string, m core.Membership, at time.Time) store.SeatRef {
+// SeatSnapshot is the seat m of agent agentID as the store keeps it: what
+// me_memberships says of it at at, so that the API can show it without the
+// agent's token. The API records a newly connected agent's seats with it.
+func SeatSnapshot(agentID string, m core.Membership, at time.Time) store.SeatRef {
 	r := store.SeatRef{
 		AgentID: agentID, MemberID: m.MemberID, CourseID: m.CourseID, CourseCode: m.Code, CourseTitle: m.Title,
-		Section: m.Section, Status: m.Status, AnswersCourse: m.AnswersCourse, Perms: m.Perms, SeenAt: at,
+		Section: m.Section, Status: m.Status, CourseStatus: m.CourseStatus, AnswersCourse: m.AnswersCourse, Perms: m.Perms, SeenAt: at,
 	}
 	if m.PrincipalMemberID != nil {
 		r.PrincipalMemberID = *m.PrincipalMemberID

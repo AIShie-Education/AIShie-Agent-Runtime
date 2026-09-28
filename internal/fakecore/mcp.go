@@ -15,6 +15,8 @@ import (
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/jsonstrict"
 )
 
 // instructions is what Core tells a connecting agent about the whole
@@ -174,7 +176,7 @@ func splitKey(raw json.RawMessage, write bool) ([]byte, string, error) {
 	if !write {
 		return raw, "", nil
 	}
-	if err := checkJSON(raw); err != nil {
+	if err := jsonstrict.Check(raw); err != nil {
 		return nil, "", err
 	}
 	var args map[string]json.RawMessage
@@ -213,7 +215,7 @@ func (c *Core) authenticate(token string) *actor {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	cr := c.tokens[token]
-	if cr == nil || cr.revoked || cr.actor.kind == "system" {
+	if cr == nil || cr.revoked() || cr.actor.kind == "system" {
 		return nil
 	}
 	now := c.now()

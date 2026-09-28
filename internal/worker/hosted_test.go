@@ -3,13 +3,17 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/fakecore"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/scripted"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/registry"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/secrets"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
@@ -133,8 +137,8 @@ func TestHostedAgentsRunBesideYAML(t *testing.T) {
 	wk.waitState("agt_yuki", store.AgentRunning)
 	wk.waitState("cs101-tutor", store.AgentRunning)
 	failed := wk.waitState("agt_bad", store.AgentError)
-	if !strings.Contains(failed.Detail, "not run: agent.colour: unknown field") {
-		t.Errorf("the bad agent's detail: %q", failed.Detail)
+	if !strings.Contains(failed.Detail, "not run: agent.colour: unknown field") || failed.Reason != store.ReasonSettingsRejected || failed.ConfigVersion != 1 {
+		t.Errorf("the bad agent's detail: %q (%s, version %d)", failed.Detail, failed.Reason, failed.ConfigVersion)
 	}
 	if st := wk.statusOf("agt_bad"); st.State != store.AgentError || !st.Hosted || st.Running {
 		t.Errorf("the bad agent's status: %+v", st)
@@ -158,7 +162,7 @@ func TestHostedAgentsRunBesideYAML(t *testing.T) {
 	}
 
 	// Paused: no more calls to Core.
-	_, err = h.st.SetHostedAgentPaused(context.Background(), "agt_yuki", true)
+	_, err = h.st.SetHostedAgentPaused(context.Background(), "agt_yuki", true, 0)
 	w.ok(err)
 	wk.sup.Update(h.build(yaml))
 	wk.waitState("agt_yuki", store.AgentPaused)
@@ -171,7 +175,7 @@ func TestHostedAgentsRunBesideYAML(t *testing.T) {
 		t.Errorf("%d calls to Core by the paused agent", more)
 	}
 	// Resumed: it runs again.
-	_, err = h.st.SetHostedAgentPaused(context.Background(), "agt_yuki", false)
+	_, err = h.st.SetHostedAgentPaused(context.Background(), "agt_yuki", false, 0)
 	w.ok(err)
 	wk.sup.Update(h.build(yaml))
 	wk.waitState("agt_yuki", store.AgentRunning)
@@ -204,13 +208,13 @@ func TestHostedTokenChangeRestartsAnUnauthorizedAgent(t *testing.T) {
 	// What its owner reads says what the owner does: no file of theirs
 	// holds the token.
 	if st := wk.waitState("agt_yuki", store.AgentUnauthorized); !strings.Contains(st.Detail, "connect the agent again with a new token") ||
-		strings.Contains(st.Detail, "token_ref") {
-		t.Errorf("the unauthorized hosted agent's detail: %q", st.Detail)
+		strings.Contains(st.Detail, "token_ref") || st.Reason != store.ReasonTokenRefused {
+		t.Errorf("the unauthorized hosted agent's detail: %q (%s)", st.Detail, st.Reason)
 	}
 	time.Sleep(50 * time.Millisecond)
 	n := len(w.calls(own.actor.ID, ""))
 	// Another agent's change: this one is not tried again.
-	_, err := h.st.SetHostedAgentPaused(context.Background(), "agt_ken", true)
+	_, err := h.st.SetHostedAgentPaused(context.Background(), "agt_ken", true, 0)
 	w.ok(err)
 	wk.sup.Update(h.build(yaml))
 	wk.waitState("agt_ken", store.AgentPaused)
@@ -274,8 +278,8 @@ func TestYAMLWinsACoreActor(t *testing.T) {
 			}
 			wk.waitState("yuki-helper", store.AgentRunning)
 			st := wk.waitState("agt_dup", store.AgentError)
-			if !strings.Contains(st.Detail, `runs here as agent "yuki-helper", of the operator's configuration`) {
-				t.Errorf("the hosted agent's detail: %q", st.Detail)
+			if !strings.Contains(st.Detail, `runs here as agent "yuki-helper", of the operator's configuration`) || st.Reason != store.ReasonOperatorAgent {
+				t.Errorf("the hosted agent's detail: %q (%s)", st.Detail, st.Reason)
 			}
 			eventually(t, "the hosted agent stopped", func() bool { return !wk.statusOf("agt_dup").Running })
 			conv, _ := w.ask(0, own, "Who answers?")
@@ -298,8 +302,8 @@ func TestHostedTokenOfAnotherActor(t *testing.T) {
 	h.host("agt_yuki", own, other.actor.Token, hostedSettings("m1"))
 	wk := h.start(h.build(&config.Config{}), models{"m1": scripted.New()})
 	st := wk.waitState("agt_yuki", store.AgentError)
-	if !strings.Contains(st.Detail, "its token is another Core actor's") {
-		t.Errorf("detail %q", st.Detail)
+	if !strings.Contains(st.Detail, "its token is another Core actor's") || st.Reason != store.ReasonTokenOtherAgent {
+		t.Errorf("detail %q (%s)", st.Detail, st.Reason)
 	}
 	time.Sleep(100 * time.Millisecond)
 	if n := len(w.calls(other.actor.ID, "conversation_inbox")); n != 0 {
@@ -321,8 +325,8 @@ func TestHostedTokenOfAPerson(t *testing.T) {
 	h.host("agt_person", agent{actor: person}, "", hostedSettings("m1"))
 	wk := h.start(h.build(&config.Config{}), models{"m1": scripted.New()})
 	st := wk.waitState("agt_person", store.AgentError)
-	if !strings.Contains(st.Detail, "its token is not an agent's in Core") {
-		t.Errorf("detail %q", st.Detail)
+	if !strings.Contains(st.Detail, "its token is not an agent's in Core") || st.Reason != store.ReasonTokenNotAgent {
+		t.Errorf("detail %q (%s)", st.Detail, st.Reason)
 	}
 	time.Sleep(100 * time.Millisecond)
 	if n := len(w.calls(person.ID, "")); n != 1 {
@@ -378,6 +382,7 @@ func TestHostedOwnerCheck(t *testing.T) {
 		// connect hosts the agent and returns it, with who connected it.
 		connect func(w *world, h *hosting) (agent, string)
 		state   string
+		reason  string
 		detail  string
 	}{
 		{name: "Core names the person who connected it", connect: func(w *world, h *hosting) (agent, string) {
@@ -394,17 +399,17 @@ func TestHostedOwnerCheck(t *testing.T) {
 			own := w.ownAgent("agt_yuki", 0)
 			h.hostAs("agt_yuki", own, w.students[1].ID, "", hostedSettings("m1"))
 			return own, w.students[1].ID
-		}, state: store.AgentOwnerChanged, detail: ownerChangedDetail},
+		}, state: store.AgentOwnerChanged, reason: store.ReasonOwnerChanged, detail: ownerChangedDetail},
 		{name: "Core names no owner", connect: func(w *world, h *hosting) (agent, string) {
 			old := w.unownedAgent("agt_yuki")
 			h.host("agt_yuki", old, "", hostedSettings("m1"))
 			return old, old.owner.ID
-		}, state: store.AgentOwnerChanged, detail: ownerGoneDetail},
+		}, state: store.AgentOwnerChanged, reason: store.ReasonOwnerChanged, detail: ownerGoneDetail},
 		{name: "a Core that does not say who owns an agent", before: true, connect: func(w *world, h *hosting) (agent, string) {
 			own := w.ownAgent("agt_yuki", 0)
 			h.host("agt_yuki", own, "", hostedSettings("m1"))
 			return own, own.owner.ID
-		}, state: store.AgentError, detail: ownerUnknownDetail},
+		}, state: store.AgentError, reason: store.ReasonCoreTooOld, detail: ownerUnknownDetail},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := newWorldWith(t, fakecore.Options{BeforeOwners: tc.before})
@@ -432,8 +437,8 @@ func TestHostedOwnerCheck(t *testing.T) {
 				}
 				return
 			}
-			if st.Detail != tc.detail {
-				t.Errorf("the state says %q, want %q", st.Detail, tc.detail)
+			if st.Detail != tc.detail || st.Reason != tc.reason {
+				t.Errorf("the state says %q (%s), want %q (%s)", st.Detail, st.Reason, tc.detail, tc.reason)
 			}
 			for what, s := range map[string]string{"its token": ag.actor.Token, "the model key": modelKey, "its actor": ag.actor.ID,
 				"who connected it": connectedBy, "its owner": ag.owner.ID, "the other student": w.students[1].ID, "a token's prefix": "ais_"} {
@@ -471,7 +476,7 @@ func TestHostedOwnerChangedWaitsForItsRow(t *testing.T) {
 	wk.waitState("agt_yuki", store.AgentOwnerChanged)
 	wk.waitState("agt_ken", store.AgentRunning)
 
-	_, err := h.st.SetHostedAgentPaused(context.Background(), "agt_ken", true)
+	_, err := h.st.SetHostedAgentPaused(context.Background(), "agt_ken", true, 0)
 	w.ok(err)
 	wk.sup.Update(h.build(yaml))
 	wk.waitState("agt_ken", store.AgentPaused)
@@ -496,4 +501,121 @@ func TestHostedOwnerChangedWaitsForItsRow(t *testing.T) {
 	wk.waitState("agt_yuki", store.AgentRunning)
 	conv, _ := w.ask(0, own, "Are you back?")
 	w.waitAnswers(conv, 1)
+}
+
+// A hosted agent's model is its owner's choice, of any text: its calls are
+// counted under the name the price table gives it, and under "other" when
+// the table does not price it, so that no owner's text becomes a metric's
+// label. A YAML agent's model is counted under the name its operator
+// wrote.
+func TestHostedModelsLabels(t *testing.T) {
+	w := newWorld(t)
+	yuki, ken, tu := w.ownAgent("agt_yuki", 0), w.ownAgent("agt_ken", 1), w.tutor("cs101-tutor")
+	h := w.hosting()
+	h.host("agt_yuki", yuki, "", hostedSettings("m1"))
+	h.host("agt_ken", ken, "", hostedSettings("m2"))
+	prices, err := pricing.Parse([]byte(`version: "test"
+prices:
+  - {provider: openai, model: gpt-4.1-mini, from: 2020-01-01, usd_per_mtok: {input: 1, output: 1}}
+  - {provider: openai, model: "o*", from: 2020-01-01, usd_per_mtok: {input: 1, output: 1}}
+`))
+	w.ok(err)
+	const owners = `Ken's model {with} "quotes", and anything`
+	ms := models{
+		"m1": scripted.New(scripted.Reply("Priced.")).WithProvider("openai").WithModel("gpt-4.1-mini"),
+		"m2": scripted.New(scripted.Reply("Not priced.")).WithProvider("openai").WithModel(owners),
+		"m3": scripted.New(scripted.Reply("The operator's.")).WithProvider("vllm").WithModel("operator-model"),
+	}
+	wk := w.start(h.build(w.config(nil, w.agentDoc("cs101-tutor", "m3", nil, nil))), ms, workerOpts{store: h.st, prices: prices,
+		edit: func(o *Options) {
+			o.Secrets = secrets.Resolver{Getenv: w.getenv, Sealed: vault.Opener{Vault: h.v, Store: h.st}}
+		}})
+	for _, id := range []string{"agt_yuki", "agt_ken", "cs101-tutor"} {
+		wk.waitState(id, store.AgentRunning)
+	}
+	c1, _ := w.ask(0, yuki, "A question for my helper.")
+	c2, _ := w.ask(1, ken, "A question for mine.")
+	c3, _ := w.ask(0, tu, "A question for the tutor.")
+	for _, c := range []string{c1, c2, c3} {
+		w.waitAnswers(c, 1)
+	}
+	for _, model := range []string{"gpt-4.1-mini", otherModel, "operator-model"} {
+		if n := counter(t, wk.reg, "llm_calls_total", map[string]string{"model": model}); n < 1 {
+			t.Errorf("no call counted under %q", model)
+		}
+	}
+	for _, name := range []string{"llm_calls_total", "llm_tokens_total"} {
+		if n := counter(t, wk.reg, name, map[string]string{"model": owners}); n != 0 {
+			t.Errorf("%s is labelled with the owner's text", name)
+		}
+	}
+}
+
+// A new token put in force while the instance on the old one winds down:
+// that instance meets Core's 401 (the new token revoked the old), and
+// ends only after apply has put the new configuration in force. How it
+// ended is not the new token's: nothing is written for it, nothing is
+// blocked, and the agent runs on its new token, its state at the row's
+// new version.
+func TestNewTokenWhileTheOldWindsDown(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("agt_yuki", 0)
+	h := w.hosting()
+	h.host("agt_yuki", own, "", hostedSettings("m1"))
+	yaml := &config.Config{}
+	started, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	slow := func(ctx context.Context, req *llm.Request) (*llm.Response, error) {
+		once.Do(func() { close(started) })
+		<-release // an answer in progress, which the old instance waits for
+		return scripted.Reply("Late, but here.")(ctx, req)
+	}
+	again := scripted.Reply("On the new token.")
+	wk := h.start(h.build(yaml), models{"m1": scripted.New(slow, again, again, again)})
+	wk.waitState("agt_yuki", store.AgentRunning)
+	eventually(t, "the owner recorded as verified", func() bool {
+		row, err := h.st.HostedAgent(context.Background(), "agt_yuki")
+		return err == nil && row.Version == 2
+	})
+	w.ask(0, own, "Take your time.")
+	<-started
+
+	// PUT /token: the new token written, then the old one revoked with
+	// it; the old instance's pollers meet the 401.
+	token, err := w.fc.IssueToken(own.actor.ID)
+	w.ok(err)
+	row, err := h.st.HostedAgent(context.Background(), "agt_yuki")
+	w.ok(err)
+	tok := h.seal(row.TenantID, store.SecretCoreToken, token)
+	row.TokenSecretID = tok.ID
+	updated, err := h.st.UpdateHostedAgent(context.Background(), *row, tok)
+	w.ok(err)
+	n := len(w.fc.Calls())
+	w.ok(w.fc.Revoke(own.actor.Token))
+	eventually(t, "the old token refused", func() bool {
+		for _, c := range w.fc.Calls()[n:] {
+			if c.ActorID == own.actor.ID && c.HTTPStatus == http.StatusUnauthorized {
+				return true
+			}
+		}
+		return false
+	})
+	// The worker puts the new row in force while the old instance waits
+	// for its answer.
+	wk.sup.Update(h.build(yaml))
+	eventually(t, "the new row put in force, the old instance stopping", func() bool {
+		wk.sup.mu.Lock()
+		defer wk.sup.mu.Unlock()
+		r := wk.sup.runners["agt_yuki"]
+		return r != nil && r.stopping && hostedVersion(r.cfg) == updated.Version
+	})
+	close(release)
+	st := wk.waitVersion("agt_yuki", store.AgentRunning, updated.Version)
+	if st.Reason != "" {
+		t.Errorf("running on the new token, with a reason: %+v", st)
+	}
+	conv, _ := w.ask(0, own, "Are you there, on the new token?")
+	if got := w.waitAnswers(conv, 1); got[0].Body != "On the new token." {
+		t.Errorf("the answer: %q", got[0].Body)
+	}
 }

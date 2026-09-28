@@ -51,13 +51,18 @@ type Agent struct {
 }
 
 // Hosted is what the registry knows of a hosted agent beside its
-// configuration: the Core actor its token must be, and its owner.
+// configuration: the Core actor its token must be, its owner, and the
+// version of its row this configuration was built from.
 type Hosted struct {
 	// CoreActorID is the actor me_get must name: a token of any other is
 	// not this agent's.
 	CoreActorID   string
 	OwnerActorID  string
 	OwnerVerified bool
+	// Version is the row's version (store.HostedAgent.Version): the worker
+	// records it with every state it writes, so that the API tells a
+	// change not yet in force from one that is.
+	Version int
 }
 
 // Core is how the agent reaches Core.
@@ -267,6 +272,12 @@ type Rejection struct {
 	AgentID string
 	Source  string
 	Err     error
+	// Reason is why, as the API's problem.reason names it
+	// (store.ReasonSettingsRejected, …); "" when none is given.
+	Reason string
+	// Version is the version of the hosted agent's row that was rejected,
+	// 0 when it is not known.
+	Version int
 }
 
 // Detail is why, as the agent's state shows it: every problem, one after

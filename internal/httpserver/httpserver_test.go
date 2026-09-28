@@ -213,6 +213,28 @@ func TestStatus(t *testing.T) {
 	if code, _ := getFrom(t, s.Handler(), "/healthz", "192.0.2.7:5555"); code != http.StatusOK {
 		t.Errorf("/healthz from another machine: %d", code)
 	}
+
+	// A proxy on this machine connects from loopback: what it forwarded
+	// is refused, whichever header says so, and whatever it says.
+	for _, h := range [][2]string{{"X-Forwarded-For", "192.0.2.7"}, {"x-forwarded-for", "127.0.0.1"}, {"Forwarded", "for=192.0.2.7"},
+		{"X-Forwarded-Host", "lms.example.edu"}, {"X-Forwarded-Proto", "https"}, {"X-Real-IP", "192.0.2.7"}, {"X-Forwarded-For", ""}} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/status", nil)
+		req.RemoteAddr = "127.0.0.1:40000"
+		req.Header.Set(h[0], h[1])
+		s.Handler().ServeHTTP(rec, req)
+		if body := rec.Body.String(); rec.Code != http.StatusForbidden || strings.Contains(body, "yuki-helper") {
+			t.Errorf("/status forwarded with %s: %d %s", h[0], rec.Code, body)
+		}
+	}
+	// /healthz and /metrics answer through a proxy: they name no one.
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	req.Header.Set("X-Forwarded-For", "192.0.2.7")
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("/healthz forwarded: %d", rec.Code)
+	}
 }
 
 func TestServe(t *testing.T) {

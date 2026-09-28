@@ -25,12 +25,15 @@ const (
 )
 
 // OwnerProblem is why a hosted agent does not run as its owner's: the state
-// it is stopped in and what that state says. It stays stopped until its
-// configuration changes (its row in the registry), or a reload.
+// it is stopped in, why as the API names it, and what that state says. It
+// stays stopped until its configuration changes (its row in the
+// registry), or a reload.
 type OwnerProblem struct {
 	// State is store.AgentOwnerChanged, or store.AgentError for a Core
 	// that cannot say who owns an agent.
-	State  string
+	State string
+	// Reason is store.ReasonOwnerChanged, or store.ReasonCoreTooOld.
+	Reason string
 	Detail string
 }
 
@@ -67,11 +70,11 @@ func HostedOwnerProblem(cfg *config.Agent, me *core.Actor, cat *core.Catalogue) 
 		// runtime compares them in any.
 		return nil
 	case me.OwnerActorID != "":
-		return &OwnerProblem{State: store.AgentOwnerChanged, Detail: ownerChangedDetail}
+		return &OwnerProblem{State: store.AgentOwnerChanged, Reason: store.ReasonOwnerChanged, Detail: ownerChangedDetail}
 	case !cat.MeGetNamesOwners():
-		return &OwnerProblem{State: store.AgentError, Detail: ownerUnknownDetail}
+		return &OwnerProblem{State: store.AgentError, Reason: store.ReasonCoreTooOld, Detail: ownerUnknownDetail}
 	}
-	return &OwnerProblem{State: store.AgentOwnerChanged, Detail: ownerGoneDetail}
+	return &OwnerProblem{State: store.AgentOwnerChanged, Reason: store.ReasonOwnerChanged, Detail: ownerGoneDetail}
 }
 
 // markOwnerVerified records in the registry that Core named the hosted
@@ -112,15 +115,17 @@ func (s *Supervisor) markOwnerVerified(ctx context.Context, cfg *config.Agent) {
 // sameRun reports whether two configurations of one agent run it alike:
 // equal, but for whether its owner has been checked, which the registry
 // records of a hosted agent the check at its start passed
-// (markOwnerVerified) and which changes nothing in how it runs, so that
-// recording it restarts nothing.
+// (markOwnerVerified), and for the version of its row, which every write
+// moves on: neither changes anything in how it runs, so that a write that
+// changes nothing else restarts nothing (apply writes its state again,
+// for the new version).
 func sameRun(x, y *config.Agent) bool {
-	if x.Hosted != nil && y.Hosted != nil && x.Hosted.OwnerVerified != y.Hosted.OwnerVerified {
-		xh, yh := *x.Hosted, *y.Hosted
-		xh.OwnerVerified = yh.OwnerVerified
-		xc, yc := *x, *y
-		xc.Hosted, yc.Hosted = &xh, &yh
-		return reflect.DeepEqual(&xc, &yc)
+	if x.Hosted == nil || y.Hosted == nil {
+		return reflect.DeepEqual(x, y)
 	}
-	return reflect.DeepEqual(x, y)
+	xh, yh := *x.Hosted, *y.Hosted
+	xh.OwnerVerified, xh.Version = yh.OwnerVerified, yh.Version
+	xc, yc := *x, *y
+	xc.Hosted, yc.Hosted = &xh, &yh
+	return reflect.DeepEqual(&xc, &yc)
 }

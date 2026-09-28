@@ -25,7 +25,7 @@ var update = flag.Bool("update", false, "rewrite testdata/schema.golden from the
 // tables are every table the migrations make, in the order TRUNCATE takes
 // them.
 var tables = []string{"lease", "attempt", "cursor", "note", "seat", "llm_call", "answer", "agent_state", "secret",
-	"person", "hosted_agent", "hosted_course"}
+	"person", "hosted_agent", "hosted_course", "audit"}
 
 // newest is the newest migration the binary carries.
 func newest(t *testing.T) uint {

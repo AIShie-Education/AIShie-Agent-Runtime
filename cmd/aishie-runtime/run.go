@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"syscall"
 	"time"
@@ -11,11 +13,16 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/api"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/httpserver"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/metrics"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/netguard"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/pgstore"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/vault"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/version"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/webauth"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/worker"
 )
 
@@ -85,9 +92,14 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+	hostedClient, err := netguard.Client(client)
+	if err != nil {
+		log.Error("the hosted agents' model client", "err", err)
+		return exitFailure
+	}
 	sup, err := worker.NewSupervisor(worker.Options{
 		Config: cfg, Env: env, Store: st, Metrics: metrics.New(reg), Log: log,
-		Secrets: res, Prices: l.prices, HTTPClient: client, WorkerID: env.WorkerID,
+		Secrets: res, Prices: l.prices, HTTPClient: client, HostedHTTPClient: hostedClient, WorkerID: env.WorkerID,
 	})
 	if err != nil {
 		log.Error("the worker", "err", err)
@@ -98,8 +110,21 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 		log.Error("HTTP_ADDR cannot be listened on", "addr", env.HTTPAddr, "err", err)
 		return exitFailure
 	}
+	apiSrv, err := newAPI(env, apiDeps{client: client, models: hostedClient, st: st, vault: v, actors: sup, hosting: h}, reg, log)
+	if err != nil {
+		log.Error("the API", "err", err)
+		return exitFailure
+	}
+	apiAddr := ""
+	if apiSrv != nil {
+		if err := apiSrv.Listen(); err != nil {
+			log.Error("API_ADDR cannot be listened on", "addr", env.APIAddr, "err", err)
+			return exitFailure
+		}
+		apiAddr = apiSrv.Addr()
+	}
 	log.Info("aishie-runtime started", "version", version.Version, "commit", version.Commit, "worker", sup.WorkerID(),
-		"addr", srv.Addr(), "agents", len(cfg.Agents), "hosted", len(h.hosted), "registry", h.pg != nil,
+		"addr", srv.Addr(), "api", apiAddr, "agents", len(cfg.Agents), "hosted", len(h.hosted), "registry", h.pg != nil,
 		"store", kind, "prices", l.pricesPath, "kek", kekID(v))
 	warnNoAgents(log, cfg)
 
@@ -114,6 +139,10 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 	}()
 	srvDone := make(chan error, 1)
 	go func() { srvDone <- srv.Serve(ctx) }()
+	apiDone := make(chan error, 1)
+	if apiSrv != nil {
+		go func() { apiDone <- apiSrv.Serve(ctx) }()
+	}
 	watchDone := make(chan struct{})
 	go func() {
 		defer close(watchDone)
@@ -136,6 +165,11 @@ wait:
 		case err := <-srvDone:
 			log.Error("the HTTP server stopped", "err", err)
 			srvDone <- err
+			code = exitFailure
+			break wait
+		case err := <-apiDone:
+			log.Error("the API stopped", "err", err)
+			apiDone <- err
 			code = exitFailure
 			break wait
 		case <-ctx.Done():
@@ -168,8 +202,67 @@ wait:
 		log.Error("the HTTP server did not stop cleanly", "err", err)
 		code = exitFailure
 	}
+	if apiSrv != nil {
+		if err := <-apiDone; err != nil && code == exitOK {
+			log.Error("the API did not stop cleanly", "err", err)
+			code = exitFailure
+		}
+	}
 	log.Info("aishie-runtime stopped")
 	return code
+}
+
+// apiDeps are what the API shares with the worker: the egress client (for
+// Core), the hosted-model client (for keys/test), the store, the vault,
+// the supervisor, and the configuration in force.
+type apiDeps struct {
+	client  *http.Client
+	models  *http.Client
+	st      store.Store
+	vault   *vault.Vault
+	actors  api.Actors
+	hosting api.Hosting
+}
+
+// newAPI is the JSON API for the front end (docs/design.md §11.4), or nil
+// when API_ADDR is not set: it takes the assertions Core at CORE_BASE_URL
+// makes for API_AUDIENCE, checked against CORE_ASSERTION_KEY when it is
+// pinned, and otherwise against the keys Core publishes, fetched through
+// the egress client. It keeps what it is given in the store, seals and
+// opens agents' tokens with the vault, asks the supervisor which agents it
+// runs, reads the configuration in force, and counts on reg.
+func newAPI(env config.Env, d apiDeps, reg prometheus.Registerer, log *slog.Logger) (*api.Server, error) {
+	if env.APIAddr == "" {
+		return nil, nil
+	}
+	var keys webauth.Keys = webauth.NewRemoteKeys(env.CoreBaseURL, d.client)
+	if env.CoreAssertionKey != "" {
+		pinned, err := webauth.ParsePinnedKey(env.CoreAssertionKey)
+		if err != nil {
+			return nil, fmt.Errorf("CORE_ASSERTION_KEY: %w", err)
+		}
+		keys = pinned
+	}
+	proxies, err := api.ParseProxies(env.APITrustedProxies)
+	if err != nil {
+		return nil, err
+	}
+	return api.New(api.Options{
+		Addr:           env.APIAddr,
+		Verifier:       &webauth.Verifier{Keys: keys, Issuer: env.CoreBaseURL, Audience: env.APIAudience},
+		Store:          d.st,
+		CoreBaseURL:    env.CoreBaseURL,
+		CoreHTTP:       d.client,
+		Vault:          d.vault,
+		Actors:         d.actors,
+		Hosting:        d.hosting,
+		Allowlist:      env.CoreBaseURLAllowlist,
+		ModelHTTP:      d.models,
+		AdminActorIDs:  env.AdminActorIDs,
+		TrustedProxies: proxies,
+		Registerer:     reg,
+		Log:            log,
+	}), nil
 }
 
 // noAgentsNote says what a runtime with no agent does, and how one is added.

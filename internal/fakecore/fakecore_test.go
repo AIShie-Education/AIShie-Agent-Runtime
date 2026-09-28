@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -151,21 +152,10 @@ func TestCanonicalize(t *testing.T) {
 	if _, err := canonicalize([]byte(`[1]`)); err == nil {
 		t.Error("an array canonicalized")
 	}
-	for _, lit := range []string{`{"n":1e401}`, `{"n":1e-401}`, `{"n":1` + strings.Repeat("0", 400) + `}`, `{"n":1e400}`} {
-		if err := checkJSON([]byte(lit)); err == nil {
-			t.Errorf("%.40s: a number out of canon's bounds passed", lit)
-		}
-	}
 	for lit, want := range map[string]string{`{"n":1e2}`: `{"n":100}`, `{"n":-0.0}`: `{"n":0}`, `{"n":12.340e-3}`: `{"n":0.01234}`} {
 		if got, err := canonicalize([]byte(lit)); err != nil || string(got) != want {
 			t.Errorf("%s: %s %v, want %s", lit, got, err, want)
 		}
-	}
-	if err := checkJSON([]byte(`{"a":1,"b":{"c":2,"c":3}}`)); err == nil {
-		t.Error("a key given twice passed")
-	}
-	if err := checkJSON([]byte(`{"a":[{"b":1},{"b":2}],"c":{}}`)); err != nil {
-		t.Errorf("the same key in two objects: %v", err)
 	}
 }
 
@@ -722,6 +712,50 @@ func TestRevoke(t *testing.T) {
 	}
 	if err := w.fc.Revoke("ais_nosuchtoken"); err == nil {
 		t.Error("an unknown token revoked")
+	}
+}
+
+// Tokens are in Core's shape, listed by their prefix. An agent revokes its
+// own tokens, not another's; the controls record what it did; a suspended
+// agent is denied, and a reactivated one is not.
+func TestCredentials(t *testing.T) {
+	w := newFakeWorld(t, Options{})
+	tokenRe := regexp.MustCompile(`^ais_([a-z2-7]{12})_[A-Za-z0-9_-]{43}$`)
+	m := tokenRe.FindStringSubmatch(w.tutorA.Token)
+	if m == nil {
+		t.Fatalf("the tutor's token is not in Core's shape")
+	}
+	creds := w.fc.Credentials(w.tutorA.ID)
+	if len(creds) != 1 || creds[0].Prefix != m[1] || creds[0].Label != "runtime" || creds[0].RevokedAt != nil {
+		t.Fatalf("the tutor's credentials: %+v", creds)
+	}
+	// Ken's own agent's token revokes nothing of the tutor's.
+	ken, err := w.fc.AddAgent("Ken's helper", w.people[1].ID)
+	w.ok(err)
+	kc := w.client(ken.Token)
+	a := mustCall(t, kc, "credential_revoke", map[string]any{"credential_id": creds[0].ID, "idempotency_key": "k1"})
+	wantEnvelope(t, a, "failed", codeNotFound, "")
+	if c := w.fc.Credentials(w.tutorA.ID); c[0].RevokedAt != nil {
+		t.Error("another agent revoked the tutor's token")
+	}
+	if l := list(mustCall(t, kc, "credential_list", map[string]any{}), "credentials"); len(l) != 1 {
+		t.Errorf("Ken's agent lists %d credentials", len(l))
+	}
+	w.ok(w.fc.SuspendActor(w.tutorA.ID))
+	if err := w.fc.SuspendActor(w.tutorA.ID); err == nil {
+		t.Error("an actor suspended twice")
+	}
+	wantEnvelope(t, mustCall(t, w.agentC, "credential_list", map[string]any{}), "denied", codeForbidden, reasonActorNotActive)
+	w.ok(w.fc.ReactivateActor(w.tutorA.ID))
+	tok, err := w.fc.IssueLabelledToken(w.tutorA.ID, "second")
+	w.ok(err)
+	a = mustCall(t, w.agentC, "credential_revoke", map[string]any{"credential_id": tok.CredentialID, "idempotency_key": "r1"})
+	wantEnvelope(t, a, "executed", "", "")
+	if c := w.fc.Credentials(w.tutorA.ID); len(c) != 2 || c[0].ID != tok.CredentialID || c[0].RevokedAt == nil || c[0].Label != "second" {
+		t.Errorf("after the revocation: %+v", c)
+	}
+	if a, err := newMCPClient(w.srv.URL, tok.Token, nil).call(context.Background(), "me_get", map[string]any{}); err != nil || a.Status != http.StatusUnauthorized {
+		t.Errorf("the revoked token: %d %v", a.Status, err)
 	}
 }
 

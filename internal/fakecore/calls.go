@@ -247,7 +247,7 @@ func (c *Core) refusedLogged(transport string, next http.Handler) http.Handler {
 		defer c.mu.Unlock()
 		var actorID string
 		if cr := c.tokens[strings.TrimSpace(token)]; cr != nil {
-			if !cr.revoked {
+			if !cr.revoked() {
 				return // an injected 401, logged where it was injected
 			}
 			actorID = cr.actor.id

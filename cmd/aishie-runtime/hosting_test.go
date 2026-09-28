@@ -177,7 +177,7 @@ func TestRunReloadsTheRegistry(t *testing.T) {
 	w.waitState(t, out, "agt_second", store.AgentRunning)
 	out.wait(t, `"msg":"the registry of hosted agents changed"`)
 
-	if _, err := w.st.SetHostedAgentPaused(t.Context(), "agt_first", true); err != nil {
+	if _, err := w.st.SetHostedAgentPaused(t.Context(), "agt_first", true, 0); err != nil {
 		t.Fatal(err)
 	}
 	w.waitState(t, out, "agt_first", store.AgentPaused)

@@ -11,7 +11,8 @@ handout, it says so and why.
 One binary, `aishie-runtime`:
 
 ```
-aishie-runtime run        the worker: pollers and answer loops, and /healthz, /metrics, /status
+aishie-runtime run        the worker: pollers and answer loops, and /healthz, /metrics, /status;
+                          with API_ADDR, the JSON API for the front end on a listener of its own
 aishie-runtime check      validate the configuration; with --live, connect each agent and show its seats
 aishie-runtime migrate    the store's schema (Postgres)
 aishie-runtime keys       the sealed secrets: check that each opens, or rewrap them under the current key
@@ -24,7 +25,9 @@ files, as M1 has it, and, with the store in PostgreSQL, from the registry of
 hosted agents that people connect from AIShiteru-Frontend (§11): the secret
 store seals their tokens and their owners' keys in the runtime's database,
 and the registry runs them beside the YAML agents. The JSON API the front
-end calls comes next. `/status` is the operator's view, read-only.
+end calls (§11.4) listens apart, on `API_ADDR`. `/status` is the
+operator's view, read-only, and never served through the API's listener
+or a proxy.
 
 ```
 cmd/aishie-runtime/     the binary
@@ -177,9 +180,13 @@ whole spend. A renewal gets min(5 s, a third of the lease) to finish; one
 that fails or does not finish stops the agent at once. On shutdown or
 removal the agent is recorded `stopped` before its lease is let go, so a
 takeover (`lease_takeovers_total`) counts only a lease that lapsed on a
-worker that was still running it. Within one worker, one Core actor is one
-agent: a second agent configured with the same token goes to state `error`,
-naming the first. `SIGHUP` reloads the configuration and the price table:
+worker that was still running it. A hosted agent's state names the
+version of its row the worker had put in force, and the store never
+writes a state of an older version over one of a newer: a worker that
+read the registry late (every worker writes the state of a paused or a
+rejected agent) cannot undo what the agent's holder wrote. Within one
+worker, one Core actor is one agent: a second agent configured with the
+same token goes to state `error`, naming the first. `SIGHUP` reloads the configuration and the price table:
 agents added, removed, paused or changed are started, stopped or restarted.
 A configuration with no agent is valid: the supervisor runs and waits, and
 `run` (at start and on every reload) and `check` say so, so that a server
@@ -246,10 +253,14 @@ at each answer from `answers_course` as `me_memberships` last showed it.
 
 A 401 anywhere stops the agent (state `unauthorized`). So does an MCP
 envelope with status `error` and code `unauthenticated`, which the real Core
-sends where REST answers 401 when the token's actor no longer exists. A
-reload starts an unauthorized or failed agent again even when its
-configuration has not changed, because a new token goes into the same
-secret file (`docs/deploying.md`). Tokens and model keys are read when an
+sends where REST answers 401 when the token's actor no longer exists. An
+instance whose configuration was replaced while it wound down (a hosted
+agent's new token put in force before the old instance's answer in
+progress ended) records nothing as it ends: its 401 is most often the old
+token's, which the new one revoked, and the agent starts on its new token
+at the next lease tick. A reload starts an unauthorized or failed agent
+again even when its configuration has not changed, because a new token
+goes into the same secret file (`docs/deploying.md`). Tokens and model keys are read when an
 agent starts, so a rotated one takes effect at the next start. A paused
 agent makes no calls at all.
 
@@ -439,12 +450,13 @@ The prompt's hash is kept per answer.
 | `note` | (agent, member, conversation) → kind, text, message id |
 | `seat` | (agent, member) → course, seen_at, gone_at, and the seat as `me_memberships` last showed it: course code, title and section, status, `answers_course`, principal, perms |
 | `llm_call`, `answer` | the ledger: ids and numbers |
-| `agent_state` | the owner's page's state |
+| `agent_state` | the owner's page's state, and the version of a hosted agent's row it is of: never replaced by a state of an older version |
 | `secret` | sealed secrets (§11.1): id, tenant, kind, the key's id, the wrapped data key, nonce, ciphertext, hint |
 | `person` | who has used the API: Core actor, name, platform role, last seen |
 | `hosted_agent` | the registry (§11.2): id `agt_…`, Core actor (unique), owner and whether Core said so, tenant, name, token and own key (secrets, with hints), paused, settings (jsonb), version |
 | `hosted_course` | (agent, course) → settings (jsonb), who wrote them, when |
 | `registry_rev` | one row: the revision every write to `hosted_agent` or `hosted_course` moves on, by trigger, with `NOTIFY aishie_registry` |
+| `audit` | the API's audit (§11.4): when, who, with which of Core's sessions, from where, what, to what, the outcome, and a detail of ids, hints, providers, models and results; kept 400 days |
 
 Beside the sums quotas are checked against (`Spend`), two reports read the
 ledger for people, ids and numbers only: `Usage(agent, since, until)`, a
@@ -524,7 +536,7 @@ polling 2 s hot for 120 s, 10 s idle to 30 s, events 45 s, seats 300 s,
 M2 lets people connect their own agents from AIShiteru-Frontend instead of
 an operator writing YAML. The runtime's side is built in steps: the secret
 store (§11.1), the registry of hosted agents that runs them beside the YAML
-agents, and a versioned JSON API for the front end.
+agents (§11.2), and a versioned JSON API for the front end (§11.4).
 
 ### 11.1 The secret store
 
@@ -655,8 +667,8 @@ document a YAML file would hold, and runs it beside the YAML agents:
 ### 11.3 Where M2 departs from the handout
 
 - **The UI lives in AIShiteru-Frontend** (the product owner's D1), not in a
-  `runtime-web` of the runtime's (§8.3): the runtime will serve a versioned
-  JSON API only, and no HTML. People will authenticate to it with a
+  `runtime-web` of the runtime's (§8.3): the runtime serves a versioned
+  JSON API only (§11.4), and no HTML. People authenticate to it with a
   short-lived assertion Core mints for its signed-in person (Ed25519, the
   runtime as audience), not as an OIDC client of the institution (D2); the
   runtime never sees Core's session cookie, and `OIDC_*` is not a runtime
@@ -666,3 +678,167 @@ document a YAML file would hold, and runs it beside the YAML agents:
   the isolation is the same; each secret can be destroyed on its own; and
   with a KMS, the API that seals what people give it can hold no right to
   read anything back.
+- **The front end finds the runtime while it runs**, by `GET
+  /runtime/api/v1/info` on its own origin, not by a build setting: the web
+  image is built once for every environment.
+
+### 11.4 The API for the front end
+
+`internal/api` serves `/runtime/api/v1/` on `API_ADDR` (`127.0.0.1:9091`
+over SSH, `:9091` in the compose stack), behind Caddy at `/runtime/api/*`
+on Core's own origin with the `Cookie` header stripped, and nothing else:
+`/healthz`, `/metrics` and `/status` stay on `HTTP_ADDR`, and `/status`
+also refuses any request a proxy forwarded (`Forwarded`, `X-Forwarded-*`,
+`X-Real-IP`), since a proxy on the same machine connects from loopback.
+The API needs `CORE_BASE_URL`, `API_AUDIENCE`, `DATABASE_URL` and
+`KMS_KEY_ID`, and `run` refuses `API_ADDR` without them.
+
+- **Who is calling** (D2). The front end asks Core for an assertion of
+  its signed-in person (`POST /v1/auth/assertion`, audience
+  `API_AUDIENCE`) and sends it as a bearer token. `internal/webauth`
+  checks it, in this order, with the standard library alone: at most 8 KB,
+  a JWS of three base64url parts (else `assertion_malformed`); a header of
+  `alg` EdDSA, `typ` JWT when given, a `kid`, and no `crit`, `jku`, `jwk`,
+  `x5u` or `x5c`; the key its `kid` names; the signature; then `iss` equal
+  to `CORE_BASE_URL` and `aud` to `API_AUDIENCE` byte for byte (a list is
+  refused), `kind` human, `sub` a UUID, `jti` and `sid` there (else
+  `assertion_invalid`); and, with 5 s of leeway, before `exp` and not
+  before `nbf` (else `assertion_expired`), not issued in the future, and
+  lasting at most 900 s, Core's longest `ASSERTION_TTL`. The keys are
+  Core's `GET /v1/auth/keys`, fetched through the egress client (5 s, at
+  most 64 KB, no redirect) and kept for Core's `max-age`, at most 300 s; a
+  `kid` it lacks fetches them again, at most every 30 s, one fetch at a
+  time; while Core cannot be reached the last set is used for an hour past
+  its age, and with none the answer is 503 `keys_unavailable`. A pinned
+  `CORE_ASSERTION_KEY` replaces the fetch, and an assertion must name it
+  by its RFC 7638 thumbprint, as Core does. The assertion is never logged,
+  stored or passed on; a refusal is counted
+  (`aishie_api_auth_failures_total{reason}`) and logged at debug with its
+  reason alone.
+- **Who is an administrator** (D4): Core's `platform_role` root or admin,
+  narrowed to `ADMIN_ACTOR_IDS` when that is set. The role is the
+  assertion's own `platform_role` claim, which Core signs, having read the
+  actor afresh when it made the assertion: the runtime holds no credential
+  of the person's to ask Core with (D2), and needs none. A role taken away
+  in Core reaches the runtime within the assertion's lifetime (five
+  minutes by default, fifteen at most). No v1 route grants an
+  administrator more than an owner; `GET /me` says whether they are one.
+- **Every request**, in order: one log line and metrics
+  (`aishie_api_requests_total{route,code}`,
+  `aishie_api_request_seconds{route}`): method, route, status, reason,
+  person and milliseconds, never the `Authorization` header, a body, a
+  token, a key, a name or an email; a panic answered as 500; the headers
+  of every answer (`Cache-Control: no-store`, but `public, max-age=60` for
+  `/info`; `nosniff`; `Content-Security-Policy: default-src 'none';
+  frame-ancestors 'none'`; `Referrer-Policy: no-referrer`;
+  `Cross-Origin-Resource-Policy: same-origin`; no CORS); the client's
+  address, the peer's or, from a proxy in `API_TRUSTED_PROXIES`, the last
+  `X-Forwarded-For` hop that is not one; `http.CrossOriginProtection`; the
+  route (404 `no_route`, 405 with `Allow`); limits, as token buckets of at
+  most 10,000 keys each (per address, 120 a minute, bursts of 60, for
+  requests without an assertion and those whose assertion was refused, and
+  30 a minute for refusals alone; per person, 120 a minute, bursts of 40,
+  and for the routes that take a token 10 a minute, bursts of 5, and
+  `keys/test` 6 a minute, bursts of 3, and 100 a UTC day), answered 429
+  with `Retry-After`; the assertion; a query (none is taken, but
+  `DELETE`'s `revoke_token`: a route that reads a body refuses one too)
+  and a body (JSON only, at most 64 KB, no key twice, in one case or in
+  two, no member the route does not take by exactly its name, since
+  `encoding/json` alone reads a member into a field whose name it matches
+  in any case, nothing after the object; a route of no body takes an
+  empty one or `{}`).
+- **Refusals** are Core's envelope, `{"error": {"code", "message",
+  "details": {"reason", …}}}`: Core's codes and HTTP statuses, with
+  `version_mismatch`, `version_required` and `unavailable` (503, with
+  `Retry-After: 5`), and a reason from a closed list, which the front end
+  words. A 401 is always the assertion's, and carries `WWW-Authenticate:
+  Bearer realm="aishie-runtime"`, with `error="invalid_token"` when one was
+  sent.
+- **The routes.** `GET /info`, which anyone may ask, cached a minute:
+  `api: "aishie-runtime"`, `api_version: 1`, the version and commit, the
+  audience to ask Core for, the issuer, and the features offered
+  (connecting by token and the owner's own key when the API has a Core
+  and a vault, as `run` always gives it; never the school's key yet).
+  `GET /me`: the person's actor id and name, whether they are an
+  administrator, and how many agents they host; it records the person
+  (`person`), at most every five minutes. The rest are a hosted agent's
+  life, each the owner's alone (another's agent is 404, never 403):
+  - `POST /agents/inspect` and `POST /agents` take an agent's token and
+    ask Core, with it, what it is (`internal/probe`): `me_get`, then
+    `me_memberships`, refused in order when Core refuses the token or
+    cannot be reached, when it is a person's, a suspended agent's,
+    another agent's than the one meant, an agent without an owner (or a
+    Core too old to say) or someone else's. Connecting seals the token
+    in a new row (`needs_model`) and records the agent's seats; the same
+    token again replays the row; another token of an agent hosted
+    already is `already_hosted`; an agent Core has given the caller since
+    an earlier owner connected it is taken over, the earlier row deleted
+    and purged, once Core, asked again with the token just before, still
+    says the agent is the caller's; one the operator's YAML runs is
+    `operator_agent`. Both answers list the agent's other live tokens
+    (`other_tokens`, with Core's `credential_list`) and whether one was
+    used in the last 15 minutes, for the front end to warn that an agent
+    has one brain at a time.
+  - `GET /agents` and `GET /agents/{id}`: the agent as its owner reads
+    it, with its `version` as a strong ETag, its seats, the proposals
+    waiting, today's answers and cost, its model and key hint, and a
+    `status` the API works out from the row and the worker's state: paused,
+    then no model (`needs_model`), then `starting` until the worker has
+    written a state for the row's version, then the state's own, with the
+    reason the worker wrote (`token_refused`, `settings_rejected`,
+    `agent_suspended`, `owner_changed`, …).
+  - `PATCH /agents/{id}`, by merge-patch and only with `If-Match` (428
+    without, 412 at another version): the owner's model, from the
+    provider offers of `GET /models`, and their key, sealed; a model on a
+    key of another provider, a denied model, or a row the registry would
+    not run (`registry.Check`, the same path as `Build`, for this one
+    row) is refused before anything is written. `POST /keys/test` tries a
+    key with one output token, and neither stores nor returns it; its
+    hint is audited once it has passed as a key a provider may be sent.
+    A key that is a Core token, or holds one anywhere (`ais_` or
+    `aisinv_` and a public prefix, as Core makes them), is refused by
+    both, and nothing of it is kept.
+  - `PUT /agents/{id}/token`: a new token of the same agent, sealed in
+    place of the old, whose secret is destroyed with the write; the new
+    token then revokes the old in Core (`credential_list`, then
+    `credential_revoke` of that credential alone, D7). Core refusing the
+    new token (401) means another new token replaced it meanwhile, and
+    says nothing of the old one, which is then said to have failed
+    (`core_refused`), for its owner to revoke. `POST …/pause` and
+    `…/resume` set the row's flag, at the version `If-Match` names when
+    it names one (412 when the row was written after it was read).
+  - `DELETE /agents/{id}`: the stored token opened, the one secret the
+    API ever opens, to revoke itself in Core (unless
+    `revoke_token=false`); then the row, its courses and its secrets
+    destroyed in one transaction, and the agent's notes, attempts,
+    cursors, seats, state and leases purged, its ledger kept. The row is
+    deleted only while it holds the token that was revoked, and is at the
+    version `If-Match` names when it names one: a new token put in
+    meanwhile is revoked in its turn and the row deleted holding it (three
+    tries at most), and with `If-Match` the write meanwhile is 412. An
+    agent suspended in Core cannot revoke its own tokens: the answer says
+    so, and its owner revokes them in AIShie.
+- **Hosted agents' models** (D9) are called at the providers' own
+  endpoints alone, which the API makes from the provider, an endpoint
+  choice, an Azure resource or an AWS region (patterns with no dots),
+  and the registry checks again. The worker calls them through
+  `internal/netguard`: the dialer resolves the host itself and dials
+  only public addresses (never loopback, private, link-local and the
+  metadata address, CGNAT, or the other reserved ranges, IPv4-mapped
+  forms included, and the IPv4-compatible and IPv4-translated ones
+  whole), checks the address again as it connects, and no redirect is
+  followed; `check --live` tries a hosted agent's model through it too.
+  Behind `EGRESS_PROXY` only the proxy is dialed, and the proxy must
+  refuse the same. A hosted agent's model is its owner's text: its calls
+  are counted (`llm_calls_total`, `llm_tokens_total`) under the name the
+  price table gives it, the model or the glob that prices it, and under
+  `other` when none does, so that no owner's text is a metric's label.
+- **The audit** (D11): `Server.Audit` records an event in `audit`
+  (migration 0005) after the change it is about has committed: who, their
+  session, their address, the action, its target, the outcome and a
+  detail of ids and hints, never a secret, a name or text anyone wrote. The
+  store has no transaction that spans a registry write and an audit row,
+  so an event that cannot be recorded is logged at error and counted
+  (`aishie_api_audit_failures_total`), and fails nothing. Refused
+  assertions are counted, not audited. Housekeeping destroys events older
+  than 400 days.

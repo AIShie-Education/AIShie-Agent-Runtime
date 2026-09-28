@@ -11,6 +11,7 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/registry"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/pgstore"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/worker"
 )
@@ -34,6 +35,20 @@ type hosting struct {
 	rejected []config.Rejection
 	// reported are the agents last reported not run.
 	reported []string
+}
+
+// YAML is the operator's configuration as last loaded, for the API.
+func (h *hosting) YAML() *config.Config {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.yaml
+}
+
+// Prices is the price table in force, for the API.
+func (h *hosting) Prices() *pricing.Table {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.prices
 }
 
 // registryTimeout bounds each build's read of the registry, so that a
@@ -66,7 +81,8 @@ func (h *hosting) build(ctx context.Context) (*config.Config, int64, error) {
 	for _, a := range cfg.Agents {
 		if a.Hosted != nil {
 			if p := usdWithoutPrices(&config.Config{Runtime: cfg.Runtime, Agents: []*config.Agent{a}}, h.prices, time.Now()); len(p) > 0 {
-				cfg.Rejected = append(cfg.Rejected, config.Rejection{AgentID: a.ID, Source: registry.SourceName(a.ID), Err: errors.New(p[0])})
+				cfg.Rejected = append(cfg.Rejected, config.Rejection{AgentID: a.ID, Source: registry.SourceName(a.ID), Err: errors.New(p[0]),
+					Reason: store.ReasonSettingsRejected, Version: a.Hosted.Version})
 				continue
 			}
 		}

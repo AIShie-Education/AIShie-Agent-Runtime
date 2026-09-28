@@ -77,8 +77,8 @@ func (s *Supervisor) Status() []AgentStatus {
 	for id := range s.paused {
 		out = append(out, AgentStatus{AgentID: id, State: store.AgentPaused, Paused: true, Hosted: hosted[id]})
 	}
-	for id, detail := range s.rejected {
-		out = append(out, AgentStatus{AgentID: id, State: store.AgentError, Detail: "not run: " + detail, Hosted: true})
+	for id, rj := range s.rejected {
+		out = append(out, AgentStatus{AgentID: id, State: store.AgentError, Detail: "not run: " + rj.detail, Hosted: true})
 	}
 	s.mu.Unlock()
 	for i, a := range agents {

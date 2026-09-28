@@ -87,6 +87,51 @@ func TestAWriterWaitingOnAnothersRowIsToldPlainly(t *testing.T) {
 				}
 			})
 
+			// A delete named with the token it read, and a pause at the
+			// version it read, that wait on a new token being written are
+			// refused once it commits, and write nothing.
+			for _, hc := range []struct {
+				name string
+				race func(s *Store) (any, error)
+			}{
+				{"a hosted agent deleted with the token it had", func(s *Store) (any, error) {
+					return nil, s.DeleteHostedAgent(t.Context(), "agt_held", store.DeleteIf{TokenSecretID: "sec_old"})
+				}},
+				{"a hosted agent paused at the version it was at", func(s *Store) (any, error) {
+					return s.SetHostedAgentPaused(t.Context(), "agt_held", true, 1)
+				}},
+			} {
+				t.Run(hc.name, func(t *testing.T) {
+					execOn(t, u, `DELETE FROM hosted_agent`)
+					execOn(t, u, `DELETE FROM secret`)
+					sec := func(id string) store.Secret {
+						return store.Secret{ID: id, TenantID: "ten_o", Kind: store.SecretCoreToken, KEKID: "local:v1",
+							WrappedDEK: []byte("w"), Nonce: []byte("n"), Ciphertext: []byte("c")}
+					}
+					_, err := workers[0].CreateHostedAgent(t.Context(), store.HostedAgent{ID: "agt_held", CoreActorID: "actor-held",
+						OwnerActorID: "o", TenantID: "ten_o", TokenSecretID: "sec_old"}, sec("sec_old"))
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := workers[0].PutSecret(t.Context(), sec("sec_new")); err != nil {
+						t.Fatal(err)
+					}
+					results := raceWhileHeld(t, u, workers, perWorker, func(tx pgx.Tx) error {
+						_, err := tx.Exec(t.Context(), `UPDATE hosted_agent SET token_secret_id = 'sec_new', version = version + 1 WHERE id = 'agt_held'`)
+						return err
+					}, func(s *Store, _ string) (any, error) { return hc.race(s) })
+					for _, r := range results {
+						if !errors.Is(r.err, store.ErrConflict) {
+							t.Errorf("%s: %v, want ErrConflict", r.racer, r.err)
+						}
+					}
+					row, err := workers[0].HostedAgent(t.Context(), "agt_held")
+					if err != nil || row.TokenSecretID != "sec_new" || row.Paused || row.Version != 2 {
+						t.Errorf("the agent after: %+v %v", row, err)
+					}
+				})
+			}
+
 			for _, lc := range []struct{ name, setup, hold string }{
 				{"a free lease", "", `INSERT INTO lease VALUES ('agent:held', 'w0', now() + interval '1 minute')`},
 				{"a lapsed lease",

@@ -24,6 +24,7 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/fakellm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/metrics"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/netguard"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/redact"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/registry"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/secrets"
@@ -46,7 +47,7 @@ func hostedAgentAnswers(t *testing.T, w *world) {
 	v, kek := keyring(t)
 	w.addSecret("the key that seals the hosted runtime's secrets", kek)
 	m := newModel(t, fakellm.DefaultResponder)
-	rt := w.startHosted(t, m, st, v)
+	rt := w.startHosted(t, m, st, v, &config.Config{})
 
 	// Connected, as the API connects an agent.
 	id := "agt_" + uuid.NewString()
@@ -156,7 +157,7 @@ func hostedAgentAnswers(t *testing.T, w *world) {
 	}
 
 	// Paused, it stops; its state says so.
-	if _, err := st.SetHostedAgentPaused(t.Context(), id, true); err != nil {
+	if _, err := st.SetHostedAgentPaused(t.Context(), id, true, 0); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, answerWait, "the hosted agent paused", func() bool {
@@ -293,10 +294,10 @@ func keyring(t *testing.T) (*vault.Vault, string) {
 }
 
 // startHosted runs the runtime as run does with the registry on: its state
-// in st, its configuration YAML ∪ registry (no YAML here), rebuilt by the
-// registry's watcher, its sealed secrets opened with v. Its calls to
-// OpenAI's own endpoint go to m.
-func (w *world) startHosted(t *testing.T, m *fakellm.Server, st *pgstore.Store, v *vault.Vault) *instance {
+// in st, its configuration yaml ∪ registry, rebuilt by the registry's
+// watcher, its sealed secrets opened with v. Its calls to OpenAI's own
+// endpoint go to m.
+func (w *world) startHosted(t *testing.T, m *fakellm.Server, st *pgstore.Store, v *vault.Vault, yaml *config.Config) *instance {
 	t.Helper()
 	rt := &instance{t: t, reg: prometheus.NewRegistry(), st: st, log: &logBuffer{}, raw: &logBuffer{}}
 	opts := &slog.HandlerOptions{Level: slog.LevelDebug}
@@ -313,7 +314,6 @@ func (w *world) startHosted(t *testing.T, m *fakellm.Server, st *pgstore.Store, 
 	}
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	o := registry.Options{CoreBaseURL: w.api.base}
-	yaml := &config.Config{}
 	cfg, rev, err := registry.Build(t.Context(), yaml, st, o)
 	if err != nil {
 		t.Fatal(err)
@@ -322,7 +322,11 @@ func (w *world) startHosted(t *testing.T, m *fakellm.Server, st *pgstore.Store, 
 		Config: cfg, Store: st, Metrics: metrics.New(rt.reg), Log: logger, WorkerID: "hosted-w1",
 		Secrets:    secrets.Resolver{Sealed: vault.Opener{Vault: v, Store: st}},
 		HTTPClient: &http.Client{Transport: toModel{next: tr, target: target}},
-		CoreRetry:  core.RetryOptions{Base: 50 * time.Millisecond, Max: time.Second},
+		// A hosted agent's model calls go through a client that follows no
+		// redirect; the scripted model is on loopback, which the dial guard
+		// of production refuses, so the guard is left out here.
+		HostedHTTPClient: modelClient(tr, target),
+		CoreRetry:        core.RetryOptions{Base: 50 * time.Millisecond, Max: time.Second},
 		Timing: worker.Timing{
 			LeaseEvery: time.Second, LeaseTTL: 5 * time.Second, Restart: 100 * time.Millisecond, RestartMax: time.Second,
 			ModelBackoff: 50 * time.Millisecond, ModelBackoffMax: 500 * time.Millisecond,
@@ -368,6 +372,14 @@ func (w *world) startHosted(t *testing.T, m *fakellm.Server, st *pgstore.Store, 
 		}
 	})
 	return rt
+}
+
+// modelClient is the hosted-model client of the tests: no redirect
+// followed, as in production, and OpenAI's own endpoint taken to the
+// scripted model at target, which is on loopback, where production's dial
+// guard would not let it.
+func modelClient(tr http.RoundTripper, target *url.URL) *http.Client {
+	return netguard.NoRedirects(&http.Client{Transport: toModel{next: tr, target: target}})
 }
 
 // toModel takes the calls to OpenAI's own endpoint to the scripted model.

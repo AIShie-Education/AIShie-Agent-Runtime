@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"math/rand/v2"
@@ -18,6 +19,7 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/providers"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/metrics"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/netguard"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/secrets"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
@@ -48,10 +50,17 @@ type Options struct {
 	// Prices cost each model call; nil leaves costs unknown (zero).
 	Prices *pricing.Table
 	// HTTPClient carries every call out (the egress proxy's): to Core, to
-	// the providers, to Core's file downloads. Calls to Core are bounded by
-	// core.DefaultTimeout when it has no timeout of its own; model calls by
-	// their context. http.DefaultClient when nil.
+	// the providers of YAML agents' models, to Core's file downloads. Calls
+	// to Core are bounded by core.DefaultTimeout when it has no timeout of
+	// its own; model calls by their context. http.DefaultClient when nil.
 	HTTPClient *http.Client
+	// HostedHTTPClient carries a hosted agent's model calls: connections
+	// to public addresses alone, and no redirect followed (package
+	// netguard), since the owner, not the operator, chose the model. Calls
+	// to Core keep HTTPClient: Core may well be at a private address. When
+	// nil it is netguard.Client(HTTPClient), which needs HTTPClient's
+	// transport to be an *http.Transport (or none).
+	HostedHTTPClient *http.Client
 	// NewAdapter builds a model adapter; providers.New when nil.
 	NewAdapter func(llm.Config) (llm.Adapter, error)
 	// NewCaller makes an agent's connection to Core. When nil it is MCP or
@@ -165,6 +174,13 @@ func (o Options) withDefaults() (Options, error) {
 	}
 	if o.HTTPClient == nil {
 		o.HTTPClient = http.DefaultClient
+	}
+	if o.HostedHTTPClient == nil {
+		c, err := netguard.Client(o.HTTPClient)
+		if err != nil {
+			return o, fmt.Errorf("worker: hosted agents' model calls: %w; give HostedHTTPClient", err)
+		}
+		o.HostedHTTPClient = c
 	}
 	if o.NewAdapter == nil {
 		o.NewAdapter = providers.New

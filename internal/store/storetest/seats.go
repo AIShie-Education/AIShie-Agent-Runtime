@@ -177,7 +177,7 @@ func testSeats(t *testing.T, open Opener) {
 		s, ctx := open(t), t.Context()
 		tutor := store.SeatRef{
 			AgentID: "a1", MemberID: "m1", CourseID: "c1", CourseCode: "CS101", CourseTitle: "Introduction to Computing",
-			Section: "A", Status: "active", AnswersCourse: true,
+			Section: "A", Status: "active", CourseStatus: "active", AnswersCourse: true,
 			Perms: map[string]string{"conversation_answer": "confirm_required", "document_read": "autonomous"}, SeenAt: at(0),
 		}
 		own := store.SeatRef{
@@ -201,13 +201,13 @@ func testSeats(t *testing.T, open Opener) {
 		// Read again, the seat is as it is now: paused, and tutoring no
 		// more, its perms changed.
 		changed := tutor
-		changed.Status, changed.AnswersCourse, changed.SeenAt = "paused", false, at(time.Hour)
+		changed.Status, changed.CourseStatus, changed.AnswersCourse, changed.SeenAt = "paused", "archived", false, at(time.Hour)
 		changed.Perms = map[string]string{"conversation_answer": "denied"}
 		if err := s.SeatSeen(ctx, changed); err != nil {
 			t.Fatal(err)
 		}
 		got = knownSeats(t, s, "a1")
-		if got[0].Status != "paused" || got[0].AnswersCourse || !reflect.DeepEqual(got[0].Perms, changed.Perms) {
+		if got[0].Status != "paused" || got[0].CourseStatus != "archived" || got[0].AnswersCourse || !reflect.DeepEqual(got[0].Perms, changed.Perms) {
 			t.Errorf("after a second read: %+v", got[0])
 		}
 		// What a caller does to the perms it got is its own.

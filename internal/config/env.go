@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -54,6 +55,25 @@ type Env struct {
 	// (package vault): local:<dir>/<name>. Empty, no sealed secret is
 	// opened or made.
 	KMSKeyID string
+	// APIAddr is where the runtime's JSON API listens (docs/design.md
+	// §11.4), apart from HTTPAddr, so that /status is never reachable
+	// through it; empty, there is no API.
+	APIAddr string
+	// APIAudience is the audience Core's assertions must name for this
+	// runtime, byte for byte: one of Core's RUNTIME_AUDIENCES. Required
+	// with APIAddr, as CoreBaseURL is, which is the assertions' issuer.
+	APIAudience string
+	// CoreAssertionKey is Core's assertion key, pinned: an Ed25519 public
+	// key, as a JWK's x. Empty, the key is fetched from Core's
+	// /v1/auth/keys.
+	CoreAssertionKey string
+	// AdminActorIDs, when set, narrow the runtime's administrators to
+	// those of Core's (platform_role root or admin) that it names.
+	AdminActorIDs []string
+	// APITrustedProxies are the addresses (CIDRs, or single addresses) of
+	// the proxies in front of the API, whose X-Forwarded-For is believed
+	// for the address the audit records.
+	APITrustedProxies []string
 }
 
 // Defaults of the environment's settings.
@@ -80,6 +100,11 @@ var envVars = []struct{ name, help string }{
 	{"SHUTDOWN_GRACE", "how long answers in progress get on SIGTERM, such as 15s (default 15s)"},
 	{"PRICES", "the price table; overrides the runtime's prices_ref"},
 	{"KMS_KEY_ID", "the key that seals the secrets kept in the store: local:<dir>/<name>, a 32-byte key, base64, in that file, the directory's other files kept for secrets an older key sealed"},
+	{"API_ADDR", "where the JSON API for the front end listens, such as 127.0.0.1:9091, apart from HTTP_ADDR; unset, there is none"},
+	{"API_AUDIENCE", "the audience Core's assertions name for this runtime, exactly as in Core's RUNTIME_AUDIENCES, such as https://lms.example.edu/runtime; required with API_ADDR, as CORE_BASE_URL is"},
+	{"CORE_ASSERTION_KEY", "Core's assertion key, pinned (an Ed25519 public key as a JWK's x); unset, it is fetched from CORE_BASE_URL/v1/auth/keys"},
+	{"ADMIN_ACTOR_IDS", "comma-separated Core actor ids: the runtime's administrators are those of Core's (platform_role root or admin) named here; unset, all of Core's"},
+	{"API_TRUSTED_PROXIES", "comma-separated addresses or CIDRs of the proxies in front of the API, whose X-Forwarded-For the audit believes"},
 }
 
 // EnvHelp lists the environment variables FromEnv reads, for the help
@@ -109,6 +134,12 @@ func FromEnv(getenv func(string) string) (Env, error) {
 		PricesPath:  get("PRICES"),
 		KMSKeyID:    get("KMS_KEY_ID"),
 		CoreBaseURL: strings.TrimRight(get("CORE_BASE_URL"), "/"),
+		APIAddr:     get("API_ADDR"),
+		APIAudience: get("API_AUDIENCE"),
+
+		CoreAssertionKey:  get("CORE_ASSERTION_KEY"),
+		AdminActorIDs:     splitList(get("ADMIN_ACTOR_IDS")),
+		APITrustedProxies: splitList(get("API_TRUSTED_PROXIES")),
 	}
 	var errs []error
 	bad := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
@@ -166,6 +197,7 @@ func FromEnv(getenv func(string) string) (Env, error) {
 		// belongs.
 		bad("KMS_KEY_ID: not local:<dir>/<name>, such as local:/secrets/kek/v1")
 	}
+	checkAPI(&e, bad)
 	e.ShutdownGrace = DefaultShutdownGrace
 	if v := get("SHUTDOWN_GRACE"); v != "" {
 		d, err := time.ParseDuration(v)
@@ -179,6 +211,55 @@ func FromEnv(getenv func(string) string) (Env, error) {
 		return Env{}, err
 	}
 	return e, nil
+}
+
+// checkAPI checks the API's settings (docs/deploying.md): with API_ADDR,
+// an address that is not HTTP_ADDR's, the audience and Core its assertions
+// are held to, and the database and key that hold what people give it.
+func checkAPI(e *Env, bad func(string, ...any)) {
+	if e.APIAddr != "" {
+		host, port, err := net.SplitHostPort(e.APIAddr)
+		switch {
+		case err != nil || port == "" || !isPort(port) || strings.ContainsAny(host, "/ "):
+			bad("API_ADDR: %q is not host:port, such as 127.0.0.1:9091", e.APIAddr)
+		case e.APIAddr == e.HTTPAddr && port != "0":
+			bad("API_ADDR: it must not be HTTP_ADDR: /status is never to be reached through the API's listener")
+		}
+		for _, need := range []struct{ name, value, why string }{
+			{"API_AUDIENCE", e.APIAudience, "the audience Core's assertions name for this runtime, as in Core's RUNTIME_AUDIENCES"},
+			{"CORE_BASE_URL", e.CoreBaseURL, "the Core whose assertions the API takes"},
+			{"DATABASE_URL", e.DatabaseURL, "the API keeps the hosted agents in the runtime's PostgreSQL"},
+			{"KMS_KEY_ID", e.KMSKeyID, "the API seals the tokens and keys people give it"},
+		} {
+			if need.value == "" {
+				bad("%s: required with API_ADDR: %s", need.name, need.why)
+			}
+		}
+	}
+	if a := e.APIAudience; a != "" {
+		u, err := url.Parse(a)
+		if err != nil || !u.IsAbs() || u.Host == "" || u.Opaque != "" || u.User != nil || u.RawQuery != "" || u.ForceQuery ||
+			u.Fragment != "" || (u.Scheme != "https" && u.Scheme != "http") || u.Host != strings.ToLower(u.Host) ||
+			u.Port() == defaultPort(u.Scheme) || u.RawPath != "" || u.String() != a {
+			bad("API_AUDIENCE: not an http or https URL of a host and a path alone, written as Core writes it, such as https://lms.example.edu/runtime")
+		}
+	}
+	if k := e.CoreAssertionKey; k != "" {
+		if b, err := base64.RawURLEncoding.Strict().DecodeString(k); err != nil || len(b) != 32 {
+			bad("CORE_ASSERTION_KEY: not an Ed25519 public key: 32 bytes in base64url, unpadded, as a JWK's x")
+		}
+	}
+	for i, id := range e.AdminActorIDs {
+		if !uuidRe.MatchString(id) {
+			bad("ADMIN_ACTOR_IDS: entry %d is not an actor id (a UUID)", i+1)
+		}
+		e.AdminActorIDs[i] = strings.ToLower(id)
+	}
+	for i, p := range e.APITrustedProxies {
+		if _, _, err := net.ParseCIDR(p); err != nil && net.ParseIP(p) == nil {
+			bad("API_TRUSTED_PROXIES: entry %d is neither a CIDR nor an address", i+1)
+		}
+	}
 }
 
 // Level is LogLevel as a slog.Level.

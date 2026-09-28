@@ -93,6 +93,8 @@ The process is set up from the environment:
 | `SECRETS_DIR` | where `secret://` references are looked for |
 | `PRICES` | the price table, instead of the runtime's `prices_ref` |
 | `KMS_KEY_ID` | the key that seals the secrets kept in the database: `local:<dir>/<name>`, a 32-byte key in that file |
+| `API_ADDR`, `API_AUDIENCE` | where the JSON API for the front end listens, apart from `HTTP_ADDR` (unset, there is none), and the audience Core's assertions name for this runtime, as Core's `RUNTIME_AUDIENCES` lists it ([`docs/design.md`](docs/design.md) §11.4) |
+| `CORE_ASSERTION_KEY`, `ADMIN_ACTOR_IDS`, `API_TRUSTED_PROXIES` | Core's assertion key, pinned; the runtime's administrators among Core's; the proxies in front of the API |
 | `EGRESS_PROXY` | a proxy for every outbound call |
 | `LOG_LEVEL`, `LOG_FORMAT` | `info` and `json` by default |
 | `LOG_REDACT_EXTRA` | regular expressions redacted from logs, beside the built-in token and key shapes |

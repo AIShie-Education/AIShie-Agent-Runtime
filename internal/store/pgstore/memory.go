@@ -112,6 +112,29 @@ func (s *Store) ForgetMessage(ctx context.Context, agentID, memberID, conversati
 // its attempts, whose bytes hold its answers, and its cursors. The seat's
 // row is ForgetSeat's to remove, and the ledger keeps its ids and numbers.
 // One statement does it all, so that it is done whole or not at all.
+// PurgeAgent removes everything the store holds of an agent but its
+// ledger, in one statement: every seat's notes, attempts and cursors, its
+// seats, its state and its leases. A lease's name holds the agent's id,
+// which a LIKE pattern would read as one, so the prefix is compared as
+// text.
+func (s *Store) PurgeAgent(ctx context.Context, agentID string) error {
+	if err := required("agent_id", agentID); err != nil {
+		return err
+	}
+	_, err := s.pool.Exec(ctx, `
+		WITH notes AS (DELETE FROM note WHERE agent_id = $1),
+		     attempts AS (DELETE FROM attempt WHERE agent_id = $1),
+		     cursors AS (DELETE FROM cursor WHERE agent_id = $1),
+		     seats AS (DELETE FROM seat WHERE agent_id = $1),
+		     states AS (DELETE FROM agent_state WHERE agent_id = $1)
+		DELETE FROM lease WHERE name = 'agent:' || $1 OR left(name, length('conv:' || $1 || ':')) = 'conv:' || $1 || ':'`,
+		agentID)
+	if err != nil {
+		return fmt.Errorf("store: purge agent %s: %w", agentID, err)
+	}
+	return nil
+}
+
 func (s *Store) PurgeMember(ctx context.Context, agentID, memberID string) error {
 	_, err := s.pool.Exec(ctx, `
 		WITH notes AS (DELETE FROM note WHERE agent_id = $1 AND member_id = $2),
