@@ -468,6 +468,12 @@ func testRegistry(t *testing.T, open Opener) {
 			t.Fatal(err)
 		}
 		moved("a course deleted")
+		// Deleting what is not there writes nothing, and every worker
+		// is not made to rebuild for it.
+		if err := s.DeleteHostedCourse(ctx, "agt_1", "c1"); err != nil {
+			t.Fatal(err)
+		}
+		still("a course deleted that was not there")
 		getHosted(t, s, "agt_1")
 		if _, err := s.HostedAgents(ctx); err != nil {
 			t.Fatal(err)

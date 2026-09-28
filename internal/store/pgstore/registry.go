@@ -380,17 +380,29 @@ func (s *Store) ListHostedCourses(ctx context.Context) ([]store.HostedCourse, er
 	return out, nil
 }
 
-// DeleteHostedCourse removes an agent's settings for a course.
+// DeleteHostedCourse removes an agent's settings for a course. A delete of
+// settings that are not there is rolled back: the trigger moves the
+// registry's revision on for every statement, even one that deletes
+// nothing, and every worker would rebuild for it.
 func (s *Store) DeleteHostedCourse(ctx context.Context, agentID, courseID string) error {
 	err := s.readCommitted(ctx, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `DELETE FROM hosted_course WHERE agent_id = $1 AND course_id = $2`, agentID, courseID)
+		tag, err := tx.Exec(ctx, `DELETE FROM hosted_course WHERE agent_id = $1 AND course_id = $2`, agentID, courseID)
+		if err == nil && tag.RowsAffected() == 0 {
+			return errNothingDeleted
+		}
 		return err
 	})
+	if errors.Is(err, errNothingDeleted) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("store: delete hosted course %s of %s: %w", courseID, agentID, err)
 	}
 	return nil
 }
+
+// errNothingDeleted rolls back a delete that found nothing.
+var errNothingDeleted = errors.New("nothing to delete")
 
 // RegistryRev is the registry's revision.
 func (s *Store) RegistryRev(ctx context.Context) (int64, error) {
