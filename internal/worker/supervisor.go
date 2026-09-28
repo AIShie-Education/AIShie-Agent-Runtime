@@ -64,6 +64,14 @@ type Supervisor struct {
 	// siteChatAbsent are the catalogues, by hash, that do not offer
 	// me.site_chat, once said.
 	siteChatAbsent sync.Map
+
+	// stateLocks order each agent's state writes, by agent id: a write
+	// holds its agent's lock from setting the state here until the store
+	// has taken it, so that the store takes an agent's states in the order
+	// they were set; and a write that reads the state it writes (a
+	// rewrite, a detail) reads it under the same lock, never a state an
+	// instant old.
+	stateLocks sync.Map
 }
 
 // runner is one configured agent that is not paused, and the instance of
@@ -342,16 +350,24 @@ func (s *Supervisor) apply(ctx context.Context) {
 	}
 	slices.SortFunc(rewrite, func(x, y *runner) int { return strings.Compare(x.id, y.id) })
 	for _, r := range rewrite {
-		// Written by the worker that holds the agent, which has put the
-		// new version in force: the state it last wrote, as it was.
-		s.mu.Lock()
-		holds, state, reason, detail := r.holds, r.state, r.reason, r.detail
-		s.mu.Unlock()
-		if holds && state != "" {
-			s.writeState(ctx, r.id, state, reason, detail)
-		}
+		s.rewriteState(ctx, r)
 	}
 	s.updateGauge()
+}
+
+// rewriteState writes r's state again, for the version of its hosted row
+// now in force. Written by the worker that holds the agent, which has put
+// the new version in force: the state it last wrote, as it was.
+func (s *Supervisor) rewriteState(ctx context.Context, r *runner) {
+	l := s.stateLock(r.id)
+	l.Lock()
+	defer l.Unlock()
+	s.mu.Lock()
+	holds, state, reason, detail := r.holds, r.state, r.reason, r.detail
+	s.mu.Unlock()
+	if holds && state != "" {
+		s.writeStateLocked(ctx, r.id, state, reason, detail)
+	}
 }
 
 // hostedVersion is the version of a hosted agent's row a configuration was
@@ -616,6 +632,21 @@ const storeTimeout = 5 * time.Second
 // force here, so that the API tells a change not yet applied from one
 // that is.
 func (s *Supervisor) writeState(ctx context.Context, id, state, reason, detail string) {
+	l := s.stateLock(id)
+	l.Lock()
+	defer l.Unlock()
+	s.writeStateLocked(ctx, id, state, reason, detail)
+}
+
+// stateLock is agent id's state lock (stateLocks). It is taken before mu,
+// never while mu is held.
+func (s *Supervisor) stateLock(id string) *sync.Mutex {
+	l, _ := s.stateLocks.LoadOrStore(id, &sync.Mutex{})
+	return l.(*sync.Mutex)
+}
+
+// writeStateLocked is writeState with id's state lock held.
+func (s *Supervisor) writeStateLocked(ctx context.Context, id, state, reason, detail string) {
 	detail = redact.String(detail)
 	s.mu.Lock()
 	if r := s.runners[id]; r != nil {
@@ -649,12 +680,15 @@ func (s *Supervisor) configVersion(id string) int {
 // setDetail records a running agent's detail, when it changed.
 func (s *Supervisor) setDetail(id, detail string) {
 	detail = redact.String(detail)
+	l := s.stateLock(id)
+	l.Lock()
+	defer l.Unlock()
 	s.mu.Lock()
 	r := s.runners[id]
 	same := r == nil || r.state == store.AgentRunning && r.detail == detail
 	s.mu.Unlock()
 	if !same {
-		s.writeState(context.Background(), id, store.AgentRunning, "", detail)
+		s.writeStateLocked(context.Background(), id, store.AgentRunning, "", detail)
 	}
 }
 
