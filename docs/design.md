@@ -11,7 +11,8 @@ handout, it says so and why.
 One binary, `aishie-runtime`:
 
 ```
-aishie-runtime run        the worker: pollers and answer loops, and /healthz, /metrics, /status
+aishie-runtime run        the worker: pollers and answer loops, and /healthz, /metrics, /status;
+                          with API_ADDR, the JSON API for the front end on a listener of its own
 aishie-runtime check      validate the configuration; with --live, connect each agent and show its seats
 aishie-runtime migrate    the store's schema (Postgres)
 aishie-runtime keys       the sealed secrets: check that each opens, or rewrap them under the current key
@@ -24,7 +25,9 @@ files, as M1 has it, and, with the store in PostgreSQL, from the registry of
 hosted agents that people connect from AIShiteru-Frontend (§11): the secret
 store seals their tokens and their owners' keys in the runtime's database,
 and the registry runs them beside the YAML agents. The JSON API the front
-end calls comes next. `/status` is the operator's view, read-only.
+end calls (§11.4) listens apart, on `API_ADDR`. `/status` is the
+operator's view, read-only, and never served through the API's listener
+or a proxy.
 
 ```
 cmd/aishie-runtime/     the binary
@@ -445,6 +448,7 @@ The prompt's hash is kept per answer.
 | `hosted_agent` | the registry (§11.2): id `agt_…`, Core actor (unique), owner and whether Core said so, tenant, name, token and own key (secrets, with hints), paused, settings (jsonb), version |
 | `hosted_course` | (agent, course) → settings (jsonb), who wrote them, when |
 | `registry_rev` | one row: the revision every write to `hosted_agent` or `hosted_course` moves on, by trigger, with `NOTIFY aishie_registry` |
+| `audit` | the API's audit (§11.4): when, who, with which of Core's sessions, from where, what, to what, the outcome, and a detail of ids, hints, providers, models and results; kept 400 days |
 
 Beside the sums quotas are checked against (`Spend`), two reports read the
 ledger for people, ids and numbers only: `Usage(agent, since, until)`, a
@@ -524,7 +528,7 @@ polling 2 s hot for 120 s, 10 s idle to 30 s, events 45 s, seats 300 s,
 M2 lets people connect their own agents from AIShiteru-Frontend instead of
 an operator writing YAML. The runtime's side is built in steps: the secret
 store (§11.1), the registry of hosted agents that runs them beside the YAML
-agents, and a versioned JSON API for the front end.
+agents (§11.2), and a versioned JSON API for the front end (§11.4).
 
 ### 11.1 The secret store
 
@@ -666,3 +670,89 @@ document a YAML file would hold, and runs it beside the YAML agents:
   the isolation is the same; each secret can be destroyed on its own; and
   with a KMS, the API that seals what people give it can hold no right to
   read anything back.
+- **The front end finds the runtime while it runs**, by `GET
+  /runtime/api/v1/info` on its own origin, not by a build setting: the web
+  image is built once for every environment.
+
+### 11.4 The API for the front end
+
+`internal/api` serves `/runtime/api/v1/` on `API_ADDR` (`127.0.0.1:9091`
+over SSH, `:9091` in the compose stack), behind Caddy at `/runtime/api/*`
+on Core's own origin with the `Cookie` header stripped, and nothing else:
+`/healthz`, `/metrics` and `/status` stay on `HTTP_ADDR`, and `/status`
+also refuses any request a proxy forwarded (`Forwarded`, `X-Forwarded-*`,
+`X-Real-IP`), since a proxy on the same machine connects from loopback.
+The API needs `CORE_BASE_URL`, `API_AUDIENCE`, `DATABASE_URL` and
+`KMS_KEY_ID`, and `run` refuses `API_ADDR` without them.
+
+- **Who is calling** (D2). The front end asks Core for an assertion of
+  its signed-in person (`POST /v1/auth/assertion`, audience
+  `API_AUDIENCE`) and sends it as a bearer token. `internal/webauth`
+  checks it, in this order, with the standard library alone: at most 8 KB,
+  a JWS of three base64url parts (else `assertion_malformed`); a header of
+  `alg` EdDSA, `typ` JWT when given, a `kid`, and no `crit`, `jku`, `jwk`,
+  `x5u` or `x5c`; the key its `kid` names; the signature; then `iss` equal
+  to `CORE_BASE_URL` and `aud` to `API_AUDIENCE` byte for byte (a list is
+  refused), `kind` human, `sub` a UUID, `jti` and `sid` there (else
+  `assertion_invalid`); and, with 5 s of leeway, before `exp` and not
+  before `nbf` (else `assertion_expired`), not issued in the future, and
+  lasting at most 900 s, Core's longest `ASSERTION_TTL`. The keys are
+  Core's `GET /v1/auth/keys`, fetched through the egress client (5 s, at
+  most 64 KB, no redirect) and kept for Core's `max-age`, at most 300 s; a
+  `kid` it lacks fetches them again, at most every 30 s, one fetch at a
+  time; while Core cannot be reached the last set is used for an hour past
+  its age, and with none the answer is 503 `keys_unavailable`. A pinned
+  `CORE_ASSERTION_KEY` replaces the fetch, and an assertion must name it
+  by its RFC 7638 thumbprint, as Core does. The assertion is never logged,
+  stored or passed on; a refusal is counted
+  (`aishie_api_auth_failures_total{reason}`) and logged at debug with its
+  reason alone.
+- **Who is an administrator** (D4): Core's `platform_role` root or admin,
+  narrowed to `ADMIN_ACTOR_IDS` when that is set. The role is the
+  assertion's own `platform_role` claim, which Core signs, having read the
+  actor afresh when it made the assertion: the runtime holds no credential
+  of the person's to ask Core with (D2), and needs none. A role taken away
+  in Core reaches the runtime within the assertion's lifetime (five
+  minutes by default, fifteen at most). No v1 route grants an
+  administrator more than an owner; `GET /me` says whether they are one.
+- **Every request**, in order: one log line and metrics
+  (`aishie_api_requests_total{route,code}`,
+  `aishie_api_request_seconds{route}`): method, route, status, reason,
+  person and milliseconds, never the `Authorization` header, a body, a
+  token, a key, a name or an email; a panic answered as 500; the headers
+  of every answer (`Cache-Control: no-store`, but `public, max-age=60` for
+  `/info`; `nosniff`; `Content-Security-Policy: default-src 'none';
+  frame-ancestors 'none'`; `Referrer-Policy: no-referrer`;
+  `Cross-Origin-Resource-Policy: same-origin`; no CORS); the client's
+  address, the peer's or, from a proxy in `API_TRUSTED_PROXIES`, the last
+  `X-Forwarded-For` hop that is not one; `http.CrossOriginProtection`; the
+  route (404 `no_route`, 405 with `Allow`); limits, as token buckets of at
+  most 10,000 keys each (per address, 120 a minute, bursts of 60, for
+  requests without an assertion and those whose assertion was refused, and
+  30 a minute for refusals alone; per person, 120 a minute, bursts of 40),
+  answered 429 with `Retry-After`; the assertion; a query (none is taken)
+  and a body (JSON only, at most 64 KB, no key twice, no member the route
+  does not take, nothing after the object; a route of no body takes an
+  empty one or `{}`).
+- **Refusals** are Core's envelope, `{"error": {"code", "message",
+  "details": {"reason", …}}}`: Core's codes and HTTP statuses, with
+  `version_mismatch`, `version_required` and `unavailable` (503, with
+  `Retry-After: 5`), and a reason from a closed list, which the front end
+  words. A 401 is always the assertion's, and carries `WWW-Authenticate:
+  Bearer realm="aishie-runtime"`, with `error="invalid_token"` when one was
+  sent.
+- **The routes** so far: `GET /info`, which anyone may ask, cached a
+  minute: `api: "aishie-runtime"`, `api_version: 1`, the version and
+  commit, the audience to ask Core for, the issuer, and the features
+  offered; and `GET /me`: the person's actor id and name, whether they are
+  an administrator, and how many agents they host. `GET /me` records the
+  person (`person`), at most every five minutes.
+- **The audit** (D11): `Server.Audit` records an event in `audit`
+  (migration 0005) after the change it is about has committed: who, their
+  session, their address, the action, its target, the outcome and a
+  detail of ids and hints, never a secret, a name or text anyone wrote. The
+  store has no transaction that spans a registry write and an audit row,
+  so an event that cannot be recorded is logged at error and counted
+  (`aishie_api_audit_failures_total`), and fails nothing. Refused
+  assertions are counted, not audited. Housekeeping destroys events older
+  than 400 days.

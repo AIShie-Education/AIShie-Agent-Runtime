@@ -27,6 +27,7 @@ var scenarios = []scenario{
 	{"proposals", proposals},
 	{"binary", theBinary},
 	{"hosted-agent-from-the-registry", hostedAgentAnswers},
+	{"api-takes-cores-assertion", apiTakesCoresAssertion},
 }
 
 // TestRuntimeAgainstCore runs every scenario against the Core under test.

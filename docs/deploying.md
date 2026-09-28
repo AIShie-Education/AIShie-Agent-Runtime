@@ -177,6 +177,40 @@ an older Core, which cannot say. `check --live` checks the owner as `run`
 does. A hosted agent whose id or Core
 actor is a YAML agent's does not run: the operator's configuration wins.
 
+## The API for the front end
+
+AIShiteru-Frontend manages hosted agents through the runtime's JSON API
+(`docs/design.md` §11.4), served on `API_ADDR` under `/runtime/api/v1/`
+and nothing else. The front end reaches it on Core's own origin, through
+Caddy, which must strip the `Cookie` header: the API takes Core's
+assertions and never a session cookie. In the site block of Core's
+origin, before the catch-all `handle`:
+
+```
+@runtime path /runtime/api/*
+handle @runtime {
+	request_header -Cookie
+	reverse_proxy 127.0.0.1:9091
+}
+```
+
+Core makes the assertions: its env file needs `RUNTIME_AUDIENCES` naming
+this runtime (`https://lms.example.edu/runtime`, the same bytes as
+`API_AUDIENCE`), and `PUBLIC_URL`, which must be `CORE_BASE_URL`. Then, in
+`/etc/aishie-runtime/runtime.env`:
+
+```
+API_ADDR=127.0.0.1:9091
+API_AUDIENCE=https://lms.example.edu/runtime
+API_TRUSTED_PROXIES=127.0.0.1/32
+```
+
+and deploy the running image again. `curl -s 127.0.0.1:9091/runtime/api/v1/info`
+answers with the audience; `/status` is not there, and on `HTTP_ADDR` it
+refuses any request a proxy forwarded, so pointing Caddy at `9090` by
+mistake exposes nothing. In the compose stack (aishie-deploy), the stack
+sets all of this itself.
+
 ## The key that seals secrets
 
 The tokens and keys of hosted agents, which people give the runtime rather
@@ -240,10 +274,15 @@ running (above): a restart does not read the file again.
 | `SHUTDOWN_GRACE` | how long the runtime lets answers in flight finish on SIGTERM (`15s`). `aishie-runtime-deploy` gives Docker that and 15 seconds more to stop it. |
 | `WORKER_ID`, `PRICES` | this worker's name in the leases (the host's name and the process id), and a price table's path when the `runtime:` document names none. |
 | `KMS_KEY_ID` | the key that seals the secrets kept in the database: `local:/secrets/kek/v1` ([above](#the-key-that-seals-secrets)). `setup-server.sh` adds it. Unset, no sealed secret opens. |
+| `API_ADDR` | where the JSON API for the front end listens, apart from `HTTP_ADDR`: `127.0.0.1:9091` ([above](#the-api-for-the-front-end)). Unset, there is no API. With it, `API_AUDIENCE`, `CORE_BASE_URL`, `DATABASE_URL` and `KMS_KEY_ID` are required, and the runtime does not start without them. |
+| `API_AUDIENCE` | the audience Core's assertions name for this runtime, exactly as Core's `RUNTIME_AUDIENCES` lists it, byte for byte: `https://lms.example.edu/runtime`. |
+| `CORE_ASSERTION_KEY` | Core's assertion key, pinned: its Ed25519 public key as the `x` of Core's `/v1/auth/keys`. Unset (the usual), the runtime fetches the keys from `CORE_BASE_URL`. |
+| `ADMIN_ACTOR_IDS` | Core actor ids, comma-separated: the runtime's administrators are Core's `root` and `admin` accounts among them. Unset, all of Core's. |
+| `API_TRUSTED_PROXIES` | the addresses or CIDRs of the proxy in front of the API (`127.0.0.1/32` when Caddy runs on this server), whose `X-Forwarded-For` the audit and the per-address limits believe. Unset, every request seems to come from the proxy, which then shares one allowance. |
 
 `CONFIG` and `SECRETS_DIR` are set by `aishie-runtime-deploy` to the two
 mounts, whatever the file says. There is no `OIDC_*`: people sign in to
-Core, which vouches for them to the runtime (`docs/design.md` §11.2).
+Core, which vouches for them to the runtime (`docs/design.md` §11.4).
 `aishie-runtime help` lists every setting the image in hand reads.
 
 ## Connecting the Deploy workflow

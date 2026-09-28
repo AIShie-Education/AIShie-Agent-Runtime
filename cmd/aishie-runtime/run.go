@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"syscall"
 	"time"
@@ -11,11 +13,14 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/api"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/httpserver"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/metrics"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/pgstore"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/version"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/webauth"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/worker"
 )
 
@@ -98,8 +103,21 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 		log.Error("HTTP_ADDR cannot be listened on", "addr", env.HTTPAddr, "err", err)
 		return exitFailure
 	}
+	apiSrv, err := newAPI(env, client, st, reg, log)
+	if err != nil {
+		log.Error("the API", "err", err)
+		return exitFailure
+	}
+	apiAddr := ""
+	if apiSrv != nil {
+		if err := apiSrv.Listen(); err != nil {
+			log.Error("API_ADDR cannot be listened on", "addr", env.APIAddr, "err", err)
+			return exitFailure
+		}
+		apiAddr = apiSrv.Addr()
+	}
 	log.Info("aishie-runtime started", "version", version.Version, "commit", version.Commit, "worker", sup.WorkerID(),
-		"addr", srv.Addr(), "agents", len(cfg.Agents), "hosted", len(h.hosted), "registry", h.pg != nil,
+		"addr", srv.Addr(), "api", apiAddr, "agents", len(cfg.Agents), "hosted", len(h.hosted), "registry", h.pg != nil,
 		"store", kind, "prices", l.pricesPath, "kek", kekID(v))
 	warnNoAgents(log, cfg)
 
@@ -114,6 +132,10 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 	}()
 	srvDone := make(chan error, 1)
 	go func() { srvDone <- srv.Serve(ctx) }()
+	apiDone := make(chan error, 1)
+	if apiSrv != nil {
+		go func() { apiDone <- apiSrv.Serve(ctx) }()
+	}
 	watchDone := make(chan struct{})
 	go func() {
 		defer close(watchDone)
@@ -136,6 +158,11 @@ wait:
 		case err := <-srvDone:
 			log.Error("the HTTP server stopped", "err", err)
 			srvDone <- err
+			code = exitFailure
+			break wait
+		case err := <-apiDone:
+			log.Error("the API stopped", "err", err)
+			apiDone <- err
 			code = exitFailure
 			break wait
 		case <-ctx.Done():
@@ -168,8 +195,46 @@ wait:
 		log.Error("the HTTP server did not stop cleanly", "err", err)
 		code = exitFailure
 	}
+	if apiSrv != nil {
+		if err := <-apiDone; err != nil && code == exitOK {
+			log.Error("the API did not stop cleanly", "err", err)
+			code = exitFailure
+		}
+	}
 	log.Info("aishie-runtime stopped")
 	return code
+}
+
+// newAPI is the JSON API for the front end (docs/design.md §11.4), or nil
+// when API_ADDR is not set: it takes the assertions Core at CORE_BASE_URL
+// makes for API_AUDIENCE, checked against CORE_ASSERTION_KEY when it is
+// pinned, and otherwise against the keys Core publishes, fetched through
+// client. It keeps what it is given in st, and counts on reg.
+func newAPI(env config.Env, client *http.Client, st store.Store, reg prometheus.Registerer, log *slog.Logger) (*api.Server, error) {
+	if env.APIAddr == "" {
+		return nil, nil
+	}
+	var keys webauth.Keys = webauth.NewRemoteKeys(env.CoreBaseURL, client)
+	if env.CoreAssertionKey != "" {
+		pinned, err := webauth.ParsePinnedKey(env.CoreAssertionKey)
+		if err != nil {
+			return nil, fmt.Errorf("CORE_ASSERTION_KEY: %w", err)
+		}
+		keys = pinned
+	}
+	proxies, err := api.ParseProxies(env.APITrustedProxies)
+	if err != nil {
+		return nil, err
+	}
+	return api.New(api.Options{
+		Addr:           env.APIAddr,
+		Verifier:       &webauth.Verifier{Keys: keys, Issuer: env.CoreBaseURL, Audience: env.APIAudience},
+		Store:          st,
+		AdminActorIDs:  env.AdminActorIDs,
+		TrustedProxies: proxies,
+		Registerer:     reg,
+		Log:            log,
+	}), nil
 }
 
 // noAgentsNote says what a runtime with no agent does, and how one is added.

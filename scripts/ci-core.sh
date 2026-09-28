@@ -14,13 +14,22 @@
 #   go test ./e2e
 #   scripts/ci-core.sh stop
 #
+# The env file also names E2E_RUNTIME_AUDIENCE and E2E_OTHER_AUDIENCE, the
+# audiences Core makes assertions for.
+#
 # start creates the database when it is missing (with psql, on DATABASE_URL's
 # server), and stop drops it again. A database that has been bootstrapped
 # before is refused: bootstrap runs once per database.
 #
-# In GitHub Actions, start masks the token and the password in the log and
-# puts the three E2E_* variables in $GITHUB_ENV for the steps after it. stop
-# leaves Core's log in core.log, next to the env file, for the job to upload.
+# Core makes assertions for two runtimes' audiences, $URL/runtime and
+# $URL/other-runtime (the runtime's API takes the first), signed with a key
+# derived from a SIGNING_KEY made up for the run, which is never written
+# down: it reaches Core through the environment alone.
+#
+# In GitHub Actions, start masks the token, the password and the signing
+# key in the log and puts the E2E_* variables in $GITHUB_ENV for the steps
+# after it. stop leaves Core's log in core.log, next to the env file, for
+# the job to upload.
 #
 #   CORE_BIN     a binary to run instead of the pinned image
 #   CORE_IMAGE   an image to run instead of the pinned one
@@ -152,6 +161,11 @@ start() {
     echo "::add-mask::$token"
     echo "::add-mask::$password"
   fi
+  # Core refuses RUNTIME_AUDIENCES without a key to sign for them.
+  SIGNING_KEY=$(openssl rand -hex 32)
+  export SIGNING_KEY
+  if in_actions; then echo "::add-mask::$SIGNING_KEY"; fi
+  local audience=$URL/runtime other=$URL/other-runtime
 
   # The tests' agents poll hard and a proposal the tests make should not
   # wait a minute to be swept.
@@ -162,6 +176,7 @@ start() {
     SIGN_IN_ATTEMPTS_PER_MINUTE=10000
     JOBS_INTERVAL=5s
     "BLOB_FS_ROOT=$DIR/blobs"
+    "RUNTIME_AUDIENCES=$audience,$other"
   )
   # Passed on only when set: Core's own defaults stand otherwise, in both
   # modes (docker passes nothing it is not told to).
@@ -176,6 +191,8 @@ start() {
     local -a flags=()
     local e
     for e in "${settings[@]}"; do flags+=(-e "$e"); done
+    # By name: its value is taken from this environment, not a command line.
+    flags+=(-e SIGNING_KEY)
     # One left by a run of this script that was killed.
     docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
     docker run -d --name "$CONTAINER" --network host --user "$(id -u):$(id -g)" \
@@ -196,9 +213,11 @@ start() {
   (
     umask 077
     printf "export E2E_CORE_URL='%s'\nexport E2E_ROOT_TOKEN='%s'\nexport E2E_PASSWORD='%s'\n" "$URL" "$token" "$password" > "$DIR/env"
+    printf "export E2E_RUNTIME_AUDIENCE='%s'\nexport E2E_OTHER_AUDIENCE='%s'\n" "$audience" "$other" >> "$DIR/env"
   )
   if in_actions; then
     printf 'E2E_CORE_URL=%s\nE2E_ROOT_TOKEN=%s\nE2E_PASSWORD=%s\n' "$URL" "$token" "$password" >> "$GITHUB_ENV"
+    printf 'E2E_RUNTIME_AUDIENCE=%s\nE2E_OTHER_AUDIENCE=%s\n' "$audience" "$other" >> "$GITHUB_ENV"
   fi
   echo "Core is up on $URL, on the database $dbname; root's API token and password are in $DIR/env:"
   echo "  . $DIR/env"
