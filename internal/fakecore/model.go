@@ -183,12 +183,16 @@ type assignment struct {
 	publishedAt  *time.Time
 }
 
-// document is a document with one published version: text, or a file.
+// document is a document with one version, published unless it is a
+// draft: text, or a file. A document made by document.create starts as a
+// draft, as Core's material, instructions and rubrics do, and a draft
+// without text has no version.
 type document struct {
 	id, kind, title  string
 	course           *course
 	sortOrder        int
 	createdAt        time.Time
+	draft            bool
 	versionID        string
 	authorMemberID   string
 	bodyMD           *string

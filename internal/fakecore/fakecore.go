@@ -115,6 +115,7 @@ func implemented() map[string]*impl {
 		"course.get":            courseGet(),
 		"document.list":         documentList(),
 		"document.get":          documentGet(),
+		"document.create":       documentCreate(),
 		"assignment.list":       assignmentList(),
 		"assignment.get":        assignmentGet(),
 		"submission.list":       submissionList(),

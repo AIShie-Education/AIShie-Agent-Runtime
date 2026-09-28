@@ -1208,6 +1208,79 @@ func TestDocumentRules(t *testing.T) {
 	})
 }
 
+// TestDocumentCreate is document.create through Core's pipeline, by an
+// instructor's own agent, as a model's write through its seat's perms
+// reaches Core: proposed at confirm_required and made when a person
+// approves it, executed at autonomous, denied at denied; replayed under
+// its key, and a conflict under its key with other arguments; the kind's
+// permission governing; a draft Sato reads and Yuki does not.
+func TestDocumentCreate(t *testing.T) {
+	w := newFakeWorld(t, Options{})
+	agent, err := w.fc.AddAgent("Sato's assistant", w.satoA.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := w.fc.Seat(agent.ID, w.co.ID, SeatOptions{Preset: "delegate", Principal: w.sato.ID,
+		Perms: map[string]string{permDocumentWrite: "confirm_required"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := w.client(agent.Token)
+	create := func(key, title string, more ...any) map[string]any {
+		args := inCourseArgs(w, "kind", "material", "title", title, "body_md", "# "+title, "idempotency_key", key)
+		for i := 0; i+1 < len(more); i += 2 {
+			args[more[i].(string)] = more[i+1]
+		}
+		return args
+	}
+	proposed := mustCall(t, c, "document_create", create("tool:x:m:1:1", "Week 1 notes"))
+	wantEnvelope(t, proposed, "proposed", "", "")
+	if a := mustCall(t, c, "document_create", create("tool:x:m:1:1", "Week 1 notes")); a.status() != "proposed" || a.Structured["replayed"] != true ||
+		a.str("action_id") != proposed.str("action_id") {
+		t.Errorf("the replay: %s", a.Text)
+	}
+	wantEnvelope(t, mustCall(t, c, "document_create", create("tool:x:m:1:1", "Week 2 notes")), "error", codeIdempotencyConflict, "")
+	if docs := w.fc.Documents(w.co.ID); len(docs) != 3 {
+		t.Fatalf("a proposal made a document: %+v", docs)
+	}
+	if out, err := w.fc.Approve(proposed.str("action_id")); err != nil || out != "executed" {
+		t.Fatalf("approved: %s %v", out, err)
+	}
+	docs := w.fc.Documents(w.co.ID)
+	if len(docs) != 4 || docs[3].Title != "Week 1 notes" || !docs[3].Draft || docs[3].BodyMD != "# Week 1 notes" || docs[3].AuthorMemberID != m.ID {
+		t.Fatalf("the approved document: %+v", docs)
+	}
+
+	w.ok(w.fc.SetLevel(m.ID, permDocumentWrite, "autonomous"))
+	made := mustCall(t, c, "document_create", create("tool:x:m:2:1", "Week 3 notes", "sort_order", 3))
+	wantEnvelope(t, made, "executed", "", "")
+	id := made.str("result", "document_id")
+	if id == "" || made.str("result", "version_id") == "" {
+		t.Fatalf("executed: %s", made.Text)
+	}
+	empty := mustCall(t, c, "document_create", inCourseArgs(w, "kind", "rubric", "title", "Rubric", "idempotency_key", "tool:x:m:2:2"))
+	if wantEnvelope(t, empty, "executed", "", ""); empty.str("result", "version_id") != "" {
+		t.Errorf("a document made without text has a version: %s", empty.Text)
+	}
+	wantEnvelope(t, mustCall(t, c, "document_create", create("tool:x:m:2:3", "  ")), "failed", codeInvalidArgument, "")
+	wantEnvelope(t, mustCall(t, c, "document_create", create("tool:x:m:2:4", "Exam", "kind", "exam")), "error", codeInvalidArgument, "")
+	// A submission's file needs its draft, as Core resolves it.
+	wantEnvelope(t, mustCall(t, c, "document_create", create("tool:x:m:2:5", "Mine", "kind", "submission")), "error", codeInvalidArgument, "")
+	wantEnvelope(t, mustCall(t, c, "document_create", create("tool:x:m:2:6", "No key", "idempotency_key", "")), "error", codeInvalidArgument, "")
+
+	// Sato reads the draft; Yuki does not see it.
+	wantEnvelope(t, mustCall(t, w.as("sato"), "document_get", inCourseArgs(w, "document_id", id)), "executed", "", "")
+	wantEnvelope(t, mustCall(t, w.as("yuki"), "document_get", inCourseArgs(w, "document_id", id)), "error", codeNotFound, "")
+	for _, d := range list(mustCall(t, w.as("yuki"), "document_list", inCourseArgs(w)), "documents") {
+		if d.(map[string]any)["id"] == id {
+			t.Error("Yuki lists a draft")
+		}
+	}
+
+	w.ok(w.fc.SetLevel(m.ID, permDocumentWrite, "denied"))
+	wantEnvelope(t, mustCall(t, c, "document_create", create("tool:x:m:3:1", "Week 4 notes")), "denied", codeForbidden, reasonPermDenied)
+}
+
 func TestAStudentSeatListsItself(t *testing.T) {
 	fc := New(Options{})
 	co := fc.AddCourse("CS101")

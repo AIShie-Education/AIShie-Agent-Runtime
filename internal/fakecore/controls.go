@@ -911,6 +911,36 @@ func (c *Core) Proposals(courseID string) []Proposal {
 	return out
 }
 
+// DocumentRecord is a course's document as the fake holds it, for
+// assertions.
+type DocumentRecord struct {
+	ID, Kind, Title string
+	// Draft is a document not published: every one document.create made.
+	Draft          bool
+	BodyMD         string
+	AuthorMemberID string
+}
+
+// Documents are a course's documents, in the order they were made: its
+// canned material, then what document.create made.
+func (c *Core) Documents(courseID string) []DocumentRecord {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	co := c.courses[courseID]
+	if co == nil {
+		return nil
+	}
+	out := make([]DocumentRecord, 0, len(co.documents))
+	for _, d := range co.documents {
+		r := DocumentRecord{ID: d.id, Kind: d.kind, Title: d.title, Draft: d.draft, AuthorMemberID: d.authorMemberID}
+		if d.bodyMD != nil {
+			r.BodyMD = *d.bodyMD
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
 // Messages is every message of a conversation, in order.
 func (c *Core) Messages(conversationID string) []MessageRecord {
 	return c.records(conversationID, func(*message) bool { return true })

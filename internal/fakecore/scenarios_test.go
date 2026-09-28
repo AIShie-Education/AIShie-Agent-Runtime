@@ -79,6 +79,12 @@ type world interface {
 	// lifting it (agent.suspend, agent.reactivate).
 	suspendTutor()
 	reactivateTutor()
+	// ownerAgent seats an agent of Sato's as his delegate (preset
+	// delegate), with perms over the preset's, as an instructor seats an
+	// assistant of their own: its seat and its client.
+	ownerAgent(perms map[string]string) (seat string, c *mcpClient)
+	// setLevel is Sato setting one permission of seat (member.update_perms).
+	setLevel(seat, perm, level string)
 }
 
 // steps is what a scenario recorded, in order.
@@ -973,7 +979,37 @@ var scenarios = []scenario{
 		rawCall("integer_as_fraction", "event_list", raw(`{"course_id":%q,"since_seq":1.5}`, w.course()))
 		rawCall("integer_written_as_a_float", "event_list", raw(`{"course_id":%q,"since_seq":1.0,"limit":1e1}`, w.course()))
 	}},
+	modelWrites,
 }
+
+// modelWrites is a write a model makes through its seat's perms (the
+// runtime's docs/design.md §4), document_create under the runtime's keys.
+var modelWrites = scenario{name: "model_writes", about: "document_create by an instructor's own agent, as its model makes one: proposed at confirm_required, replayed, a conflict under its key, executed at autonomous, failed and refused arguments, denied, and the draft its principal reads and a student does not",
+	run: func(t *testing.T, w world, s *steps) {
+		seat, c := w.ownerAgent(map[string]string{"document_write": "confirm_required"})
+		create := func(key, title string, more ...any) map[string]any {
+			args := inCourseArgs(w, "kind", "material", "title", title, "body_md", "# "+title, "idempotency_key", key)
+			for i := 0; i+1 < len(more); i += 2 {
+				args[more[i].(string)] = more[i+1]
+			}
+			return args
+		}
+		wantStatus(t, callAs(t, c, s, "proposed", "document_create", create("tool:x:m:1:1", "Week 1 notes")), "proposed")
+		callAs(t, c, s, "replayed", "document_create", create("tool:x:m:1:1", "Week 1 notes"))
+		callAs(t, c, s, "conflict", "document_create", create("tool:x:m:1:1", "Week 2 notes"))
+		w.setLevel(seat, "document_write", "autonomous")
+		made := callAs(t, c, s, "executed", "document_create", create("tool:x:m:2:1", "Week 3 notes", "sort_order", 3))
+		wantStatus(t, made, "executed")
+		callAs(t, c, s, "no_text", "document_create", inCourseArgs(w, "kind", "rubric", "title", "Rubric", "idempotency_key", "tool:x:m:2:2"))
+		callAs(t, c, s, "untitled", "document_create", create("tool:x:m:2:3", " "))
+		callAs(t, c, s, "unknown_kind", "document_create", create("tool:x:m:2:4", "Exam", "kind", "exam"))
+		callAs(t, c, s, "submission_without_its_draft", "document_create", create("tool:x:m:2:5", "Mine", "kind", "submission"))
+		id, _ := resultOf(made, "document_id").(string)
+		callShape(t, w.as("sato"), s, "draft_to_its_principal", "document_get", inCourseArgs(w, "document_id", id))
+		callAs(t, w.as("yuki"), s, "draft_to_a_student", "document_get", inCourseArgs(w, "document_id", id))
+		w.setLevel(seat, "document_write", "denied")
+		callAs(t, c, s, "denied", "document_create", create("tool:x:m:3:1", "Week 4 notes"))
+	}}
 
 func digest(v any) string {
 	b, _ := json.Marshal(v)
