@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -577,7 +580,7 @@ func (s *Supervisor) updateGauge() {
 // the registry's: when id is a YAML agent's and the other is a hosted one,
 // id takes the actor, and the hosted agent is returned to be stopped.
 func (s *Supervisor) claimActor(baseURL, actorID, id string) (string, *Agent) {
-	key := baseURL + "\x00" + actorID
+	key := actorKey(baseURL, actorID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	other, ok := s.actors[key]
@@ -591,6 +594,35 @@ func (s *Supervisor) claimActor(baseURL, actorID, id string) (string, *Agent) {
 		return "", theirs.agent
 	}
 	return other, nil
+}
+
+// actorKey names a Core actor at a Core, whichever way its base URL is
+// written: the scheme and host in any case, the scheme's own port given or
+// not, and a / at the end or none are one Core, as the Core client calls
+// them (it drops the /). Two agents on one actor must meet here however
+// their configurations spell its Core, CORE_BASE_URL's hosted agents and
+// the operator's YAML among them.
+func actorKey(baseURL, actorID string) string {
+	return coreOrigin(baseURL) + "\x00" + actorID
+}
+
+// coreOrigin is baseURL as actorKey compares it; as written, when it does
+// not parse.
+func coreOrigin(baseURL string) string {
+	u, err := url.Parse(baseURL)
+	if err != nil || u.Host == "" {
+		return baseURL
+	}
+	scheme, host, port := strings.ToLower(u.Scheme), strings.ToLower(u.Hostname()), u.Port()
+	if (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
+		port = ""
+	}
+	if port != "" {
+		host = net.JoinHostPort(host, port)
+	} else if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	return scheme + "://" + host + strings.TrimRight(u.EscapedPath(), "/")
 }
 
 // hostedAgent reports whether id is an agent of the registry's.
@@ -609,7 +641,7 @@ func (e *blockedError) Error() string { return e.msg }
 
 // releaseActor undoes claimActor, when id holds the actor.
 func (s *Supervisor) releaseActor(baseURL, actorID, id string) {
-	key := baseURL + "\x00" + actorID
+	key := actorKey(baseURL, actorID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.actors[key] == id {

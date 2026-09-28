@@ -230,20 +230,29 @@ func TestHostedTokenChangeRestartsAnUnauthorizedAgent(t *testing.T) {
 
 // One Core actor is one agent here, and the operator's wins: a hosted
 // agent on a YAML agent's actor is shown in state error and does not poll,
-// whichever started first, and only the YAML agent answers.
+// whichever started first, and only the YAML agent answers. The YAML
+// agent may name the same Core as CORE_BASE_URL in another spelling: with
+// a / at the end, or its host in capitals.
 func TestYAMLWinsACoreActor(t *testing.T) {
-	for _, first := range []string{"both at once", "the hosted one first"} {
+	for _, first := range []string{"both at once", "the hosted one first", "a / at the end of the YAML's Core", "the YAML's Core in capitals"} {
 		t.Run(first, func(t *testing.T) {
 			w := newWorld(t)
 			own := w.ownAgent("yuki-helper", 0)
 			h := w.hosting()
 			// agt_ sorts before yuki-: the hosted agent is started first.
 			h.host("agt_dup", own, "", hostedSettings("m1"))
-			yamlDoc := w.agentDoc("yuki-helper", "m2", nil, nil)
+			var over map[string]any
+			switch first {
+			case "a / at the end of the YAML's Core":
+				over = map[string]any{"core": map[string]any{"base_url": w.srv.URL + "/"}}
+			case "the YAML's Core in capitals":
+				over = map[string]any{"core": map[string]any{"base_url": strings.Replace(w.srv.URL, "http://", "HTTP://", 1)}}
+			}
+			yamlDoc := w.agentDoc("yuki-helper", "m2", over, nil)
 			yaml := w.config(nil, yamlDoc)
 			ms := models{"m1": scripted.New(scripted.Reply("From the registry.")), "m2": scripted.New(scripted.Reply("From YAML."))}
 			var wk *worker
-			if first == "both at once" {
+			if first != "the hosted one first" {
 				wk = h.start(h.build(yaml), ms)
 			} else {
 				wk = h.start(h.build(&config.Config{}), ms)
@@ -285,5 +294,24 @@ func TestHostedTokenOfAnotherActor(t *testing.T) {
 	}
 	if n := len(w.calls(other.actor.ID, "me_get")); n != 1 {
 		t.Errorf("me_get was called %d times; the agent is not tried again until it changes", n)
+	}
+}
+
+// One Core is one Core in the actor claim, however its base URL is
+// written; another host, port or path is another.
+func TestActorKey(t *testing.T) {
+	same := []string{"https://lms.example.edu", "https://lms.example.edu/", "HTTPS://LMS.Example.edu", "https://lms.example.edu:443/"}
+	for _, u := range same {
+		if actorKey(u, "a1") != actorKey(same[0], "a1") {
+			t.Errorf("%s is another Core than %s", u, same[0])
+		}
+	}
+	for _, u := range []string{"https://lms.example.edu:8443", "https://other.example.edu", "https://lms.example.edu/core", "http://lms.example.edu"} {
+		if actorKey(u, "a1") == actorKey(same[0], "a1") {
+			t.Errorf("%s is the same Core as %s", u, same[0])
+		}
+	}
+	if actorKey(same[0], "a1") == actorKey(same[0], "a2") {
+		t.Error("two actors are one")
 	}
 }
