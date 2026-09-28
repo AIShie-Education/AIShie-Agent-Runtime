@@ -23,8 +23,8 @@ func readCatalogue(t *testing.T) []byte {
 	return b
 }
 
-// TestCatalogueSnapshot holds the pinned catalogue to what it is: 131
-// tools, 48 reads and 83 writes, every name within [a-z_]+ and at most 27
+// TestCatalogueSnapshot holds the pinned catalogue to what it is: 132
+// tools, 48 reads and 84 writes, every name within [a-z_]+ and at most 27
 // characters, which every provider takes (§1.2 counts an earlier Core's).
 func TestCatalogueSnapshot(t *testing.T) {
 	c, err := ParseCatalogue(readCatalogue(t))
@@ -32,8 +32,8 @@ func TestCatalogueSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	tools := c.Tools()
-	if len(tools) != 131 || c.Len() != 131 {
-		t.Fatalf("%d tools, want 131", len(tools))
+	if len(tools) != 132 || c.Len() != 132 {
+		t.Fatalf("%d tools, want 132", len(tools))
 	}
 	name := regexp.MustCompile(`^[a-z_]+$`)
 	reads, writes, longest := 0, 0, 0
@@ -63,8 +63,8 @@ func TestCatalogueSnapshot(t *testing.T) {
 		}
 		longest = max(longest, len(tl.MCPName))
 	}
-	if reads != 48 || writes != 83 || longest != 27 {
-		t.Fatalf("%d reads, %d writes, the longest name %d; want 48, 83, 27", reads, writes, longest)
+	if reads != 48 || writes != 84 || longest != 27 {
+		t.Fatalf("%d reads, %d writes, the longest name %d; want 48, 84, 27", reads, writes, longest)
 	}
 	if !sort.SliceIsSorted(tools, func(i, j int) bool { return tools[i].MCPName < tools[j].MCPName }) {
 		t.Error("Tools is not sorted by MCP name")
@@ -300,7 +300,7 @@ func TestFetchCatalogue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Hash() != want.Hash() || c.Len() != 131 {
+	if c.Hash() != want.Hash() || c.Len() != 132 {
 		t.Fatalf("fetched %d tools, hash %s", c.Len(), c.Hash())
 	}
 

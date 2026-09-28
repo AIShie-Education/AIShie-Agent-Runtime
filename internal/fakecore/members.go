@@ -158,33 +158,39 @@ func memberGet() *impl {
 type memberLookupActorIn struct {
 	inCourse
 	Email   *string    `json:"email,omitempty"`
+	LoginID *string    `json:"login_id,omitempty"`
 	ActorID *uuid.UUID `json:"actor_id,omitempty"`
 }
 
 // memberLookupActor finds the actor an id names, for whoever seats people:
 // with their seat here when they have one, and their owner when an agent
-// is someone's. Nobody here has an email address, so an email finds
-// nobody.
+// is someone's. Nobody here has an email address or a login ID, so
+// neither finds anybody.
 func memberLookupActor() *impl {
 	return define(spec[memberLookupActorIn]{
 		gate:    gateManageMembers,
 		resolve: func(*Core, *course, memberLookupActorIn) (target, error) { return target{typ: "actor"}, nil },
 		query: func(c *Core, rc *readCtx, in memberLookupActorIn) (any, error) {
-			var email *string
-			if in.Email != nil {
-				if e := strings.TrimSpace(*in.Email); e != "" {
-					email = &e
+			given := 0
+			for _, v := range []*string{in.Email, in.LoginID} {
+				if v != nil && strings.TrimSpace(*v) != "" {
+					given++
 				}
 			}
-			if (email == nil) == (in.ActorID == nil) {
-				return nil, invalid("give one of email or actor_id")
+			if in.ActorID != nil {
+				given++
 			}
+			if given != 1 {
+				return nil, invalid("give one of email, login_id and actor_id")
+			}
+			// The fake keeps nobody's email or login ID: only an id
+			// finds anyone.
 			var a *actor
 			if in.ActorID != nil {
 				a = c.actors[in.ActorID.String()]
 			}
 			if a == nil || a.kind == "system" {
-				return nil, missing("nobody is registered with that email or id")
+				return nil, missing("nobody is registered with that email, login ID or id")
 			}
 			out := struct {
 				ActorID      string  `json:"actor_id"`

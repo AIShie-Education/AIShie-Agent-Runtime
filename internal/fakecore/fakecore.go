@@ -66,8 +66,8 @@ type Options struct {
 	// GET /v1/tools and tools/list alike, describes no owner_actor_id.
 	BeforeOwners bool
 	// WithoutSiteChat answers as a Core from before me.site_chat, as the
-	// runtime was pinned to until 169cf50 (sitechat.go): its catalogue has
-	// no such tool, and the fake knows none.
+	// runtime was pinned to before 61b7494 (sitechat.go): its catalogue
+	// has no such tool, and the fake knows none.
 	WithoutSiteChat bool
 }
 

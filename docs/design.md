@@ -309,6 +309,9 @@ by `Run`; each entry has its reason beside it in the code:
   seats agents: Core refuses a delegate's, and no model is to multiply
   itself. The rest of `member_*` is gated on the seat's perms (above), and
   kept off the seats a model never changes.
+- `member_reset_password`: a temporary password for a member who has
+  forgotten theirs, shown once, a credential in the model's text; Core
+  refuses an agent's call too (`people_only`).
 - `course_create`, `course_update`, `course_activate`, `course_archive`,
   `course_move`, `course_seat_instructor`, `course_list`, `preset_*`,
   `term_*`, `department_*`: the platform's administration, which Core gates
@@ -608,8 +611,8 @@ Core. Core's instructions to an agent say to declare `on: false` when
 what runs it stops; the runtime does not, for the reason above: with
 workers taking agents over from each other, a stopping worker's `false`
 could land after the next worker's `true`. A Core whose catalogue does not
-offer the tool (one from before it, as the runtime's pin was until
-169cf50), or that refuses it as a tool it does not know, has nothing to
+offer the tool (one from before it, as 571e1f9, the runtime's pin before
+61b7494, was), or that refuses it as a tool it does not know, has nothing to
 declare, which is logged once per catalogue. The model is never offered it
 (`me_*` is on the built-in deny list, §4). The fake Core offers it, and
 refuses a question to an agent that has not declared, as Core does;

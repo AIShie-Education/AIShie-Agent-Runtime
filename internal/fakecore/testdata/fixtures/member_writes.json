@@ -72,7 +72,7 @@
    "envelope": {
     "error": {
      "code": "invalid_argument",
-     "message": "give one of email or actor_id"
+     "message": "give one of email, login_id and actor_id"
     },
     "status": "error"
    },
@@ -91,7 +91,7 @@
    "envelope": {
     "error": {
      "code": "invalid_argument",
-     "message": "give one of email or actor_id"
+     "message": "give one of email, login_id and actor_id"
     },
     "status": "error"
    },
@@ -109,7 +109,7 @@
    "envelope": {
     "error": {
      "code": "not_found",
-     "message": "nobody is registered with that email or id"
+     "message": "nobody is registered with that email, login ID or id"
     },
     "status": "error"
    },
@@ -127,7 +127,7 @@
    "envelope": {
     "error": {
      "code": "not_found",
-     "message": "nobody is registered with that email or id"
+     "message": "nobody is registered with that email, login ID or id"
     },
     "status": "error"
    },

@@ -14,9 +14,9 @@ import (
 // agent, or ask in one, while it does not (agent_answers_elsewhere). The
 // fake keeps each actor's last declaration, and holds it while the actor
 // has a live token at all: it does not tell one token of an agent's from
-// another. Core has had it since the runtime's pin moved to 169cf50;
-// Options.WithoutSiteChat answers as a Core from before it, where nobody
-// is refused for it.
+// another. Core has had it since 169cf50; Options.WithoutSiteChat answers
+// as a Core from before it, as 571e1f9, the runtime's pin before 61b7494,
+// was, where nobody is refused for it.
 
 // withoutSiteChat is the catalogue raw without me.site_chat.
 func withoutSiteChat(raw []byte) ([]byte, error) {

@@ -225,6 +225,10 @@ var BuiltinDeny = []string{
 	// of member_* is gated on the seat's perms, and kept off the seats the
 	// model must never change (SeatGuard).
 	"member_add_delegate", "member_delegate_defaults",
+	// A temporary password for a member who has forgotten theirs, shown
+	// once: a credential in the model's text. Core refuses an agent's
+	// call too (people_only).
+	"member_reset_password",
 	// The platform's own administration, which Core gates on a platform
 	// or department administrator's role and no course permission grants:
 	// courses made, changed, activated, archived, moved between
