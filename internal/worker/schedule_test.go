@@ -94,3 +94,35 @@ func TestBackoff(t *testing.T) {
 		t.Error("full jitter can wait no time at all")
 	}
 }
+
+func TestFirstPollSpreadsOverTheIdleInterval(t *testing.T) {
+	if got := FirstPoll(defaults, 0); got != 0 {
+		t.Errorf("FirstPoll(0) = %s", got)
+	}
+	if got := FirstPoll(defaults, 0.5); got != 5*time.Second {
+		t.Errorf("FirstPoll(0.5) = %s", got)
+	}
+	if got := FirstPoll(defaults, 0.999999); got >= 10*time.Second {
+		t.Errorf("FirstPoll(1-) = %s", got)
+	}
+}
+
+func TestInboxIntervalJitterStaysAroundTheFloor(t *testing.T) {
+	floor := 20 * time.Second
+	lo, hi := InboxInterval(defaults, false, 0, floor, false, 0), InboxInterval(defaults, false, 0, floor, false, 0.999999)
+	if lo != 15*time.Second || hi < 24999*time.Millisecond || hi > 25*time.Second {
+		t.Errorf("jittered around a 20 s floor: %s to %s", lo, hi)
+	}
+}
+
+func TestProposalFollowUps(t *testing.T) {
+	want := []time.Duration{0, 5 * time.Second, 15 * time.Second, 45 * time.Second}
+	if len(ProposalFollowUps) != len(want) {
+		t.Fatalf("ProposalFollowUps = %v", ProposalFollowUps)
+	}
+	for i := range want {
+		if ProposalFollowUps[i] != want[i] {
+			t.Errorf("ProposalFollowUps = %v, want %v (§7.2)", ProposalFollowUps, want)
+		}
+	}
+}

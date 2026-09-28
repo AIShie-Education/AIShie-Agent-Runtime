@@ -265,7 +265,8 @@ aishie-runtime-deploy ghcr.io/aishiteru-lms/aishie-agent-runtime:1.2.2
 
 Run all of these as root on the server. `9090` stays on localhost:
 `/status` names agents, courses and members, and nothing asks who is
-asking.
+asking but its address (it answers 403 to any client not on this
+machine's loopback, should `HTTP_ADDR` listen wider).
 
 - **Is it up, and which version:** `curl -s 127.0.0.1:9090/healthz` answers
   `{"status":"ok","version":…,"commit":…}` while the runtime runs, and 503

@@ -45,6 +45,7 @@ internal/
   prompt        the system prompt and the history the model is given
   store         the runtime's state (interfaces); memstore, pgstore, storetest
   worker        the supervisor, each agent's pollers, the answer loop, quotas
+  httpserver    /healthz, /metrics and /status
   metrics       Prometheus metrics (§8.1)
   fakecore      a fake Core with the same MCP surface and envelope, scriptable (§8.2)
 e2e/            against a real Core, pinned in .github/core-image
@@ -165,8 +166,14 @@ in call order.
 lease (`agent:{id}` in the store, renewed every 10 s, lasting 30 s). A dead
 worker's agents are taken up by another within 30 s; two workers never run
 one agent's pollers at once, so one process's token bucket is the agent's
-whole spend. `SIGHUP` reloads the configuration: agents added, removed,
-paused or changed are started, stopped or restarted.
+whole spend. A renewal gets min(5 s, a third of the lease) to finish; one
+that fails or does not finish stops the agent at once. On shutdown or
+removal the agent is recorded `stopped` before its lease is let go, so a
+takeover (`lease_takeovers_total`) counts only a lease that lapsed on a
+worker that was still running it. Within one worker, one Core actor is one
+agent: a second agent configured with the same token goes to state `error`,
+naming the first. `SIGHUP` reloads the configuration and the price table:
+agents added, removed, paused or changed are started, stopped or restarted.
 
 An agent (`worker.Agent`) starts with `me_get` (the token works), the
 catalogue, and `me_memberships`. It reads memberships again every
@@ -174,10 +181,20 @@ catalogue, and `me_memberships`. It reads memberships again every
 Each seat that answers (`core.Membership.Answers()`, and the course not
 disabled in the configuration) gets a `Seat`: its inbox poller, its events
 poller, its toolset. A seat that leaves `me_memberships` is stopped, recorded
-gone, and its memory purged `retention_days_after_removal` later.
+gone, and its memory purged `retention_days_after_removal` later. A seat
+still listed that stops answering (paused, denied, the course archived or
+disabled here) is stopped but not gone, and keeps its memory. Whether a
+seat is a tutor or a delegate, and so which built-in prompt it gets, is read
+at each answer from `answers_course` as `me_memberships` last showed it.
 
-A 401 anywhere stops the agent (state `unauthorized`) until its
-configuration changes. A paused agent makes no calls at all.
+A 401 anywhere stops the agent (state `unauthorized`). So does an MCP
+envelope with status `error` and code `unauthenticated`, which the real Core
+sends where REST answers 401 when the token's actor no longer exists. A
+reload starts an unauthorized or failed agent again even when its
+configuration has not changed, because a new token goes into the same
+secret file (`docs/deploying.md`). Tokens and model keys are read when an
+agent starts, so a rotated one takes effect at the next start. A paused
+agent makes no calls at all.
 
 ### 5.2 Polling
 
@@ -187,12 +204,18 @@ Per seat (§7.2):
   answer posted, an event of the opener writing), else `inbox_idle_s`,
   growing ×1.5 per empty poll to `inbox_max_s`; every interval jittered by
   `±jitter`, and never below the rate share's floor; the first poll of each
-  seat spread over the idle interval. After a 429, intervals double for five
-  minutes.
+  seat spread over the idle interval. After a 429, the inbox, events and
+  seats intervals all double for five minutes. A poll counts as empty only
+  when it finds nothing new: rows waiting for a slot do not slow the next.
 - **Events**: every `events_s`, and after a `proposed` answer at once, then
   after 5, 15 and 45 s. The cursor (`next_seq`) is kept in the store per
-  seat.
-- **Seats**: every `memberships_s`.
+  seat, and moves past a page only when every event on it was recorded; a
+  store that fails on one has the page read again. The real Core does not
+  move `next_seq` over events the actor cannot see, so a page with no
+  events ends the round.
+- **Seats**: every `memberships_s`; an agent with no seat to poll reads them
+  every `inbox_max_s` instead, so that Core still shows it present and a
+  restored seat is noticed soon.
 
 Each inbox row not already being answered, not held back (below), goes to
 the scheduler, which runs at most `max_concurrent` answers per agent and
@@ -211,9 +234,13 @@ For an inbox row (conversation X, question M, opener P):
    reason) or skip it until tomorrow, per `on_attempts_exhausted`.
 4. **Quota** (§5.3): the asker's day (course, P), the agent's day, the
    tenant's day, each in answers and dollars; dollars checked against the
-   p95 of the agent's recent answers. Out of quota: the canned notice under
-   the answer's key, with no model call (`on_quota_exhausted: canned`), or
-   skip until tomorrow (`silent`).
+   p95 of the agent's recent answers. A dollar quota already spent is out;
+   a scope that has spent nothing today is never refused on the p95 alone,
+   or one dear answer would lock every asker out for good. Answers count
+   against quotas when Core took them (executed or proposed); dollars count
+   every model call. Out of quota: the canned notice under the answer's key,
+   with no model call (`on_quota_exhausted: canned`), or skip until tomorrow
+   (`silent`).
 5. **Read** X: `conversation_messages` (the newest `history_messages`). If
    the opener's newest message is no longer M, answer that one instead.
 6. **Prompt**: the system prompt (§6 below), the seat's facts, X's memory,
@@ -225,12 +252,22 @@ For an inbox row (conversation X, question M, opener P):
    `on_refusal_text`; `context_overflow` halves the history and tries once
    more; `tool_error` retries the turn once. A spent budget takes a last
    turn with ForceAnswer, and gives `on_budget_text` if that has no text.
-   A provider that cannot be reached is retried with backoff within the wall
-   clock, then the fallback model; if all fail, nothing is posted and X is
-   held back for a minute, doubling to ten; after five such failures on M,
-   `on_budget_text` is posted.
-8. **Safety** (`safety.Body`): links and images whose URLs carry context
-   stripped, cut to `max_body_chars` on a paragraph or sentence.
+   `turns` is a hard cap: the last call it allows is the forced one, and a
+   provider's error is not a turn. The output-token budget forces the last
+   turn as soon as what is left cannot hold a whole one, and caps it at what
+   is left; tool calls past their budget get an error result and never reach
+   Core. A last turn forced by the wall clock gets min(wall clock / 6, 15 s)
+   more; the claim's Core calls stop at the wall clock plus 25 s, inside the
+   lease. A provider that cannot be reached is tried up to three times
+   with backoff within the wall clock (honouring `Retry-After`), then the
+   fallback model, which an auth or bad-request error also moves to. While a
+   fallback remains, a call gets two thirds of the time left, and one that
+   times out moves to the fallback at once, so that a provider that hangs
+   leaves its fallback time to answer. If all fail, nothing is posted and
+   X is held back for a minute, doubling to ten; after five such failures
+   on M (counted in memory), `on_budget_text` is posted.
+8. **Safety** (`safety.Body`, §7 below): links and images whose URLs carry
+   context stripped, cut to `max_body_chars` on a paragraph or sentence.
 9. **Post**, written ahead: the attempt is stored (`sending`, the exact
    bytes) before `conversation_answer`, and finished with what came back.
 10. **Outcome** (§2.4, `worker.Classify`):
@@ -244,8 +281,8 @@ For an inbox row (conversation X, question M, opener P):
 | `failed conflict already_answered`, `answer_pending` | leave it |
 | `failed conflict closed` | drop it |
 | `failed forbidden not_addressable` | drop it; read memberships again |
-| `failed invalid_argument` | shorten or fix, and post again under the next attempt |
-| `error idempotency_conflict` | never resend under that key; next attempt if X is still in the inbox |
+| `failed invalid_argument` | if safety had cut or stripped the body, written again once, shorter and without links, under the next attempt; else failed |
+| `error idempotency_conflict` | never resend under that key; next attempt if X still waits on M (`conversation_get`) |
 | `error not_found` | drop it |
 | replayed | treated as its stored status |
 | replayed `rejected`, `cancelled` | next attempt, with the reason in the prompt |
@@ -272,7 +309,15 @@ The events poller reads `event_list` from the seat's cursor:
 - `conversation.message_posted` by an opener: the course is hot.
 
 `action_list_mine` is also read at start for proposals the store still has
-as `proposed`, so that a decision made while the runtime was down is found.
+as `proposed`, so that a decision made while the runtime was down is found,
+and attempts left `sending` are sent again; a replay that comes back
+`rejected` is settled with its reason, as the events path does. The
+`actions` cursor moves only over settled actions, stopping before the first
+proposal still waiting; a lookup reads at most 50 pages of 200.
+
+Core's `message_retracted` names no author, so a retraction of the agent's
+own answer is recognised from memory (the `answered` note names the posted
+message); with `memory.enabled: false` it is not.
 
 ## 6. What the model is told
 
@@ -303,11 +348,23 @@ The prompt's hash is kept per answer.
   seat's perms, less the built-in deny list at every stage.
 - `safety.Body` strips from the answer every link and image whose URL
   carries context: a query string, a fragment, user information, a scheme
-  other than http, https or mailto, or a path segment that looks like data
-  (32 or more characters of letters, digits and `+/=_-`, or
-  percent-encoding). Link text is kept; an image becomes its alt text; a bare
-  URL becomes `[link removed]`. Reference definitions and HTML `a` and
-  `img` go the same way.
+  other than http, https or mailto, or a path segment or host label that
+  looks like data (32 or more characters of letters, digits and `+/=_-`, or
+  percent-encoding), a backslash, `//` links, emails and URLs over 2048
+  bytes. Link text is kept; an image becomes its alt text; a bare URL
+  becomes `[link removed]`. Reference definitions and HTML `a` and `img` go
+  the same way.
+- It reads the answer exactly as AIShiteru-Frontend's renderer does
+  (`src/utils/markdown.ts`: markdown-it 15 with `html: false` and
+  `linkify: true`, linkify-it 6 with fuzzy links off and fuzzy emails on,
+  its `$` math plugin): `internal/safety` holds a port of markdown-it's
+  block and inline rules, linkify-it and mdurl, and judges each URL as the
+  href the renderer emits and as a browser reads it. Code and TeX are left
+  as the renderer leaves them. `testdata/renderer.json` records bodies with
+  the real renderer's verdict; a change to the frontend's renderer
+  (a plugin, a preset, a version) must be matched here and re-recorded.
+- `/status` names agents, courses and members, so it answers only clients on
+  the loopback interface; `HTTP_ADDR` defaults to `127.0.0.1:9090`.
 - `redact` removes `ais_…`, `aisinv_…`, `sk-…`, `AIza…`, AWS access keys
   and `LOG_REDACT_EXTRA` from every log line. Logs hold ids, counts and
   codes, never message text.
@@ -362,6 +419,10 @@ polling 2 s hot for 120 s, 10 s idle to 30 s, events 45 s, seats 300 s,
   safety evaluations (injected instructions to call other tools, to answer
   about other students, to post links carrying data).
 - `e2e`: the pinned Core (`scripts/ci-core.sh`), agents seated over REST, the
-  runtime with the scripted OpenAI Chat server: a student's own agent and a
-  course tutor answer, moved on and duplicates are safe, a proposal is
-  approved.
+  runtime with the scripted OpenAI Chat server behind the real `openai_chat`
+  adapter: a student's own agent answers within the latency target and a
+  course tutor keeps askers apart; moved on and duplicates across two
+  workers are safe; a seat set to `denied` stops polling and answers again
+  when restored; a proposal approved is recorded, and a rejection's reason
+  reaches the next attempt; no token or key in any log, before or after
+  redaction; the binary's `catalogue --check` and `check --live`.

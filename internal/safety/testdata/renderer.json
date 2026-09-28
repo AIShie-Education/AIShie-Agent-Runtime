@@ -1,0 +1,4002 @@
+[
+ {
+  "in": "\n#  ```\n$x^2$<a href=\"/courses/1\">x</a> \n     ",
+  "limit": 0,
+  "out": "#  ```\n$x^2$<a href=\"/courses/1\">x</a>",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "<img src=\"https://e.example/a|b\"> \\ \n```\n「 `[r][]- [r]\n$$\nmailto:x@e.example?SECRET [r] SECRET( <//日本.jp/?SECRET> \n  $$",
+  "limit": 0,
+  "out": "[image] \\ \n```\n「 `[r][]- [r]\n$$\nmailto:x@e.example?SECRET [r] SECRET( <//日本.jp/?SECRET> \n  $$",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "~~> https://e.example/a_\\|[t](http://localhost:8080/x \"ti\") //  <http://localhost:8080/x>mailto:x@e.example",
+  "limit": 0,
+  "out": "~~> [link removed](http://localhost:8080/x \"ti\") //  <http://localhost:8080/x>mailto:x@e.example",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "~ x@日本.jp ``` ~~。\n\n。\n   [t](https://e.example/..:x?SECRET \"ti\")&#91; ~~~\n~ $ SECRET+x@e.example.com \n>  ,",
+  "limit": 0,
+  "out": "~ x@日本.jp ``` ~~。\n\n。\n   t&#91; ~~~\n~ $ SECRET+x@e.example.com \n>  ,",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n>  |」:// [r] ",
+  "limit": 34,
+  "out": ">  |」:// [r]",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "mailto:x@e.example//<span title=\"https://u:p@e.example/\">[r]<x@e.example> SECRET+x@e.example.com",
+  "limit": 0,
+  "out": "mailto:x@e.example//<span title=\"https://u:p@e.example/\">[r]<x@e.example> SECRET+x@e.example.com",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "x\n|---|---|\n\n\n [t][r]。 \n===\n  \n> \t[R]: https://e.example:8080/x 'x' http&#93;<.com\\|",
+  "limit": 0,
+  "out": "x\n|---|---|\n\n\n [t][r]。 \n===\n  \n> \t[R]: https://e.example:8080/x 'x' http&#93;<.com\\|",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "~~\n# http://e.example/a%20b text [     ",
+  "limit": 0,
+  "out": "~~\n# [link removed] text [",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "~~~\n \n>  \n     \n2) [r]: https://en.wikipedia.org/wiki/Foo_(bar)[$$ \" \\|x@日本.jp $$) @ https://docs.python.org/3/ \n1. ",
+  "limit": 0,
+  "out": "~~~\n \n>  \n     \n2) [r]: https://en.wikipedia.org/wiki/Foo_(bar)[$$ \" \\|x@日本.jp $$) @ https://docs.python.org/3/ \n1.",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "👩‍💻 ![a][r] \n\n * <!-- https://[::1]/?SECRET --><x@e.example>SECRET.com .\\text&#93;\"x@e.example\"<img src=\"https://e.example/a*?SECRET\"> x@e.example/?SECRET ",
+  "limit": 39,
+  "out": "👩‍💻 ![a][r] \n\n * <!-- [link removed]…",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n- \n---\n![x@日本.jp ]c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example  ",
+  "limit": 0,
+  "out": "- \n---\n![x@日本.jp ]c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "$``<https://e.example/\"q\"?SECRET> \n---\n ",
+  "limit": 0,
+  "out": "$``[link removed] \n---",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "x?body=SECRET@e.example",
+  "limit": 0,
+  "out": "[link removed]",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "「\n$$\nwww.e.example/?SECRET >[t](//e.example/?SECRET)  \n\n\n---\n]( \t",
+  "limit": 0,
+  "out": "「\n$$\nwww.e.example/?SECRET >t  \n\n\n---\n](",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "http```\n SECRET x?body=SECRET@e.example \\|text SECRET a%62@e.example```\n***\n &amp;",
+  "limit": 44,
+  "out": "http```\n SECRET [link removed]…",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "```\n[r][])x@日本.jp<span title=\"https://e.example/\"q\"?SECRET\"> \"x@e.example\"<x@e.example>![a](https://e.example/'q'?SECRET)<https://e.example/a|b>_$ [r]text www.e.example/?SECRET&#91; \n---\n ",
+  "limit": 0,
+  "out": "```\n[r][])x@日本.jp<span title=\"https://e.example/\"q\"?SECRET\"> \"x@e.example\"<x@e.example>![a](https://e.example/'q'?SECRET)<https://e.example/a|b>_$ [r]text www.e.example/?SECRET&#91; \n---",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "$$x@日本.jp[r][] > ![a][r][t](https://en.wikipedia.org/wiki/Foo_(bar) \"ti\")[R]: http://localhost:8080/x 'x'text[r]",
+  "limit": 0,
+  "out": "$$x@日本.jp[r][] > ![a][r][t](https://en.wikipedia.org/wiki/Foo_(bar) \"ti\")[R]: http://localhost:8080/x 'x'text[r]",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "~mailto:x@e.example\n| a | b |[r]: https://e.example/'q'?SECRET [t](file:///etc/p \"ti\")mailto:x@e.example",
+  "limit": 0,
+  "out": "~mailto:x@e.example\n| a | b |[r]: [link removed] tmailto:x@e.example",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "~~ ",
+  "limit": 0,
+  "out": "~~",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "<span title=\"https://e.example/..:x?SECRET\">\n|---|---|\n ~~~\n![](https://e.example/{x}?SECRET) x<https://e.example/(?SECRET)>// (// \n$$\n ",
+  "limit": 49,
+  "out": "<span title=\"[link removed]\">\n|---|---|\n ~~~…",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "<\n```\nSECRET+x@e.example.com![a](https://e.example/&#63;SECRET)SECRET*  *|``` \\(x@e.example)\n1.  &#93;\n```\n ",
+  "limit": 0,
+  "out": "<\n```\nSECRET+x@e.example.com![a](https://e.example/&#63;SECRET)SECRET*  *|``` \\(x@e.example)\n1.  &#93;\n```",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\" < <span title=\"https://u:p@e.example/\"> //](\n\n",
+  "limit": 0,
+  "out": "\" < <span title=\"https://u:p@e.example/\"> //](",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "``]([, \n===\n``x?body=SECRET@e.example//\n2)  [``http 「(\n> ",
+  "limit": 0,
+  "out": "``]([, \n===\n``x?body=SECRET@e.example//\n2)  [``http 「(\n>",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n-  x@日本.jp mailto:c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example > \n     x@e.example/?SECRET\n> http<span title=\"//日本.jp/?SECRET\">👩‍💻 \n| a | b |",
+  "limit": 0,
+  "out": "-  x@日本.jp [link removed] > \n     x@e.example/?SECRET\n> http<span title=\"[link removed]\">👩‍💻 \n| a | b |",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n   .<http://localhost:8080/x> \n1. \n\n学习\n===\n![a](mailto:ta@example.edu) $$@ ](",
+  "limit": 54,
+  "out": "   .<http://localhost:8080/x> \n1.\n\n…",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\t \" ]( \n\n ",
+  "limit": 0,
+  "out": "\t \" ](",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "> ~\n>  　 [R]: http://localhost:8080/x 'x' http\n| a | b |　  　x@日本.jp\n---\n https://e.example/[x]?SECRETx x",
+  "limit": 0,
+  "out": "> ~\n>  　 [R]: http://localhost:8080/x 'x' http\n| a | b |　  　x@日本.jp\n---\n [link removed] x",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "![a][r] 　 e.example ~~　 \t ![a](https://e.example/&#63;SECRET)<img src=\"https://e.example/--x\">$$ \n2)  ~    *$x^2$\"<span title=\"e.example/?SECRET\"> ",
+  "limit": 0,
+  "out": "![a][r] 　 e.example ~~　 \t a<img src=\"https://e.example/--x\">$$ \n2)  ~    *$x^2$\"<span title=\"e.example/?SECRET\">",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n     \n> \n\n'.com <img src=\"mailto:ta@example.edu\"> ![a][r]\n|---|---|\n　",
+  "limit": 0,
+  "out": "> \n\n'.com <img src=\"mailto:ta@example.edu\"> ![a][r]\n|---|---|",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "mailto:x@e.example」|[r]: <https://e.example/\"q\"?SECRET>x@日本.jp \n# &#91; x@日本.jpmailto:x@e.example [t](<https://e.example/[x]?SECRET>)\n---\n[r]: e.example/?SECRET",
+  "limit": 59,
+  "out": "mailto:x@e.example」|r: [link removed]x@日本.jp \n# &#91;…",
+  "renderer": {
+   "carrying_in": 3,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "[[r][]$$ [r] >*\"$$ \t  (\n$$\n' ",
+  "limit": 0,
+  "out": "[[r][]$$ [r] >*\"$$ \t  (\n$$\n'",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "text ![](https://u:p@e.example/) ```(x@e.example)` a%62@e.example e.example SECRET+x@e.example.com\\ [r]: <https://c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0.e.example/> &amp;<https://日本.jp/><x@e.example>~~ ",
+  "limit": 0,
+  "out": "text [image] ```(x@e.example)` [link removed] e.example SECRET+x@e.example.com\\ [r]: [link removed] &amp;<https://日本.jp/><x@e.example>~~",
+  "renderer": {
+   "carrying_in": 3,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "<img src=\"https://docs.python.org/3/\"> $www.e.example/?SECRET\n  [r]  。👩‍💻( 学习 `",
+  "limit": 0,
+  "out": "<img src=\"https://docs.python.org/3/\"> $www.e.example/?SECRET\n  [r]  。👩‍💻( 学习 `",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "https://e.example/(?SECRET)//)\n# |\n\n$$\n a%62@e.example , \\|",
+  "limit": 0,
+  "out": "[link removed])\n# |\n\n$$\n [link removed] , \\|",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "[r]: <http://localhost:8080/x>      http$$![](mailto:x@e.example?SECRET) ![](//e.example/?SECRET):$$ [[r]: https://en.wikipedia.org/wiki/Foo_(bar) www.e.example/?SECRET",
+  "limit": 64,
+  "out": "[r]: <http://localhost:8080/x>…",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "　\tx@日本.jp, x?body=SECRET@e.example [r][]👩‍💻 \\| ",
+  "limit": 0,
+  "out": "　\tx@日本.jp, [link removed] [r][]👩‍💻 \\|",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "&amp; ``text e.example <img src=\"/courses/1\">\n|---|---|\nx?body=SECRET@e.example www.e.example/?SECRET\n| a | b |:  ",
+  "limit": 0,
+  "out": "&amp; ``text e.example <img src=\"/courses/1\">\n|---|---|\n[link removed] www.e.example/?SECRET\n| a | b |:",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "[r] ![](data:image/png;base64,iVBOR)  , 学习]( ,a%62@e.example$$👩‍💻",
+  "limit": 0,
+  "out": "[r] [image]  , 学习]( ,a%62@e.example$$👩‍💻",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "<x@e.example> \n[t](https://en.wikipedia.org/wiki/Foo_(bar) \"ti\") <img src=\"/courses/1\"> 学习\n|---|---|\nwww.e.example/?SECRET[r]: <https://docs.python.org/3/>. http \n> ",
+  "limit": 0,
+  "out": "<x@e.example> \n[t](https://en.wikipedia.org/wiki/Foo_(bar) \"ti\") <img src=\"/courses/1\"> 学习\n|---|---|\nwww.e.example/?SECRET[r]: <https://docs.python.org/3/>. http \n>",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\"x@e.example\"\n|---|---|\n\n\n$x^2$ -  [R]: https://e.example/#SECRET 'x'$$ http~&#91;``<span title=\"r?SECRET\">\n\n<span title=\"https://e.example/a_\">",
+  "limit": 69,
+  "out": "\"x@e.example\"\n|---|---|\n\n\n$x^2$ -  [R]: [link removed] 'x'$$…",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ".a%62@e.example<img src=\"/courses/1\"> SECRET+x@e.example.com`[t][r]>www.e.example/?SECRET\n|---|---|\n <&amp;",
+  "limit": 0,
+  "out": ".a%62@e.example<img src=\"/courses/1\"> [link removed][t][r]>www.e.example/?SECRET\n|---|---|\n <&amp;",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n>  ://: [t](https://u@e.example/):\n2) ![a][r]![text\n---\n",
+  "limit": 0,
+  "out": ">  ://: t:\n2) ![a][r]![text\n---",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "www.e.example/?SECRET\n   。\n|---|---|\n'~~\n# x?body=SECRET@e.example`学习e.example ",
+  "limit": 0,
+  "out": "www.e.example/?SECRET\n   。\n|---|---|\n'~~\n# [link removed]",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "<  ) \" $x^2$[R]: //e.example/?SECRET 'x', &amp;' <!-- https://[::1]/?SECRET --> ~~mailto:x@e.example .\n1. [r][][r]: https://e.example/東京",
+  "limit": 0,
+  "out": "<  ) \" $x^2$[R]: [link removed] 'x', &amp;' <!-- [link removed] --> ~~mailto:x@e.example .\n1. [r][][r]: [link removed]",
+  "renderer": {
+   "carrying_in": 3,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "e.example  ```\n \t SECRET+x@e.example.com //] x?body=SECRET@e.example [r][]",
+  "limit": 74,
+  "out": "e.example  ```\n \t SECRET+x@e.example.com //] [link removed] [r][]",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "&#93; c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example ",
+  "limit": 0,
+  "out": "&#93; [link removed]",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "[r]: https:e.example/?SECRET",
+  "limit": 0,
+  "out": "",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "x@e.example/?SECRET[t][r]```\n ",
+  "limit": 0,
+  "out": "x@e.example/?SECRET[t][r]```",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "x@e.example/?SECRET \n---\n [r]<img src=\"https://e.example/a.,;!?\">\n学习 ```\n <img src=\"http://localhost:8080/x\">( \n---\n\n-  ~~~\n .学习",
+  "limit": 0,
+  "out": "x@e.example/?SECRET \n---\n [r][image]\n学习 ```\n <img src=\"http://localhost:8080/x\">( \n---\n\n-  ~~~\n .学习",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "' -  &#91;\"[t](<https://e.example/a_>) [[r]:\nhttps://e.example/?SECRET\t x?body=SECRET@e.example <a href=\"https://e.example:8080/x\">x</a>\n```\n ![a][r] >  > > ",
+  "limit": 79,
+  "out": "' -  &#91;\"[t](<https://e.example/a_>) [[r]:\n[link removed]\t [link removed]…",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n2)      。 <x@e.example>-  [r]: https://docs.python.org/3/<x@e.example>\n1.  \n---\n ",
+  "limit": 0,
+  "out": "2)      。 <x@e.example>-  [r]: https://docs.python.org/3/<x@e.example>\n1.  \n---",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "]![a](https://e.example/\\?SECRET)x@日本.jp　 :[r]:\nhttps://e.example/`x`?SECRET\n-  ![](r?SECRET)\n\n x@日本.jp< $",
+  "limit": 0,
+  "out": "]ax@日本.jp　 :[r]:\n[link removed]\n-  [image]\n\n x@日本.jp< $",
+  "renderer": {
+   "carrying_in": 3,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "$ `c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example ://[r][]<span title=\"https://docs.python.org/3/\">](x-  > |://] ",
+  "limit": 0,
+  "out": "$ [link removed] ://[r][]<span title=\"https://docs.python.org/3/\">](x-  > |://]",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "<img src=\"https://e.example/a*?SECRET\">[R]: https://e.example/a*?SECRET 'x' ``x@日本.jp\n    \"\n$$\n![](https://e.example:99999/?SECRET)",
+  "limit": 0,
+  "out": "[image][R]: [link removed] 'x' [link removed]\n    \"\n$$\n[image]",
+  "renderer": {
+   "carrying_in": 4,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "- ",
+  "limit": 84,
+  "out": "-",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ".com$ \n# 」 ~~~\n e.example(\n```\n&amp;[t](https://e.example/(?SECRET) \"ti\") ",
+  "limit": 0,
+  "out": ".com$ \n# 」 ~~~\n e.example(\n```\n&amp;[t](https://e.example/(?SECRET) \"ti\")",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "``\n***\n\n2) 「       　<a href=\"https://e.example/(?SECRET)\">x</a> ~~[r]: https://docs.python.org/3/~ ",
+  "limit": 0,
+  "out": "``\n***\n\n2) 「       　x ~~[r]: https://docs.python.org/3/~",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "<://``x",
+  "limit": 0,
+  "out": "<://``x",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "mailto:x@e.example``- \n$$\n ~~\n| a | b |\n\\　[&#93; $x^2$~ https://[::1]/?SECRET www.e.example/?SECRET",
+  "limit": 0,
+  "out": "mailto:x@e.example``- \n$$\n ~~\n| a | b |\n\\　[&#93; $x^2$~ [link removed] www.e.example/?SECRET",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "-   text( <x@e.example>``",
+  "limit": 89,
+  "out": "-   text( <x@e.example>``",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "a%62@e.example &#93;text[t][r] \n👩‍💻 $$ ~~~\n[r]: <javascript:SECRET>&amp; e.example\n- <img src=\"mailto:ta@example.edu\">",
+  "limit": 0,
+  "out": "[link removed] &#93;text[t][r] \n👩‍💻 $$ ~~~\n[r]: [link removed]&amp; e.example\n- <img src=\"mailto:ta@example.edu\">",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "http \n ",
+  "limit": 0,
+  "out": "http",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "$x^2$",
+  "limit": 0,
+  "out": "$x^2$",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "_&#93;[t](https://u:p@e.example/) ://\n|---|---|\n ~\n1. [r]\n> 。 ",
+  "limit": 0,
+  "out": "_&#93;t ://\n|---|---|\n ~\n1. [r]\n> 。",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": " 。&amp; ![\n***\n[r][]\t\n> \n2)  [r]: /r?SECRET 。 ",
+  "limit": 94,
+  "out": " 。&amp; ![\n***\n[r][]\t\n> \n2)  [r]: /r?SECRET 。",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "> 。[t][r] :<img src=\"//日本.jp/?SECRET\">:(http- e.example",
+  "limit": 0,
+  "out": "> 。[t][r] :[image]:(http- e.example",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "( \\|[r]: </courses/1>![a](mailto:ta@example.edu)&amp;![ ,    x@e.example/?SECRET[r]: <r?SECRET>>  ",
+  "limit": 0,
+  "out": "( \\|[r]: </courses/1>![a](mailto:ta@example.edu)&amp;![ ,    x@e.example/?SECRET[r]: <r?SECRET>>",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "[r]$$\\![a][r]\n$$\nftp://e.example/?SECRET\t  \\   \n  ]( e.examplemailto:x@e.example ",
+  "limit": 0,
+  "out": "[r]$$\\![a][r]\n$$\n[link removed]\t  \\   \n  ]( e.examplemailto:x@e.example",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "    [t][r]> [r]:\nhttps://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0 text [r]:\n/r?SECRET",
+  "limit": 0,
+  "out": "    [t][r]> [r]:\n[link removed] text [r]:\n/r?SECRET",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "学习」。[r]: <https://e.example:8080/x> [R]: https://e.example/'q'?SECRET 'x'\n---\n\"&#93;",
+  "limit": 99,
+  "out": "学习」。[r]: <https://e.example:8080/x> [R]: [link removed] 'x'\n---\n\"&#93;",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "[t](http://localhost:8080/x \"ti\")\n===\n,|' 'SECRET![](https://en.wikipedia.org/wiki/Foo_(bar))mailto:ta@example.edu[r]: /courses/1]&amp; ]' > ",
+  "limit": 0,
+  "out": "[t](http://localhost:8080/x \"ti\")\n===\n,|' 'SECRET![](https://en.wikipedia.org/wiki/Foo_(bar))mailto:ta@example.edu[r]: /courses/1]&amp; ]' >",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n\n<x@e.example><!-- https://e.example/(?SECRET) --> \n---\n ",
+  "limit": 0,
+  "out": "<x@e.example><!-- [link removed] --> \n---",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\\ ",
+  "limit": 0,
+  "out": "\\",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "@< [r][] [t](https://e.example/\\?SECRET)\" >\"x@e.example\"[t][r]<span title=\"mailto:c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example\">](",
+  "limit": 0,
+  "out": "@< [r][] t\" >\"x@e.example\"[t][r]<span title=\"[link removed]\">](",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ",![a][r] : mailto:x@e.examplec2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example[t](https://docs.python.org/3/ \"ti\") -  _[r]: http://localhost:8080/x\n-  [r]: ftp://e.example/?SECRET &#91; e.example",
+  "limit": 104,
+  "out": ",![a][r] : [link removed]@e.example[t](https://docs.python.org/3/ \"ti\") -  _[r]:…",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "<x@e.example> e.examplex@e.example/?SECRET👩‍💻c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example[t][r]\n1. www.e.example/?SECRET [r]: <HTTPSECRET://E.EXAMPLE/?SECRET>\n>  \n#  ```\n",
+  "limit": 0,
+  "out": "<x@e.example> e.examplex@e.example/?SECRET👩‍💻c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example[t][r]\n1. www.e.example/?SECRET [r]: [link removed]\n>  \n#  ```",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "*学习* x@e.example/?SECRET \n***\n \n2)  &#93;　[R]: https://e.example/\"q\"?SECRET 'x'",
+  "limit": 0,
+  "out": "*学习* x@e.example/?SECRET \n***\n \n2)  &#93;　[R]: [link removed] 'x'",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "www.e.example/?SECRET> ][r]: <https://e.example/x ?SECRET>\n2)  [r]<a href=\"/r?SECRET\">x</a>_( e.example SECRET``` ",
+  "limit": 0,
+  "out": "www.e.example/?SECRET> ][r]: [link removed]\n2)  [r]x_( e.example SECRET```",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\\| <https://e.example/(?SECRET)>    <x@e.example>\n```\n\n- `.[r][] (x@e.example) //",
+  "limit": 0,
+  "out": "\\| [link removed]    <x@e.example>\n```\n\n- `.[r][] (x@e.example) //",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "www.e.example/?SECRET&amp; ![a][r] \n2)  ~ \n  mailto:x@e.example)「(",
+  "limit": 109,
+  "out": "www.e.example/?SECRET&amp; ![a][r] \n2)  ~ \n  mailto:x@e.example)「(",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n| a | b |学习  , x<x@e.example>) [r]: <http://localhost:8080/x>\n| a | b |",
+  "limit": 0,
+  "out": "| a | b |学习  , x<x@e.example>) [r]: <http://localhost:8080/x>\n| a | b |",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n---\n &#91; ![a](https://e.example/\\?SECRET) [t][r] a%62@e.example ![<'text e.example<https://e.example/--x> &#93;",
+  "limit": 0,
+  "out": "---\n &#91; a [t][r] [link removed] ![<'text e.example<https://e.example/--x> &#93;",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ".com >\n> [r]: https://e.example/x ?SECRET    text   :xSECRET `",
+  "limit": 0,
+  "out": ".com >\n> [r]: https://e.example/x ?SECRET    text   :xSECRET `",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n---\n。![a][r][R]: HTTPSECRET://E.EXAMPLE/?SECRET 'x' - SECRET'<a href=\"e.example/?SECRET\">x</a>```\n <span title=\"HTTPSECRET://E.EXAMPLE/?SECRET\">",
+  "limit": 0,
+  "out": "---\n。![a][r][R]: HTTPSECRET://E.EXAMPLE/?SECRET 'x' - SECRET'x```\n <span title=\"HTTPSECRET://E.EXAMPLE/?SECRET\">",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n|---|---|\n |[ <[t](http://localhost:8080/x).    ```\nx学习 'x@日本.jp[r] \n<!-- https://日本.jp/ -->",
+  "limit": 114,
+  "out": "|---|---|\n |[ <[t](http://localhost:8080/x).    ```\nx学习 'x@日本.jp[r] \n<!-- https://日本.jp/ -->",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "     c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example<img src=\"https://e.example/a*?SECRET\">www.e.example/?SECRET```\n<a%62@e.example \n# SECRET\n|---|---|\n \" \n\n![](https://e.example/\\?SECRET)]x@e.example/?SECRET ",
+  "limit": 0,
+  "out": "     c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example<img src=\"https://e.example/a*?SECRET\">www.e.example/?SECRET```\n<[link removed] \n# SECRET\n|---|---|\n \" \n\n[image]]x@e.example/?SECRET",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "![a][r] \n| a | b |x@日本.jp'[。&#91; ",
+  "limit": 0,
+  "out": "![a][r] \n| a | b [link removed]'[。&#91;",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "(\n```\n <a href=\"mailto:x@e.example?SECRET\">x</a>text",
+  "limit": 0,
+  "out": "(\n```\n <a href=\"mailto:x@e.example?SECRET\">x</a>text",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "> ",
+  "limit": 0,
+  "out": ">",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n  」 。 👩‍💻://,     [t](<file:///etc/p>)$\n===\n",
+  "limit": 119,
+  "out": "  」 。 👩‍💻://,     t$\n===",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n> <a href=\"https://e.example/\"q\"?SECRET\">x</a> www.e.example/?SECRET *[r][] ,[r][] ```\n***\n [r]: mailto:ta@example.edu \n   ",
+  "limit": 0,
+  "out": "> x www.e.example/?SECRET *[r][] ,[r][] ```\n***\n [r]: mailto:ta@example.edu",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "~<x@e.example>x|",
+  "limit": 0,
+  "out": "~<x@e.example>x|",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "　&#91; \n***\n ://'\n2) \n===\n \n![a](http://localhost:8080/x)x@e.example/?SECRET _[R]: https://docs.python.org/3/ 'x'\"x@e.example\"。 ```\n ",
+  "limit": 0,
+  "out": "　&#91; \n***\n ://'\n2) \n===\n \n![a](http://localhost:8080/x)x@e.example/?SECRET _[R]: https://docs.python.org/3/ 'x'\"x@e.example\"。 ```",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "。&#93; \n| a | b | ![](https:e.example/?SECRET)\n#  \"x@e.example\"\n$$\n 」 \n2)    SECRET ][r]: <https://u:p@e.example/>\n>  ``",
+  "limit": 0,
+  "out": "。&#93; \n| a | b | [image]\n#  \"x@e.example\"\n$$\n 」 \n2)    SECRET ][r]: [link removed]\n>  ``",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "。 学习[t][r]![a][r]![](http://localhost:8080/x) > [t][r]",
+  "limit": 124,
+  "out": "。 学习[t][r]![a][r]![](http://localhost:8080/x) > [t][r]",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n| a | b |[t](HTTPSECRET://E.EXAMPLE/?SECRET \"ti\")     \n|---|---|\n<span title=\"https://e.example/'q'?SECRET\"> //\n-  www.e.example/?SECRET \n|---|---|\n~~~\n \t\\<span title=\"https://e.example/&#63;SECRET\"> ) ",
+  "limit": 0,
+  "out": "| a | b |t     \n|---|---|\n<span title=\"[link removed]\"> //\n-  www.e.example/?SECRET \n|---|---|\n~~~\n \t\\<span title=\"https://e.example/&#63;SECRET\"> )",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "$。 ( $text[t](https://e.example/?SECRET \"ti\")[t](<https://e.example/a.,;!?>) (x@e.example)👩‍💻>&#93;",
+  "limit": 0,
+  "out": "$。 ( $texttt (x@e.example)👩‍💻>&#93;",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "` c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example[r]: <mailto:x@e.example?SECRET> $ ",
+  "limit": 0,
+  "out": "` [link removed][r]: [link removed] $",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "x",
+  "limit": 0,
+  "out": "x",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n| a | b |[「: &amp;|![](https://e.example/`x`?SECRET)SECRETc2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example[r]: <https://e.example/`x`?SECRET>",
+  "limit": 32,
+  "out": "| a | b |[「: &amp;|[image][link…",
+  "renderer": {
+   "carrying_in": 3,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example\n===\n\n---\n-  [t](<https://e.example/(?SECRET)>) ![a][r]\n***\n ~~~\n](<x@e.example>`-  *",
+  "limit": 0,
+  "out": "[link removed]\n===\n\n---\n-  t ![a][r]\n***\n ~~~\n](<x@e.example>`-  *",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "　 ][r]: https://c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0.e.example/x?body=SECRET@e.example mailto:x@e.example\n```\n , 。 ",
+  "limit": 0,
+  "out": "　 ][r]: [link removed] mailto:x@e.example\n```\n , 。",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n\n:// ![&amp;[r]: <https://c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0.e.example/>     ![a](https://e.example/東京) `` c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example``    <span title=\"ftp://e.example/?SECRET\">",
+  "limit": 0,
+  "out": ":// ![&amp;[r]: [link removed]     a `` c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example``    <span title=\"[link removed]\">",
+  "renderer": {
+   "carrying_in": 3,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n| a | b |c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example , \"\n===\n-  c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example\n> [t](<https://e.example/[x]?SECRET>) ![a][r][r]: https://e.example/?SECRET \"",
+  "limit": 0,
+  "out": "| a | b [link removed] , \"\n===\n-  [link removed]\n> t ![a][r][r]: [link removed] \"",
+  "renderer": {
+   "carrying_in": 4,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "`<x@e.example>\n1.  text <a href=\"https://en.wikipedia.org/wiki/Foo_(bar)\">x</a>\n```\n  \t<a href=\"https://e.example/`x`?SECRET\">x</a>([R]: mailto:ta@example.edu 'x' ",
+  "limit": 37,
+  "out": "`<x@e.example>\n1.  text <a…",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "![](ftp://e.example/?SECRET) [r]:\nhttp://e.example/a%20b &#93;(x@e.example)x-  <https://e.example/\\?SECRET> ![``<x@e.example><img src=\"https://e.example/{x}?SECRET\">x?body=SECRET@e.example]( ![](javascript:SECRET)",
+  "limit": 0,
+  "out": "[image] [r]:\n[link removed] &#93;(x@e.example)x-  [link removed] ![``<x@e.example>[image][link removed]]( [image]",
+  "renderer": {
+   "carrying_in": 5,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "👩‍💻     x?body=SECRET@e.example c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example [r]\n   http://localhost:8080/x<span title=\"mailto:ta@example.edu\"> 'SECRET \n$$\n\n2)  。 ",
+  "limit": 0,
+  "out": "👩‍💻     [link removed] [link removed] [r]\n   http://localhost:8080/x<span title=\"mailto:ta@example.edu\"> 'SECRET \n$$\n\n2)  。",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "//\\[r]:\nhttps://u:p@e.example/e.example\n```\n<https://xn--e-1a.example/?SECRET>[r]:\nhttps://e.example/?SECRET'a%62@e.example 👩‍💻  [t][r]「http http",
+  "limit": 0,
+  "out": "//\\[r]:\nhttps://u:p@e.example/e.example\n```\n<https://xn--e-1a.example/?SECRET>[r]:\nhttps://e.example/?SECRET'a%62@e.example 👩‍💻  [t][r]「http http",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n$$\n   &amp;``\n1. \n===\n<img src=\"http://e.example/a%20b\">mailto:x@e.example。 ",
+  "limit": 0,
+  "out": "$$\n   &amp;``\n1. \n===\n[image]mailto:x@e.example。",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n***\n(<https://e.example:99999/?SECRET>~\n2) &#91;[t][r]\"```\n ~~\n$$\n|",
+  "limit": 42,
+  "out": "***\n([link removed]~\n2) &#91;[t][r]\"```…",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ".com「\\|\n| a | b | \n   \n|---|---|\n ~~~\n[r]:\nhttps://docs.python.org/3/ c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example ",
+  "limit": 0,
+  "out": ".com「\\|\n| a | b | \n   \n|---|---|\n ~~~\n[r]:\nhttps://docs.python.org/3/ c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example\n|---|---|\n\n    SECRET+x@e.example.com ```\n[r]:\nhttps://e.example/\\?SECRET \n- www.e.example/?SECRET [t](https://e.example/\"q\"?SECRET \"ti\")\\\"x@e.example\" \\",
+  "limit": 0,
+  "out": "[link removed]\n|---|---|\n\n    SECRET+x@e.example.com ```\n- www.e.example/?SECRET t\\\"x@e.example\" \\",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example<javascript:SECRET>       <img src=\"https://e.example/{x}?SECRET\">*, * [r][]$x^2$ >",
+  "limit": 0,
+  "out": "[link removed][link removed]       [image]*, * [r][]$x^2$ >",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.examplewww.e.example/?SECRET \n| a | b |![a](https://e.example/a*?SECRET)",
+  "limit": 0,
+  "out": "[link removed]/?SECRET \n| a | b |a",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "]",
+  "limit": 47,
+  "out": "]",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "![a][r][r]: data:image/png;base64,iVBOR [r]:\nhttps://e.example/東京``` ` x\"x@e.example\"![a][r]学习~~~\n",
+  "limit": 0,
+  "out": "![a][r][r]: data:image/png;base64,iVBOR [r]:\n[link removed] ` x\"x@e.example\"![a][r]学习~~~",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "学习「。&#91;&#93;x$x^2$ x@e.example/?SECRET \n|---|---|\n\n$$\n `       ",
+  "limit": 0,
+  "out": "学习「。&#91;&#93;x$x^2$ x@e.example/?SECRET \n|---|---|\n\n$$\n `",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "$$:[R]: http://e.example/a%20b 'x'\n---\n\n|---|---|\n <c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example <x@e.example> <img src=\"data:image/png;base64,iVBOR\">\n***\n// (](<!-- https://e.example:8080/x -->",
+  "limit": 0,
+  "out": "$$:[R]: [link removed] 'x'\n---\n\n|---|---|\n <[link removed] <x@e.example> [image]\n***\n// (](<!-- https://e.example:8080/x -->",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "~\n> a%62@e.example~![&#93; mailto:x@e.example\t ![a][r]👩‍💻$$",
+  "limit": 0,
+  "out": "~\n> [link removed]~![&#93; mailto:x@e.example\t ![a][r]👩‍💻$$",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n```\n https://c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0.e.example/\"x@e.example\"\"x@e.example\">x@日本.jp[r][] \n| a | b |//\n|---|---|\n \n1. ![a](https://e.example/x ?SECRET)$$ \n  <x@e.example>www.e.example/?SECRET",
+  "limit": 52,
+  "out": "```\n https://c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0.e.exa…",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "'e.example\n| a | b |\n\n  ,&#93;",
+  "limit": 0,
+  "out": "'e.example\n| a | b |\n\n  ,&#93;",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "`👩‍💻@$",
+  "limit": 0,
+  "out": "`👩‍💻@$",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "[t](mailto:ta@example.edu)[r]: <https://en.wikipedia.org/wiki/Foo_(bar)>\n1.   &#91;* \t [t](<https&#58;//e.example/?SECRET>)@ \n$$\n $\n```\ne.example</courses/1> www.e.example/?SECRET",
+  "limit": 0,
+  "out": "[t](mailto:ta@example.edu)[r]: <https://en.wikipedia.org/wiki/Foo_(bar)>\n1.   &#91;* \t t@ \n$$\n $\n```\ne.example</courses/1> www.e.example/?SECRET",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "　 \n| a | b | ",
+  "limit": 0,
+  "out": "　 \n| a | b |",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n2) [R]: http://e.example/a%20b 'x'~~~\n <@    [r]: <https://e.example/`x`?SECRET> .*@c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.exampleSECRET+x@e.example.com[R]: http://localhost:8080/x 'x'[r][] ~~~\n",
+  "limit": 57,
+  "out": "2) [R]: [link removed] 'x'~~~\n <@    [r]: [link…",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n---\n ``//)[t](mailto:c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example) ://'  👩‍💻$$ ",
+  "limit": 0,
+  "out": "---\n ``//)t ://'  👩‍💻$$",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "SECRET+x@e.example.com[r]:\nr?SECRETc2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example```\n <https://c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0.e.example/><span title=\"https://e.example:8080/x\">( text><span title=\"https://en.wikipedia.org/wiki/Foo_(bar)\"> <!-- https://en.wikipedia.org/wiki/Foo_(bar) -->",
+  "limit": 0,
+  "out": "SECRET+x@e.example.com[r]:\n[link removed]\n [link removed]<span title=\"https://e.example:8080/x\">( text><span title=\"https://en.wikipedia.org/wiki/Foo_(bar)\"> <!-- https://en.wikipedia.org/wiki/Foo_(bar) -->",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "<\n ",
+  "limit": 0,
+  "out": "<",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "「",
+  "limit": 0,
+  "out": "「",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "[r]:\njavascript:SECRET (x@e.example) 👩‍💻 <!-- http://e.example/a%20b -->[r]:\nftp://e.example/?SECRET mailto:x@e.example 」 -  <r?SECRET>[t](<https://e.example/[x]?SECRET>) ",
+  "limit": 62,
+  "out": "[r]:\njavascript:SECRET (x@e.example) 👩‍💻 <!-- [link removed]…",
+  "renderer": {
+   "carrying_in": 3,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "http\\\n> ",
+  "limit": 0,
+  "out": "http\\\n>",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ")![a](https://e.example/#SECRET) \n---\n(.com ~~~\n[r]:\nhttps://u@e.example/a%62@e.example ",
+  "limit": 0,
+  "out": ")a \n---\n(.com ~~~\n[r]:\nhttps://u@e.example/a%62@e.example",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n \n***\n [SECRET+x@e.example.commailto:x@e.example     \n---\n\\| \n  ``[R]: mailto:ta@example.edu 'x' >(SECRET+x@e.example.com://",
+  "limit": 0,
+  "out": "***\n [SECRET+x@e.example.commailto:x@e.example     \n---\n\\| \n  ``[R]: mailto:ta@example.edu 'x' >(SECRET+x@e.example.com://",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "<x@e.example> // e.example x@e.example/?SECRET<span title=\"https://c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0.e.example/\"> $$",
+  "limit": 0,
+  "out": "<x@e.example> // e.example x@e.example/?SECRET<span title=\"[link removed]\"> $$",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n---\n[R]: //e.example/?SECRET 'x' \n\nSECRET+x@e.example.com [r] x?body=SECRET@e.example ~[R]: https://en.wikipedia.org/wiki/Foo_(bar) 'x'* 。x?body=SECRET@e.example.\n2) [t][r]<!-- http://localhost:8080/x -->",
+  "limit": 67,
+  "out": "---\n\nSECRET+x@e.example.com r [link removed] ~R:…",
+  "renderer": {
+   "carrying_in": 4,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "。 ``text[r]: <https://u@e.example/> |[r] &amp; [ 「[r][] ",
+  "limit": 0,
+  "out": "。 ``text[r]: [link removed] |[r] &amp; [ 「[r][]",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "[r]:\nhttps://docs.python.org/3/` \n\n($x^2$`` $$ ://```,~~~\n",
+  "limit": 0,
+  "out": "($x^2$`` $$ ://```,~~~",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "x?body=SECRET@e.example」 ](x@日本.jp \n|---|---|\n \n1. 」\n| a | b |」 [t](<https://e.example/x ?SECRET>)",
+  "limit": 0,
+  "out": "[link removed]」 ](x@日本.jp \n|---|---|\n \n1. 」\n| a | b |」 t",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "$$``~ ~~~~~\n\n***\ne.example\n 「$x^2$-  ",
+  "limit": 0,
+  "out": "$$``~ ~~~~~\n\n***\ne.example\n 「$x^2$-",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "'x``` - ```\n](<\n- \n|---|---|\n\n2)  // ![a](https://e.example:8080/x)x SECRET+x@e.example.com[t](<https://e.example/..:x?SECRET>)![a][r]",
+  "limit": 72,
+  "out": "'x``` - ```\n](<\n- \n|---|---|\n\n2)  // ![a](https://e.example:8080/x)x…",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "[👩‍💻 @ \n===\n<a href=\"https://docs.python.org/3/\">x</a>\t [t](https://e.example/#SECRET \"ti\") ",
+  "limit": 0,
+  "out": "[👩‍💻 @ \n===\n<a href=\"https://docs.python.org/3/\">x</a>\t t",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "<img src=\"e.example/?SECRET\"> x<https://e.example/\\?SECRET> _*<a href=\"https://e.example/?SECRET\">x</a>[t][r]$x^2$",
+  "limit": 0,
+  "out": "[image] x[link removed] _*x[t][r]$x^2$",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n| a | b | ",
+  "limit": 0,
+  "out": "| a | b |",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "<a href=\"data:image/png;base64,iVBOR\">x</a> ' '　👩‍💻\n| a | b | [t](<https://e.example/#SECRET>)![a][r]\n- \t",
+  "limit": 0,
+  "out": "x ' '　👩‍💻\n| a | b | t![a][r]\n-",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "|\n 「 )e.example[R]: mailto:ta@example.edu 'x' \n***\nc2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.examplex?body=SECRET@e.example_ 　 | : ",
+  "limit": 77,
+  "out": "|\n 「 )e.example[R]: mailto:ta@example.edu 'x' \n***\n[link…",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n> :// :// `　\\~ ,",
+  "limit": 0,
+  "out": "> :// :// `　\\~ ,",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "」\n---\n [r]: </courses/1> . .。 http 👩‍💻 >[r]: <https://docs.python.org/3/>. ",
+  "limit": 0,
+  "out": "」\n---\n [r]: </courses/1> . .。 http 👩‍💻 >[r]: <https://docs.python.org/3/>.",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "[t][r] @[r]:\nhttps://e.example:99999/?SECRET\n# ",
+  "limit": 0,
+  "out": "[t][r] @[r]:\nhttps://e.example:99999/?SECRET\n#",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "SECRET ",
+  "limit": 0,
+  "out": "SECRET",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "x@日本.jp$$a%62@e.example[r]: <https://e.example/a_>」 ```[r]: <https://c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0.e.example/>](\"   ",
+  "limit": 82,
+  "out": "x@日本.jp$$a%62@e.example[r]: <https://e.example/a_>」 ```[r]: [link removed]](\"",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n1. [//>@ \n$$\nhttp👩‍💻) \n***\nx://　",
+  "limit": 0,
+  "out": "1. [//>@ \n$$\nhttp👩‍💻) \n***\nx://",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "　。[r][] \n1. mailto:x@e.example \"x@e.example\"~~ ![a](https://e.example/#SECRET) < ```\t: 「//",
+  "limit": 0,
+  "out": "　。[r][] \n1. mailto:x@e.example \"x@e.example\"~~ a < ```\t: 「//",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "　x@e.example/?SECRET\n$$\n(SECRET`` 　",
+  "limit": 0,
+  "out": "　x@e.example/?SECRET\n$$\n(SECRET``",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "[R]: https://e.example:99999/?SECRET 'x' \n     ```\n \"x@e.example\"",
+  "limit": 0,
+  "out": "     ```\n \"x@e.example\"",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "学习",
+  "limit": 87,
+  "out": "学习",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ", c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example\\|//日本.jp/?SECRET(x@e.example)「 \n|---|---|\n <x@e.example> \n- 「 ",
+  "limit": 0,
+  "out": ", [link removed]\\|//日本.jp/?SECRET(x@e.example)「 \n|---|---|\n <x@e.example> \n- 「",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ".com [r] \n***\n [r][r][] \n===\n\n| a | b |学习 $SECRET[r]:\nhttps://docs.python.org/3/ ",
+  "limit": 0,
+  "out": ".com [r] \n***\n [r][r][] \n===\n\n| a | b |学习 $SECRET[r]:\nhttps://docs.python.org/3/",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "```\n```\n~\n1. <!-- https://e.example/\"q\"?SECRET -->SECRET![\\| mailto:x@e.example (x@e.example)",
+  "limit": 0,
+  "out": "```\n```\n~\n1. <!-- [link removed] -->SECRET![\\| mailto:x@e.example (x@e.example)",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "$x^2$ c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example\n```\n 　  「`` http [t](mailto:ta@example.edu) SECRET [t](https://e.example/(?SECRET) \"ti\") ",
+  "limit": 0,
+  "out": "$x^2$ [link removed]\n```\n 　  「`` http [t](mailto:ta@example.edu) SECRET [t](https://e.example/(?SECRET) \"ti\")",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n===\n\n===\n[\\| ",
+  "limit": 92,
+  "out": "===\n\n===\n[\\|",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "(x@e.example) SECRET+x@e.example.com\"x?body=SECRET@e.exampletext   |* <img src=\"https://en.wikipedia.org/wiki/Foo_(bar)\">\n# https&#58;//e.example/?SECRET\"x@e.example\" \n-  SECRET     ",
+  "limit": 0,
+  "out": "(x@e.example) SECRET+x@e.example.com\"[link removed]   |* <img src=\"https://en.wikipedia.org/wiki/Foo_(bar)\">\n# https&#58;//e.example/?SECRET\"x@e.example\" \n-  SECRET",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "> ~~~\n  \n- `[t](https://[::1]/?SECRET \"ti\")://![a](https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0) @ | [r]: <file:///etc/p> \n$$\n学习」[t][r]> ",
+  "limit": 0,
+  "out": "> ~~~\n  \n- `t://a @ | [r]: [link removed] \n$$\n学习」[t][r]>",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "@\\|x(x@e.example)学习<!-- /courses/1 -->\\\\ &amp; ",
+  "limit": 0,
+  "out": "@\\|x(x@e.example)学习<!-- /courses/1 -->\\\\ &amp;",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "~~ (　www.e.example/?SECRETwww.e.example/?SECRET :// SECRET<!-- https://c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0.e.example/ -->[t][r] \n  text ]",
+  "limit": 0,
+  "out": "~~ (　www.e.example/?SECRETwww.e.example/?SECRET :// SECRET<!-- [link removed] -->[t][r] \n  text ]",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "text 　[t](https://u:p@e.example/)\n  [ ,\t\n> <span title=\"mailto:ta@example.edu\">",
+  "limit": 97,
+  "out": "text 　t\n  [ ,\t\n> <span title=\"mailto:ta@example.edu\">",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "&amp;\n# SECRET+x@e.example.com_ ``_",
+  "limit": 0,
+  "out": "&amp;\n# SECRET+x@e.example.com_ ``_",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "mailto:x@e.example )\n```\n[r]: <http://localhost:8080/x><x@e.example>  ( \"\n***\n@  a%62@e.example ",
+  "limit": 0,
+  "out": "mailto:x@e.example )\n```\n[r]: <http://localhost:8080/x><x@e.example>  ( \"\n***\n@  a%62@e.example",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "]( _text text![](https://e.example/\\?SECRET) http\n  [t](<https://e.example:8080/x>)",
+  "limit": 0,
+  "out": "]( _text text[image] http\n  [t](<https://e.example:8080/x>)",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "$x^2$\\|://> 👩‍💻a%62@e.example.comx?body=SECRET@e.example\\| 「 `\n***\n[>  「 ",
+  "limit": 0,
+  "out": "$x^2$\\|://> 👩‍💻a%62@e.example.comx?body=SECRET@e.example\\| 「 `\n***\n[>  「",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "``text)' ://$$ \n===\n]( \n    \n```\n 「<!-- https://e.example/東京 --> ",
+  "limit": 102,
+  "out": "``text)' ://$$ \n===\n]( \n    \n```\n 「<!-- https://e.example/東京 -->",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "[r]: <http://e.example/a%20b> \n\n- ` SECRET+x@e.example.comx@e.example/?SECRET](x@日本.jp ",
+  "limit": 0,
+  "out": "- ` SECRET+x@e.example.comx@e.example/?SECRET](x@日本.jp",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\"x@e.example\" http~~~\n -  | c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.examplee.example&amp;\n===\n  ,x@日本.jp ",
+  "limit": 0,
+  "out": "\"x@e.example\" http~~~\n -  | [link removed]&amp;\n===\n  ,x@日本.jp",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "://![a](https://日本.jp/)\n===\n>&#91;&#93;x?body=SECRET@e.example ",
+  "limit": 0,
+  "out": "://![a](https://日本.jp/)\n===\n>&#91;&#93;x?body=SECRET@e.example",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example![-  [t](file:///etc/p)。> \n\n 学习 x@日本.jp xSECRET     mailto:x@e.example` ",
+  "limit": 0,
+  "out": "[link removed]![-  t。> \n\n 学习 x@日本.jp xSECRET     [link removed]",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "[t](<https://docs.python.org/3/>)\n\n www.e.example/?SECRETx@e.example/?SECRET~~x[r][]",
+  "limit": 107,
+  "out": "[t](<https://docs.python.org/3/>)\n\n [link removed]/?SECRET~~x[r][]",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\\\n$$\n &amp; <a href=\"https://xn--e-1a.example/?SECRET\">x</a> (x@e.example) mailto:x@e.example]\n> &amp; .com)   [",
+  "limit": 0,
+  "out": "\\\n$$\n &amp; x (x@e.example) mailto:x@e.example]\n> &amp; .com)   [",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "[t][r]://](~[t](https://en.wikipedia.org/wiki/Foo_(bar))```\n e.example ",
+  "limit": 0,
+  "out": "[t][r]://](~[t](https://en.wikipedia.org/wiki/Foo_(bar))```\n e.example",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "[r][]) SECRET(x@e.example)  <span title=\"https://e.example/x ?SECRET\"> [r]:\nhttps://e.example/[x]?SECRET(x@e.example):[r]\"x@e.example\"x学习e.example",
+  "limit": 0,
+  "out": "[r][]) SECRET(x@e.example)  <span title=\"https://e.example/x ?SECRET\"> [r]:\n[link removed]",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ".\n    -    SECRET [r][] \\| https://e.example/a.,;!?",
+  "limit": 0,
+  "out": ".\n    -    SECRET [r][] \\| https://e.example/a.,;!?",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n| a | b |\n---\n //\n#  e.example SECRET@) \\|SECRET+x@e.example.com ://&#93;",
+  "limit": 112,
+  "out": "| a | b |\n---\n //\n#  e.example SECRET@) \\|SECRET+x@e.example.com ://&#93;",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "://「a%62@e.example\n  [t](https://docs.python.org/3/) <https://en.wikipedia.org/wiki/Foo_(bar)>  ",
+  "limit": 0,
+  "out": "://「a%62@e.example\n  [t](https://docs.python.org/3/) <https://en.wikipedia.org/wiki/Foo_(bar)>",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "SECRET+x@e.example.com\\x?body=SECRET@e.example\n#    <x@e.example>\n-  [t][r] ",
+  "limit": 0,
+  "out": "SECRET+x@e.example.com\\x?body=SECRET@e.example\n#    <x@e.example>\n-  [t][r]",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "text \n2)  」[``\n***\n$$   <mailto:ta@example.edu>-  ![a](ftp://e.example/?SECRET) ",
+  "limit": 0,
+  "out": "text \n2)  」[``\n***\n$$   <mailto:ta@example.edu>-  a",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "  <span title=\"https://c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0.e.example/\">x@e.example/?SECRET<a href=\"https:e.example/?SECRET\">x</a>",
+  "limit": 0,
+  "out": "  <span title=\"[link removed]\">x@e.example/?SECRETx",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "  &amp; 「",
+  "limit": 117,
+  "out": "  &amp; 「",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "e.example\n| a | b |\n👩‍💻 ~~<!-- //e.example/?SECRET --> texthttp",
+  "limit": 0,
+  "out": "e.example\n| a | b |\n👩‍💻 ~~<!-- [link removed] --> texthttp",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "( ](\n---\n &amp;\n    [t](<mailto:ta@example.edu>) 　\n- ```\n\n```\n $$  &#93;",
+  "limit": 0,
+  "out": "( ](\n---\n &amp;\n    [t](<mailto:ta@example.edu>) 　\n- ```\n\n```\n $$  &#93;",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ".com 👩‍💻[R]: https://e.example/東京 'x'](  [R]: https://日本.jp/ 'x'x  ",
+  "limit": 0,
+  "out": ".com 👩‍💻[R]: [link removed] 'x'](  [R]: https://日本.jp/ 'x'x",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "[r][]([r] \\| 。(x@e.example)[t](<https://e.example/\"q\"?SECRET>)![ [r] @\n-  \n```\n .come.example ",
+  "limit": 0,
+  "out": "[r][]([r] \\| 。(x@e.example)t![ [r] @\n-  \n```\n .come.example",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "a%62@e.example mailto:x@e.examplea%62@e.example(x@e.example)```\n_",
+  "limit": 122,
+  "out": "[link removed] mailto:x@e.examplea%62@e.example(x@e.example)```\n_",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ") ``` ( [t](<mailto:ta@example.edu>)> e.example\n  \\| \n     　http![](https://e.example/\\?SECRET)* ",
+  "limit": 0,
+  "out": ") ``` ( [t](<mailto:ta@example.edu>)> e.example\n  \\| \n     　http[image]*",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "[t][r][r]: <https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0>",
+  "limit": 0,
+  "out": "[t][r][r]: [link removed]",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "SECRET \n1. mailto:x@e.example",
+  "limit": 0,
+  "out": "SECRET \n1. mailto:x@e.example",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "[t](r?SECRET))SECRET$$ \n***\n ~~    x",
+  "limit": 0,
+  "out": "t)SECRET$$ \n***\n ~~    x",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "[R]: https://u:p@e.example/ 'x'([r]: <mailto:ta@example.edu>x@e.example/?SECRET c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0@e.example 」\n# <http://localhost:8080/x> &#91;| [r]: https://en.wikipedia.org/wiki/Foo_(bar)[t](<http://localhost:8080/x>) 　",
+  "limit": 30,
+  "out": "",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "_mailto:x@e.exampleSECRET](\n|---|---|\n x![a](https://e.example/{x}?SECRET)://(&amp;:$$] \n$$\n text SECRET+x@e.example.com",
+  "limit": 0,
+  "out": "_mailto:x@e.exampleSECRET](\n|---|---|\n xa://(&amp;:$$] \n$$\n text SECRET+x@e.example.com",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n***\n* _👩‍💻$x^2$",
+  "limit": 0,
+  "out": "***\n* _👩‍💻$x^2$",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "　<a href=\"https://e.example/a_\">x</a>text [text:",
+  "limit": 0,
+  "out": "　<a href=\"https://e.example/a_\">x</a>text [text:",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "://。 SECRET 。&amp;[t](https://e.example/a.,;!?)\n# 「 \n---\nx@e.example/?SECRET ( ]「\n***\n[R]: https://e.example/`x`?SECRET 'x' ",
+  "limit": 0,
+  "out": "://。 SECRET 。&amp;t\n# 「 \n---\nx@e.example/?SECRET ( ]「\n***",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n```\n ![  \nhttp[r]: https://e.example/東京。[r][]e.example_ text &#91;> 。$\"",
+  "limit": 35,
+  "out": "```\n ![  \nhttp[r]:…",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">``` `x`\n \t[r]: ```\n> $$\n* $$\n10. `c`",
+  "limit": 0,
+  "out": ">``` `x`\n \t[r]: ```\n> $$\n* $$\n10. `c`",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "2) | --- | :-: |\n     *https://e.example/?SECRET*\n># | a | b |\n\t[r]: https://e.example/東京\n>> \t| # h\n> </div>\n\tb](//e.example/#SECRET)\n    * <div>",
+  "limit": 0,
+  "out": "2) | --- | :-: |\n     *[link removed]*\n># | a | b |\n\t[r]: https://e.example/東京\n>> \t| # h\n> </div>\n\tb]([link removed])\n    * <div>",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "> ~~~\n\t~~~\n> plain words\n* $$x\n- > [t](https://docs.python.org/3/)\n10. $$ x^2 $$\n+ [t][r]",
+  "limit": 0,
+  "out": "> ~~~\n\t~~~\n> plain words\n* $$x\n- > [t](https://docs.python.org/3/)\n10. $$ x^2 $$\n+ [t][r]",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "> 'title'\n\t```js _https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0_\n \ttext https://docs.python.org/3/ more",
+  "limit": 0,
+  "out": "> 'title'\n\t```js _[link removed]\n \ttext https://docs.python.org/3/ more",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "    1.\t# h\n>| --- | :-: |\n \tb`\n   x@e.example\n*https://e.example/a_(b)* [t][r]\n>> \t\\\n>b`\n \t\\\n>```",
+  "limit": 40,
+  "out": "    1.\t# h\n>| --- | :-: |\n \tb`…",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\t|-|\n> b](//e.example/#SECRET)\n  - - > title)\n \t ![a](/courses/1)\n>\t1.\t$$ x^2 $$\n><https://e.example/?SECRET>\n| --- | :-: | title)\n    1.\t# h\n   |",
+  "limit": 0,
+  "out": "\t|-|\n> b]([link removed])\n  - - > title)\n \t ![a](/courses/1)\n>\t1.\t$$ x^2 $$\n>[link removed]\n| --- | :-: | title)\n    1.\t# h\n   |",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\t[r]\n- > [t](https://docs.python.org/3/)\n  - - > \\\n \ta | b\n> - \n| --- | :-: |",
+  "limit": 0,
+  "out": "\t[r]\n- > [t](https://docs.python.org/3/)\n  - - > \\\n \ta | b\n> - \n| --- | :-: |",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "> $$x\n1.\t`c`\n10. $$x _https://e.example/東京_\n>|\n \t```\n   # h",
+  "limit": 0,
+  "out": "> $$x\n1.\t`c`\n10. $$x _[link removed]\n>|\n \t```\n   # h",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "* |---|---|\n- > [r] _https://e.example/東京_\n> - | a | b |\n+ x@e.example",
+  "limit": 0,
+  "out": "* |---|---|\n- > [r] _[link removed]\n> - | a | b |\n+ x@e.example",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "- > (title\n\t--- | --- $$x\n-\t![a](/r?SECRET)",
+  "limit": 45,
+  "out": "- > (title\n\t--- | --- $$x\n-\ta",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "> _ _ _",
+  "limit": 0,
+  "out": "> _ _ _",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "``` `x`\n- # h\n[a\n     x@e.example\n2) #\n     *mailto:SECRET@e.example?x* ---",
+  "limit": 0,
+  "out": "``` `x`\n- # h\n[a\n     x@e.example\n2) #\n     *mailto:SECRET@e.example?x* ---",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "     \\ | --- | :-: |\n  - > # h",
+  "limit": 0,
+  "out": "     \\ | --- | :-: |\n  - > # h",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\tplain words\n10. ## h #",
+  "limit": 0,
+  "out": "\tplain words\n10. ## h #",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "2) ![a](/r?SECRET)\n \t````\n>text mailto:SECRET@e.example?x more\n[r]:",
+  "limit": 50,
+  "out": "2) a\n \t````\n>text mailto:SECRET@e.example?x more…",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "    1.\t``` `x`\n> - a | b \\\n\t|-|\n> `c`\n\t(title\n> x?SECRET@e.example $$",
+  "limit": 0,
+  "out": "    1.\t``` `x`\n> - a | b \\\n\t|-|\n> `c`\n\t(title\n> [link removed] $$",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "  - 10. a | b\n+ ``` `x`",
+  "limit": 0,
+  "out": "  - 10. a | b\n+ ``` `x`",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "- > ~~//e.example/#SECRET~~ `c`\n>a | b b`",
+  "limit": 0,
+  "out": "- > ~~//e.example/#SECRET~~ `c`\n>a | b b`",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "2) b`\n     | --- | :-: |\n > a | b [t][r]\n>\t* # \"title\"\n- > ===\n1.\t$$\n10. ~~https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0~~ _//e.example/#SECRET_\n- | a | b |\n2) ```",
+  "limit": 0,
+  "out": "2) b`\n     | --- | :-: |\n > a | b [t][r]\n>\t* # \"title\"\n- > ===\n1.\t$$\n10. ~~[link removed] _//e.example/#SECRET_\n- | a | b |\n2) ```",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">> \t![a](https://e.example/?SECRET) $$ x^2 $$\n    1.\t<div>\n>text /r?SECRET more\n# h | a | b |\n>\t1.\ttext /r?SECRET more\n- $[t](https://e.example/?SECRET)$\n>[r]:\n+ $$ x^2 $$\n> - \\ text mailto:SECRET@e.example?x more",
+  "limit": 55,
+  "out": ">> \ta $$ x^2 $$\n    1.\t<div>\n>text /r?SECRET more\n# h…",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "   \"title\"\n+ [a\n   <https://e.example/?SECRET>",
+  "limit": 0,
+  "out": "   \"title\"\n+ [a\n   [link removed]",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "> <div>\n+ \"title\" \n> b](//e.example/#SECRET)\n10. <div> ````\n1.\tb](//e.example/#SECRET)\n>> 1.\t[a",
+  "limit": 0,
+  "out": "> <div>\n+ \"title\" \n> b]([link removed])\n10. <div> ````\n1.\tb]([link removed])\n>> 1.\t[a",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "10. b](/courses/1)\n> *https://e.example/?SECRET*\nx@e.example\n-\ttext https://e.example/?SECRET more\n   ``` `x`\n*https://e.example/?SECRET*",
+  "limit": 0,
+  "out": "10. b](/courses/1)\n> *[link removed]*\nx@e.example\n-\ttext [link removed] more\n   ``` `x`\n*[link removed]*",
+  "renderer": {
+   "carrying_in": 3,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "    * $$ x^2 $$\n   | --- | :-: |",
+  "limit": 0,
+  "out": "    * $$ x^2 $$\n   | --- | :-: |",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\t'title' --- | ---\n     \\ $[t](/r?SECRET)$\n- > [r]\n1.\t--- | ---\n10. b](https://e.example/a_(b))\n1. > ![a](https://e.example/?SECRET)\n > ``` `x`\n- <div>\n2) <div>",
+  "limit": 60,
+  "out": "\t'title' --- | ---\n     \\ $[t](/r?SECRET)$\n- > [r]\n1.…",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "    1.\ttitle) $[t](https://e.example/?SECRET)$",
+  "limit": 0,
+  "out": "    1.\ttitle) $[t](https://e.example/?SECRET)$",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": " \t*https://e.example/?SECRET*\n     [t][r]\n > # <https://e.example/a_(b)>\n\t`c`\n> `c`\n\t$$x\n10. _https://e.example/東京_ x?SECRET@e.example\n>$[t](/r?SECRET)$\n > ",
+  "limit": 0,
+  "out": " \t*https://e.example/?SECRET*\n     [t][r]\n > # <https://e.example/a_(b)>\n\t`c`\n> `c`\n\t$$x\n10. _[link removed] [link removed]\n>$[t](/r?SECRET)$\n >",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "    \t[a\n>$[t](mailto:SECRET@e.example?x)$",
+  "limit": 0,
+  "out": "    \t[a\n>$[t](mailto:SECRET@e.example?x)$",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "10. $[t](https://e.example/?SECRET)$",
+  "limit": 0,
+  "out": "10. $[t](https://e.example/?SECRET)$",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1. - > [r]:\n \t\"title\" <https://e.example/?SECRET>\n>> 1.\t*** ![a](/courses/1)\n    * </r?SECRET> text https://docs.python.org/3/ more\n* --- | ---\n10. [t](https://docs.python.org/3/) --- | ---\n> - [t][r]\n***\n> - \"title\"",
+  "limit": 65,
+  "out": "1. - > [r]:\n \t\"title\" [link removed]\n>> 1.…",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1.\t|-|\n- > 'title' --- | ---\n2) # h\n-\t\n<mailto:SECRET@e.example?x> ![a](https://e.example/?SECRET)\n1. 10. x@e.example \"title\"\n1.\t--- | ---\n- > ## h #",
+  "limit": 0,
+  "out": "1.\t|-|\n- > 'title' --- | ---\n2) # h\n-\t\n[link removed] a\n1. 10. x@e.example \"title\"\n1.\t--- | ---\n- > ## h #",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "| a | b |\n     text mailto:SECRET@e.example?x more | --- | :-: |\n- > (title\n1.\t--- | --- |---|---|",
+  "limit": 0,
+  "out": "| a | b |\n     text mailto:SECRET@e.example?x more | --- | :-: |\n- > (title\n1.\t--- | --- |---|---|",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">\t\t[r]:",
+  "limit": 0,
+  "out": ">\t\t[r]:",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "10. x?SECRET@e.example ~~~\n2) ````\n- <https://docs.python.org/3/> [r]:\n10. ~~https://e.example/東京~~\n1. > [r]:\n+ | --- | :-: |\n>***",
+  "limit": 0,
+  "out": "10. [link removed] ~~~\n2) ````\n- <https://docs.python.org/3/> [r]:\n10. ~~[link removed]\n1. > [r]:\n+ | --- | :-: |\n>***",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\t```js\n> ## h #\n* _https://e.example/東京_\n>\t* #\n   ``` `x`\n+ ***\n   [a\n+ title) \\\n> //e.example/#SECRET",
+  "limit": 70,
+  "out": "\t```js\n> ## h #\n* _[link removed]\n>\t* #\n   ``` `x`\n+ ***\n   [a\n+…",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "> - <https://e.example/?SECRET>\n[r]:\n-\t#\n > \\\n     |\n| --- | :-: |\n- \\ ",
+  "limit": 0,
+  "out": "> - [link removed]\n[r]:\n-\t#\n > \\\n     |\n| --- | :-: |\n- \\",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "   $[t](https://e.example/a_(b))$\n*https://e.example/?SECRET*\n| a | b | ---\n10. `c` \n2) [r]:\n- | --- | :-: |",
+  "limit": 0,
+  "out": "   $[t](https://e.example/a_(b))$\n*[link removed]*\n| a | b | ---\n10. `c` \n2) [r]:\n- | --- | :-: |",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1. > <div>\n+ [a\n   <https://docs.python.org/3/> |\n1. > #\n \t| a | b |\n>text /courses/1 more\n > [t][r]\n-\tx@e.example",
+  "limit": 0,
+  "out": "1. > <div>\n+ [a\n   <https://docs.python.org/3/> |\n1. > #\n \t| a | b |\n>text /courses/1 more\n > [t][r]\n-\tx@e.example",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "  - - > |\n<https://docs.python.org/3/> a | b\n>> * ```",
+  "limit": 0,
+  "out": "  - - > |\n<https://docs.python.org/3/> a | b\n>> * ```",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "10. --- | ---\n1.\t$$x\n10. [r]\n\t$$\n10. plain words |---|---|\n<div>\n- \"title\" <https://docs.python.org/3/>",
+  "limit": 75,
+  "out": "10. --- | ---\n1.\t$$x\n10. [r]\n\t$$\n10. plain words |---|---|\n<div>\n-…",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "-\t</r?SECRET> <div>",
+  "limit": 0,
+  "out": "-\t</r?SECRET> <div>",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "- ---\n2) | --- | :-: |\n     # h",
+  "limit": 0,
+  "out": "- ---\n2) | --- | :-: |\n     # h",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "> ``` |\n\thttps://docs.python.org/3/\n>> 1.\t|",
+  "limit": 0,
+  "out": "> ``` |\n\thttps://docs.python.org/3/\n>> 1.\t|",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "> $ https://docs.python.org/3/ $ [r]: https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0\n-\t```\n > ```\n-\t$[t](https://e.example/?SECRET)$\n> - ``` `x` [t][r]\n\tplain words",
+  "limit": 0,
+  "out": "> $ https://docs.python.org/3/ $ [r]: [link removed]\n-\t```\n > ```\n-\t$[t](https://e.example/?SECRET)$\n> - ``` `x` [t][r]\n\tplain words",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "-\t|\n| --- | :-: | | a | b |\n    \t$$ x^2 $$\n> - [t][r]\n \ta | b\n> - \\",
+  "limit": 80,
+  "out": "-\t|\n| --- | :-: | | a | b |\n    \t$$ x^2 $$\n> - [t][r]\n \ta | b\n> - \\",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\t[r]: <https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0>\n>\t\ttitle)\n>text /r?SECRET more\n*** ``` `x`\n    \tx@e.example\n> - [a # h\n1.\t[r]: <https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0>\n>> * #",
+  "limit": 0,
+  "out": "\t[r]: <https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0>\n>\t\ttitle)\n>text /r?SECRET more\n*** ``` `x`\n    \tx@e.example\n> - [a # h\n1.\t\n>> * #",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "> $$x\n\t[r]\n> `c` ===\n2) $$ x^2 $$ ```\n    * ![a](/r?SECRET) #\n>\t* # h\n   [a",
+  "limit": 0,
+  "out": "> $$x\n\t[r]\n> `c` ===\n2) $$ x^2 $$ ```\n    * a #\n>\t* # h\n   [a",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1.\t## h #\n10.  [t](https://e.example/東京)\n>``` `x`\n+ a | b\n>\\\n```\n><div>",
+  "limit": 0,
+  "out": "1.\t## h #\n10.  t\n>``` `x`\n+ a | b\n>\\\n```\n><div>",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "* $$\n10. [r]\n1.\t</div>\n- > [r]\n1.\t</div>\n> ",
+  "limit": 0,
+  "out": "* $$\n10. [r]\n1.\t</div>\n- > [r]\n1.\t</div>\n>",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": " > <div>\n- title)\n > ``` `x` [t][r]\n>> * \"title\"\n> - | a | b |",
+  "limit": 85,
+  "out": " > <div>\n- title)\n > ``` `x` [t][r]\n>> * \"title\"\n> - | a | b |",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\t[r]: https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0\n>\t\ta | b\n   <mailto:SECRET@e.example?x>",
+  "limit": 0,
+  "out": "\t[r]: https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0\n>\t\ta | b\n   [link removed]",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "> b`",
+  "limit": 0,
+  "out": "> b`",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1.\t[r]\n10. $$x\n1.\t## h #\n> plain words\n\t`c`",
+  "limit": 0,
+  "out": "1.\t[r]\n10. $$x\n1.\t## h #\n> plain words\n\t`c`",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "-\t<https://docs.python.org/3/>\n   [a title)\n\t$$x\n> [t](https://e.example/a_(b)) |---|---|\n> - \"title\"\n \t![a](https://docs.python.org/3/)\n- ---\n2) x@e.example",
+  "limit": 0,
+  "out": "-\t<https://docs.python.org/3/>\n   [a title)\n\t$$x\n> [t](https://e.example/a_(b)) |---|---|\n> - \"title\"\n \t![a](https://docs.python.org/3/)\n- ---\n2) x@e.example",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">\t1.\tx@e.example ```\n> |-|\n1.\t[r]: </courses/1>\n    \t[r]:\n   \"title\"\n \t[a\n> - # h\n \t# h $$ x^2 $$",
+  "limit": 90,
+  "out": ">\t1.\tx@e.example ```\n> |-|\n1.\t[r]: </courses/1>\n    \t[r]:\n   \"title\"\n \t[a\n> - # h\n \t# h…",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "     [r]: [r]:\n> $$ x^2 $$\n text /courses/1 more\n    \tb`\n   b`\n+ ``` ``` `x`\n10. _ _ _",
+  "limit": 0,
+  "out": "     [r]: [r]:\n> $$ x^2 $$\n text /courses/1 more\n    \tb`\n   b`\n+ ``` ``` `x`\n10. _ _ _",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "2) x@e.example a | b\n>\t* ```\n> - \"title\" ![a](https://docs.python.org/3/)\n- > \\\n",
+  "limit": 0,
+  "out": "2) x@e.example a | b\n>\t* ```\n> - \"title\" ![a](https://docs.python.org/3/)\n- > \\",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "> $$\n\t[r]: https://e.example/東京\n    * ***\n>| a | b | | a | b |\n* `c`\n- > </div>\n* |-|",
+  "limit": 0,
+  "out": "> $$\n\t[r]: [link removed]\n    * ***\n>| a | b | | a | b |\n* `c`\n- > </div>\n* |-|",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "     [t][r]\n2) ``` `x` [r]:\n>\t\t#\n>[t][r]",
+  "limit": 0,
+  "out": "     [t][r]\n2) ``` `x` [r]:\n>\t\t#\n>[t][r]",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1.\t`a\n> ```js\n* === plain words\n     $[t](https://e.example/a_(b))$\n   \\\n \t[t][r]",
+  "limit": 95,
+  "out": "1.\t`a\n> ```js\n* === plain words\n     $[t](https://e.example/a_(b))$\n   \\\n \t[t][r]",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "10. ## h #\n\t|---|---|\n- > `a\n1.\tplain words ~~https://e.example/東京~~",
+  "limit": 0,
+  "out": "10. ## h #\n\t|---|---|\n- > `a\n1.\tplain words ~~[link removed]",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1.\t[r] (title",
+  "limit": 0,
+  "out": "1.\t[r] (title",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">> \t<div>\n> - [r]:\n+ a | b <https://e.example/?SECRET>\n    \t$[t](https://e.example/?SECRET)$ [t][r]\n>\t* [a",
+  "limit": 0,
+  "out": ">> \t<div>\n> - [r]:\n+ a | b [link removed]\n    \t$[t](https://e.example/?SECRET)$ [t][r]\n>\t* [a",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "- > [t](//e.example/#SECRET)",
+  "limit": 0,
+  "out": "- > t",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "   | --- | :-: | ``` `x`\n1.\tx?SECRET@e.example\n- > ## h #\n\tplain words\n10. [r]: https://e.example/東京 $$\n> - title)\n \t$[t](https://e.example/?SECRET)$\n     ![a](mailto:SECRET@e.example?x)\n> - <div>",
+  "limit": 100,
+  "out": "   | --- | :-: | ``` `x`\n1.\t[link removed]\n- > ## h #\n\tplain words\n10.…",
+  "renderer": {
+   "carrying_in": 3,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1.\t$$x x?SECRET@e.example\n-\t\"title\"\n[t][r]",
+  "limit": 0,
+  "out": "1.\t$$x [link removed]\n-\t\"title\"\n[t][r]",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">\t* b`\n>[t][r]",
+  "limit": 0,
+  "out": ">\t* b`\n>[t][r]",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "* ===\n> _https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0_\n10. [a\n***\n> - \"title\"",
+  "limit": 0,
+  "out": "* ===\n> _[link removed]\n10. [a\n***\n> - \"title\"",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "* </div>\n> (title\n* `a plain words\n- |\n > | a | b |\n     a | b",
+  "limit": 0,
+  "out": "* </div>\n> (title\n* `a plain words\n- |\n > | a | b |\n     a | b",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1. > \\\n+ # #\n10. |---|---|\n1.\t`a\n> plain words </div>\n2) ",
+  "limit": 105,
+  "out": "1. > \\\n+ # #\n10. |---|---|\n1.\t`a\n> plain words </div>\n2)",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "    * x@e.example\n> - x@e.example\n+ # h\n><div>\n \tb`\n> - ````",
+  "limit": 0,
+  "out": "    * x@e.example\n> - x@e.example\n+ # h\n><div>\n \tb`\n> - ````",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "* `c` |-|",
+  "limit": 0,
+  "out": "* `c` |-|",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">> 1.\t# h\n   ---\n[a\n> - \n+ ````\n> - a | b",
+  "limit": 0,
+  "out": ">> 1.\t# h\n   ---\n[a\n> - \n+ ````\n> - a | b",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1.\t$$x\n10. $$\n* [r]: https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0\n>> * <https://e.example/?SECRET> b`\n>> \t$[t](mailto:SECRET@e.example?x)$ a | b\n>> * | --- | :-: |\n> - ![a](https://e.example/?SECRET) # h\n  - - > [r]:\n+ ````",
+  "limit": 0,
+  "out": "1.\t$$x\n10. $$\n* \n>> * [link removed] b`\n>> \t$[t](mailto:SECRET@e.example?x)$ a | b\n>> * | --- | :-: |\n> - a # h\n  - - > r:\n+ ````",
+  "renderer": {
+   "carrying_in": 3,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "- > `a\n* [r]: <https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0>\n>> \t\"title\"\n   x@e.example \\\n1.\t|---|---|",
+  "limit": 110,
+  "out": "- > `a\n* \n>> \t\"title\"\n   x@e.example \\\n1.\t|---|---|",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "     x@e.example\n > *** text /r?SECRET more\n* [r]\n- > ~~//e.example/#SECRET~~\n  - - > $[t](https://e.example/?SECRET)$ text /r?SECRET more\n- > x?SECRET@e.example\n* 'title' --- | ---",
+  "limit": 0,
+  "out": "     x@e.example\n > *** text /r?SECRET more\n* [r]\n- > ~~//e.example/#SECRET~~\n  - - > $[t](https://e.example/?SECRET)$ text /r?SECRET more\n- > [link removed]\n* 'title' --- | ---",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">> \ttitle)\n>a | b */courses/1*\n  - 10. |\n+ \"title\" a | b",
+  "limit": 0,
+  "out": ">> \ttitle)\n>a | b */courses/1*\n  - 10. |\n+ \"title\" a | b",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "     ``` `x` | --- | :-: |\n  - > title)",
+  "limit": 0,
+  "out": "     ``` `x` | --- | :-: |\n  - > title)",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\t`a\n> [r]: https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0 [r]: <https://docs.python.org/3/>\n     ````",
+  "limit": 0,
+  "out": "\t`a\n> [r]: [link removed] [r]: <https://docs.python.org/3/>\n     ````",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "> </r?SECRET>\n > [a \"title\"\n>> * *https://e.example/?SECRET*\n-\ttitle)\n2) title)",
+  "limit": 115,
+  "out": "> </r?SECRET>\n > [a \"title\"\n>> * *[link removed]*\n-\ttitle)\n2) title)",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">> * *mailto:SECRET@e.example?x*\n     *mailto:SECRET@e.example?x*\n>a | b\n \t[a\n>\\\n \t``` `x`",
+  "limit": 0,
+  "out": ">> * *mailto:SECRET@e.example?x*\n     *mailto:SECRET@e.example?x*\n>a | b\n \t[a\n>\\\n \t``` `x`",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "- > --- | ---\n1.\t|-|\n> _https://e.example/東京_ https://e.example/東京\n- | a | b |\nb`\n     ``` `x` [r]:\n1. > # h $$ x^2 $$\n* ===\n10. $ /courses/1 $",
+  "limit": 0,
+  "out": "- > --- | ---\n1.\t|-|\n> _[link removed] [link removed]\n- | a | b |\nb`\n     ``` `x` [r]:\n1. > # h $$ x^2 $$\n* ===\n10. $ /courses/1 $",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "> - b` b`\n1.\t`a\n10. [r]: https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0\n  - - > <div> [t][r]\n\t```js",
+  "limit": 0,
+  "out": "> - b` b`\n1.\t`a\n10. \n  - - > <div> t\n\t```js",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "-\t\\\n$[t](https://docs.python.org/3/)$\n+ text https://e.example/?SECRET more\n     ```\nb`\n- \"title\" ",
+  "limit": 0,
+  "out": "-\t\\\n$[t](https://docs.python.org/3/)$\n+ text [link removed] more\n     ```\nb`\n- \"title\"",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "   [a text https://e.example/a_(b) more\n1. > \n \tb`",
+  "limit": 120,
+  "out": "   [a text https://e.example/a_(b) more\n1. > \n \tb`",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "> [r]: https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0\n1. > ``` `x`\n \t$$ x^2 $$\n>text /courses/1 more\n\\\n-\t``` `x`\n > | --- | :-: |",
+  "limit": 0,
+  "out": "1. > ``` `x`\n \t$$ x^2 $$\n>text /courses/1 more\n\\\n-\t``` `x`\n > | --- | :-: |",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">\t1.\t$$ x^2 $$\n>$$ x^2 $$\n+ <div>\n   ``` `x`\n \t# h # h\n10. === ===\n[t][r]",
+  "limit": 0,
+  "out": ">\t1.\t$$ x^2 $$\n>$$ x^2 $$\n+ <div>\n   ``` `x`\n \t# h # h\n10. === ===\n[t][r]",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">> 1.\t# [r]:\n10. |---|---|\n* \n> `c`\n* https://e.example/東京\n>> 1.\tx@e.example",
+  "limit": 0,
+  "out": ">> 1.\t# [r]:\n10. |---|---|\n* \n> `c`\n* [link removed]\n>> 1.\tx@e.example",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "10. //e.example/#SECRET _https://e.example/a_(b)_\n     # h\n2) ``` `x`\n     #\n > b` x@e.example\n    \t\n   [a\n+ x@e.example\n>a | b #",
+  "limit": 0,
+  "out": "10. [link removed] _https://e.example/a_(b)_\n     # h\n2) ``` `x`\n     #\n > b` x@e.example\n    \t\n   [a\n+ x@e.example\n>a | b #",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "text mailto:SECRET@e.example?x more\n \t| --- | :-: |\n   ````\n \t```\n> - ![a](mailto:SECRET@e.example?x)\nx@e.example\n- ``` `x`\n2) $$ x^2 $$\n- ``` `x`",
+  "limit": 125,
+  "out": "text mailto:SECRET@e.example?x more\n \t| --- | :-: |\n   ````\n \t```\n> - ![a](mailto:SECRET@e.example?x)\nx@e.example\n- ``` `x`…",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1. 10. $$ x^2 $$\n+ \"title\" #\n> ===\n* ## h #\n10. ~~https://e.example/東京~~",
+  "limit": 0,
+  "out": "1. 10. $$ x^2 $$\n+ \"title\" #\n> ===\n* ## h #\n10. ~~[link removed]",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">[r]: # h\n* $ /courses/1 $",
+  "limit": 0,
+  "out": ">[r]: # h\n* $ /courses/1 $",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": " \t<https://e.example/?SECRET>\n- \"title\"",
+  "limit": 0,
+  "out": " \t<https://e.example/?SECRET>\n- \"title\"",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1. - > [a\n \t\n>[t][r]\n#\n>$$ x^2 $$\n+ title)\n>| a | b |",
+  "limit": 0,
+  "out": "1. - > [a\n \t\n>[t][r]\n#\n>$$ x^2 $$\n+ title)\n>| a | b |",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1.\t|---|---| |---|---|\n- ---\n2) [a\n-\t![a](/r?SECRET)\n   title) [r]:\n* --- | ---\n- > $ https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0 $ </div>\n> - a | b",
+  "limit": 33,
+  "out": "1.\t|---|---| |---|---|\n- ---\n2)…",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "* --- | ---",
+  "limit": 0,
+  "out": "* --- | ---",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "     $[t](https://e.example/?SECRET)$ title)\n> ===\n1.\t--- | ---\n- > [r]: <https://e.example/東京> [r]: //e.example/#SECRET\n     [a\n2) title)\n     x@e.example ```\n> ``` `x`",
+  "limit": 0,
+  "out": "     $[t](https://e.example/?SECRET)$ title)\n> ===\n1.\t--- | ---\n- > [r]: [link removed] [r]: [link removed]\n     [a\n2) title)\n     x@e.example ```\n> ``` `x`",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\t`c`\n- > x?SECRET@e.example\n1.\t$ https://e.example/東京 $\n>\t1.\t![a](/r?SECRET)\n- \n![a](/courses/1)\n+ [a\n   ```\n***",
+  "limit": 0,
+  "out": "\t`c`\n- > [link removed]\n1.\t$ [link removed] $\n>\t1.\ta\n- \n![a](/courses/1)\n+ [a\n   ```\n***",
+  "renderer": {
+   "carrying_in": 3,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "- > \n* https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0\n>> \t---\n>---\n \t#",
+  "limit": 0,
+  "out": "- > \n* [link removed]\n>> \t---\n>---\n \t#",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "- > [r]: //e.example/#SECRET\n  - 10. x@e.example\n \tb` ````\n- > [r]: <//e.example/#SECRET>\n10. ",
+  "limit": 38,
+  "out": "- > \n  - 10. x@e.example\n \tb` ````\n-…",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1.\t[t](//e.example/#SECRET)\n>> 1.\t[a\n   <mailto:SECRET@e.example?x>\n2) ```",
+  "limit": 0,
+  "out": "1.\tt\n>> 1.\t[a\n   [link removed]\n2) ```",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">\t\t| a | b |\n   text https://e.example/?SECRET more\n|\n     [r]:\n2) | --- | :-: |\n     ````",
+  "limit": 0,
+  "out": ">\t\t| a | b |\n   text [link removed] more\n|\n     [r]:\n2) | --- | :-: |\n     ````",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1. 10. $[t](mailto:SECRET@e.example?x)$",
+  "limit": 0,
+  "out": "1. 10. $[t](mailto:SECRET@e.example?x)$",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "  - - > a | b \"title\"\n* _ _ _\n> [r] `a\n|\n     \"title\"\n```",
+  "limit": 0,
+  "out": "  - - > a | b \"title\"\n* _ _ _\n> [r] `a\n|\n     \"title\"\n```",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">\t* a | b\n   ---\n \t\\\n   title) [a\n\tplain words x?SECRET@e.example\n- <div>\n2) a | b",
+  "limit": 43,
+  "out": ">\t* a | b\n   ---\n \t\\\n   title) [a\n\tplain…",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">> \ttext https://e.example/?SECRET more\n- <div>\n2) \\\n- *** $$ x^2 $$\n1. - > <https://e.example/?SECRET>\n > ````",
+  "limit": 0,
+  "out": ">> \ttext [link removed] more\n- <div>\n2) \\\n- *** $$ x^2 $$\n1. - > [link removed]\n > ````",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">> 1.\t$$ x^2 $$ [t][r]\n10. ~~https://e.example/東京~~\n  - - > *https://e.example/a_(b)* <div>\n  - > [a",
+  "limit": 0,
+  "out": ">> 1.\t$$ x^2 $$ [t][r]\n10. ~~[link removed]\n  - - > *https://e.example/a_(b)* <div>\n  - > [a",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1.\t`c`\n- > ===\n1.\t```js\n10. [r]",
+  "limit": 0,
+  "out": "1.\t`c`\n- > ===\n1.\t```js\n10. [r]",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": " > [t][r] |\n>> * \\ ![a](mailto:SECRET@e.example?x)\n>\t1.\t\\ title)",
+  "limit": 0,
+  "out": " > [t][r] |\n>> * \\ a\n>\t1.\t\\ title)",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "- ````\n > \\\n     |\n2) ````\n-\t\"title\"",
+  "limit": 48,
+  "out": "- ````\n > \\\n     |\n2) ````\n-\t\"title\"",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1. 10. | a | b |\n \t\\ ```\n> ~~https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0~~\n  - > ![a](mailto:SECRET@e.example?x)\n2)  text /r?SECRET more\n* $$\n- > (title\n1.\t_ _ _",
+  "limit": 0,
+  "out": "1. 10. | a | b |\n \t\\ ```\n> ~~[link removed]\n  - > a\n2)  text /r?SECRET more\n* $$\n- > (title\n1.\t_ _ _",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "     a | b\n > a | b | --- | :-: |",
+  "limit": 0,
+  "out": "     a | b\n > a | b | --- | :-: |",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": " \t[t][r]\n>---",
+  "limit": 0,
+  "out": " \t[t][r]\n>---",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\t## h #\n10. |---|---|\n1.\t[r]\n> [r]: https://docs.python.org/3/\n> [r]:\n \ttext mailto:SECRET@e.example?x more ![a](mailto:SECRET@e.example?x)",
+  "limit": 0,
+  "out": "\t## h #\n10. |---|---|\n1.\t[r]\n> [r]: https://docs.python.org/3/\n> [r]:\n \ttext mailto:SECRET@e.example?x more a",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\"title\"\n     |\n2) text /r?SECRET more\n \ta | b */courses/1*\n>\t1.\t[a\n   | --- | :-: | <div>\n1.\t`c`\n10. ~~~",
+  "limit": 53,
+  "out": "\"title\"\n     |\n2) text /r?SECRET more\n \ta | b…",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "<mailto:SECRET@e.example?x>\n \t| a | b |\n> - | --- | :-: | \"title\"\n\t~~~\n- > --- | ---\n\t--- | --- [r]: https://e.example/東京\n+ \"title\"\n> - </r?SECRET>\n > b`",
+  "limit": 0,
+  "out": "[link removed]\n \t| a | b |\n> - | --- | :-: | \"title\"\n\t~~~\n- > --- | ---\n\t--- | --- [r]: [link removed]\n+ \"title\"\n> - </r?SECRET>\n > b`",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">> 1.\t````\n    ---\n1.\tplain words\n10. _//e.example/#SECRET_",
+  "limit": 0,
+  "out": ">> 1.\t````\n    ---\n1.\tplain words\n10. _//e.example/#SECRET_",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">[a\n| a | b | $[t](https://e.example/a_(b))$\n>\t1.\ta | b",
+  "limit": 0,
+  "out": ">[a\n| a | b | $[t](https://e.example/a_(b))$\n>\t1.\ta | b",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "10. |-|\n1.\t~~~\n10. ~~https://e.example/東京~~\n  - - > ![a](/r?SECRET)\n</r?SECRET>\nb` $$ x^2 $$\n10. 'title'\n\t'title'",
+  "limit": 0,
+  "out": "10. |-|\n1.\t~~~\n10. ~~[link removed]\n  - - > a\n</r?SECRET>\nb` $$ x^2 $$\n10. 'title'\n\t'title'",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "     ```\n > b`\n-\t![a](https://e.example/?SECRET)\n>![a](https://e.example/a_(b))\n![a](https://e.example/?SECRET)\n \t\n> ```\n\t_ _ _\n10. plain words",
+  "limit": 58,
+  "out": "     ```\n > b`\n-\ta\n>![a](https://e.example/a_(b))\na\n \t\n>…",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "# h\n- [a",
+  "limit": 0,
+  "out": "# h\n- [a",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "  - 10. *https://e.example/?SECRET*\n2) $[t](https://docs.python.org/3/)$\n+ ![a](https://e.example/?SECRET)\n- ``` `x`\nb`\n- \"title\"\n > # ![a](/r?SECRET)\n* ~~~",
+  "limit": 0,
+  "out": "  - 10. *[link removed]*\n2) $[t](https://docs.python.org/3/)$\n+ a\n- ``` `x`\nb`\n- \"title\"\n > # a\n* ~~~",
+  "renderer": {
+   "carrying_in": 3,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "     */r?SECRET*",
+  "limit": 0,
+  "out": "     */r?SECRET*",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "10. `c`\n\t[r]: https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0\n>\t* \\\n> - ***\n---\n   $$ x^2 $$",
+  "limit": 0,
+  "out": "10. `c`\n\t[r]: [link removed]\n>\t* \\\n> - ***\n---\n   $$ x^2 $$",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1.\t|---|---| _ _ _\n     ![a](/courses/1)\n   ---\n#\n   ``` [t][r]\n\t[r]: https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0\n>\t1.\t[a",
+  "limit": 63,
+  "out": "1.\t|---|---| _ _ _\n     ![a](/courses/1)\n   ---\n#\n   ```…",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "- > ```js\n1.\t[r]: https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0\n    \t| --- | :-: |\n>| a | b |\n*mailto:SECRET@e.example?x*\n-\t*mailto:SECRET@e.example?x*",
+  "limit": 0,
+  "out": "- > ```js\n1.\t\n    \t| --- | :-: |\n>| a | b |\n*mailto:SECRET@e.example?x*\n-\t*mailto:SECRET@e.example?x*",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": false
+  }
+ },
+ {
+  "in": "- > b](https://docs.python.org/3/)\n  - - > $[t](https://e.example/?SECRET)$\n2) $$ x^2 $$",
+  "limit": 0,
+  "out": "- > b](https://docs.python.org/3/)\n  - - > $[t](https://e.example/?SECRET)$\n2) $$ x^2 $$",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">\t* <div>\n   --- x@e.example\n\t_ _ _",
+  "limit": 0,
+  "out": ">\t* <div>\n   --- x@e.example\n\t_ _ _",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "- \\\n2) ***\n-\t````\n<https://e.example/a_(b)> # h\n1.\t_//e.example/#SECRET_ \n+ \\ *https://e.example/a_(b)*\n>\t\t# h\n   $[t](mailto:SECRET@e.example?x)$\n[a",
+  "limit": 0,
+  "out": "- \\\n2) ***\n-\t````\n<https://e.example/a_(b)> # h\n1.\t_//e.example/#SECRET_ \n+ \\ *https://e.example/a_(b)*\n>\t\t# h\n   $[t](mailto:SECRET@e.example?x)$\n[a",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">> * $$ x^2 $$\n   |\n+ \"title\"\n   [r]:\nb` #\n> (title\n1.\t|---|---| $ https://e.example/東京 $\n \tb`",
+  "limit": 68,
+  "out": ">> * $$ x^2 $$\n   |\n+ \"title\"\n   [r]:\nb` #\n> (title\n1.…",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "> x?SECRET@e.example\n1.\t\n> \n* _/courses/1_ b](/courses/1)\nx@e.example\n     [r]:\n > [t][r]\n-\t",
+  "limit": 0,
+  "out": "> [link removed]\n1.\t\n> \n* _/courses/1_ b](/courses/1)\nx@e.example\n     [r]:\n > [t][r]\n-",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "  - > ```\n \ttitle)\n>``` title)\n1.\tplain words (title\n- ![a](https://e.example/?SECRET)\n>a | b",
+  "limit": 0,
+  "out": "  - > ```\n \ttitle)\n>``` title)\n1.\tplain words (title\n- a\n>a | b",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\t[t](https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0) |-|\n \t*https://docs.python.org/3/*\n-  a | b\n1. > title)",
+  "limit": 0,
+  "out": "\t[t](https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0) |-|\n \t*https://docs.python.org/3/*\n-  a | b\n1. > title)",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1.\t--- | --- ```js\n- title) | --- | :-: |",
+  "limit": 0,
+  "out": "1.\t--- | --- ```js\n- title) | --- | :-: |",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "   ````",
+  "limit": 73,
+  "out": "   ````",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "* plain words\n10. ~~~\n* [t](//e.example/#SECRET)\n    \t$[t](https://docs.python.org/3/)$\n     ---\n2) | a | b |\n-\ttext https://docs.python.org/3/ more\n   [r]:",
+  "limit": 0,
+  "out": "* plain words\n10. ~~~\n* t\n    \t$[t](https://docs.python.org/3/)$\n     ---\n2) | a | b |\n-\ttext https://docs.python.org/3/ more\n   [r]:",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\t|---|---|\n10. ~~//e.example/#SECRET~~\n  - 10. | a | b |\n[a #\n- > $$ ~~~\n2) ````\n-\t$[t](https://e.example/a_(b))$\n   #",
+  "limit": 0,
+  "out": "\t|---|---|\n10. ~~//e.example/#SECRET~~\n  - 10. | a | b |\n[a #\n- > $$ ~~~\n2) ````\n-\t$[t](https://e.example/a_(b))$\n   #",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "* $$x\n10. x?SECRET@e.example\n* \n> _ _ _\n* ## h #\n> plain words\n1.\t=== 'title'\n     ``` `x`",
+  "limit": 0,
+  "out": "* $$x\n10. [link removed]\n* \n> _ _ _\n* ## h #\n> plain words\n1.\t=== 'title'\n     ``` `x`",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1. > $$ x^2 $$\ntext https://e.example/?SECRET more\n- | a | b |\n > # h\n-\t\nb`\n- <div>",
+  "limit": 0,
+  "out": "1. > $$ x^2 $$\ntext [link removed] more\n- | a | b |\n > # h\n-\t\nb`\n- <div>",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "10. ````\n \t# h\n>![a](/r?SECRET)",
+  "limit": 78,
+  "out": "10. ````\n \t# h\n>a",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "  - 10. <div> </r?SECRET>\n- > text /r?SECRET more\n2) <div> $$ x^2 $$\n    * <div>\n> - a | b\n+ ```` ---\n- > --- | ---\n\t$ https://e.example/東京 $",
+  "limit": 0,
+  "out": "  - 10. <div> </r?SECRET>\n- > text /r?SECRET more\n2) <div> $$ x^2 $$\n    * <div>\n> - a | b\n+ ```` ---\n- > --- | ---\n\t$ [link removed] $",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": " \t---\n> - [a\n[r]:\n    text https://e.example/a_(b) more\n  - > | --- | :-: |\n[t][r]\n   ```` ````",
+  "limit": 0,
+  "out": " \t---\n> - [a\n[r]:\n    text https://e.example/a_(b) more\n  - > | --- | :-: |\n[t][r]\n   ```` ````",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "2) x@e.example #\n    1.\t| a | b |",
+  "limit": 0,
+  "out": "2) x@e.example #\n    1.\t| a | b |",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "- > ~~//e.example/#SECRET~~\n- > $$ x^2 $$ |\n* (title [t](https://docs.python.org/3/)",
+  "limit": 0,
+  "out": "- > ~~//e.example/#SECRET~~\n- > $$ x^2 $$ |\n* (title [t](https://docs.python.org/3/)",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\t</div>\n- > [r]: <//e.example/#SECRET>\n1. - > [a\n+ title) title)",
+  "limit": 83,
+  "out": "\t</div>\n- > \n1. - > [a\n+ title) title)",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "- text https://docs.python.org/3/ more\n>[t][r]\n \t# h\n>x@e.example\nx@e.example\n> - [r]:\n````",
+  "limit": 0,
+  "out": "- text https://docs.python.org/3/ more\n>[t][r]\n \t# h\n>x@e.example\nx@e.example\n> - [r]:\n````",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "> [t](https://e.example/東京)\n  - > x@e.example\n[t][r] # h\n> _ _ _\n\t'title'",
+  "limit": 0,
+  "out": "> t\n  - > x@e.example\n[t][r] # h\n> _ _ _\n\t'title'",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "     $[t](/r?SECRET)$\n   | --- | :-: |\n+ [r]:\n>x@e.example [r]:\n* x?SECRET@e.example\n- > |-|\n1.\t$$\n- > $$x",
+  "limit": 0,
+  "out": "     $[t](/r?SECRET)$\n   | --- | :-: |\n+ [r]:\n>x@e.example [r]:\n* [link removed]\n- > |-|\n1.\t$$\n- > $$x",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\\\n- title) x@e.example\n1. 10. b`\n \t--- $[t](/r?SECRET)$\n    * x@e.example\n> - \\\n[t][r]",
+  "limit": 0,
+  "out": "\\\n- title) x@e.example\n1. 10. b`\n \t--- $[t](/r?SECRET)$\n    * x@e.example\n> - \\\n[t][r]",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "10. https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0\n1. - > \"title\"",
+  "limit": 88,
+  "out": "10. [link removed]\n1. - > \"title\"",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1.\t[r]\n10. \n1.\t|-| https://e.example/a_(b)\n+ a | b <div>\n10. --- | ---\n* //e.example/#SECRET",
+  "limit": 0,
+  "out": "1.\t[r]\n10. \n1.\t|-| https://e.example/a_(b)\n+ a | b <div>\n10. --- | ---\n* [link removed]",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "+ [r]:\n>![a](/courses/1)\n2) \"title\"\n-\t*mailto:SECRET@e.example?x* $$ x^2 $$\n10. ===\n1.\t[r]: https://docs.python.org/3/\n>\t* ``` `x`\n   *** */courses/1*\n- > a | b",
+  "limit": 0,
+  "out": "+ [r]:\n>![a](/courses/1)\n2) \"title\"\n-\t*mailto:SECRET@e.example?x* $$ x^2 $$\n10. ===\n1.\t[r]: https://docs.python.org/3/\n>\t* ``` `x`\n   *** */courses/1*\n- > a | b",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1.\t$ //e.example/#SECRET $\n    * \n> - \"title\"\n \t| --- | :-: |\n>",
+  "limit": 0,
+  "out": "1.\t$ [link removed] $\n    * \n> - \"title\"\n \t| --- | :-: |\n>",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "* 'title'\n10. 'title' plain words\n2) x@e.example\n-\t#\n2) | a | b |",
+  "limit": 0,
+  "out": "* 'title'\n10. 'title' plain words\n2) x@e.example\n-\t#\n2) | a | b |",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "    \t\n   x@e.example\n \t[t][r] \n> https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0\n> # h",
+  "limit": 93,
+  "out": "   x@e.example\n \t[t][r] \n> [link removed]\n> # h",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1.\t`c`\n> b](//e.example/#SECRET)\n1. > ---\n+ ````",
+  "limit": 0,
+  "out": "1.\t`c`\n> b]([link removed])\n1. > ---\n+ ````",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "10. _/courses/1_\n  - - > | --- | :-: |\n|\n> - \\\n+ ![a](/r?SECRET)\n     a | b\n >  ``` `x`\n>\t* title) *https://e.example/a_(b)*\n>\t\t\"title\"",
+  "limit": 0,
+  "out": "10. _/courses/1_\n  - - > | --- | :-: |\n|\n> - \\\n+ a\n     a | b\n >  ``` `x`\n>\t* title) *https://e.example/a_(b)*\n>\t\t\"title\"",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "- > [r]\n* ## h #\n> b](//e.example/#SECRET)\n1. - > ```",
+  "limit": 0,
+  "out": "- > [r]\n* ## h #\n> b]([link removed])\n1. - > ```",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\t===\n10. [r]: https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0 ~~https://e.example/東京~~",
+  "limit": 0,
+  "out": "\t===\n10. [r]: [link removed] ~~[link removed]",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">\t\t\\\n> - $[t](mailto:SECRET@e.example?x)$\n\"title\"\n-\t| a | b | \n1. - > # h",
+  "limit": 98,
+  "out": ">\t\t\\\n> - $[t](mailto:SECRET@e.example?x)$\n\"title\"\n-\t| a | b | \n1. - > # h",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "* 'title'\n10. ```js\n\t~~https://e.example/a_(b)~~\n>\t\t<div> <mailto:SECRET@e.example?x>\n>> 1.\t$[t](/r?SECRET)$\n- [t][r] */r?SECRET*\n> _ _ _",
+  "limit": 0,
+  "out": "* 'title'\n10. ```js\n\t~~https://e.example/a_(b)~~\n>\t\t<div> <mailto:SECRET@e.example?x>\n>> 1.\t$[t](/r?SECRET)$\n- [t][r] */r?SECRET*\n> _ _ _",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": " > b`\n     \n > <mailto:SECRET@e.example?x>\n+ | a | b |\n> - [t][r]\n+ ---",
+  "limit": 0,
+  "out": " > b`\n     \n > [link removed]\n+ | a | b |\n> - [t][r]\n+ ---",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "- > 'title' [r]",
+  "limit": 0,
+  "out": "- > 'title' [r]",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1. - > [a\n \t![a](/r?SECRET)\n- ***\n\\\n- |\n2) x@e.example\n     \\\n![a](/r?SECRET)\n+ x@e.example",
+  "limit": 0,
+  "out": "1. - > [a\n \ta\n- ***\n\\\n- |\n2) x@e.example\n     \\\na\n+ x@e.example",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "10. 'title'\n* [r]: https://e.example/a_(b)\n    \t\n   [r]:",
+  "limit": 103,
+  "out": "10. 'title'\n* [r]: https://e.example/a_(b)\n    \t\n   [r]:",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "* b](https://e.example/a_(b))\n>> 1.\t````",
+  "limit": 0,
+  "out": "* b](https://e.example/a_(b))\n>> 1.\t````",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "10. [r]: https://e.example/東京\n10. | ![a](https://e.example/a_(b))\n1. - > | a | b |\na | b\n   --- <https://e.example/?SECRET>\n1. 10. ``` `x` |\n1.\t=== ===",
+  "limit": 0,
+  "out": "10. \n10. | ![a](https://e.example/a_(b))\n1. - > | a | b |\na | b\n   --- [link removed]\n1. 10. ``` `x` |\n1.\t=== ===",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">\t* # h\n>````\ntext mailto:SECRET@e.example?x more",
+  "limit": 0,
+  "out": ">\t* # h\n>````\ntext mailto:SECRET@e.example?x more",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">> \t| a | b |",
+  "limit": 0,
+  "out": ">> \t| a | b |",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "- > |---|---|\n* x?SECRET@e.example\n10. b](//e.example/#SECRET)\n> ```\n``` text /courses/1 more\n    * $[t](https://e.example/?SECRET)$\n-\tb`\n2) | --- | :-: |\n-\t***",
+  "limit": 108,
+  "out": "- > |---|---|\n* [link removed]\n10. b]([link removed])\n> ```\n``` text /courses/1 more\n    *…",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "- > # $$ x^2 $$\n1.\t|-|\n- > `a\n1.\t$$x\n10. [r] [r]\n2) | a | b |\n     # h\n > # h\n- # h | a | b |",
+  "limit": 0,
+  "out": "- > # $$ x^2 $$\n1.\t|-|\n- > `a\n1.\t$$x\n10. [r] [r]\n2) | a | b |\n     # h\n > # h\n- # h | a | b |",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "   text /courses/1 more ````",
+  "limit": 0,
+  "out": "   text /courses/1 more ````",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">*** ---\n1.\t[t](https://e.example/東京)\n>\t1.\t$$ x^2 $$\n> - $[t](https://e.example/?SECRET)$\n > |\n-\t$[t](https://docs.python.org/3/)$",
+  "limit": 0,
+  "out": ">*** ---\n1.\tt\n>\t1.\t$$ x^2 $$\n> - $[t](https://e.example/?SECRET)$\n > |\n-\t$[t](https://docs.python.org/3/)$",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "10. ~~~\n* ~~~\n10. [t](https://e.example/東京)\n- > [a\n+ <div>\n><div>\ntext https://docs.python.org/3/ more\n     ```\n---",
+  "limit": 0,
+  "out": "10. ~~~\n* ~~~\n10. t\n- > [a\n+ <div>\n><div>\ntext https://docs.python.org/3/ more\n     ```\n---",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "    \t# h\n   title)\n+ | # h\n- > ",
+  "limit": 113,
+  "out": "    \t# h\n   title)\n+ | # h\n- >",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": " > ``` `x`\n-\t[r]:\n2) ![a](/r?SECRET)\n \t![a](https://e.example/a_(b))\n-\t![a](/r?SECRET)\n>[t][r]",
+  "limit": 0,
+  "out": " > ``` `x`\n-\t[r]:\n2) a\n \t![a](https://e.example/a_(b))\n-\ta\n>[t][r]",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1.\t[r]: <//e.example/#SECRET> _https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0_\n > ```\n- ---\n2) </r?SECRET>\n \t$[t](/r?SECRET)$ [t][r]\n>\t1.\t#\n   title)",
+  "limit": 0,
+  "out": "1.\t[r]: <[link removed]> _[link removed]\n > ```\n- ---\n2) </r?SECRET>\n \t$[t](/r?SECRET)$ [t][r]\n>\t1.\t#\n   title)",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "* \n- > \n1.\tx?SECRET@e.example [r]\n-\t````\n > </courses/1>",
+  "limit": 0,
+  "out": "* \n- > \n1.\t[link removed] [r]\n-\t````\n > </courses/1>",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "* 'title'\n> `a",
+  "limit": 0,
+  "out": "* 'title'\n> `a",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "2) <div>\n-\ta | b",
+  "limit": 118,
+  "out": "2) <div>\n-\ta | b",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "> \"title\"\n+ <div>\n> - ```\n \t***\n> - \\\n+ text /r?SECRET more\n     # h ---\n1. 10. [t][r] | --- | :-: |\n\t[r]: //e.example/#SECRET",
+  "limit": 0,
+  "out": "> \"title\"\n+ <div>\n> - ```\n \t***\n> - \\\n+ text /r?SECRET more\n     # h ---\n1. 10. [t][r] | --- | :-: |\n\t[r]: [link removed]",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "text /courses/1 more\n-\t|",
+  "limit": 0,
+  "out": "text /courses/1 more\n-\t|",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "  - > \n \t````\n>*https://e.example/a_(b)*\n2) ``` `x` text /courses/1 more",
+  "limit": 0,
+  "out": "  - > \n \t````\n>*https://e.example/a_(b)*\n2) ``` `x` text /courses/1 more",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "| *https://e.example/?SECRET*\n* /courses/1 _ _ _\n \t````\n> - # h\n+ a | b\n>*https://e.example/?SECRET*\n[t][r]\n-\t*** $$ x^2 $$",
+  "limit": 0,
+  "out": "| *[link removed]*\n* /courses/1 _ _ _\n \t````\n> - # h\n+ a | b\n>*[link removed]*\n[t][r]\n-\t*** $$ x^2 $$",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">[t][r]\n+ ```",
+  "limit": 123,
+  "out": ">[t][r]\n+ ```",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "10. ```js\n* $$\n- > |---|---|",
+  "limit": 0,
+  "out": "10. ```js\n* $$\n- > |---|---|",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "2) \\\n- ---\n2) ",
+  "limit": 0,
+  "out": "2) \\\n- ---\n2)",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "    * b`\n>x@e.example",
+  "limit": 0,
+  "out": "    * b`\n>x@e.example",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "* _ _ _\n10. [r]: https://e.example/a_(b)\n- > $$ x^2 $$\n+ ---\n   [r]:\n<div>\n> - | --- | :-: | ---\n\t## h #",
+  "limit": 0,
+  "out": "* _ _ _\n10. [r]: https://e.example/a_(b)\n- > $$ x^2 $$\n+ ---\n   [r]:\n<div>\n> - | --- | :-: | ---\n\t## h #",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "     title)\n2) [t][r]\n- x@e.example\n\n     *** a | b\n10. <div>\n![a](mailto:SECRET@e.example?x) *https://e.example/?SECRET*\n* ```js\n- > 'title'",
+  "limit": 31,
+  "out": "     title)\n2) [t][r]\n-…",
+  "renderer": {
+   "carrying_in": 2,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "***",
+  "limit": 0,
+  "out": "***",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">> * text mailto:SECRET@e.example?x more\n     *https://e.example/a_(b)*\n> - | --- | :-: |\n \t\n   [a\na | b\n   # h\n\"title\"",
+  "limit": 0,
+  "out": ">> * text mailto:SECRET@e.example?x more\n     *https://e.example/a_(b)*\n> - | --- | :-: |\n \t\n   [a\na | b\n   # h\n\"title\"",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "10. ~~https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0~~\n1. 10. [t][r]\n+ | --- | :-: |\n>|\n``` `x`\n>[t][r]\n| a | b | title)\n- > $ /courses/1 $",
+  "limit": 0,
+  "out": "10. ~~[link removed]\n1. 10. [t][r]\n+ | --- | :-: |\n>|\n``` `x`\n>[t][r]\n| a | b | title)\n- > $ /courses/1 $",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": ">``` `x`\n \t\\\n>b`",
+  "limit": 0,
+  "out": ">``` `x`\n \t\\\n>b`",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1.\t[r]: https://e.example/a_(b)\n    * ***\n></courses/1>\n2) \"title\"\n- |",
+  "limit": 36,
+  "out": "1.",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "> *** \"title\"\n1.\t===\n> x?SECRET@e.example [r]\n\n- $[t](mailto:SECRET@e.example?x)$\n> - [r]:\n \t<https://e.example/?SECRET> <https://e.example/?SECRET>",
+  "limit": 0,
+  "out": "> *** \"title\"\n1.\t===\n> [link removed] [r]\n\n- $[t](mailto:SECRET@e.example?x)$\n> - [r]:\n \t[link removed] [link removed]",
+  "renderer": {
+   "carrying_in": 3,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "\n-\t$$ x^2 $$\n2) <div> ---\n>> 1.\t| --- | :-: |\n> - # h\n \t# h\n>\n \ta | b\n> - title)",
+  "limit": 0,
+  "out": "-\t$$ x^2 $$\n2) <div> ---\n>> 1.\t| --- | :-: |\n> - # h\n \t# h\n>\n \ta | b\n> - title)",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "1.\t$$x\n- > plain words\n* [t](https://e.example/c2VjcmV0c2VjcmV0c2VjcmV0c2VjcmV0)\n>> \tb`\n><div>\n+ [a\n>***\n``` `x`",
+  "limit": 0,
+  "out": "1.\t$$x\n- > plain words\n* t\n>> \tb`\n><div>\n+ [a\n>***\n``` `x`",
+  "renderer": {
+   "carrying_in": 1,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "- > ```js [r]: </courses/1>\n>$[t](https://docs.python.org/3/)$\n| a | b | $$ x^2 $$\n>> \tb`",
+  "limit": 0,
+  "out": "- > ```js [r]: </courses/1>\n>$[t](https://docs.python.org/3/)$\n| a | b | $$ x^2 $$\n>> \tb`",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ },
+ {
+  "in": "10. ```js\n\t--- | ---\n10. _ _ _ |---|---|\n2) [r]:\n     [r]:\n > ``` `x`\n- ```` ````",
+  "limit": 41,
+  "out": "10. ```js\n\t--- | ---\n10.…",
+  "renderer": {
+   "carrying_in": 0,
+   "carrying_out": 0,
+   "code_kept": true
+  }
+ }
+]

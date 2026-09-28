@@ -29,8 +29,10 @@ build: ## compile the runtime into bin/
 	CGO_ENABLED=0 go build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN) ./cmd/aishie-runtime
 
 .PHONY: test
+# The end to end (e2e/) is left to make e2e: it needs a Core, and fails
+# without one when CI is true, as it is in every CI job.
 test: ## unit and integration tests: the fake Core, the scripted models, the store on TEST_DATABASE_URL
-	go test -race -shuffle=on -coverprofile=cover.out ./...
+	go test -race -shuffle=on -coverprofile=cover.out $$(go list ./... | grep -v '/e2e$$')
 
 .PHONY: e2e
 e2e: build ## the runtime against the pinned Core (scripts/ci-core.sh), with a scripted model
