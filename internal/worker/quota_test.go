@@ -21,6 +21,9 @@ func TestQuotaCanned(t *testing.T) {
 	wk := w.start(w.config(nil, w.agentDoc("cs101-tutor", "m1", over, nil)), models{"m1": model}, workerOpts{})
 	c1, _ := w.ask(0, tu, "First question.")
 	w.waitAnswers(c1, 1)
+	// The ledger counts an answer once Core has taken it, a moment after
+	// Core shows it: the quota is measured on the ledger.
+	eventually(t, "the first answer in the ledger", func() bool { return len(wk.st.outcomes(c1)) == 1 })
 	c2, m2 := w.ask(0, tu, "Second question.")
 	got := w.waitAnswers(c2, 1)
 	if got[0].Body != config.DefaultQuotaText || got[0].IdempotencyKey != core.AnswerKey(c2, m2, 1) {
@@ -66,6 +69,9 @@ func TestQuotaSilent(t *testing.T) {
 	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", over, nil)), models{"m1": model}, workerOpts{})
 	c1, _ := w.ask(0, own, "First question.")
 	w.waitAnswers(c1, 1)
+	// As in TestQuotaCanned: the quota is measured on the ledger, which
+	// counts the first answer a moment after Core shows it.
+	eventually(t, "the first answer in the ledger", func() bool { return len(wk.st.outcomes(c1)) == 1 })
 	c2, _ := w.ask(0, own, "Second question.")
 	eventually(t, "the question held back", func() bool {
 		st := wk.sup.Status()
