@@ -19,9 +19,10 @@
 // idempotency, proposals and their decisions, the inbox, events and who sees
 // them; so are the writes people make that the test controls go through
 // (conversation_open, conversation_ask, action_decide, action_review), and
-// document_create, a write a model makes through its seat's perms. The
-// model's read tools read canned material per course, under Core's gates
-// and scope rules. Any other tool is refused as never attempted: status
+// document_create and member_add, writes a model makes through its seat's
+// perms, and the roster a model reads (member_list, member_get,
+// member_lookup_actor). The model's other read tools read canned material
+// per course, under Core's gates and scope rules. Any other tool is refused as never attempted: status
 // error, code not_found for a course that does not exist, forbidden
 // (details.reason not_implemented) otherwise.
 //
@@ -96,6 +97,8 @@ type Core struct {
 	nextKey          int
 	// siteChat is each actor's last me.site_chat (Options.SiteChat).
 	siteChat map[string]bool
+	// presetIDs are the built-in presets' ids, by name.
+	presetIDs map[string]string
 
 	hooks  sync.RWMutex
 	inject func(InjectedCall) *Injection
@@ -135,6 +138,10 @@ func implemented() map[string]*impl {
 		"credential.list":       credentialList(),
 		"credential.revoke":     credentialRevoke(),
 		"me.site_chat":          meSiteChat(),
+		"member.list":           memberList(),
+		"member.get":            memberGet(),
+		"member.lookup_actor":   memberLookupActor(),
+		"member.add":            memberAdd(),
 	}
 }
 
@@ -210,7 +217,7 @@ func New(o Options) *Core {
 		actors: map[string]*actor{}, tokens: map[string]*credential{}, courses: map[string]*course{},
 		members: map[string]*member{}, conversations: map[string]*conversation{}, messages: map[string]*message{},
 		actions: map[string]*action{}, keys: map[actorKey]*action{}, blobs: map[string]*document{},
-		siteChat: map[string]bool{},
+		siteChat: map[string]bool{}, presetIDs: map[string]string{},
 	}
 	c.system = &actor{id: newID(), kind: "system", name: "system", status: statusActive}
 	c.limiter = newLimiter(o.RatePerMinute, o.RateBurst, c.now)

@@ -1,0 +1,882 @@
+{
+ "scenario": "member_writes",
+ "steps": [
+  {
+   "args": {
+    "actor_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "actor_id": "<id:1>",
+     "display_name": "Aoi",
+     "kind": "human",
+     "status": "active"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "lookup_newcomer",
+   "text_is_envelope": true,
+   "tool": "member_lookup_actor"
+  },
+  {
+   "args": {
+    "actor_id": "<id:3>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "actor_id": "<id:3>",
+     "display_name": "Yuki",
+     "kind": "human",
+     "member_id": "<id:4>",
+     "status": "active"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "lookup_seated",
+   "text_is_envelope": true,
+   "tool": "member_lookup_actor"
+  },
+  {
+   "args": {
+    "actor_id": "<id:5>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "actor_id": "<id:5>",
+     "display_name": "CS101 Tutor",
+     "kind": "agent",
+     "member_id": "<id:6>",
+     "owner_actor_id": "<id:7>",
+     "owner_name": "Sato",
+     "status": "active"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "lookup_owned_agent",
+   "text_is_envelope": true,
+   "tool": "member_lookup_actor"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "give one of email or actor_id"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "lookup_neither",
+   "text_is_envelope": true,
+   "tool": "member_lookup_actor"
+  },
+  {
+   "args": {
+    "actor_id": "<id:1>",
+    "course_id": "<id:2>",
+    "email": "aoi@example.invalid"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "give one of email or actor_id"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "lookup_both",
+   "text_is_envelope": true,
+   "tool": "member_lookup_actor"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "email": " nobody@example.invalid "
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "message": "nobody is registered with that email or id"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "lookup_unknown_email",
+   "text_is_envelope": true,
+   "tool": "member_lookup_actor"
+  },
+  {
+   "args": {
+    "actor_id": "<id:8>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "message": "nobody is registered with that email or id"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "lookup_unknown_id",
+   "text_is_envelope": true,
+   "tool": "member_lookup_actor"
+  },
+  {
+   "args": {
+    "actor_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "tool:x:m:1:1",
+    "preset": "student"
+   },
+   "envelope": {
+    "action_id": "<id:9>",
+    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed.",
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "add_proposed",
+   "text_is_envelope": true,
+   "tool": "member_add"
+  },
+  {
+   "args": {
+    "actor_id": "<id:10>",
+    "course_id": "<id:2>",
+    "idempotency_key": "tool:x:m:2:1",
+    "preset": "student"
+   },
+   "envelope": {
+    "action_id": "<id:11>",
+    "result": {
+     "member_id": "<id:12>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "add_executed",
+   "text_is_envelope": true,
+   "tool": "member_add"
+  },
+  {
+   "args": {
+    "actor_id": "<id:10>",
+    "course_id": "<id:2>",
+    "idempotency_key": "tool:x:m:2:1",
+    "preset": "student"
+   },
+   "envelope": {
+    "action_id": "<id:11>",
+    "replayed": true,
+    "result": {
+     "member_id": "<id:12>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "add_replayed",
+   "text_is_envelope": true,
+   "tool": "member_add"
+  },
+  {
+   "args": {
+    "actor_id": "<id:10>",
+    "course_id": "<id:2>",
+    "idempotency_key": "tool:x:m:2:2",
+    "preset": "observer"
+   },
+   "envelope": {
+    "action_id": "<id:13>",
+    "error": {
+     "code": "conflict",
+     "message": "the actor already has a seat in this course; change it, or remove it and add again for a fresh start"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "add_seated",
+   "text_is_envelope": true,
+   "tool": "member_add"
+  },
+  {
+   "args": {
+    "actor_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "tool:x:m:2:3",
+    "preset": "instructor"
+   },
+   "envelope": {
+    "action_id": "<id:14>",
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "permission": "document_write"
+     },
+     "message": "you hold document_write at denied and cannot grant it at autonomous"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "add_more_than_it_holds",
+   "text_is_envelope": true,
+   "tool": "member_add"
+  },
+  {
+   "args": {
+    "actor_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "tool:x:m:2:4",
+    "perms": {
+     "grade_post": "autonomous"
+    },
+    "preset": "student"
+   },
+   "envelope": {
+    "action_id": "<id:15>",
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "permission": "grade_post"
+     },
+     "message": "you hold grade_post at denied and cannot grant it at autonomous"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "add_a_level_more",
+   "text_is_envelope": true,
+   "tool": "member_add"
+  },
+  {
+   "args": {
+    "actor_id": "<id:5>",
+    "course_id": "<id:2>",
+    "idempotency_key": "tool:x:m:2:5",
+    "preset": "observer"
+   },
+   "envelope": {
+    "action_id": "<id:16>",
+    "error": {
+     "code": "failed_precondition",
+     "message": "the agent belongs to someone: its owner brings it in, with member.add_delegate"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "add_owned_agent",
+   "text_is_envelope": true,
+   "tool": "member_add"
+  },
+  {
+   "args": {
+    "actor_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "tool:x:m:2:6",
+    "preset": "wizard"
+   },
+   "envelope": {
+    "action_id": "<id:17>",
+    "error": {
+     "code": "not_found",
+     "message": "no such preset"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "add_unknown_preset",
+   "text_is_envelope": true,
+   "tool": "member_add"
+  },
+  {
+   "args": {
+    "actor_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "tool:x:m:2:7"
+   },
+   "envelope": {
+    "action_id": "<id:18>",
+    "error": {
+     "code": "invalid_argument",
+     "message": "give exactly one of preset and preset_id"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "add_no_preset",
+   "text_is_envelope": true,
+   "tool": "member_add"
+  },
+  {
+   "args": {
+    "actor_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "tool:x:m:2:8",
+    "preset": "student",
+    "role": "dean"
+   },
+   "envelope": {
+    "action_id": "<id:19>",
+    "error": {
+     "code": "invalid_argument",
+     "message": "role or scope is not one of the allowed values"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "add_bad_role",
+   "text_is_envelope": true,
+   "tool": "member_add"
+  },
+  {
+   "args": {
+    "actor_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "tool:x:m:2:9",
+    "perms": {
+     "grade_all": "autonomous",
+     "zzz": "x"
+    },
+    "preset": "student"
+   },
+   "envelope": {
+    "action_id": "<id:20>",
+    "error": {
+     "code": "invalid_argument",
+     "message": "there is no permission named \"grade_all\""
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "add_bad_perm",
+   "text_is_envelope": true,
+   "tool": "member_add"
+  },
+  {
+   "args": {
+    "actor_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "tool:x:m:2:10",
+    "perms": {
+     "grade_read": "sometimes"
+    },
+    "preset": "student"
+   },
+   "envelope": {
+    "action_id": "<id:21>",
+    "error": {
+     "code": "invalid_argument",
+     "message": "\"sometimes\" is not a level; use denied, confirm_required, pending_review or autonomous"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "add_bad_level",
+   "text_is_envelope": true,
+   "tool": "member_add"
+  },
+  {
+   "args": {
+    "actor_id": "<id:8>",
+    "course_id": "<id:2>",
+    "idempotency_key": "tool:x:m:2:11",
+    "preset": "student"
+   },
+   "envelope": {
+    "action_id": "<id:22>",
+    "error": {
+     "code": "not_found",
+     "message": "no such actor"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "add_unknown_actor",
+   "text_is_envelope": true,
+   "tool": "member_add"
+  },
+  {
+   "args": {
+    "actor_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "tool:x:m:2:12",
+    "listed_students": [
+     "<id:6>"
+    ],
+    "preset": "observer",
+    "student_scope": "listed"
+   },
+   "envelope": {
+    "action_id": "<id:23>",
+    "error": {
+     "code": "failed_precondition",
+     "message": "listed_students must all be current students of this course"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "add_listed_nobody_there",
+   "text_is_envelope": true,
+   "tool": "member_add"
+  },
+  {
+   "args": {
+    "actor_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "tool:x:m:2:13",
+    "listed_students": [
+     "<id:4>"
+    ],
+    "preset": "observer"
+   },
+   "envelope": {
+    "action_id": "<id:24>",
+    "error": {
+     "code": "invalid_argument",
+     "message": "listed_students only makes sense with student_scope = listed"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "add_listed_for_all",
+   "text_is_envelope": true,
+   "tool": "member_add"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "member_id": "<id:12>"
+   },
+   "envelope": {
+    "result": {
+     "actor_id": "<id:10>",
+     "answers_course": false,
+     "assignment_scope": "all",
+     "created_at": "<time>",
+     "display_name": "Ren",
+     "id": "<id:12>",
+     "kind": "human",
+     "listed_students": [
+      "<id:12>"
+     ],
+     "perms": {
+      "action_decide": "denied",
+      "agent_delegate": "confirm_required",
+      "assignment_write": "denied",
+      "conversation_answer": "denied",
+      "conversation_ask": "autonomous",
+      "document_read": "autonomous",
+      "document_read_draft": "denied",
+      "document_write": "denied",
+      "grade_post": "denied",
+      "grade_read": "autonomous",
+      "grade_submit": "denied",
+      "member_manage": "denied",
+      "member_read": "denied",
+      "rubric_read": "denied",
+      "submission_read": "autonomous",
+      "submission_write": "autonomous"
+     },
+     "preset_id": "<id:25>",
+     "role": "student",
+     "status": "active",
+     "student_scope": "listed"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "get_added",
+   "text_is_envelope": true,
+   "tool": "member_get"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "member_id": "<id:26>"
+   },
+   "envelope": {
+    "result": {
+     "actor_id": "<id:27>",
+     "answers_course": false,
+     "assignment_scope": "all",
+     "created_at": "<time>",
+     "display_name": "CS101 Registrar",
+     "id": "<id:26>",
+     "kind": "agent",
+     "perms": {
+      "action_decide": "denied",
+      "agent_delegate": "confirm_required",
+      "assignment_write": "denied",
+      "conversation_answer": "denied",
+      "conversation_ask": "autonomous",
+      "document_read": "autonomous",
+      "document_read_draft": "autonomous",
+      "document_write": "denied",
+      "grade_post": "denied",
+      "grade_read": "autonomous",
+      "grade_submit": "autonomous",
+      "member_manage": "autonomous",
+      "member_read": "autonomous",
+      "rubric_read": "autonomous",
+      "submission_read": "autonomous",
+      "submission_write": "autonomous"
+     },
+     "preset_id": "<id:28>",
+     "role": "ta",
+     "status": "active",
+     "student_scope": "all"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "get_itself",
+   "text_is_envelope": true,
+   "tool": "member_get"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "member_id": "<id:6>"
+   },
+   "envelope": {
+    "result": {
+     "actor_id": "<id:5>",
+     "answers_course": true,
+     "assignment_scope": "all",
+     "created_at": "<time>",
+     "display_name": "CS101 Tutor",
+     "id": "<id:6>",
+     "kind": "agent",
+     "owner_actor_id": "<id:7>",
+     "owner_name": "Sato",
+     "perms": {
+      "action_decide": "denied",
+      "agent_delegate": "denied",
+      "assignment_write": "denied",
+      "conversation_answer": "autonomous",
+      "conversation_ask": "denied",
+      "document_read": "autonomous",
+      "document_read_draft": "denied",
+      "document_write": "denied",
+      "grade_post": "denied",
+      "grade_read": "denied",
+      "grade_submit": "denied",
+      "member_manage": "denied",
+      "member_read": "denied",
+      "rubric_read": "denied",
+      "submission_read": "denied",
+      "submission_write": "denied"
+     },
+     "preset_id": "<id:29>",
+     "principal_member_id": "<id:30>",
+     "role": "assistant",
+     "status": "active",
+     "student_scope": "listed"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "get_tutor",
+   "text_is_envelope": true,
+   "tool": "member_get"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "member_id": "<id:8>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "message": "no such member in this course"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "get_missing",
+   "text_is_envelope": true,
+   "tool": "member_get"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "role": "student"
+   },
+   "envelope": {
+    "result": {
+     "members": [
+      {
+       "actor_id": "<id:3>",
+       "answers_course": false,
+       "assignment_scope": "all",
+       "created_at": "<time>",
+       "display_name": "Yuki",
+       "id": "<id:4>",
+       "kind": "human",
+       "perms": {
+        "action_decide": "denied",
+        "agent_delegate": "confirm_required",
+        "assignment_write": "denied",
+        "conversation_answer": "denied",
+        "conversation_ask": "autonomous",
+        "document_read": "autonomous",
+        "document_read_draft": "denied",
+        "document_write": "denied",
+        "grade_post": "denied",
+        "grade_read": "autonomous",
+        "grade_submit": "denied",
+        "member_manage": "denied",
+        "member_read": "denied",
+        "rubric_read": "denied",
+        "submission_read": "autonomous",
+        "submission_write": "autonomous"
+       },
+       "preset_id": "<id:25>",
+       "role": "student",
+       "status": "active",
+       "student_scope": "listed"
+      },
+      {
+       "actor_id": "<id:31>",
+       "answers_course": false,
+       "assignment_scope": "all",
+       "created_at": "<time>",
+       "display_name": "Ken",
+       "id": "<id:32>",
+       "kind": "human",
+       "perms": {
+        "action_decide": "denied",
+        "agent_delegate": "confirm_required",
+        "assignment_write": "denied",
+        "conversation_answer": "denied",
+        "conversation_ask": "autonomous",
+        "document_read": "autonomous",
+        "document_read_draft": "denied",
+        "document_write": "denied",
+        "grade_post": "denied",
+        "grade_read": "autonomous",
+        "grade_submit": "denied",
+        "member_manage": "denied",
+        "member_read": "denied",
+        "rubric_read": "denied",
+        "submission_read": "autonomous",
+        "submission_write": "autonomous"
+       },
+       "preset_id": "<id:25>",
+       "role": "student",
+       "status": "active",
+       "student_scope": "listed"
+      },
+      {
+       "actor_id": "<id:10>",
+       "answers_course": false,
+       "assignment_scope": "all",
+       "created_at": "<time>",
+       "display_name": "Ren",
+       "id": "<id:12>",
+       "kind": "human",
+       "perms": {
+        "action_decide": "denied",
+        "agent_delegate": "confirm_required",
+        "assignment_write": "denied",
+        "conversation_answer": "denied",
+        "conversation_ask": "autonomous",
+        "document_read": "autonomous",
+        "document_read_draft": "denied",
+        "document_write": "denied",
+        "grade_post": "denied",
+        "grade_read": "autonomous",
+        "grade_submit": "denied",
+        "member_manage": "denied",
+        "member_read": "denied",
+        "rubric_read": "denied",
+        "submission_read": "autonomous",
+        "submission_write": "autonomous"
+       },
+       "preset_id": "<id:25>",
+       "role": "student",
+       "status": "active",
+       "student_scope": "listed"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "list_students",
+   "text_is_envelope": true,
+   "tool": "member_list"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "limit": 2
+   },
+   "envelope": {
+    "result": {
+     "members": [
+      {
+       "actor_id": "<id:7>",
+       "answers_course": false,
+       "assignment_scope": "all",
+       "created_at": "<time>",
+       "display_name": "Sato",
+       "id": "<id:30>",
+       "kind": "human",
+       "perms": {
+        "action_decide": "autonomous",
+        "agent_delegate": "autonomous",
+        "assignment_write": "autonomous",
+        "conversation_answer": "autonomous",
+        "conversation_ask": "autonomous",
+        "document_read": "autonomous",
+        "document_read_draft": "autonomous",
+        "document_write": "autonomous",
+        "grade_post": "autonomous",
+        "grade_read": "autonomous",
+        "grade_submit": "autonomous",
+        "member_manage": "autonomous",
+        "member_read": "autonomous",
+        "rubric_read": "autonomous",
+        "submission_read": "autonomous",
+        "submission_write": "autonomous"
+       },
+       "preset_id": "<id:33>",
+       "role": "instructor",
+       "status": "active",
+       "student_scope": "all"
+      },
+      {
+       "actor_id": "<id:34>",
+       "answers_course": false,
+       "assignment_scope": "all",
+       "created_at": "<time>",
+       "display_name": "Mori",
+       "id": "<id:35>",
+       "kind": "human",
+       "perms": {
+        "action_decide": "autonomous",
+        "agent_delegate": "autonomous",
+        "assignment_write": "autonomous",
+        "conversation_answer": "autonomous",
+        "conversation_ask": "autonomous",
+        "document_read": "autonomous",
+        "document_read_draft": "autonomous",
+        "document_write": "autonomous",
+        "grade_post": "autonomous",
+        "grade_read": "autonomous",
+        "grade_submit": "autonomous",
+        "member_manage": "autonomous",
+        "member_read": "autonomous",
+        "rubric_read": "autonomous",
+        "submission_read": "autonomous",
+        "submission_write": "autonomous"
+       },
+       "preset_id": "<id:33>",
+       "role": "instructor",
+       "status": "active",
+       "student_scope": "all"
+      }
+     ],
+     "next": "<id:35>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "list_page",
+   "text_is_envelope": true,
+   "tool": "member_list"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "permission_denied"
+     },
+     "message": "not permitted"
+    },
+    "status": "denied"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "list_as_a_student",
+   "text_is_envelope": true,
+   "tool": "member_list"
+  },
+  {
+   "args": {
+    "actor_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "actor_id": "<id:1>",
+     "display_name": "Aoi",
+     "kind": "human",
+     "member_id": "<id:36>",
+     "status": "active"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "lookup_after_approval",
+   "text_is_envelope": true,
+   "tool": "member_lookup_actor"
+  }
+ ]
+}

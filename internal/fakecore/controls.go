@@ -253,6 +253,15 @@ func (c *Core) AddAgent(name, ownerID string) (Actor, error) {
 	return c.addActor(name, "agent", owner), nil
 }
 
+// AddUnownedAgent registers an agent nobody owns, as an administrator's
+// actor.register does, and issues it a token. It is seated as anyone is
+// (Seat without Principal), as member.add seats it.
+func (c *Core) AddUnownedAgent(name string) Actor {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.addActor(name, "agent", nil)
+}
+
 // SetOwner gives the agent agentID the person ownerID as its owner, or
 // takes its owner away when ownerID is "", as an administrator's
 // actor.set_owner does in Core: refused while the agent is seated in a
@@ -426,7 +435,10 @@ func (c *Core) Seat(actorID, courseID string, o SeatOptions) (Member, error) {
 		return Member{}, err
 	}
 	m := &member{id: newID(), course: co, actor: a, status: statusActive, expiresAt: o.ExpiresAt, role: pr.role,
-		perms: map[string]level{}, principal: principal}
+		perms: map[string]level{}, principal: principal, createdAt: c.now()}
+	if o.Preset != "" {
+		m.presetID = c.presetID(o.Preset)
+	}
 	if o.Role != "" {
 		m.role = o.Role
 	}
@@ -907,6 +919,32 @@ func (c *Core) Proposals(courseID string) []Proposal {
 			}
 			out = append(out, p)
 		}
+	}
+	return out
+}
+
+// MemberRecord is a seat as the fake holds it, for assertions.
+type MemberRecord struct {
+	ID, ActorID, Role, Status string
+	// Principal is the seat a delegate is the delegate of; "" for none.
+	Principal string
+}
+
+// Members are a course's seats, removed ones too, in the order they were
+// made.
+func (c *Core) Members(courseID string) []MemberRecord {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var out []MemberRecord
+	for _, m := range c.memberList {
+		if m.course.id != courseID {
+			continue
+		}
+		r := MemberRecord{ID: m.id, ActorID: m.actor.id, Role: m.role, Status: m.status}
+		if m.principal != nil {
+			r.Principal = m.principal.id
+		}
+		out = append(out, r)
 	}
 	return out
 }
