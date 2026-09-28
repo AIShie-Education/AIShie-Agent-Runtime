@@ -26,6 +26,13 @@
 //     provider's, over https, and it sends no extra headers (D9): no
 //     request goes to an address the owner chose.
 //
+// And gives them one default YAML does not: a hosted agent's owner is
+// known, Core naming them, so its model is offered the writes its seats'
+// perms allow, in the conversations its owner opens, unless its owner
+// turns tools.writes off (docs/design.md §4). A YAML agent's owner is
+// whoever its operator says, and it has writes only when its
+// configuration turns them on.
+//
 // The agent document's shape holds the key pool of the product owner's D8
 // as it stands: model is the school's offer and model.fallback the owner's
 // own-key model, whose key is hosted_agent.key_secret_id.
@@ -244,6 +251,7 @@ func Document(a store.HostedAgent, courses []store.HostedCourse, coreBaseURL, de
 		// operator's key.
 		model["fallback"] = nil
 	}
+	writesOn(settings)
 	settings["id"], settings["display_name"], settings["tenant_id"], settings["paused"] = a.ID, a.DisplayName, a.TenantID, a.Paused
 	settings["core"] = map[string]any{"base_url": coreBaseURL, "token_ref": secrets.SchemeSealed + a.TokenSecretID}
 
@@ -274,6 +282,34 @@ func Document(a store.HostedAgent, courses []store.HostedCourse, coreBaseURL, de
 		return src, fmt.Errorf("its document: %w", err)
 	}
 	return src, nil
+}
+
+// writesOn writes out tools.writes as true in a hosted agent's settings
+// that do not set it (the package's comment): its default, over the
+// runtime's defaults, as its key source is written out. Tools that are not
+// a mapping are left for LoadDocuments to refuse.
+func writesOn(settings map[string]any) {
+	switch tools, isMap := settings["tools"].(map[string]any); {
+	case settings["tools"] == nil:
+		settings["tools"] = map[string]any{"writes": true}
+	case isMap && tools["writes"] == nil:
+		tools["writes"] = true
+	}
+}
+
+// WritesOf is whether a hosted agent's settings, as its row holds them,
+// offer its model its writes: tools.writes as set, and true when it is
+// not (writesOn).
+func WritesOf(settings json.RawMessage) bool {
+	var s struct {
+		Tools struct {
+			Writes *bool `json:"writes"`
+		} `json:"tools"`
+	}
+	if json.Unmarshal(settings, &s) != nil || s.Tools.Writes == nil {
+		return true
+	}
+	return *s.Tools.Writes
 }
 
 // object reads settings that must be a JSON object; none is {}.

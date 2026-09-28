@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -457,6 +458,105 @@ func TestPatch(t *testing.T) {
 	if strings.Contains(h.log.String(), ownKey) {
 		t.Error("the log holds the key")
 	}
+}
+
+// PATCH sets tools.writes, whether the agent's model is offered its
+// writes in its owner's conversations (design §4): true by default, at the
+// version If-Match names, audited, and put in force by the registry as the
+// model is; null goes back to the default; a value that is not a boolean,
+// or a member it does not take, is refused at its pointer.
+func TestPatchWrites(t *testing.T) {
+	h, _, _ := newModelWorld(t, config.Runtime{})
+	v := h.connect(h.yuki, h.helper.Token)
+	ctx := context.Background()
+	if !v.Tools.Writes {
+		t.Errorf("a new agent's writes are off: %+v", v.Tools)
+	}
+	var got HostedAgent
+	// Off, before the agent has a model: nothing else is asked of it.
+	a := h.patch(v.ID, `"1"`, `{"tools":{"writes":false}}`)
+	a.decode(t, &got)
+	if a.code != 200 || got.Version != 2 || got.Tools.Writes || a.header.Get("ETag") != `"2"` {
+		t.Fatalf("writes off: %d %s", a.code, a.body)
+	}
+	row, err := h.st.HostedAgent(ctx, v.ID)
+	h.ok(err)
+	if string(row.Settings) != `{"tools":{"writes":false}}` {
+		t.Errorf("the row: %s", row.Settings)
+	}
+	ev := h.events("agent.update")
+	if len(ev) != 1 || !strings.Contains(string(ev[0].Detail), `"changed":["tools.writes"]`) || !strings.Contains(string(ev[0].Detail), `"writes":false`) {
+		t.Errorf("the audit: %+v", ev)
+	}
+	// The model and key beside it keep it; the registry puts it in force.
+	a = h.patch(v.ID, `"2"`, ownOpenAI)
+	a.decode(t, &got)
+	if a.code != 200 || got.Version != 3 || got.Tools.Writes {
+		t.Fatalf("the model: %d %s", a.code, a.body)
+	}
+	cfg, _, err := registry.Build(ctx, &config.Config{}, h.st, registry.Options{CoreBaseURL: h.srv.URL})
+	h.ok(err)
+	if len(cfg.Agents) != 1 || cfg.Agents[0].Tools.Writes {
+		t.Errorf("the build: %+v %+v", cfg.Agents, cfg.Rejected)
+	}
+	// A no-op writes nothing.
+	for _, body := range []string{`{"tools":{"writes":false}}`, `{"tools":{}}`} {
+		a = h.patch(v.ID, `"3"`, body)
+		a.decode(t, &got)
+		if a.code != 200 || got.Version != 3 {
+			t.Errorf("no-op %s: %d %s", body, a.code, a.body)
+		}
+	}
+	// On, then back to the default, which is on; tools goes when empty.
+	a = h.patch(v.ID, `"3"`, `{"tools":{"writes":true}}`)
+	a.decode(t, &got)
+	if a.code != 200 || got.Version != 4 || !got.Tools.Writes {
+		t.Fatalf("writes on: %d %s", a.code, a.body)
+	}
+	for i, body := range []string{`{"tools":{"writes":null}}`, `{"tools":null}`} {
+		a = h.patch(v.ID, fmt.Sprintf(`"%d"`, 4+i), body)
+		a.decode(t, &got)
+		if a.code != 200 || !got.Tools.Writes {
+			t.Fatalf("%s: %d %s", body, a.code, a.body)
+		}
+	}
+	if got.Version != 5 {
+		t.Errorf("version %d: the default twice is one write", got.Version)
+	}
+	row, err = h.st.HostedAgent(ctx, v.ID)
+	h.ok(err)
+	if strings.Contains(string(row.Settings), "tools") {
+		t.Errorf("the default kept a tools setting: %s", row.Settings)
+	}
+	cfg, _, err = registry.Build(ctx, &config.Config{}, h.st, registry.Options{CoreBaseURL: h.srv.URL})
+	h.ok(err)
+	if len(cfg.Agents) != 1 || !cfg.Agents[0].Tools.Writes {
+		t.Errorf("the build: %+v %+v", cfg.Agents, cfg.Rejected)
+	}
+
+	for _, tc := range []struct {
+		name, version, body string
+		status              int
+		code, reason, field string
+	}{
+		{"not a boolean", `"5"`, `{"tools":{"writes":"yes"}}`, 400, CodeInvalidArgument, ReasonInvalidField, "/tools/writes"},
+		{"not an object", `"5"`, `{"tools":true}`, 400, CodeInvalidArgument, ReasonInvalidField, "/tools"},
+		{"a member of tools it does not take", `"5"`, `{"tools":{"allow":["grade_post"]}}`, 400, CodeInvalidArgument, ReasonUnknownField, "/tools/allow"},
+		{"writes in another case", `"5"`, `{"tools":{"Writes":false}}`, 400, CodeInvalidArgument, ReasonUnknownField, "/tools/Writes"},
+		{"another version", `"4"`, `{"tools":{"writes":false}}`, 412, CodeVersionMismatch, ReasonVersionMismatch, ""},
+		{"no If-Match", "", `{"tools":{"writes":false}}`, 428, CodeVersionRequired, ReasonVersionRequired, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := wantRefused(t, h.patch(v.ID, tc.version, tc.body), tc.status, tc.code, tc.reason)
+			if tc.field != "" && e.Details["field"] != tc.field {
+				t.Errorf("field %v, want %s", e.Details["field"], tc.field)
+			}
+		})
+	}
+	if row, _ := h.st.HostedAgent(ctx, v.ID); row.Version != 5 {
+		t.Errorf("a refused patch wrote: version %d", row.Version)
+	}
+	wantRefused(t, h.call("PATCH", "agents/"+v.ID, h.ken, `{"tools":{"writes":false}}`, "If-Match", `"5"`), 404, CodeNotFound, ReasonAgentNotFound)
 }
 
 // PATCH refuses, each with its reason: If-Match missing, *, of another

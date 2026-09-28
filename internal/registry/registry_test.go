@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -310,6 +311,61 @@ agent:
 	}
 	if len(why) > 0 {
 		t.Errorf("rejected too: %v", why)
+	}
+}
+
+// TestBuildWrites: a hosted agent's owner is known, so its model is
+// offered its writes unless its owner turned them off, whatever the
+// runtime's defaults say; a YAML agent has none unless its configuration
+// turns them on; a course may turn a hosted agent's off.
+func TestBuildWrites(t *testing.T) {
+	yaml := yamlConfig(t, "")
+	yaml.Runtime.Defaults["tools"] = map[string]any{"writes": false}
+	withTools := func(tools string) string {
+		return `{"model": {"adapter": "openai_chat", "model": "gpt-4.1-mini", "key_source": "own"}, "tools": ` + tools + `}`
+	}
+	rows := []store.HostedAgent{
+		row("agt_default", ownModel),
+		row("agt_null", withTools(`null`)),
+		row("agt_off", withTools(`{"writes": false}`)),
+		row("agt_on", withTools(`{"writes": true}`)),
+		row("agt_deny", withTools(`{"deny": ["grade_*"], "writes": null}`)),
+		row("agt_course", ownModel),
+		row("agt_bad", withTools(`{"writes": [true]}`)),
+	}
+	st := hostedStore(t, rows, store.HostedCourse{AgentID: "agt_course", CourseID: course1, Settings: json.RawMessage(`{"tools": {"writes": false}}`)})
+	cfg, _, err := Build(t.Context(), yaml, st, Options{CoreBaseURL: core, Allowlist: []string{core}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, a := range cfg.Agents {
+		got[a.ID] = a.Tools.Writes
+	}
+	want := map[string]bool{"a1": false, "agt_default": true, "agt_null": true, "agt_off": false, "agt_on": true, "agt_deny": true, "agt_course": true}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("writes %v\nwant   %v; rejected %v", got, want, rejectedWhy(cfg))
+	}
+	if why := rejectedWhy(cfg)["agt_bad"]; !strings.Contains(why, "agent.tools.writes") {
+		t.Errorf("tools.writes [true] was not refused: %q", why)
+	}
+	for _, a := range cfg.Agents {
+		if a.ID != "agt_course" {
+			continue
+		}
+		if e, err := a.ForCourse(course1); err != nil || e.Tools.Writes {
+			t.Errorf("the course that turns writes off: %+v, %v", e.Tools, err)
+		}
+		if e, err := a.ForCourse(course2); err != nil || !e.Tools.Writes {
+			t.Errorf("another course: %+v, %v", e.Tools, err)
+		}
+	}
+	for settings, want := range map[string]bool{
+		ownModel: true, withTools(`{"writes": false}`): false, withTools(`{"writes": true}`): true, withTools(`null`): true, ``: true,
+	} {
+		if got := WritesOf(json.RawMessage(settings)); got != want {
+			t.Errorf("WritesOf(%s) = %v, want %v", settings, got, want)
+		}
 	}
 }
 
