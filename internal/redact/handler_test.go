@@ -219,6 +219,8 @@ func TestHandlerEveryShapeInEveryForm(t *testing.T) {
 		"google":        googleKey,
 		"aws":           awsKey,
 		"aws temporary": awsTempKey,
+		"jwt":           jwt,
+		"encrypted jwt": jwe,
 	}
 	forms := func(tok string) []slog.Attr {
 		s := tok

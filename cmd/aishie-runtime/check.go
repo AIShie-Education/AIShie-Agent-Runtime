@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
@@ -17,8 +18,11 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/providers"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/redact"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/secrets"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/pgstore"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolschema"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolset"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/vault"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/worker"
 )
 
@@ -46,8 +50,43 @@ func cmdCheck(ctx context.Context, args []string, getenv func(string) string, st
 		return failure(stderr, "the configuration does not pass:\n%s", problemsText(err))
 	}
 	p := func(format string, a ...any) { _, _ = fmt.Fprintf(stdout, format+"\n", a...) }
-	for _, a := range l.cfg.Agents {
+	cfg, pg := l.cfg, (*pgstore.Store)(nil)
+	if env.DatabaseURL != "" {
+		// The registry is read as run reads it; one that cannot be read
+		// (a schema older than this binary's, before a deploy's migrate
+		// up) is said, and fails nothing: the YAML is what check checks.
+		if pg, err = pgstore.Open(ctx, env.DatabaseURL); err != nil {
+			pg = nil
+			p("registry: not read: %s", redact.String(err.Error()))
+		} else {
+			defer func() { _ = pg.Close() }()
+			h := &hosting{env: env, pg: pg, log: slog.New(slog.DiscardHandler), yaml: l.cfg, prices: l.prices}
+			h.mu.Lock()
+			built, _, err := h.build(ctx)
+			h.mu.Unlock()
+			if err != nil {
+				p("registry: not read: %s", redact.String(err.Error()))
+			} else {
+				cfg = built
+			}
+		}
+	}
+	hosted := 0
+	for _, a := range cfg.Agents {
 		describe(p, a)
+		if a.Hosted != nil {
+			hosted++
+		}
+	}
+	for _, r := range cfg.Rejected {
+		p("hosted agent %s: NOT RUN: %s", r.AgentID, redact.String(r.Detail()))
+	}
+	if env.KMSKeyID != "" {
+		kek, err := vault.OpenKEK(env.KMSKeyID)
+		if err != nil {
+			return failure(stderr, "the sealed secrets' keyring: %v", err)
+		}
+		p("sealed secrets: new ones are sealed by %s", kek.ID())
 	}
 	switch {
 	case l.pricesPath != "":
@@ -55,8 +94,12 @@ func cmdCheck(ctx context.Context, args []string, getenv func(string) string, st
 	default:
 		p("prices: none; the costs of model calls will be unknown")
 	}
-	p("the configuration passes: %d agents", len(l.cfg.Agents))
-	if len(l.cfg.Agents) == 0 {
+	if pg != nil {
+		p("the configuration passes: %d agents, %d of them hosted; %d hosted agents not run", len(cfg.Agents), hosted, len(cfg.Rejected))
+	} else {
+		p("the configuration passes: %d agents", len(cfg.Agents))
+	}
+	if len(cfg.Agents) == 0 {
 		p("%s", noAgentsNote)
 		return exitOK
 	}
@@ -67,15 +110,26 @@ func cmdCheck(ctx context.Context, args []string, getenv func(string) string, st
 	if err != nil {
 		return failure(stderr, "%v", err)
 	}
+	var sealed store.Secrets
+	if env.KMSKeyID != "" && env.DatabaseURL != "" {
+		if pg == nil {
+			return failure(stderr, "the store, which holds the sealed secrets, cannot be read")
+		}
+		sealed = pg
+	}
+	res, _, err := resolver(env, sealed)
+	if err != nil {
+		return failure(stderr, "the sealed secrets' keyring: %v", err)
+	}
 	failed := 0
 	cats := map[string]*core.Catalogue{}
-	for _, a := range l.cfg.Agents {
-		if !checkLive(ctx, p, a, env, client, cats) {
+	for _, a := range cfg.Agents {
+		if !checkLive(ctx, p, a, res, client, cats) {
 			failed++
 		}
 	}
 	if failed > 0 {
-		return failure(stderr, "%d of %d agents failed the live check", failed, len(l.cfg.Agents))
+		return failure(stderr, "%d of %d agents failed the live check", failed, len(cfg.Agents))
 	}
 	p("every agent connects")
 	return exitOK
@@ -84,8 +138,11 @@ func cmdCheck(ctx context.Context, args []string, getenv func(string) string, st
 // describe shows an agent's configuration, and each course's own.
 func describe(p func(string, ...any), a *config.Agent) {
 	state := ""
+	if a.Hosted != nil {
+		state = " (hosted)"
+	}
 	if a.Paused {
-		state = " (paused)"
+		state += " (paused)"
 	}
 	p("agent %s%s: %q", a.ID, state, redact.String(a.DisplayName))
 	p("  core: %s over %s", a.Core.BaseURL, a.Core.Transport)
@@ -115,6 +172,9 @@ func describe(p func(string, ...any), a *config.Agent) {
 		}
 		if e.PromptAppendRef != "" {
 			parts = append(parts, "prompt appended from "+e.PromptAppendRef)
+		}
+		if e.PromptAppendText != "" {
+			parts = append(parts, fmt.Sprintf("prompt appended, %d characters", len([]rune(e.PromptAppendText))))
 		}
 		if e.Budgets.PerAskerDay != a.Budgets.PerAskerDay || e.Budgets.PerAgentDay != a.Budgets.PerAgentDay {
 			parts = append(parts, "quotas per agent "+quotaLine(e.Budgets.PerAgentDay)+", per asker "+quotaLine(e.Budgets.PerAskerDay))
@@ -172,7 +232,7 @@ func quotaLine(q config.Quota) string {
 
 // checkLive connects one agent as run would, shows its seats, and tries
 // its model's key. It reports whether all went well.
-func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, env config.Env, client *http.Client, cats map[string]*core.Catalogue) bool {
+func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, res secrets.Resolver, client *http.Client, cats map[string]*core.Catalogue) bool {
 	if a.Paused {
 		p("agent %s: paused, not connected", a.ID)
 		return true
@@ -183,8 +243,7 @@ func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, env
 		p("agent %s: FAILED: %s: %s", a.ID, what, redact.String(err.Error()))
 		return false
 	}
-	res := secrets.Resolver{Dir: env.SecretsDir, BaseDir: a.Dir}
-	token, err := res.Resolve(ctx, a.Core.TokenRef)
+	token, err := res.Resolve(ctx, a.Core.TokenRef, a.Dir)
 	if err != nil {
 		return fail("the Core token", err)
 	}
@@ -214,6 +273,9 @@ func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, env
 		return fail("me_get", err)
 	}
 	p("agent %s: connected as %q (%s, %s)", a.ID, redact.String(me.DisplayName), me.ID, me.Kind)
+	if msg := worker.HostedActorProblem(a, me); msg != "" {
+		return fail("me_get", errors.New(msg))
+	}
 	ms, err := c.Memberships(ctx)
 	if err != nil {
 		return fail("me_memberships", err)
@@ -325,7 +387,7 @@ func tryModel(ctx context.Context, p func(string, ...any), a *config.Agent, m co
 	var key string
 	if m.KeyRef != "" {
 		var err error
-		if key, err = res.Resolve(ctx, m.KeyRef); err != nil {
+		if key, err = res.Resolve(ctx, m.KeyRef, a.Dir); err != nil {
 			p("  model %s: FAILED: its key: %s", name, redact.String(err.Error()))
 			return false
 		}

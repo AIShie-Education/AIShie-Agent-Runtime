@@ -2,25 +2,36 @@ package pgstore
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
 )
 
-// SeatSeen records the seat as current, clearing any GoneAt.
-func (s *Store) SeatSeen(ctx context.Context, agentID, memberID, courseID string, at time.Time) error {
-	if err := required("agent_id", agentID, "member_id", memberID); err != nil {
+// SeatSeen records the seat as current, as r says it is, clearing any
+// GoneAt.
+func (s *Store) SeatSeen(ctx context.Context, r store.SeatRef) error {
+	if err := required("agent_id", r.AgentID, "member_id", r.MemberID); err != nil {
 		return err
 	}
-	_, err := s.pool.Exec(ctx, `
-		INSERT INTO seat (agent_id, member_id, course_id, seen_at, gone_at)
-		VALUES ($1, $2, $3, COALESCE($4::timestamptz, now()), NULL)
+	perms, err := json.Marshal(r.Perms)
+	if err != nil || r.Perms == nil {
+		perms = []byte(`{}`)
+	}
+	_, err = s.pool.Exec(ctx, `
+		INSERT INTO seat (agent_id, member_id, course_id, seen_at, gone_at, course_code, course_title, section, status,
+		                  answers_course, principal_member_id, perms)
+		VALUES ($1, $2, $3, COALESCE($4::timestamptz, now()), NULL, $5, $6, $7, $8, $9, $10, $11::jsonb)
 		ON CONFLICT (agent_id, member_id) DO UPDATE
-		   SET course_id = EXCLUDED.course_id, seen_at = EXCLUDED.seen_at, gone_at = NULL`,
-		agentID, memberID, courseID, orNow(at))
+		   SET course_id = EXCLUDED.course_id, seen_at = EXCLUDED.seen_at, gone_at = NULL,
+		       course_code = EXCLUDED.course_code, course_title = EXCLUDED.course_title, section = EXCLUDED.section,
+		       status = EXCLUDED.status, answers_course = EXCLUDED.answers_course,
+		       principal_member_id = EXCLUDED.principal_member_id, perms = EXCLUDED.perms`,
+		r.AgentID, r.MemberID, r.CourseID, orNow(r.SeenAt), r.CourseCode, r.CourseTitle, r.Section, r.Status,
+		r.AnswersCourse, orNull(r.PrincipalMemberID), string(perms))
 	if err != nil {
-		return fmt.Errorf("store: seat %s seen: %w", memberID, err)
+		return fmt.Errorf("store: seat %s seen: %w", r.MemberID, err)
 	}
 	return nil
 }
@@ -41,6 +52,10 @@ func (s *Store) SeatGone(ctx context.Context, agentID, memberID string, at time.
 	return nil
 }
 
+// seatColumns are what querySeats reads, in its order.
+const seatColumns = `agent_id, member_id, course_id, seen_at, gone_at, course_code, course_title, section, status,
+	answers_course, COALESCE(principal_member_id, ''), perms::text`
+
 // querySeats lists the seats a query returns.
 func (s *Store) querySeats(ctx context.Context, sql string, args ...any) ([]store.SeatRef, error) {
 	rows, err := s.pool.Query(ctx, sql, args...)
@@ -51,8 +66,13 @@ func (s *Store) querySeats(ctx context.Context, sql string, args ...any) ([]stor
 	var out []store.SeatRef
 	for rows.Next() {
 		var r store.SeatRef
-		if err := rows.Scan(&r.AgentID, &r.MemberID, &r.CourseID, &r.SeenAt, &r.GoneAt); err != nil {
+		var perms string
+		if err := rows.Scan(&r.AgentID, &r.MemberID, &r.CourseID, &r.SeenAt, &r.GoneAt, &r.CourseCode, &r.CourseTitle,
+			&r.Section, &r.Status, &r.AnswersCourse, &r.PrincipalMemberID, &perms); err != nil {
 			return nil, err
+		}
+		if err := json.Unmarshal([]byte(perms), &r.Perms); err != nil || r.Perms == nil {
+			r.Perms = map[string]string{}
 		}
 		utc(&r.SeenAt)
 		if r.GoneAt != nil {
@@ -68,7 +88,7 @@ func (s *Store) querySeats(ctx context.Context, sql string, args ...any) ([]stor
 // database's collation.
 func (s *Store) KnownSeats(ctx context.Context, agentID string) ([]store.SeatRef, error) {
 	out, err := s.querySeats(ctx, `
-		SELECT agent_id, member_id, course_id, seen_at, gone_at FROM seat
+		SELECT `+seatColumns+` FROM seat
 		 WHERE agent_id = $1
 		 ORDER BY member_id COLLATE "C"`, agentID)
 	if err != nil {
@@ -81,7 +101,7 @@ func (s *Store) KnownSeats(ctx context.Context, agentID string) ([]store.SeatRef
 // went.
 func (s *Store) SeatsGoneBefore(ctx context.Context, t time.Time) ([]store.SeatRef, error) {
 	out, err := s.querySeats(ctx, `
-		SELECT agent_id, member_id, course_id, seen_at, gone_at FROM seat
+		SELECT `+seatColumns+` FROM seat
 		 WHERE gone_at < $1
 		 ORDER BY gone_at, agent_id COLLATE "C", member_id COLLATE "C"`, t)
 	if err != nil {

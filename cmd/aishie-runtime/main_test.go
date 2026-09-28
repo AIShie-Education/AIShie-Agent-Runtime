@@ -22,6 +22,7 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/fakecore"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/fakellm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/pricing"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/pgstore"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/version"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/worker"
 )
@@ -72,6 +73,9 @@ func TestUsage(t *testing.T) {
 		{[]string{"migrate", "up", "--yes"}, exitUsage, "takes no --yes"},
 		{[]string{"migrate", "version"}, exitFailure, "DATABASE_URL is not set"},
 		{[]string{"catalogue"}, exitUsage, "--core URL"},
+		{[]string{"keys"}, exitUsage, "keys takes check or rewrap"},
+		{[]string{"keys", "rotate"}, exitUsage, "keys takes check or rewrap"},
+		{[]string{"keys", "check"}, exitFailure, "DATABASE_URL is not set"},
 	} {
 		code, out, errs := runCmd(t, env(), c.args...)
 		if code != c.code || !strings.Contains(out+errs, c.out) {
@@ -528,10 +532,15 @@ func TestRunServesAndStops(t *testing.T) {
 func TestMigrate(t *testing.T) {
 	dbURL := scratchDatabase(t)
 	getenv := env("DATABASE_URL", dbURL)
-	if code, out, errs := runCmd(t, getenv, "migrate", "up"); code != exitOK || !strings.Contains(out, "schema version 1;") {
+	_, latest, _, err := pgstore.SchemaVersion(t.Context(), dbURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, out, errs := runCmd(t, getenv, "migrate", "up"); code != exitOK || !strings.Contains(out, fmt.Sprintf("schema version %d;", latest)) {
 		t.Fatalf("migrate up: %d\n%s%s", code, out, errs)
 	}
-	if code, out, errs := runCmd(t, getenv, "migrate", "version"); code != exitOK || !strings.Contains(out, "schema version 1; this binary's newest is 1") {
+	if code, out, errs := runCmd(t, getenv, "migrate", "version"); code != exitOK ||
+		!strings.Contains(out, fmt.Sprintf("schema version %d; this binary's newest is %d", latest, latest)) {
 		t.Errorf("migrate version: %d\n%s%s", code, out, errs)
 	}
 	if code, out, errs := runCmd(t, getenv, "migrate", "down", "--yes"); code != exitOK || !strings.Contains(out, "schema version 0 (older") {

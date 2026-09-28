@@ -293,3 +293,37 @@ func TestOneActorOneAgent(t *testing.T) {
 		t.Errorf("the model was called %d times", n)
 	}
 }
+
+// TestSeatSnapshot: the worker writes each seat as me_memberships shows
+// it, at every read, so that the API can show an agent's seats without its
+// token: a delegate's principal, a tutor's answers_course, the course and
+// the perms; and a change in Core is in the store at the next read.
+func TestSeatSnapshot(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("yuki-helper", 0)
+	tu := w.tutor("cs101-tutor")
+	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil), w.agentDoc("cs101-tutor", "m1", nil, nil)),
+		models{"m1": scripted.New()}, workerOpts{})
+	wk.waitState("yuki-helper", store.AgentRunning)
+	wk.waitState("cs101-tutor", store.AgentRunning)
+	seat := func(agent string) store.SeatRef {
+		t.Helper()
+		var got []store.SeatRef
+		eventually(t, "the seat of "+agent+" recorded", func() bool {
+			var err error
+			got, err = wk.st.KnownSeats(context.Background(), agent)
+			return err == nil && len(got) == 1
+		})
+		return got[0]
+	}
+	s := seat("yuki-helper")
+	if s.MemberID != own.seat.ID || s.CourseID != w.co.ID || s.CourseCode != "CS101" || s.CourseTitle != "CS101" || s.Section != "A" ||
+		s.Status != "active" || s.AnswersCourse || s.PrincipalMemberID != w.studentSeats[0].ID || s.Perms["conversation_answer"] == "" {
+		t.Errorf("the delegate's seat: %+v", s)
+	}
+	if s := seat("cs101-tutor"); s.MemberID != tu.seat.ID || !s.AnswersCourse || s.PrincipalMemberID != w.satoSeat.ID {
+		t.Errorf("the tutor's seat: %+v", s)
+	}
+	w.ok(w.fc.SetLevel(own.seat.ID, "grade_read", "denied"))
+	eventually(t, "the changed perm in the store", func() bool { return seat("yuki-helper").Perms["grade_read"] == "denied" })
+}

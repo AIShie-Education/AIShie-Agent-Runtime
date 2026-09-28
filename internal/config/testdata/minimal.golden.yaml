@@ -31,6 +31,7 @@ model:
     fallback: null
 prompt:
     system_ref: ""
+    system_text: ""
     answer_language: opener
     on_refusal_text: I can't help with that here. Please ask your instructor.
     on_budget_text: I couldn't finish this one. Try a narrower question.

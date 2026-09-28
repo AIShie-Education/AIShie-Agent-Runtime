@@ -112,9 +112,7 @@ func (a *Agent) stop(err error) {
 // start resolves the agent's token, fetches Core's catalogue, connects,
 // checks the token with me_get, and builds the model's adapters.
 func (a *Agent) start(ctx context.Context) error {
-	res := a.s.o.Secrets
-	res.BaseDir = a.cfg.Dir
-	token, err := res.Resolve(ctx, a.cfg.Core.TokenRef)
+	token, err := a.s.o.Secrets.Resolve(ctx, a.cfg.Core.TokenRef, a.cfg.Dir)
 	if err != nil {
 		return fmt.Errorf("the Core token: %w", err)
 	}
@@ -134,10 +132,21 @@ func (a *Agent) start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("me_get: %w", err)
 	}
+	if msg := HostedActorProblem(a.cfg, me); msg != "" {
+		return &blockedError{msg: msg}
+	}
 	// One actor in Core is one agent here: two agents on one token would
 	// answer every question twice over, and spend its rate limit twice.
-	if other := a.s.claimActor(a.cfg.Core.BaseURL, me.ID, a.id); other != "" {
+	other, preempted := a.s.claimActor(a.cfg.Core.BaseURL, me.ID, a.id)
+	switch {
+	case other != "" && a.cfg.Hosted != nil && !a.s.hostedAgent(other):
+		return &blockedError{msg: fmt.Sprintf("its Core actor runs here as agent %q, of the operator's configuration, which wins", other)}
+	case other != "":
 		return fmt.Errorf("its token is agent %q's too: one agent in Core is one agent here, with a token of its own", other)
+	}
+	if preempted != nil {
+		a.log.Warn("a hosted agent ran as this agent's Core actor; the operator's configuration wins, and it is stopped", "hosted", preempted.id)
+		preempted.stop(&blockedError{msg: fmt.Sprintf("its Core actor runs here as agent %q, of the operator's configuration, which wins", a.id)})
 	}
 	primary, _, err := a.models(ctx, a.cfg.Model)
 	if err != nil {
@@ -153,6 +162,24 @@ func (a *Agent) start(ctx context.Context) error {
 	a.log.Info("agent started", "actor", me.ID, "catalogue", cat.Hash(), "transport", a.cfg.Core.Transport,
 		"adapter", a.primary.ad.Name(), "provider", a.primary.ad.Provider(), "model", a.primary.ad.Model())
 	return nil
+}
+
+// HostedActorProblem says why the actor me_get names, me, is not one hosted
+// agent cfg may run as, or "" when it is, or cfg is not hosted. Its token
+// must be its own actor's: one pasted for another agent would run that one
+// under this one's settings. And that actor must be an agent: a person's
+// own token would have the runtime act as the person, with every seat of
+// theirs.
+func HostedActorProblem(cfg *config.Agent, me *core.Actor) string {
+	switch h := cfg.Hosted; {
+	case h == nil:
+		return ""
+	case me.ID != h.CoreActorID:
+		return "its token is another Core actor's than the agent's: connect the agent again with a token of its own"
+	case me.Kind != core.KindAgent:
+		return "its token is not an agent's in Core: a hosted agent runs only on an agent's own token, never a person's"
+	}
+	return ""
 }
 
 // name is what the agent is called in its prompts: its name in Core.
@@ -194,10 +221,8 @@ func (a *Agent) models(ctx context.Context, m config.Model) (*model, *model, err
 func (a *Agent) buildModel(ctx context.Context, m config.Model) (*model, error) {
 	var key string
 	if m.KeyRef != "" {
-		res := a.s.o.Secrets
-		res.BaseDir = a.cfg.Dir
 		var err error
-		if key, err = res.Resolve(ctx, m.KeyRef); err != nil {
+		if key, err = a.s.o.Secrets.Resolve(ctx, m.KeyRef, a.cfg.Dir); err != nil {
 			return nil, err
 		}
 	}
@@ -282,15 +307,15 @@ func (a *Agent) readMemberships(ctx context.Context) {
 
 // reconcile starts a Seat for each seat the agent answers in, updates those
 // running, and stops those that left or stopped answering. Every seat in
-// me_memberships is recorded as current; one the store knows that is not
-// there any more is recorded gone, and its memory purged once
+// me_memberships is recorded as current, as it now is; one the store knows
+// that is not there any more is recorded gone, and its memory purged once
 // retention_days_after_removal have passed (§2.5).
 func (a *Agent) reconcile(ctx context.Context, ms []core.Membership) {
 	now := a.now()
 	current := make(map[string]core.Membership, len(ms))
 	for _, m := range ms {
 		current[m.MemberID] = m
-		if err := a.store().SeatSeen(ctx, a.id, m.MemberID, m.CourseID, now); err != nil && ctx.Err() == nil {
+		if err := a.store().SeatSeen(ctx, seatSnapshot(a.id, m, now)); err != nil && ctx.Err() == nil {
 			a.log.Warn("seat not recorded", "member", m.MemberID, "err", err)
 		}
 	}
@@ -353,6 +378,19 @@ func (a *Agent) reconcile(ctx context.Context, ms []core.Membership) {
 			"level", m.Level("conversation_answer"), "tools", len(s.toolNames()))
 	}
 	a.refreshDetail()
+}
+
+// seatSnapshot is the seat m as the store keeps it: what me_memberships
+// says of it, so that the API can show it without the agent's token.
+func seatSnapshot(agentID string, m core.Membership, at time.Time) store.SeatRef {
+	r := store.SeatRef{
+		AgentID: agentID, MemberID: m.MemberID, CourseID: m.CourseID, CourseCode: m.Code, CourseTitle: m.Title,
+		Section: m.Section, Status: m.Status, AnswersCourse: m.AnswersCourse, Perms: m.Perms, SeenAt: at,
+	}
+	if m.PrincipalMemberID != nil {
+		r.PrincipalMemberID = *m.PrincipalMemberID
+	}
+	return r
 }
 
 // answersIn reports whether the agent answers in the seat m, and the

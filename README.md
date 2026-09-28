@@ -42,6 +42,8 @@ aishie-runtime check [--live]              validate the configuration; --live co
 aishie-runtime migrate up                  the store's schema (PostgreSQL)
 aishie-runtime migrate down --yes
 aishie-runtime migrate version
+aishie-runtime keys check                  every secret sealed in the store opens with the keyring
+aishie-runtime keys rewrap                 wrap every secret's data key under KMS_KEY_ID's key
 aishie-runtime catalogue --core URL        Core's tool catalogue and its hash;
           [--check FILE] [--write FILE]    --check exits 1 when it differs from FILE
 aishie-runtime version | help
@@ -53,7 +55,10 @@ answers in progress `SHUTDOWN_GRACE` to finish.
 
 ## Configuration
 
-Agents are YAML, one document per agent, in the shape of the handout's §4.
+Agents are YAML, one document per agent, in the shape of the handout's §4,
+and, with `DATABASE_URL`, the hosted agents people connect themselves,
+which the runtime keeps in its database and runs beside them
+([`docs/design.md`](docs/design.md) §11).
 Each document holds the agent, and overrides per course if it has any.
 One `runtime:` document holds the process's own settings: tenants' quotas,
 the price table, and the models the school's key may use. See
@@ -74,6 +79,7 @@ Secrets are never written in the YAML, only referred to:
 | `secret://a/b` | the file `$SECRETS_DIR/a/b`, else the variable `AISHIE_SECRET_A_B` |
 | `env://NAME` | the variable `NAME` |
 | `file:///abs/path`, `file://rel/path` | the file; a relative one is relative to the agent's YAML file |
+| `sealed://sec_…` | a secret sealed in the runtime's own database, under the key `KMS_KEY_ID` names: how hosted agents' tokens and keys are kept |
 
 The process is set up from the environment:
 
@@ -83,8 +89,10 @@ The process is set up from the environment:
 | `CONFIG` | the YAML files and directories, separated by commas |
 | `HTTP_ADDR` | where `/healthz`, `/metrics` and `/status` listen (default `127.0.0.1:9090`) |
 | `CORE_BASE_URL_ALLOWLIST` | the Core origins or host patterns an agent may point at |
+| `CORE_BASE_URL` | the Core the hosted agents connect to: those people connect themselves, kept in the database (`DATABASE_URL`) |
 | `SECRETS_DIR` | where `secret://` references are looked for |
 | `PRICES` | the price table, instead of the runtime's `prices_ref` |
+| `KMS_KEY_ID` | the key that seals the secrets kept in the database: `local:<dir>/<name>`, a 32-byte key in that file |
 | `EGRESS_PROXY` | a proxy for every outbound call |
 | `LOG_LEVEL`, `LOG_FORMAT` | `info` and `json` by default |
 | `LOG_REDACT_EXTRA` | regular expressions redacted from logs, beside the built-in token and key shapes |

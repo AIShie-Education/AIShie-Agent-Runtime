@@ -47,7 +47,7 @@ var (
 // courseShape is what courses.<course_id> may hold: the agent's settings,
 // but not those that are the agent's alone, and the course's own.
 var courseShape = shape{
-	extra: map[string]reflect.Type{"enabled": boolType, "prompt_append_ref": stringType},
+	extra: map[string]reflect.Type{"enabled": boolType, "prompt_append_ref": stringType, "prompt_append_text": stringType},
 	forbid: map[string]string{
 		"id":        "an agent's id is the same in every course",
 		"tenant_id": "an agent's tenant is the same in every course",

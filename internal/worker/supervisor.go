@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -42,9 +45,16 @@ type Supervisor struct {
 	mu      sync.Mutex
 	cfg     *config.Config
 	pending *config.Config
+	// retry is whether the pending configuration starts again the agents
+	// stopped until a reload, changed or not (Reload), or only those that
+	// changed (Update).
+	retry   bool
 	runners map[string]*runner
 	// paused are the paused agents, whose state has been written.
 	paused map[string]bool
+	// rejected are the registry's agents not run, and why, whose state has
+	// been written.
+	rejected map[string]string
 	// cats are Core's catalogues, fetched once per base URL.
 	cats map[string]*catEntry
 	// actors are the Core actors this worker's agents run as, by base URL
@@ -86,7 +96,7 @@ func NewSupervisor(o Options) (*Supervisor, error) {
 	s := &Supervisor{
 		o: o, log: o.Log.With("worker", o.WorkerID), coreHTTP: coreClient(o.HTTPClient),
 		files: toolset.NewHTTPFetcher(o.HTTPClient), schemas: toolschema.NewCache(),
-		kick: make(chan struct{}, 1), runners: map[string]*runner{}, paused: map[string]bool{},
+		kick: make(chan struct{}, 1), runners: map[string]*runner{}, paused: map[string]bool{}, rejected: map[string]string{},
 		cats: map[string]*catEntry{}, actors: map[string]string{}, pending: o.Config,
 	}
 	s.prices.Store(o.Prices)
@@ -100,18 +110,29 @@ func (s *Supervisor) SetPrices(t *pricing.Table) { s.prices.Store(t) }
 // priceTable is the price table in force.
 func (s *Supervisor) priceTable() *pricing.Table { return s.prices.Load() }
 
-// Reload replaces the configuration: agents added, removed, paused or
-// changed are started, stopped or restarted, and the runtime's settings
-// (tenants) apply to the next answer. An agent stopped because Core refused
-// its token is started again, whether or not its configuration changed:
-// a reload is how an owner says a new token is in place. It returns at
-// once; the running supervisor applies it.
-func (s *Supervisor) Reload(cfg *config.Config) {
+// Reload replaces the configuration, as SIGHUP does: agents added, removed,
+// paused or changed are started, stopped or restarted, and the runtime's
+// settings (tenants) apply to the next answer. An agent stopped because
+// Core refused its token is started again, whether or not its
+// configuration changed: a reload is how an owner says a new token is in
+// the file its token_ref names. It returns at once; the running supervisor
+// applies it.
+func (s *Supervisor) Reload(cfg *config.Config) { s.put(cfg, true) }
+
+// Update replaces the configuration as the registry of hosted agents
+// changed it: as Reload, but an agent stopped until a reload starts again
+// only if its configuration changed. A hosted agent's new token is a new
+// secret, so its configuration changes; the agents that did not change are
+// not made to call Core again at every change to another.
+func (s *Supervisor) Update(cfg *config.Config) { s.put(cfg, false) }
+
+func (s *Supervisor) put(cfg *config.Config, retry bool) {
 	if cfg == nil {
 		return
 	}
 	s.mu.Lock()
 	s.pending = cfg
+	s.retry = s.retry || retry
 	s.mu.Unlock()
 	s.poke()
 }
@@ -182,8 +203,8 @@ func (s *Supervisor) tenant(id string) (config.Tenant, bool) {
 // apply puts a pending configuration in force.
 func (s *Supervisor) apply(ctx context.Context) {
 	s.mu.Lock()
-	cfg := s.pending
-	s.pending = nil
+	cfg, retry := s.pending, s.retry
+	s.pending, s.retry = nil, false
 	if cfg == nil {
 		s.mu.Unlock()
 		return
@@ -210,8 +231,20 @@ func (s *Supervisor) apply(ctx context.Context) {
 		case !reflect.DeepEqual(r.cfg, a):
 			changes = append(changes, change{r: r})
 			r.cfg, r.blocked, r.failures, r.retryAt = a, false, 0, time.Time{}
-		case r.blocked || r.state == store.AgentError:
+		case retry && (r.blocked || r.state == store.AgentError):
 			r.blocked, r.failures, r.retryAt = false, 0, time.Time{}
+		}
+	}
+	// A rejected agent's state is error, written below, not stopped.
+	rejected := map[string]string{}
+	for _, rj := range cfg.Rejected {
+		if _, running := want[rj.AgentID]; rj.AgentID != "" && !running {
+			rejected[rj.AgentID] = rj.Detail()
+		}
+	}
+	for i, c := range changes {
+		if _, ok := rejected[c.r.id]; ok && c.remove {
+			changes[i].why = ""
 		}
 	}
 	for id, a := range want {
@@ -229,6 +262,18 @@ func (s *Supervisor) apply(ctx context.Context) {
 	for id := range s.paused {
 		if a, ok := want[id]; !ok || !a.Paused {
 			delete(s.paused, id)
+		}
+	}
+	var nowRejected []string
+	for id, detail := range rejected {
+		if s.rejected[id] != detail {
+			s.rejected[id] = detail
+			nowRejected = append(nowRejected, id)
+		}
+	}
+	for id := range s.rejected {
+		if _, ok := rejected[id]; !ok {
+			delete(s.rejected, id)
 		}
 	}
 	s.mu.Unlock()
@@ -257,6 +302,12 @@ func (s *Supervisor) apply(ctx context.Context) {
 	for _, id := range nowPaused {
 		s.o.Metrics.Forget(id)
 		s.writeState(ctx, id, store.AgentPaused, "paused in the configuration: no call is made to Core for it")
+	}
+	slices.Sort(nowRejected)
+	for _, id := range nowRejected {
+		s.o.Metrics.Forget(id)
+		s.log.Warn("a hosted agent is not run: its configuration does not pass", "agent", id)
+		s.writeState(ctx, id, store.AgentError, "not run: "+rejected[id])
 	}
 	s.updateGauge()
 }
@@ -403,11 +454,21 @@ func (s *Supervisor) agentEnded(r *runner, ag *Agent, err error) {
 	stopping := r.stopping
 	r.stopping = false
 	var state, detail string
+	var blocked *blockedError
 	switch {
+	case isUnauthenticated(err) && r.cfg.Hosted != nil:
+		// Its owner gave the token, and gives the next one: no file of
+		// the operator's holds it.
+		r.blocked = true
+		state, detail = store.AgentUnauthorized,
+			"Core refused the agent's token (401): connect the agent again with a new token"
 	case isUnauthenticated(err):
 		r.blocked = true
 		state, detail = store.AgentUnauthorized,
 			"Core refused the agent's token (401): issue a new token for it in Core, put it where core.token_ref points, and reload"
+	case errors.As(err, &blocked):
+		r.blocked = true
+		state, detail = store.AgentError, blocked.Error()
 	case stopping:
 	case err != nil:
 		wait := Backoff(r.failures, s.o.Timing.Restart, s.o.Timing.RestartMax, 1)
@@ -521,21 +582,72 @@ func (s *Supervisor) updateGauge() {
 // claimActor records that agent id runs as the Core actor actorID at
 // baseURL, and returns ""; or, when another of this worker's agents runs
 // as that actor already (two agents configured with one token), that
-// agent's id, and records nothing.
-func (s *Supervisor) claimActor(baseURL, actorID, id string) string {
-	key := baseURL + "\x00" + actorID
+// agent's id, and records nothing. The operator's configuration wins over
+// the registry's: when id is a YAML agent's and the other is a hosted one,
+// id takes the actor, and the hosted agent is returned to be stopped.
+func (s *Supervisor) claimActor(baseURL, actorID, id string) (string, *Agent) {
+	key := actorKey(baseURL, actorID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if other, ok := s.actors[key]; ok && other != id {
-		return other
+	other, ok := s.actors[key]
+	if !ok || other == id {
+		s.actors[key] = id
+		return "", nil
 	}
-	s.actors[key] = id
-	return ""
+	mine, theirs := s.runners[id], s.runners[other]
+	if mine != nil && mine.cfg.Hosted == nil && theirs != nil && theirs.cfg.Hosted != nil {
+		s.actors[key] = id
+		return "", theirs.agent
+	}
+	return other, nil
 }
+
+// actorKey names a Core actor at a Core, whichever way its base URL is
+// written: the scheme and host in any case, the scheme's own port given or
+// not, and a / at the end or none are one Core, as the Core client calls
+// them (it drops the /). Two agents on one actor must meet here however
+// their configurations spell its Core, CORE_BASE_URL's hosted agents and
+// the operator's YAML among them.
+func actorKey(baseURL, actorID string) string {
+	return coreOrigin(baseURL) + "\x00" + actorID
+}
+
+// coreOrigin is baseURL as actorKey compares it; as written, when it does
+// not parse.
+func coreOrigin(baseURL string) string {
+	u, err := url.Parse(baseURL)
+	if err != nil || u.Host == "" {
+		return baseURL
+	}
+	scheme, host, port := strings.ToLower(u.Scheme), strings.ToLower(u.Hostname()), u.Port()
+	if (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
+		port = ""
+	}
+	if port != "" {
+		host = net.JoinHostPort(host, port)
+	} else if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	return scheme + "://" + host + strings.TrimRight(u.EscapedPath(), "/")
+}
+
+// hostedAgent reports whether id is an agent of the registry's.
+func (s *Supervisor) hostedAgent(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r := s.runners[id]
+	return r != nil && r.cfg.Hosted != nil
+}
+
+// blockedError stops an agent until its configuration changes, or a
+// reload says to try again: what it needs is not in its hands.
+type blockedError struct{ msg string }
+
+func (e *blockedError) Error() string { return e.msg }
 
 // releaseActor undoes claimActor, when id holds the actor.
 func (s *Supervisor) releaseActor(baseURL, actorID, id string) {
-	key := baseURL + "\x00" + actorID
+	key := actorKey(baseURL, actorID)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.actors[key] == id {

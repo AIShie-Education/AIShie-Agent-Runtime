@@ -24,7 +24,18 @@ var update = flag.Bool("update", false, "rewrite testdata/schema.golden from the
 
 // tables are every table the migrations make, in the order TRUNCATE takes
 // them.
-var tables = []string{"lease", "attempt", "cursor", "note", "seat", "llm_call", "answer", "agent_state"}
+var tables = []string{"lease", "attempt", "cursor", "note", "seat", "llm_call", "answer", "agent_state", "secret",
+	"person", "hosted_agent", "hosted_course"}
+
+// newest is the newest migration the binary carries.
+func newest(t *testing.T) uint {
+	t.Helper()
+	v, err := latestEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
 
 // openShared opens the run's scratch database, emptied, for one test.
 func openShared(t *testing.T) *Store {
@@ -64,6 +75,7 @@ func TestContract(t *testing.T) {
 func TestMigrateUpDownUp(t *testing.T) {
 	u := freshDatabase(t)
 	ctx := t.Context()
+	top := newest(t)
 
 	version := func(want uint) {
 		t.Helper()
@@ -71,13 +83,15 @@ func TestMigrateUpDownUp(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if latest != 1 {
-			t.Errorf("latest = %d, want 1", latest)
+		if latest != top {
+			t.Errorf("latest = %d, want %d", latest, top)
 		}
 		if current != want || dirty {
 			t.Fatalf("version = %d (dirty %v), want %d", current, dirty, want)
 		}
 	}
+	// registry_rev is a table too, which TRUNCATE leaves alone.
+	all := len(tables) + 1
 	tableCount := func() int {
 		t.Helper()
 		conn, err := pgx.Connect(ctx, u)
@@ -100,11 +114,11 @@ func TestMigrateUpDownUp(t *testing.T) {
 		version   uint
 		tables    int
 	}{
-		{Up, 1, len(tables)},
-		{Up, 1, len(tables)}, // already there
+		{Up, top, all},
+		{Up, top, all}, // already there
 		{Down, 0, 0},
 		{Down, 0, 0}, // already there
-		{Up, 1, len(tables)},
+		{Up, top, all},
 	} {
 		if err := Migrate(u, step.direction); err != nil {
 			t.Fatalf("step %d, %s: %v", i+1, step.direction, err)
@@ -139,11 +153,12 @@ func TestMigrateRefusesAnUnknownDirection(t *testing.T) {
 // is ahead is a rolling deploy or a rollback, and is taken.
 func TestOpenChecksTheSchema(t *testing.T) {
 	ctx := t.Context()
+	top := newest(t)
 
 	t.Run("older", func(t *testing.T) {
 		u := freshDatabase(t)
 		_, err := Open(ctx, u)
-		if err == nil || !strings.Contains(err.Error(), "version 0") || !strings.Contains(err.Error(), "needs 1") ||
+		if err == nil || !strings.Contains(err.Error(), "version 0") || !strings.Contains(err.Error(), fmt.Sprintf("needs %d", top)) ||
 			!strings.Contains(err.Error(), "aishie-runtime migrate up") {
 			t.Fatalf("Open on an empty database: err = %v, want one saying to run migrate up", err)
 		}
@@ -159,10 +174,11 @@ func TestOpenChecksTheSchema(t *testing.T) {
 			t.Fatal(err)
 		}
 		execOn(t, u, `UPDATE schema_migrations SET dirty = true`)
-		if _, err := Open(ctx, u); err == nil || !strings.Contains(err.Error(), "dirty at version 1") {
+		dirtyAt := fmt.Sprintf("dirty at version %d", top)
+		if _, err := Open(ctx, u); err == nil || !strings.Contains(err.Error(), dirtyAt) {
 			t.Fatalf("Open on a dirty schema: err = %v, want one saying it is dirty", err)
 		}
-		if err := Migrate(u, Up); err == nil || !strings.Contains(err.Error(), "dirty at version 1") {
+		if err := Migrate(u, Up); err == nil || !strings.Contains(err.Error(), dirtyAt) {
 			t.Fatalf("Migrate up on a dirty schema: err = %v, want one saying it is dirty", err)
 		}
 		if _, _, dirty, err := SchemaVersion(ctx, u); err != nil || !dirty {
@@ -175,7 +191,7 @@ func TestOpenChecksTheSchema(t *testing.T) {
 		if err := Migrate(u, Up); err != nil {
 			t.Fatal(err)
 		}
-		execOn(t, u, `UPDATE schema_migrations SET version = 2`)
+		execOn(t, u, fmt.Sprintf(`UPDATE schema_migrations SET version = %d`, top+1))
 		s, err := Open(ctx, u)
 		if err != nil {
 			t.Fatalf("Open on a schema ahead: %v", err)
@@ -185,8 +201,8 @@ func TestOpenChecksTheSchema(t *testing.T) {
 		if err := Migrate(u, Up); err != nil {
 			t.Fatalf("Migrate up on a schema ahead: %v", err)
 		}
-		if current, latest, dirty, err := SchemaVersion(ctx, u); err != nil || current != 2 || latest != 1 || dirty {
-			t.Fatalf("SchemaVersion = %d, %d, %v, %v; want 2, 1, clean", current, latest, dirty, err)
+		if current, latest, dirty, err := SchemaVersion(ctx, u); err != nil || current != top+1 || latest != top || dirty {
+			t.Fatalf("SchemaVersion = %d, %d, %v, %v; want %d, %d, clean", current, latest, dirty, err, top+1, top)
 		}
 	})
 }
@@ -360,7 +376,7 @@ func TestLeasesRunOnTheDatabasesClock(t *testing.T) {
 }
 
 // The schema, as the migrations leave it, is reviewed as text: every
-// column, constraint and index. A change to it shows here, and needs
+// column, constraint, index and trigger. A change to it shows here, and needs
 // -update and a migration that makes it.
 func TestSchemaGolden(t *testing.T) {
 	s := openShared(t)
@@ -410,6 +426,10 @@ func describeSchema(t *testing.T, s *Store) []byte {
 			SELECT indexdef FROM pg_indexes
 			 WHERE schemaname = 'public' AND tablename <> 'schema_migrations'
 			 ORDER BY tablename COLLATE "C", indexname COLLATE "C"`},
+		{"triggers", `
+			SELECT pg_get_triggerdef(t.oid) FROM pg_trigger t
+			 WHERE NOT t.tgisinternal AND t.tgrelid::regclass::text <> 'schema_migrations'
+			 ORDER BY t.tgrelid::regclass::text COLLATE "C", t.tgname COLLATE "C"`},
 	} {
 		fmt.Fprintf(&b, "-- %s\n", q.title)
 		rows, err := s.pool.Query(ctx, q.sql)
@@ -441,5 +461,58 @@ func TestClosedStoreFails(t *testing.T) {
 	defer cancel()
 	if _, err := s.Cursor(ctx, "a1", "m1", store.CursorEvents); err == nil || errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Cursor on a closed store: err = %v, want a prompt failure", err)
+	}
+}
+
+// A migration keeps the release before it working (CONTRIBUTING.md,
+// Migrations): the seats a release before 0004 wrote come through it with
+// empty snapshots, that release's own write of a seat still works on the
+// new schema, and this one's reads what it wrote.
+func TestSeatSnapshotMigratesTheSeatsBefore(t *testing.T) {
+	u := freshDatabase(t)
+	m, err := newMigrator(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Migrate(3); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// The release before 0004's SeatSeen.
+	before := `INSERT INTO seat (agent_id, member_id, course_id, seen_at, gone_at)
+		VALUES ($1, $2, $3, now(), NULL)
+		ON CONFLICT (agent_id, member_id) DO UPDATE
+		   SET course_id = EXCLUDED.course_id, seen_at = EXCLUDED.seen_at, gone_at = NULL`
+	conn, err := pgx.Connect(t.Context(), u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(context.Background()) }()
+	if _, err := conn.Exec(t.Context(), before, "a1", "m1", "c1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(u, Up); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(t.Context(), before, "a1", "m2", "c2"); err != nil {
+		t.Fatalf("the release before's write on the new schema: %v", err)
+	}
+	s := openOn(t, u)
+	seats, err := s.KnownSeats(t.Context(), "a1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seats) != 2 || seats[0].CourseCode != "" || seats[0].Status != "" || seats[0].Perms == nil || len(seats[0].Perms) != 0 {
+		t.Fatalf("the seats from before: %+v", seats)
+	}
+	if err := s.SeatSeen(t.Context(), store.SeatRef{AgentID: "a1", MemberID: "m1", CourseID: "c1", CourseCode: "CS101",
+		Status: "active", Perms: map[string]string{"conversation_answer": "autonomous"}}); err != nil {
+		t.Fatal(err)
+	}
+	seats, err = s.KnownSeats(t.Context(), "a1")
+	if err != nil || seats[0].CourseCode != "CS101" || seats[0].Perms["conversation_answer"] != "autonomous" {
+		t.Fatalf("a seat written on the new schema: %+v, %v", seats, err)
 	}
 }

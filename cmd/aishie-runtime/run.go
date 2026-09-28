@@ -14,7 +14,7 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/httpserver"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/metrics"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/secrets"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/pgstore"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/version"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/worker"
 )
@@ -25,9 +25,11 @@ const stopMargin = 5 * time.Second
 
 // cmdRun is `aishie-runtime run`: the worker, and its HTTP endpoints,
 // until SIGINT or SIGTERM, after which answers in progress are given
-// SHUTDOWN_GRACE (and a second SIGINT or SIGTERM stops it at once). SIGHUP
-// reads the configuration again; a configuration that does not load is
-// logged, and the one running stays.
+// SHUTDOWN_GRACE (and a second SIGINT or SIGTERM stops it at once). It runs
+// the YAML agents and, with the store in PostgreSQL, the registry's hosted
+// agents, put in force again whenever the registry changes (LISTEN
+// aishie_registry, and a poll). SIGHUP reads the YAML again; a
+// configuration that does not load is logged, and the one running stays.
 func cmdRun(ctx context.Context, args []string, getenv func(string) string, stderr io.Writer, sigs <-chan os.Signal) int {
 	if len(args) > 0 {
 		return usageError(stderr, "run takes no arguments; it is configured by its environment")
@@ -59,12 +61,33 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 		return exitFailure
 	}
 	defer func() { _ = st.Close() }()
+	res, v, err := resolver(env, st)
+	if err != nil {
+		log.Error("the sealed secrets' keyring cannot be used", "err", err)
+		return exitFailure
+	}
+	h := &hosting{env: env, log: log, yaml: l.cfg, prices: l.prices}
+	if pg, ok := st.(*pgstore.Store); ok {
+		h.pg = pg
+		if env.CoreBaseURL == "" {
+			log.Warn("CORE_BASE_URL is not set: no hosted agent runs, and each one's state says so")
+		}
+	} else {
+		log.Info("the registry of hosted agents is off: it is kept in PostgreSQL, which DATABASE_URL names")
+	}
+	h.mu.Lock()
+	cfg, rev, err := h.build(ctx)
+	h.mu.Unlock()
+	if err != nil {
+		log.Error("the registry of hosted agents could not be read: the YAML agents start, and it is read again at the next poll", "err", err)
+		rev = -1
+	}
 
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	sup, err := worker.NewSupervisor(worker.Options{
-		Config: l.cfg, Env: env, Store: st, Metrics: metrics.New(reg), Log: log,
-		Secrets: secrets.Resolver{Dir: env.SecretsDir}, Prices: l.prices, HTTPClient: client, WorkerID: env.WorkerID,
+		Config: cfg, Env: env, Store: st, Metrics: metrics.New(reg), Log: log,
+		Secrets: res, Prices: l.prices, HTTPClient: client, WorkerID: env.WorkerID,
 	})
 	if err != nil {
 		log.Error("the worker", "err", err)
@@ -76,8 +99,9 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 		return exitFailure
 	}
 	log.Info("aishie-runtime started", "version", version.Version, "commit", version.Commit, "worker", sup.WorkerID(),
-		"addr", srv.Addr(), "agents", len(l.cfg.Agents), "store", kind, "prices", l.pricesPath)
-	warnNoAgents(log, l.cfg)
+		"addr", srv.Addr(), "agents", len(cfg.Agents), "hosted", len(h.hosted), "registry", h.pg != nil,
+		"store", kind, "prices", l.pricesPath, "kek", kekID(v))
+	warnNoAgents(log, cfg)
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -90,6 +114,13 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 	}()
 	srvDone := make(chan error, 1)
 	go func() { srvDone <- srv.Serve(ctx) }()
+	watchDone := make(chan struct{})
+	go func() {
+		defer close(watchDone)
+		if h.pg != nil {
+			h.watch(ctx, sup, rev)
+		}
+	}()
 
 	code := exitOK
 wait:
@@ -97,7 +128,7 @@ wait:
 		select {
 		case sig := <-sigs:
 			if sig == syscall.SIGHUP {
-				reload(env, sup, log)
+				h.reload(ctx, sup)
 				continue
 			}
 			log.Info("stopping", "signal", sig.String(), "grace", env.ShutdownGrace.String())
@@ -114,11 +145,12 @@ wait:
 	cancel()
 	deadline := time.NewTimer(env.ShutdownGrace + stopMargin)
 	defer deadline.Stop()
-stopping:
-	for {
+	for supDone != nil || watchDone != nil {
 		select {
 		case <-supDone:
-			break stopping
+			supDone = nil
+		case <-watchDone:
+			watchDone = nil
 		case sig := <-sigs:
 			if sig == syscall.SIGHUP {
 				continue
@@ -138,20 +170,6 @@ stopping:
 	}
 	log.Info("aishie-runtime stopped")
 	return code
-}
-
-// reload reads the configuration and the price table again, and gives
-// them to the worker; what does not load is logged, and changes nothing.
-func reload(env config.Env, sup *worker.Supervisor, log *slog.Logger) {
-	l, err := load(env)
-	if err != nil {
-		log.Error("SIGHUP: the configuration does not load; the one running stays", "problems", problemsText(err))
-		return
-	}
-	sup.SetPrices(l.prices)
-	sup.Reload(l.cfg)
-	log.Info("SIGHUP: the configuration was read again", "agents", len(l.cfg.Agents), "prices", l.pricesPath)
-	warnNoAgents(log, l.cfg)
 }
 
 // noAgentsNote says what a runtime with no agent does, and how one is added.

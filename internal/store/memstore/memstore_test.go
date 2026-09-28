@@ -103,7 +103,7 @@ func TestTimesAreKeptAsPostgresKeepsThem(t *testing.T) {
 
 	tokyo := time.FixedZone("JST", 9*60*60)
 	given := time.Date(2026, time.September, 27, 18, 0, 0, 123456789, tokyo)
-	if err := s.SeatSeen(ctx, "a1", "m1", "c1", given); err != nil {
+	if err := s.SeatSeen(ctx, store.SeatRef{AgentID: "a1", MemberID: "m1", CourseID: "c1", SeenAt: given}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SeatGone(ctx, "a1", "m1", time.Time{}); err != nil {

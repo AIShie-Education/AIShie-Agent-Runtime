@@ -249,3 +249,23 @@ func TestPromptFiles(t *testing.T) {
 		t.Errorf("the built-in prompt is still there:\n%s", sys)
 	}
 }
+
+// TestPromptTexts: a hosted agent's prompts are written in its settings,
+// not in files: system_text replaces the built-in prompt, and a course's
+// prompt_append_text follows it, filled in as the files are.
+func TestPromptTexts(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("yuki-helper", 0)
+	model := scripted.New(scripted.Reply("Five seven five."))
+	over := map[string]any{"prompt": map[string]any{"system_text": "You are {{agent}}, helping {{asker}} in {{course}}. TEXT-BASE."}}
+	courses := map[string]any{w.co.ID: map[string]any{"prompt_append_text": "Answer in haiku. TEXT-STYLE."}}
+	w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", over, courses)), models{"m1": model}, workerOpts{})
+	conv, _ := w.ask(0, own, "A poem, please.")
+	w.waitAnswers(conv, 1)
+	sys := lastRequest(t, model).System
+	base, style := strings.Index(sys, "TEXT-BASE."), strings.Index(sys, "TEXT-STYLE.")
+	if base < 0 || style < base || !strings.Contains(sys, "helping Yuki in CS101") || strings.Contains(sys, "{{") ||
+		strings.Contains(sys, "the personal assistant of") {
+		t.Errorf("the system prompt:\n%s", sys)
+	}
+}

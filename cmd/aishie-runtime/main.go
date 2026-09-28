@@ -6,6 +6,7 @@
 //	aishie-runtime run        the worker: pollers and answer loops, and /healthz, /metrics, /status
 //	aishie-runtime check      validate the configuration; with --live, connect each agent and show its seats
 //	aishie-runtime migrate    the store's schema (PostgreSQL)
+//	aishie-runtime keys       the sealed secrets: check them, or rewrap them under the current key
 //	aishie-runtime catalogue  fetch Core's GET /v1/tools, print its hash, compare it with a snapshot
 //	aishie-runtime version
 //
@@ -41,6 +42,9 @@ Usage:
   aishie-runtime migrate up                   bring the store's schema (DATABASE_URL) up to this version
   aishie-runtime migrate down --yes           take it all down: every piece of the runtime's state, the ledger included
   aishie-runtime migrate version              show the schema's version
+  aishie-runtime keys check                   open every secret sealed in the store with KMS_KEY_ID's keyring, and say
+                                              which key wraps each; nothing of them is printed
+  aishie-runtime keys rewrap                  wrap every secret's data key that an older key wraps under KMS_KEY_ID's
   aishie-runtime catalogue --core URL [--check FILE] [--write FILE]
                                               print the hash of Core's tool catalogue; with --check, fail if it is not
                                               FILE's (a catalogue, or its hash); with --write, save it to FILE
@@ -94,6 +98,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 		return cmdCheck(ctx, args[1:], getenv, stdout, stderr)
 	case "migrate":
 		return cmdMigrate(ctx, args[1:], getenv, stdout, stderr)
+	case "keys":
+		return cmdKeys(ctx, args[1:], getenv, stdout, stderr)
 	case "catalogue":
 		return cmdCatalogue(ctx, args[1:], stdout, stderr)
 	case "version":

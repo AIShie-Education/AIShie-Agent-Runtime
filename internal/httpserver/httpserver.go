@@ -190,6 +190,8 @@ type AgentStatus struct {
 	Configured bool `json:"configured"`
 	RunHere    bool `json:"run_here"`
 	Paused     bool `json:"paused,omitempty"`
+	// Hosted is set for an agent of the registry, rather than of YAML.
+	Hosted bool `json:"hosted,omitempty"`
 	// CatalogueHash is the hash of the Core catalogue it runs with.
 	CatalogueHash string     `json:"catalogue_hash,omitempty"`
 	SlowUntil     *time.Time `json:"slow_until,omitempty"`
@@ -244,7 +246,7 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, ws := range s.sup.Status() {
 		a := get(ws.AgentID)
-		a.Configured, a.RunHere, a.Paused = true, ws.Running, ws.Paused
+		a.Configured, a.RunHere, a.Paused, a.Hosted = true, ws.Running, ws.Paused, ws.Hosted
 		a.CatalogueHash, a.SlowUntil, a.Answering = ws.CatalogueHash, ws.SlowUntil, ws.Answering
 		for _, seat := range ws.Seats {
 			a.Seats = append(a.Seats, SeatStatus{SeatStatus: seat})

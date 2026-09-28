@@ -27,6 +27,16 @@ const (
 	CoreMaxCloseReason = 500
 )
 
+// Limits of the prompts written in the configuration itself, rather than
+// in files: a hosted agent's, kept in the runtime's database.
+const (
+	// MaxSystemText is the most characters prompt.system_text may have.
+	MaxSystemText = 20000
+	// MaxPromptAppendText is the most characters a course's
+	// prompt_append_text may have.
+	MaxPromptAppendText = 4000
+)
+
 var (
 	idRe       = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 	toolNameRe = regexp.MustCompile(`^[a-z_]{1,64}$`)
@@ -415,8 +425,24 @@ func checkPrompt(is *issues, a *Agent) {
 	case n > CoreMaxCloseReason:
 		is.add("prompt.close_reason_text", "is %d characters; Core takes at most %d", n, CoreMaxCloseReason)
 	}
+	checkText(is, "prompt.system", p.SystemRef, p.SystemText, MaxSystemText)
 	if p.SystemRef != "" {
 		checkFileRef(is, "prompt.system_ref", p.SystemRef, a.Dir)
+	}
+}
+
+// checkText checks a prompt that may be a file (<name>_ref) or its text
+// (<name>_text), but not both: the text, when it is given, holds more than
+// whitespace and at most max characters.
+func checkText(is *issues, name, ref, text string, maxChars int) {
+	switch n := utf8.RuneCountInString(text); {
+	case text == "":
+	case ref != "":
+		is.add(name+"_text", "give %s_ref or %s_text, not both", name[strings.LastIndexByte(name, '.')+1:], name[strings.LastIndexByte(name, '.')+1:])
+	case strings.TrimSpace(text) == "":
+		is.add(name+"_text", "holds no text")
+	case n > maxChars:
+		is.add(name+"_text", "is %d characters; at most %d", n, maxChars)
 	}
 }
 

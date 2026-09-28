@@ -15,6 +15,13 @@ const (
 	googleKey   = "AIzaSyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q"
 	awsKey      = "AKIAIOSFODNN7EXAMPLE"
 	awsTempKey  = "ASIAY34FZKBOKMUTVV7A"
+	// jwt is an assertion as Core mints them for the runtime's API: EdDSA,
+	// with an issuer, an audience, a subject and an expiry.
+	jwt = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCIsImtpZCI6ImsxIn0." +
+		"eyJpc3MiOiJodHRwczovL2xtcy5leGFtcGxlLmVkdSIsImF1ZCI6Imh0dHBzOi8vbG1zLmV4YW1wbGUuZWR1L3J1bnRpbWUiLCJzdWIiOiIwMTkyZjNjMS03ZDJlLTdjM2EtOWIxZi0yYTRjNmU4ZjBhMWIiLCJleHAiOjE3OTAwMDAwMDB9." +
+		"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0-Pw"
+	// jwe is an encrypted token's five parts.
+	jwe = "eyJhbGciOiJSU0EtT0FFUCIsImVuYyI6IkEyNTZHQ00ifQ.OKOawDo13gRp2ojaHV7LFpZcgV7T6DVZKTyKOMTYUmKoTCVJRgckCL9kiMT03JGe.48V1_ALb6US04U3b.5eym8TW_c8SuK0ltJ3rpYIzOeDQz7TALvtu6UG9oMo4vpzs9tX_EFShS8iB7j6jiSdiwkIr3ajwQzaBtQD_A.XFBoMYUZodetZdvTiFvSkQ"
 )
 
 func TestString(t *testing.T) {
@@ -51,6 +58,14 @@ func TestString(t *testing.T) {
 		{"an AWS secret key in JSON", `{"SecretAccessKey":"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY","SessionToken": "IQoJb3J"}`, `{"SecretAccessKey":"[redacted]","SessionToken": "[redacted]"}`},
 		{"a marked key run into a word", "apikeysk-proj-AbCdEfGhIjKl", "apikey[redacted]"},
 		{"a long key run into a word", "xsk-0123456789abcdef0123456789abcdef", "x[redacted]"},
+		{"a JWT", "assertion " + jwt + " refused", "assertion [redacted] refused"},
+		{"a JWT in JSON", `{"assertion":"` + jwt + `","expires_at":"2026-09-28T10:00:00Z"}`, `{"assertion":"[redacted]","expires_at":"2026-09-28T10:00:00Z"}`},
+		{"a JWT in a query", "https://lms.example.edu/runtime?token=" + jwt + "&x=1", "https://lms.example.edu/runtime?token=[redacted]&x=1"},
+		{"an unsigned JWT", "eyJhbGciOiJub25lIn0.eyJzdWIiOiJ4In0. taken", "[redacted] taken"},
+		{"an encrypted JWT", "jwe " + jwe, "jwe [redacted]"},
+		{"a JWT run into a word", "token" + jwt, "token[redacted]"},
+		{"eyJ with no dots is not a token", "eyJhbGciOiJFZERTQSJ9 alone", "eyJhbGciOiJFZERTQSJ9 alone"},
+		{"one dot is not a token", "eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJ4In0 half", "eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJ4In0 half"},
 		{"placeholder stays", "Bearer [redacted] api-key: [redacted] http://u:[redacted]@h", "Bearer [redacted] api-key: [redacted] http://u:[redacted]@h"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -82,7 +97,7 @@ func TestExtraPatterns(t *testing.T) {
 // whole, and the secret half after its public prefix.
 func secretParts() []string {
 	var parts []string
-	for _, tok := range []string{coreToken, inviteToken, openaiKey, anthropic, googleKey, awsKey} {
+	for _, tok := range []string{coreToken, inviteToken, openaiKey, anthropic, googleKey, awsKey, jwt} {
 		parts = append(parts, tok, tok[len(tok)/2:])
 	}
 	return parts

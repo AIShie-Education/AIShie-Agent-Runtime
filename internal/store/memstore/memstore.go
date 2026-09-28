@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -41,6 +42,11 @@ type Store struct {
 	calls    map[agentKey]store.LLMCall
 	answers  map[agentKey]answerRow
 	states   map[string]store.AgentState
+	secrets  map[string]store.Secret
+	people   map[string]store.Person
+	hosted   map[string]store.HostedAgent
+	courses  map[seatKey]store.HostedCourse
+	rev      int64
 }
 
 type lease struct {
@@ -87,6 +93,10 @@ func New() *Store {
 		calls:    map[agentKey]store.LLMCall{},
 		answers:  map[agentKey]answerRow{},
 		states:   map[string]store.AgentState{},
+		secrets:  map[string]store.Secret{},
+		people:   map[string]store.Person{},
+		hosted:   map[string]store.HostedAgent{},
+		courses:  map[seatKey]store.HostedCourse{},
 	}
 }
 
@@ -404,25 +414,29 @@ func (s *Store) PurgeMember(_ context.Context, agentID, memberID string) error {
 	return nil
 }
 
-// copySeat is r with a GoneAt of its own.
+// copySeat is r with a GoneAt and perms of its own.
 func copySeat(r store.SeatRef) store.SeatRef {
 	if r.GoneAt != nil {
 		gone := *r.GoneAt
 		r.GoneAt = &gone
 	}
+	r.Perms = maps.Clone(r.Perms)
+	if r.Perms == nil {
+		r.Perms = map[string]string{}
+	}
 	return r
 }
 
-// SeatSeen records the seat as current, clearing any GoneAt.
-func (s *Store) SeatSeen(_ context.Context, agentID, memberID, courseID string, at time.Time) error {
-	if err := required("agent_id", agentID, "member_id", memberID); err != nil {
+// SeatSeen records the seat as current, as r says it is, clearing any
+// GoneAt.
+func (s *Store) SeatSeen(_ context.Context, r store.SeatRef) error {
+	if err := required("agent_id", r.AgentID, "member_id", r.MemberID); err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.seats[seatKey{agentID, memberID}] = store.SeatRef{
-		AgentID: agentID, MemberID: memberID, CourseID: courseID, SeenAt: s.orNow(at),
-	}
+	r.SeenAt, r.GoneAt = s.orNow(r.SeenAt), nil
+	s.seats[seatKey{r.AgentID, r.MemberID}] = copySeat(r)
 	return nil
 }
 
@@ -604,5 +618,487 @@ func (s *Store) AgentStates(_ context.Context) ([]store.AgentState, error) {
 		out = append(out, st)
 	}
 	slices.SortFunc(out, func(a, b store.AgentState) int { return strings.Compare(a.AgentID, b.AgentID) })
+	return out, nil
+}
+
+// copySecret is sec with bytes of its own.
+func copySecret(sec store.Secret) store.Secret {
+	sec.WrappedDEK = slices.Clone(sec.WrappedDEK)
+	sec.Nonce = slices.Clone(sec.Nonce)
+	sec.Ciphertext = slices.Clone(sec.Ciphertext)
+	return sec
+}
+
+// PutSecret stores sec; an id already taken is store.ErrExists.
+func (s *Store) PutSecret(_ context.Context, sec store.Secret) error {
+	if err := store.CheckSecret(sec); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.secrets[sec.ID]; ok {
+		return fmt.Errorf("secret %s: %w", sec.ID, store.ErrExists)
+	}
+	sec.CreatedAt = s.orNow(sec.CreatedAt)
+	s.secrets[sec.ID] = copySecret(sec)
+	return nil
+}
+
+// Secret is the secret id, or store.ErrNotFound.
+func (s *Store) Secret(_ context.Context, id string) (*store.Secret, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sec, ok := s.secrets[id]
+	if !ok {
+		return nil, fmt.Errorf("secret %s: %w", id, store.ErrNotFound)
+	}
+	sec = copySecret(sec)
+	return &sec, nil
+}
+
+// ListSecrets lists up to limit secrets whose ids sort after afterID, by id.
+func (s *Store) ListSecrets(_ context.Context, afterID string, limit int) ([]store.Secret, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []store.Secret
+	for id, sec := range s.secrets {
+		if id > afterID {
+			out = append(out, copySecret(sec))
+		}
+	}
+	slices.SortFunc(out, func(a, b store.Secret) int { return strings.Compare(a.ID, b.ID) })
+	return out[:min(limit, len(out))], nil
+}
+
+// RewrapSecret replaces the secret's wrapped data key, if fromKEKID still
+// wraps it.
+func (s *Store) RewrapSecret(_ context.Context, id, fromKEKID, kekID string, wrapped []byte) error {
+	if kekID == "" || len(wrapped) == 0 {
+		return fmt.Errorf("store: secret %s: kek_id and the wrapped key required", id)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sec, ok := s.secrets[id]
+	switch {
+	case !ok:
+		return fmt.Errorf("secret %s: %w", id, store.ErrNotFound)
+	case sec.KEKID != fromKEKID:
+		return fmt.Errorf("secret %s: %w", id, store.ErrConflict)
+	}
+	sec.KEKID, sec.WrappedDEK = kekID, slices.Clone(wrapped)
+	s.secrets[id] = sec
+	return nil
+}
+
+// DeleteSecret destroys the secret; one that is not there is nothing.
+func (s *Store) DeleteSecret(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.secretInUse(id); err != nil {
+		return err
+	}
+	delete(s.secrets, id)
+	return nil
+}
+
+// secretInUse refuses to delete a secret a hosted agent refers to. Called
+// with the lock held.
+func (s *Store) secretInUse(id string) error {
+	for _, a := range s.hosted {
+		if a.TokenSecretID == id || a.KeySecretID == id {
+			return fmt.Errorf("secret %s: %w", id, store.ErrInUse)
+		}
+	}
+	return nil
+}
+
+// PutPerson records p, replacing what was known of them.
+func (s *Store) PutPerson(_ context.Context, p store.Person) error {
+	if err := required("core_actor_id", p.CoreActorID); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p.LastSeenAt = s.orNow(p.LastSeenAt)
+	s.people[p.CoreActorID] = p
+	return nil
+}
+
+// Person is the person, or store.ErrNotFound.
+func (s *Store) Person(_ context.Context, coreActorID string) (*store.Person, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	p, ok := s.people[coreActorID]
+	if !ok {
+		return nil, fmt.Errorf("person %s: %w", coreActorID, store.ErrNotFound)
+	}
+	return &p, nil
+}
+
+// copyHosted is a with settings of its own.
+func copyHosted(a store.HostedAgent) store.HostedAgent {
+	a.Settings = slices.Clone(a.Settings)
+	return a
+}
+
+// storedSecret finds a secret for store.CheckAgentSecrets. Called with the
+// lock held.
+func (s *Store) storedSecret(id string) (*store.Secret, error) {
+	sec, ok := s.secrets[id]
+	if !ok {
+		return nil, fmt.Errorf("secret %s: %w", id, store.ErrNotFound)
+	}
+	return &sec, nil
+}
+
+// checkSecretsFree refuses secrets given for an agent whose ids are taken,
+// and secrets the agent refers to that another agent does. Called with the
+// lock held.
+func (s *Store) checkSecretsFree(a store.HostedAgent, secrets []store.Secret) error {
+	for _, sec := range secrets {
+		if err := store.CheckSecret(sec); err != nil {
+			return err
+		}
+		if _, ok := s.secrets[sec.ID]; ok {
+			return fmt.Errorf("secret %s: %w", sec.ID, store.ErrExists)
+		}
+	}
+	for _, other := range s.hosted {
+		if other.ID == a.ID {
+			continue
+		}
+		for _, id := range []string{a.TokenSecretID, a.KeySecretID} {
+			if id != "" && (other.TokenSecretID == id || other.KeySecretID == id) {
+				return fmt.Errorf("store: hosted agent %s: secret %s is agent %s's", a.ID, id, other.ID)
+			}
+		}
+	}
+	return nil
+}
+
+// CreateHostedAgent stores a at version 1 with its secrets.
+func (s *Store) CreateHostedAgent(_ context.Context, a store.HostedAgent, secrets ...store.Secret) (*store.HostedAgent, error) {
+	a, err := store.CheckHostedAgent(a)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.hosted[a.ID]; ok {
+		return nil, fmt.Errorf("hosted agent %s: %w", a.ID, store.ErrExists)
+	}
+	for _, other := range s.hosted {
+		if other.CoreActorID == a.CoreActorID {
+			return nil, fmt.Errorf("hosted agent of actor %s: %w", a.CoreActorID, store.ErrExists)
+		}
+	}
+	if err := s.checkSecretsFree(a, secrets); err != nil {
+		return nil, err
+	}
+	if err := store.CheckAgentSecrets(a, secrets, s.storedSecret); err != nil {
+		return nil, err
+	}
+	for _, sec := range secrets {
+		sec.CreatedAt = s.orNow(sec.CreatedAt)
+		s.secrets[sec.ID] = copySecret(sec)
+	}
+	a.Version, a.CreatedAt = 1, s.orNow(a.CreatedAt)
+	a.UpdatedAt = a.CreatedAt
+	s.hosted[a.ID] = copyHosted(a)
+	s.rev++
+	out := copyHosted(a)
+	return &out, nil
+}
+
+// HostedAgent is the agent id, or store.ErrNotFound.
+func (s *Store) HostedAgent(_ context.Context, id string) (*store.HostedAgent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, ok := s.hosted[id]
+	if !ok {
+		return nil, fmt.Errorf("hosted agent %s: %w", id, store.ErrNotFound)
+	}
+	out := copyHosted(a)
+	return &out, nil
+}
+
+// hostedWhere lists the hosted agents keep holds for, by id. Called with the
+// lock held.
+func (s *Store) hostedWhere(keep func(store.HostedAgent) bool) []store.HostedAgent {
+	var out []store.HostedAgent
+	for _, a := range s.hosted {
+		if keep(a) {
+			out = append(out, copyHosted(a))
+		}
+	}
+	slices.SortFunc(out, func(x, y store.HostedAgent) int { return strings.Compare(x.ID, y.ID) })
+	return out
+}
+
+// HostedAgentByActor is the agent of a Core actor, or store.ErrNotFound.
+func (s *Store) HostedAgentByActor(_ context.Context, coreActorID string) (*store.HostedAgent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	found := s.hostedWhere(func(a store.HostedAgent) bool { return a.CoreActorID == coreActorID })
+	if len(found) == 0 {
+		return nil, fmt.Errorf("hosted agent of actor %s: %w", coreActorID, store.ErrNotFound)
+	}
+	return &found[0], nil
+}
+
+// HostedAgentsOwnedBy lists an owner's agents, by id.
+func (s *Store) HostedAgentsOwnedBy(_ context.Context, ownerActorID string) ([]store.HostedAgent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.hostedWhere(func(a store.HostedAgent) bool { return a.OwnerActorID == ownerActorID }), nil
+}
+
+// HostedAgents lists every hosted agent, by id.
+func (s *Store) HostedAgents(_ context.Context) ([]store.HostedAgent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.hostedWhere(func(store.HostedAgent) bool { return true }), nil
+}
+
+// UpdateHostedAgent writes a over the agent of its id, if a.Version is
+// still its version.
+func (s *Store) UpdateHostedAgent(_ context.Context, a store.HostedAgent, secrets ...store.Secret) (*store.HostedAgent, error) {
+	a, err := store.CheckHostedAgent(a)
+	if err != nil {
+		return nil, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	old, ok := s.hosted[a.ID]
+	switch {
+	case !ok:
+		return nil, fmt.Errorf("hosted agent %s: %w", a.ID, store.ErrNotFound)
+	case old.Version != a.Version:
+		return nil, fmt.Errorf("hosted agent %s at version %d: %w", a.ID, a.Version, store.ErrConflict)
+	case old.CoreActorID != a.CoreActorID || old.TenantID != a.TenantID:
+		return nil, fmt.Errorf("store: hosted agent %s: its Core actor and tenant do not change", a.ID)
+	}
+	if err := s.checkSecretsFree(a, secrets); err != nil {
+		return nil, err
+	}
+	if err := store.CheckAgentSecrets(a, secrets, s.storedSecret); err != nil {
+		return nil, err
+	}
+	for _, sec := range secrets {
+		sec.CreatedAt = s.orNow(sec.CreatedAt)
+		s.secrets[sec.ID] = copySecret(sec)
+	}
+	for _, id := range []string{old.TokenSecretID, old.KeySecretID} {
+		if id != "" && id != a.TokenSecretID && id != a.KeySecretID {
+			delete(s.secrets, id)
+		}
+	}
+	a.Version, a.CreatedAt, a.UpdatedAt = old.Version+1, old.CreatedAt, s.clock()
+	s.hosted[a.ID] = copyHosted(a)
+	s.rev++
+	out := copyHosted(a)
+	return &out, nil
+}
+
+// SetHostedAgentPaused pauses or resumes the agent, whatever its version.
+func (s *Store) SetHostedAgentPaused(_ context.Context, id string, paused bool) (*store.HostedAgent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, ok := s.hosted[id]
+	if !ok {
+		return nil, fmt.Errorf("hosted agent %s: %w", id, store.ErrNotFound)
+	}
+	a.Paused, a.Version, a.UpdatedAt = paused, a.Version+1, s.clock()
+	s.hosted[id] = a
+	s.rev++
+	out := copyHosted(a)
+	return &out, nil
+}
+
+// DeleteHostedAgent destroys the agent, its courses and its secrets.
+func (s *Store) DeleteHostedAgent(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, ok := s.hosted[id]
+	if !ok {
+		return fmt.Errorf("hosted agent %s: %w", id, store.ErrNotFound)
+	}
+	for k := range s.courses {
+		if k.agent == id {
+			delete(s.courses, k)
+		}
+	}
+	delete(s.hosted, id)
+	delete(s.secrets, a.TokenSecretID)
+	if a.KeySecretID != "" {
+		delete(s.secrets, a.KeySecretID)
+	}
+	s.rev++
+	return nil
+}
+
+// PutHostedCourse writes an agent's settings for a course.
+func (s *Store) PutHostedCourse(_ context.Context, c store.HostedCourse) error {
+	c, err := store.CheckHostedCourse(c)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.hosted[c.AgentID]; !ok {
+		return fmt.Errorf("hosted agent %s: %w", c.AgentID, store.ErrNotFound)
+	}
+	c.UpdatedAt = s.orNow(c.UpdatedAt)
+	c.Settings = slices.Clone(c.Settings)
+	s.courses[seatKey{c.AgentID, c.CourseID}] = c
+	s.rev++
+	return nil
+}
+
+// coursesWhere lists the courses keep holds for, by agent, then course.
+// Called with the lock held.
+func (s *Store) coursesWhere(keep func(store.HostedCourse) bool) []store.HostedCourse {
+	var out []store.HostedCourse
+	for _, c := range s.courses {
+		if keep(c) {
+			c.Settings = slices.Clone(c.Settings)
+			out = append(out, c)
+		}
+	}
+	slices.SortFunc(out, func(x, y store.HostedCourse) int {
+		return cmp.Or(strings.Compare(x.AgentID, y.AgentID), strings.Compare(x.CourseID, y.CourseID))
+	})
+	return out
+}
+
+// HostedCourses lists one agent's courses, by course id.
+func (s *Store) HostedCourses(_ context.Context, agentID string) ([]store.HostedCourse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.coursesWhere(func(c store.HostedCourse) bool { return c.AgentID == agentID }), nil
+}
+
+// ListHostedCourses lists every hosted agent's courses.
+func (s *Store) ListHostedCourses(_ context.Context) ([]store.HostedCourse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.coursesWhere(func(store.HostedCourse) bool { return true }), nil
+}
+
+// DeleteHostedCourse removes an agent's settings for a course.
+func (s *Store) DeleteHostedCourse(_ context.Context, agentID, courseID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	k := seatKey{agentID, courseID}
+	if _, ok := s.courses[k]; ok {
+		delete(s.courses, k)
+		s.rev++
+	}
+	return nil
+}
+
+// RegistryRev is the registry's revision.
+func (s *Store) RegistryRev(_ context.Context) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.rev, nil
+}
+
+// inSpan reports whether t is in [since, until).
+func inSpan(t, since, until time.Time) bool { return !t.Before(since) && t.Before(until) }
+
+// Usage is agentID's use in [since, until), a row per UTC day and course.
+func (s *Store) Usage(_ context.Context, agentID string, since, until time.Time) ([]store.UsageRow, error) {
+	if err := store.CheckSpan(agentID, since, until); err != nil {
+		return nil, err
+	}
+	since, until = keep(since), keep(until)
+	type key struct {
+		day    time.Time
+		course string
+	}
+	rows := map[key]*store.UsageRow{}
+	row := func(at time.Time, course string) *store.UsageRow {
+		k := key{store.UTCDay(at), course}
+		if rows[k] == nil {
+			rows[k] = &store.UsageRow{Day: k.day, CourseID: course, Outcomes: map[string]int{}}
+		}
+		return rows[k]
+	}
+	s.mu.Lock()
+	for k, a := range s.answers {
+		if k.agent == agentID && inSpan(a.At, since, until) {
+			r := row(a.At, a.CourseID)
+			r.Outcomes[a.Outcome]++
+			if a.Billable {
+				r.Answers++
+			}
+		}
+	}
+	for k, c := range s.calls {
+		if k.agent == agentID && inSpan(c.At, since, until) {
+			r := row(c.At, c.CourseID)
+			r.ModelCalls++
+			r.InputTokens += c.Input
+			r.CacheReadTokens += c.CacheRead
+			r.CacheWriteTokens += c.CacheWrite
+			r.OutputTokens += c.Output
+			r.ReasoningTokens += c.Reasoning
+			r.CostPUSD += c.CostPUSD
+		}
+	}
+	s.mu.Unlock()
+	out := make([]store.UsageRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, *r)
+	}
+	slices.SortFunc(out, func(a, b store.UsageRow) int {
+		return cmp.Or(a.Day.Compare(b.Day), strings.Compare(a.CourseID, b.CourseID))
+	})
+	return out, nil
+}
+
+// AskerUsage is agentID's use in one course in [since, until), a row per
+// asker.
+func (s *Store) AskerUsage(_ context.Context, agentID, courseID string, since, until time.Time) ([]store.AskerUsage, error) {
+	if err := store.CheckSpan(agentID, since, until); err != nil {
+		return nil, err
+	}
+	since, until = keep(since), keep(until)
+	rows := map[string]*store.AskerUsage{}
+	row := func(opener string) *store.AskerUsage {
+		if rows[opener] == nil {
+			rows[opener] = &store.AskerUsage{OpenerMemberID: opener, Outcomes: map[string]int{}}
+		}
+		return rows[opener]
+	}
+	s.mu.Lock()
+	for k, a := range s.answers {
+		if k.agent == agentID && a.CourseID == courseID && inSpan(a.At, since, until) {
+			r := row(a.OpenerMemberID)
+			r.Outcomes[a.Outcome]++
+			if a.Billable {
+				r.Answers++
+			}
+		}
+	}
+	for k, c := range s.calls {
+		if k.agent == agentID && c.CourseID == courseID && inSpan(c.At, since, until) {
+			r := row(c.OpenerMemberID)
+			r.ModelCalls++
+			r.InputTokens += c.Input
+			r.OutputTokens += c.Output
+			r.CostPUSD += c.CostPUSD
+		}
+	}
+	s.mu.Unlock()
+	out := make([]store.AskerUsage, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, *r)
+	}
+	slices.SortFunc(out, func(a, b store.AskerUsage) int { return strings.Compare(a.OpenerMemberID, b.OpenerMemberID) })
 	return out, nil
 }

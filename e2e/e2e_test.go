@@ -26,6 +26,7 @@ var scenarios = []scenario{
 	{"denied", denied},
 	{"proposals", proposals},
 	{"binary", theBinary},
+	{"hosted-agent-from-the-registry", hostedAgentAnswers},
 }
 
 // TestRuntimeAgainstCore runs every scenario against the Core under test.

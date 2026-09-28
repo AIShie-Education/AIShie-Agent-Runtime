@@ -182,6 +182,13 @@ func TestValidate(t *testing.T) {
 		{name: "budget text too long", agent: map[string]any{"prompt.on_budget_text": strings.Repeat("x", 150), "answer.max_body_chars": 100}, want: []problem{{agent: "a1", path: "agent.prompt.on_budget_text", msg: "at most 100"}}},
 		{name: "close reason too long", agent: map[string]any{"prompt.close_reason_text": long}, want: []problem{{agent: "a1", path: "agent.prompt.close_reason_text", msg: "at most 500"}}},
 		{name: "system prompt missing", agent: map[string]any{"prompt.system_ref": "prompts/nope.md"}, want: []problem{{agent: "a1", path: "agent.prompt.system_ref", msg: "cannot be read"}}},
+		{name: "a system prompt as text", agent: map[string]any{"prompt.system_text": "You answer in haiku."}},
+		{name: "a system prompt as a file and as text", agent: map[string]any{"prompt.system_ref": "prices.yaml", "prompt.system_text": "Both."}, want: []problem{{agent: "a1", path: "agent.prompt.system_text", msg: "give system_ref or system_text, not both"}}},
+		{name: "a system prompt of whitespace", agent: map[string]any{"prompt.system_text": " \n\t"}, want: []problem{{agent: "a1", path: "agent.prompt.system_text", msg: "holds no text"}}},
+		{name: "a system prompt too long", agent: map[string]any{"prompt.system_text": strings.Repeat("é", 20001)}, want: []problem{{agent: "a1", path: "agent.prompt.system_text", msg: "is 20001 characters; at most 20000"}}},
+		{name: "a system prompt at its limit", agent: map[string]any{"prompt.system_text": strings.Repeat("é", 20000)}},
+		{name: "sealed references", agent: map[string]any{"core.token_ref": "sealed://sec_0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0a1b", "model.key_ref": "sealed://sec_key"}},
+		{name: "a sealed reference to no secret", agent: map[string]any{"core.token_ref": "sealed://token"}, want: []problem{{agent: "a1", path: "agent.core.token_ref", msg: "not a secret's id"}}},
 
 		{name: "tools mode", agent: map[string]any{"tools.mode": "all"}, want: []problem{{agent: "a1", path: "agent.tools.mode"}}},
 		{name: "tool names", agent: map[string]any{"tools.allow": []any{"course_get", "course.get"}, "tools.deny": []any{"Member_add"}}, want: []problem{{agent: "a1", path: "agent.tools.allow[1]"}, {agent: "a1", path: "agent.tools.deny[0]"}}},
@@ -254,6 +261,17 @@ func TestValidate(t *testing.T) {
 			name:    "a course's prompt that is not there",
 			courses: map[string]any{course1: map[string]any{"prompt_append_ref": "prompts/missing.md"}},
 			want:    []problem{{agent: "a1", path: "courses." + course1 + ".prompt_append_ref", msg: "cannot be read"}},
+		},
+		{name: "a course's prompt appended as text", courses: map[string]any{course1: map[string]any{"prompt_append_text": "Answer in English."}}},
+		{
+			name:    "a course's prompt appended as a file and as text",
+			courses: map[string]any{course1: map[string]any{"prompt_append_text": "Both.", "prompt_append_ref": "prices.yaml"}},
+			want:    []problem{{agent: "a1", path: "courses." + course1 + ".prompt_append_text", msg: "give prompt_append_ref or prompt_append_text, not both"}},
+		},
+		{
+			name:    "a course's prompt appended too long",
+			courses: map[string]any{course1: map[string]any{"prompt_append_text": strings.Repeat("x", 4001)}},
+			want:    []problem{{agent: "a1", path: "courses." + course1 + ".prompt_append_text", msg: "at most 4000"}},
 		},
 
 		{name: "a tenant id", runtime: map[string]any{"tenants.bad id": map[string]any{"per_day": map[string]any{"answers": 1}}}, want: []problem{{path: "runtime.tenants.bad id", msg: "tenant id"}}},
