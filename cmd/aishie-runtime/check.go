@@ -17,8 +17,11 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/providers"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/redact"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/secrets"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/pgstore"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolschema"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolset"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/vault"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/worker"
 )
 
@@ -49,6 +52,13 @@ func cmdCheck(ctx context.Context, args []string, getenv func(string) string, st
 	for _, a := range l.cfg.Agents {
 		describe(p, a)
 	}
+	if env.KMSKeyID != "" {
+		kek, err := vault.OpenKEK(env.KMSKeyID)
+		if err != nil {
+			return failure(stderr, "the sealed secrets' keyring: %v", err)
+		}
+		p("sealed secrets: new ones are sealed by %s", kek.ID())
+	}
 	switch {
 	case l.pricesPath != "":
 		p("prices: %s (version %s)", l.pricesPath, l.prices.Version)
@@ -67,10 +77,23 @@ func cmdCheck(ctx context.Context, args []string, getenv func(string) string, st
 	if err != nil {
 		return failure(stderr, "%v", err)
 	}
+	var sealed store.Secrets
+	if env.KMSKeyID != "" && env.DatabaseURL != "" {
+		st, err := pgstore.Open(ctx, env.DatabaseURL)
+		if err != nil {
+			return failure(stderr, "the store, which holds the sealed secrets: %v", err)
+		}
+		defer func() { _ = st.Close() }()
+		sealed = st
+	}
+	res, _, err := resolver(env, sealed)
+	if err != nil {
+		return failure(stderr, "the sealed secrets' keyring: %v", err)
+	}
 	failed := 0
 	cats := map[string]*core.Catalogue{}
 	for _, a := range l.cfg.Agents {
-		if !checkLive(ctx, p, a, env, client, cats) {
+		if !checkLive(ctx, p, a, res, client, cats) {
 			failed++
 		}
 	}
@@ -172,7 +195,7 @@ func quotaLine(q config.Quota) string {
 
 // checkLive connects one agent as run would, shows its seats, and tries
 // its model's key. It reports whether all went well.
-func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, env config.Env, client *http.Client, cats map[string]*core.Catalogue) bool {
+func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, res secrets.Resolver, client *http.Client, cats map[string]*core.Catalogue) bool {
 	if a.Paused {
 		p("agent %s: paused, not connected", a.ID)
 		return true
@@ -183,8 +206,7 @@ func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, env
 		p("agent %s: FAILED: %s: %s", a.ID, what, redact.String(err.Error()))
 		return false
 	}
-	res := secrets.Resolver{Dir: env.SecretsDir, BaseDir: a.Dir}
-	token, err := res.Resolve(ctx, a.Core.TokenRef)
+	token, err := res.Resolve(ctx, a.Core.TokenRef, a.Dir)
 	if err != nil {
 		return fail("the Core token", err)
 	}
@@ -325,7 +347,7 @@ func tryModel(ctx context.Context, p func(string, ...any), a *config.Agent, m co
 	var key string
 	if m.KeyRef != "" {
 		var err error
-		if key, err = res.Resolve(ctx, m.KeyRef); err != nil {
+		if key, err = res.Resolve(ctx, m.KeyRef, a.Dir); err != nil {
 			p("  model %s: FAILED: its key: %s", name, redact.String(err.Error()))
 			return false
 		}

@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -39,9 +40,11 @@ type Options struct {
 	// Log is where the worker logs: ids, counts, codes and timings, never
 	// what anyone wrote. Nothing is logged when nil.
 	Log *slog.Logger
-	// Secrets resolves token_ref and key_ref. Its BaseDir is set to each
-	// agent's directory.
-	Secrets secrets.Resolver
+	// Secrets resolves token_ref and key_ref, a relative file:// path from
+	// the agent's directory, as an agent starts and nowhere else: a
+	// secrets.Resolver, whose Sealed opens sealed:// references through the
+	// vault. A resolver of the environment and files alone when nil.
+	Secrets SecretResolver
 	// Prices cost each model call; nil leaves costs unknown (zero).
 	Prices *pricing.Table
 	// HTTPClient carries every call out (the egress proxy's): to Core, to
@@ -73,6 +76,12 @@ type Options struct {
 	WorkerID string
 	// Timing is the supervisor's own intervals.
 	Timing Timing
+}
+
+// SecretResolver resolves references to secrets (package secrets): ref,
+// with a relative file:// path from baseDir.
+type SecretResolver interface {
+	Resolve(ctx context.Context, ref, baseDir string) (string, error)
 }
 
 // Timing is how often the supervisor does what it does, and how long it
@@ -147,6 +156,9 @@ func (o Options) withDefaults() (Options, error) {
 	}
 	if o.Metrics == nil {
 		o.Metrics = metrics.New(prometheus.NewRegistry())
+	}
+	if o.Secrets == nil {
+		o.Secrets = secrets.Resolver{}
 	}
 	if o.Log == nil {
 		o.Log = slog.New(slog.NewTextHandler(io.Discard, nil))

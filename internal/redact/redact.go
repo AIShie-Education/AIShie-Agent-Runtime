@@ -1,7 +1,7 @@
 // Package redact keeps tokens and keys out of logs and every other text the
 // runtime shows (Core's docs/agent-runtime.md §6.1, §8.3): Core's tokens and
-// invitations, the providers' key shapes, credentials in headers and URLs,
-// and whatever the operator adds with LOG_REDACT_EXTRA.
+// invitations, the providers' key shapes, JSON Web Tokens, credentials in
+// headers and URLs, and whatever the operator adds with LOG_REDACT_EXTRA.
 //
 // Redaction is a net under the rule that secrets are never logged in the
 // first place, not a licence to log them: it finds what has a recognisable
@@ -56,6 +56,11 @@ var builtin = []rule{
 	{re: regexp.MustCompile(`AIza[0-9A-Za-z_-]{20,}`)},
 	// AWS access key ids, long-term and temporary.
 	{re: regexp.MustCompile(`(?:AKIA|ASIA)[0-9A-Z]{16}`)},
+	// JSON Web Tokens: a base64url header, which always begins eyJ ({"),
+	// then its payload and signature, or the three more parts of an
+	// encrypted one, each after a dot. An unsigned token ends at its last
+	// dot. The assertions Core mints for the runtime's API are these.
+	{re: regexp.MustCompile(`eyJ[A-Za-z0-9_-]{2,}(?:\.[A-Za-z0-9_-]*){2,4}`)},
 }
 
 // headerValue matches a header's value after its name: in a JSON list

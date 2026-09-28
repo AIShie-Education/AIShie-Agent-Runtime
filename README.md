@@ -42,6 +42,8 @@ aishie-runtime check [--live]              validate the configuration; --live co
 aishie-runtime migrate up                  the store's schema (PostgreSQL)
 aishie-runtime migrate down --yes
 aishie-runtime migrate version
+aishie-runtime keys check                  every secret sealed in the store opens with the keyring
+aishie-runtime keys rewrap                 wrap every secret's data key under KMS_KEY_ID's key
 aishie-runtime catalogue --core URL        Core's tool catalogue and its hash;
           [--check FILE] [--write FILE]    --check exits 1 when it differs from FILE
 aishie-runtime version | help
@@ -74,6 +76,7 @@ Secrets are never written in the YAML, only referred to:
 | `secret://a/b` | the file `$SECRETS_DIR/a/b`, else the variable `AISHIE_SECRET_A_B` |
 | `env://NAME` | the variable `NAME` |
 | `file:///abs/path`, `file://rel/path` | the file; a relative one is relative to the agent's YAML file |
+| `sealed://sec_…` | a secret sealed in the runtime's own database, under the key `KMS_KEY_ID` names: how hosted agents' tokens and keys are kept |
 
 The process is set up from the environment:
 
@@ -85,6 +88,7 @@ The process is set up from the environment:
 | `CORE_BASE_URL_ALLOWLIST` | the Core origins or host patterns an agent may point at |
 | `SECRETS_DIR` | where `secret://` references are looked for |
 | `PRICES` | the price table, instead of the runtime's `prices_ref` |
+| `KMS_KEY_ID` | the key that seals the secrets kept in the database: `local:<dir>/<name>`, a 32-byte key in that file |
 | `EGRESS_PROXY` | a proxy for every outbound call |
 | `LOG_LEVEL`, `LOG_FORMAT` | `info` and `json` by default |
 | `LOG_REDACT_EXTRA` | regular expressions redacted from logs, beside the built-in token and key shapes |

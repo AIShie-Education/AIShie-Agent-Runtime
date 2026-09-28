@@ -3,6 +3,7 @@ package secrets
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -54,7 +55,6 @@ func TestResolve(t *testing.T) {
 			"AISHIE_SECRET_TEN_INSTR_42_AGENTS_AGT_01J9Z_CORE_TOKEN": "ais_from_env\n",
 			"CORE_TOKEN": "ais_named\n",
 		}),
-		BaseDir: dir,
 	}
 	for _, tc := range []struct {
 		name, ref, want, err string
@@ -80,7 +80,7 @@ func TestResolve(t *testing.T) {
 		{name: "not a reference", ref: "sk-proj-pasted-key-value", err: "not a reference"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := r.Resolve(context.Background(), tc.ref)
+			got, err := r.Resolve(context.Background(), tc.ref, dir)
 			if tc.err != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.err) {
 					t.Fatalf("Resolve(%q) = %q, %v; want an error containing %q", tc.ref, got, err, tc.err)
@@ -101,28 +101,28 @@ func TestResolve(t *testing.T) {
 
 func TestResolveWithoutDir(t *testing.T) {
 	r := Resolver{Getenv: env(map[string]string{"AISHIE_SECRET_SCHOOL_KEYS_DEEPSEEK": "sk-x"})}
-	if v, err := r.Resolve(context.Background(), "secret://school/keys/deepseek"); err != nil || v != "sk-x" {
+	if v, err := r.Resolve(context.Background(), "secret://school/keys/deepseek", ""); err != nil || v != "sk-x" {
 		t.Fatalf("got %q, %v", v, err)
 	}
-	_, err := r.Resolve(context.Background(), "secret://school/keys/other")
+	_, err := r.Resolve(context.Background(), "secret://school/keys/other", "")
 	if err == nil || !strings.Contains(err.Error(), "SECRETS_DIR is not set") {
 		t.Fatalf("got %v", err)
 	}
 	// A SECRETS_DIR that does not exist falls back to the environment.
 	r.Dir = filepath.Join(t.TempDir(), "missing")
-	if v, err := r.Resolve(context.Background(), "secret://school/keys/deepseek"); err != nil || v != "sk-x" {
+	if v, err := r.Resolve(context.Background(), "secret://school/keys/deepseek", ""); err != nil || v != "sk-x" {
 		t.Fatalf("got %q, %v", v, err)
 	}
 }
 
 func TestResolveOSEnvAndContext(t *testing.T) {
 	t.Setenv("AISHIE_TEST_SECRET", "from-os")
-	if v, err := (Resolver{}).Resolve(context.Background(), "env://AISHIE_TEST_SECRET"); err != nil || v != "from-os" {
+	if v, err := (Resolver{}).Resolve(context.Background(), "env://AISHIE_TEST_SECRET", ""); err != nil || v != "from-os" {
 		t.Fatalf("got %q, %v", v, err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := (Resolver{}).Resolve(ctx, "env://AISHIE_TEST_SECRET"); !errors.Is(err, context.Canceled) {
+	if _, err := (Resolver{}).Resolve(ctx, "env://AISHIE_TEST_SECRET", ""); !errors.Is(err, context.Canceled) {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -132,7 +132,7 @@ func TestResolveTooLarge(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "big"), make([]byte, maxSecretBytes+1), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := (Resolver{Dir: dir}).Resolve(context.Background(), "secret://big"); err == nil || !strings.Contains(err.Error(), "larger than") {
+	if _, err := (Resolver{Dir: dir}).Resolve(context.Background(), "secret://big", ""); err == nil || !strings.Contains(err.Error(), "larger than") {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -144,6 +144,13 @@ func TestCheck(t *testing.T) {
 		"env://OPENAI_API_KEY":                              true,
 		"file:///run/secrets/key":                           true,
 		"file://keys/local":                                 true,
+		"sealed://sec_0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0a1b": true,
+		"sealed://sec_x":                                    true,
+		"sealed://":                                         false,
+		"sealed://sec_":                                     false,
+		"sealed://key_1":                                    false,
+		"sealed://sec_a/b":                                  false,
+		"sealed://sec_../x":                                 false,
 		"secret://a/../b":                                   false,
 		"secret://a b":                                      false,
 		"env://A-B":                                         false,
@@ -183,11 +190,11 @@ func TestResolveRefusesSpecialFiles(t *testing.T) {
 	if err := os.Symlink("/dev/zero", filepath.Join(dir, "zero")); err != nil {
 		t.Fatal(err)
 	}
-	r := Resolver{Dir: dir, BaseDir: dir, Getenv: env(nil)}
+	r := Resolver{Dir: dir, Getenv: env(nil)}
 	for _, ref := range []string{"secret://fifo", "file://fifo", "file:///dev/zero"} {
 		done := make(chan error, 1)
 		go func() {
-			_, err := r.Resolve(context.Background(), ref)
+			_, err := r.Resolve(context.Background(), ref, dir)
 			done <- err
 		}()
 		select {
@@ -205,16 +212,102 @@ func TestResolveRefusesSpecialFiles(t *testing.T) {
 // path naming one.
 func TestResolveErrorsAreRedacted(t *testing.T) {
 	dir := t.TempDir()
-	r := Resolver{Dir: dir, BaseDir: dir, Getenv: env(nil)}
+	r := Resolver{Dir: dir, Getenv: env(nil)}
 	const token = "ais_k7v2m4qhx3ab_9Jx2abcDEFghiJKLmnoPQRstuVWX"
-	for _, ref := range []string{"secret://" + token, "env://" + token, "file://" + token, "file:///tmp/" + token} {
-		_, err := r.Resolve(context.Background(), ref)
+	for _, ref := range []string{"secret://" + token, "env://" + token, "file://" + token, "file:///tmp/" + token, "sealed://sec_" + token} {
+		_, err := r.Resolve(context.Background(), ref, dir)
 		if err == nil || strings.Contains(err.Error(), token) || !strings.Contains(err.Error(), "[redacted]") {
 			t.Errorf("%s: %v", ref, err)
 		}
 	}
-	_, err := r.Resolve(context.Background(), "file://"+token)
+	_, err := r.Resolve(context.Background(), "file://"+token, dir)
 	if !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("the cause is kept: %v", err)
+	}
+}
+
+// opener is a store of sealed secrets for tests: by id, the plaintext, or
+// an error to give.
+type opener map[string]any
+
+func (o opener) OpenSecret(_ context.Context, id string) (string, error) {
+	switch v := o[id].(type) {
+	case string:
+		return v, nil
+	case error:
+		return "", v
+	}
+	return "", fmt.Errorf("the secret %s is not in the store", id)
+}
+
+func TestResolveSealed(t *testing.T) {
+	const token = "ais_k7v2m4qhx3ab_9Jx2abcDEFghiJKLmnoPQRstuVWX"
+	r := Resolver{Sealed: opener{
+		"sec_token": token + "\n",
+		"sec_empty": "",
+		"sec_bad":   errors.New("vault: secret sec_bad: it does not open"),
+		"sec_leaky": errors.New("something printed " + token),
+	}}
+	ctx := context.Background()
+	if v, err := r.Resolve(ctx, "sealed://sec_token", ""); err != nil || v != token {
+		t.Fatalf("sealed://sec_token = %q, %v", v, err)
+	}
+	for ref, want := range map[string]string{
+		"sealed://sec_empty": "the secret is empty",
+		"sealed://sec_bad":   "sealed://sec_bad: vault: secret sec_bad: it does not open",
+		"sealed://sec_nope":  "sealed://sec_nope: the secret sec_nope is not in the store",
+		"sealed://sec_leaky": "sealed://sec_leaky: something printed [redacted]",
+		"sealed://nope":      "not a secret's id",
+	} {
+		_, err := r.Resolve(ctx, ref, "")
+		if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), token) {
+			t.Errorf("Resolve(%s) = %v, want an error saying %q", ref, err, want)
+		}
+	}
+	// A runtime without the vault refuses them, saying what it lacks.
+	_, err := (Resolver{}).Resolve(ctx, "sealed://sec_token", "")
+	if err == nil || !strings.Contains(err.Error(), "set KMS_KEY_ID") {
+		t.Fatalf("without an opener: %v", err)
+	}
+}
+
+// No reference reads the keyring of sealed secrets, however it gets there:
+// the keyring lies in SECRETS_DIR, and a key sent to a provider as an API
+// key would be every secret.
+func TestResolveDeniesTheKeyring(t *testing.T) {
+	dir := t.TempDir()
+	kek := filepath.Join(dir, "kek")
+	if err := os.Mkdir(kek, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const key = "WlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlo="
+	if err := os.WriteFile(filepath.Join(kek, "v1"), []byte(key), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "other"), []byte("fine"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("kek/v1", filepath.Join(dir, "innocent")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(kek, filepath.Join(dir, "keys")); err != nil {
+		t.Fatal(err)
+	}
+	r := Resolver{Dir: dir, Getenv: env(map[string]string{"AISHIE_SECRET_KEK_V9": "from the environment"}), Deny: []string{kek}}
+	for _, ref := range []string{"secret://kek/v1", "secret://innocent", "secret://keys/v1", "file://" + filepath.Join(kek, "v1"),
+		"file://kek/v1", "file://innocent", "file://keys/../kek/v1", "file://" + kek} {
+		v, err := r.Resolve(context.Background(), ref, dir)
+		if err == nil || !strings.Contains(err.Error(), "keyring of sealed secrets") || strings.Contains(err.Error(), key) {
+			t.Errorf("Resolve(%s) = %q, %v; want it refused", ref, v, err)
+		}
+	}
+	// What is not in it is read as ever, and a secret:// path of the
+	// keyring's that is no file there is still not looked for in the
+	// environment.
+	if v, err := r.Resolve(context.Background(), "secret://other", dir); err != nil || v != "fine" {
+		t.Errorf("secret://other = %q, %v", v, err)
+	}
+	if _, err := r.Resolve(context.Background(), "secret://kek/v9", dir); err == nil {
+		t.Error("secret://kek/v9 was read from the environment")
 	}
 }

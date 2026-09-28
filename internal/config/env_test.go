@@ -37,6 +37,7 @@ func TestFromEnvEverything(t *testing.T) {
 		"WORKER_ID":               "w1",
 		"SHUTDOWN_GRACE":          "30s",
 		"PRICES":                  "/etc/aishie/prices.yaml",
+		"KMS_KEY_ID":              "local:/secrets/kek/v1",
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +46,7 @@ func TestFromEnvEverything(t *testing.T) {
 		e.HTTPAddr != ":9191" || strings.Join(e.CoreBaseURLAllowlist, "|") != "https://lms.example.edu|*.example.edu" ||
 		e.EgressProxy != "http://user:pw@proxy.internal:3128" || e.LogLevel != "debug" || e.Level() != slog.LevelDebug ||
 		e.LogFormat != "text" || e.SecretsDir != "/run/secrets" || e.WorkerID != "w1" || e.ShutdownGrace != 30*time.Second ||
-		e.PricesPath != "/etc/aishie/prices.yaml" {
+		e.PricesPath != "/etc/aishie/prices.yaml" || e.KMSKeyID != "local:/secrets/kek/v1" {
 		t.Fatalf("%+v", e)
 	}
 	// Commas inside braces and brackets belong to the pattern.
@@ -74,6 +75,8 @@ func TestFromEnvRefuses(t *testing.T) {
 		{"LOG_FORMAT", "xml", "LOG_FORMAT"},
 		{"SHUTDOWN_GRACE", "15", "SHUTDOWN_GRACE"},
 		{"SHUTDOWN_GRACE", "-1s", "SHUTDOWN_GRACE"},
+		{"KMS_KEY_ID", "WlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlo=", "KMS_KEY_ID: not local:"},
+		{"KMS_KEY_ID", "/secrets/kek/v1", "KMS_KEY_ID: not local:"},
 	} {
 		t.Run(tc.key+"="+tc.value, func(t *testing.T) {
 			_, err := FromEnv(envOf(map[string]string{tc.key: tc.value}))
@@ -82,7 +85,7 @@ func TestFromEnvRefuses(t *testing.T) {
 			}
 			// A proxy's password, or a pattern that spells a secret, is
 			// never repeated.
-			for _, secret := range []string{"hunter2", "secret-(value"} {
+			for _, secret := range []string{"hunter2", "secret-(value", "WlpaWlpa"} {
 				if strings.Contains(err.Error(), secret) {
 					t.Fatalf("the error repeats %q: %v", secret, err)
 				}
@@ -98,7 +101,7 @@ func TestFromEnvRefuses(t *testing.T) {
 func TestEnvHelp(t *testing.T) {
 	help := EnvHelp()
 	for _, v := range []string{"DATABASE_URL", "CONFIG", "HTTP_ADDR", "CORE_BASE_URL_ALLOWLIST", "EGRESS_PROXY", "LOG_REDACT_EXTRA",
-		"LOG_LEVEL", "LOG_FORMAT", "SECRETS_DIR", "WORKER_ID", "SHUTDOWN_GRACE", "PRICES"} {
+		"LOG_LEVEL", "LOG_FORMAT", "SECRETS_DIR", "WORKER_ID", "SHUTDOWN_GRACE", "PRICES", "KMS_KEY_ID"} {
 		if !strings.Contains(help, "  "+v+" ") {
 			t.Errorf("EnvHelp lacks %s", v)
 		}

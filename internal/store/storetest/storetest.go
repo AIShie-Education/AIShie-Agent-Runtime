@@ -28,10 +28,15 @@
 //     nothing.
 //   - A ledger row is keyed on (agent, id), and recording one again is
 //     nothing, so a retried write never counts twice.
+//   - A secret's id is sec_ and up to 60 letters, digits, '_' and '-', and
+//     one taken is ErrExists; the bytes come back as they were given. A
+//     rewrap names the key it replaces, and is ErrConflict when that key no
+//     longer wraps the secret. DeleteSecret of a secret not there is
+//     nothing.
 //   - Lists come back in a fixed order: attempts by number, or oldest first;
 //     seats by member id; seats gone by when they went; agent states by
-//     agent id. Ids sort bytewise, and rows written at one instant keep the
-//     order they were written in.
+//     agent id; secrets by id. Ids sort bytewise, and rows written at one
+//     instant keep the order they were written in.
 package storetest
 
 import (
@@ -62,6 +67,7 @@ func Run(t *testing.T, open func(t *testing.T) store.Store) {
 		{"Seats", testSeats},
 		{"Ledger", testLedger},
 		{"Status", testStatus},
+		{"Secrets", testSecrets},
 	} {
 		t.Run(g.name, func(t *testing.T) { g.run(t, open) })
 	}

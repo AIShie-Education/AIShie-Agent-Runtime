@@ -25,6 +25,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"regexp"
+	"strings"
 	"time"
 )
 
@@ -37,11 +40,17 @@ type Store interface {
 	Seats
 	Ledger
 	Status
+	Secrets
 	Close() error
 }
 
 // ErrNotFound is a lookup that found nothing.
 var ErrNotFound = errors.New("store: not found")
+
+// ErrConflict is a write refused because what it would change has changed
+// since the caller read it: a secret rewrapped by another, or a hosted
+// agent whose version is no longer the one the caller names (If-Match).
+var ErrConflict = errors.New("store: changed since it was read")
 
 // Leases are named, held by one holder at a time, until they expire.
 // Names in use: "agent:{agent_id}", held by the worker that runs the agent,
@@ -366,4 +375,92 @@ type AgentState struct {
 type Status interface {
 	SetAgentState(ctx context.Context, s AgentState) error
 	AgentStates(ctx context.Context) ([]AgentState, error)
+}
+
+// Secret kinds.
+const (
+	// SecretCoreToken is an agent's Core token.
+	SecretCoreToken = "core_token"
+	// SecretModelKey is a model provider's key.
+	SecretModelKey = "model_key"
+)
+
+// secretIDRe is the shape of a secret's id: sec_ and up to 60 letters,
+// digits, '_' and '-'. A sealed:// reference names one.
+var secretIDRe = regexp.MustCompile(`^sec_[A-Za-z0-9_-]{1,60}$`)
+
+// IsSecretID reports whether id has the shape of a secret's id.
+func IsSecretID(id string) bool { return secretIDRe.MatchString(id) }
+
+// Secret is one secret the vault sealed (package vault): its ciphertext,
+// under a data key (DEK) of its own, and that key wrapped by the
+// key-encryption key KEKID names. Both are bound to the secret's id, tenant
+// and kind, so that neither can be moved to another row. Nothing here is
+// plaintext: Hint is all of it that may be shown.
+type Secret struct {
+	// ID is sec_…, see IsSecretID.
+	ID       string `json:"id"`
+	TenantID string `json:"tenant_id"`
+	// Kind is SecretCoreToken or SecretModelKey.
+	Kind       string `json:"kind"`
+	KEKID      string `json:"kek_id"`
+	WrappedDEK []byte `json:"-"`
+	Nonce      []byte `json:"-"`
+	Ciphertext []byte `json:"-"`
+	// Hint is what may be shown of the secret: ais_ and the token's public
+	// prefix, or a key's provider prefix and its last four characters.
+	Hint string `json:"hint"`
+	// CreatedBy is the Core actor who gave the secret, "" when none did.
+	CreatedBy string    `json:"created_by"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// Secrets keep sealed secrets. They are opened only where the worker
+// resolves a sealed:// reference, and by `aishie-runtime keys`.
+type Secrets interface {
+	// PutSecret stores s. An id already taken is ErrExists, and the secret
+	// there is left as it is.
+	PutSecret(ctx context.Context, s Secret) error
+	// Secret is the secret id, or ErrNotFound.
+	Secret(ctx context.Context, id string) (*Secret, error)
+	// ListSecrets lists up to limit secrets whose ids sort after afterID
+	// (bytewise), in that order: every secret, a page at a time.
+	ListSecrets(ctx context.Context, afterID string, limit int) ([]Secret, error)
+	// RewrapSecret replaces the secret's wrapped data key and kek_id, if
+	// the key that wraps it is still fromKEKID: ErrNotFound when the secret
+	// is gone, ErrConflict when it was rewrapped since it was read.
+	RewrapSecret(ctx context.Context, id, fromKEKID, kekID string, wrapped []byte) error
+	// DeleteSecret destroys the secret; one that is not there is nothing.
+	// A secret a hosted agent still refers to is refused with ErrInUse.
+	DeleteSecret(ctx context.Context, id string) error
+}
+
+// ErrInUse is a secret that cannot be deleted because a hosted agent
+// refers to it.
+var ErrInUse = errors.New("store: a hosted agent refers to it")
+
+// CheckSecret refuses a secret a store must not keep: without its id (in
+// the shape IsSecretID gives), tenant, key id or sealed bytes, or of a kind
+// not named above.
+func CheckSecret(s Secret) error {
+	var bad []string
+	if !IsSecretID(s.ID) {
+		bad = append(bad, "id (sec_…)")
+	}
+	if s.TenantID == "" {
+		bad = append(bad, "tenant_id")
+	}
+	if s.Kind != SecretCoreToken && s.Kind != SecretModelKey {
+		bad = append(bad, "kind ("+SecretCoreToken+" or "+SecretModelKey+")")
+	}
+	if s.KEKID == "" {
+		bad = append(bad, "kek_id")
+	}
+	if len(s.WrappedDEK) == 0 || len(s.Nonce) == 0 || len(s.Ciphertext) == 0 {
+		bad = append(bad, "the sealed bytes")
+	}
+	if len(bad) > 0 {
+		return fmt.Errorf("store: secret: %s required", strings.Join(bad, ", "))
+	}
+	return nil
 }

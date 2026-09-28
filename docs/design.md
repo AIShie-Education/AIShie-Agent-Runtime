@@ -14,14 +14,17 @@ One binary, `aishie-runtime`:
 aishie-runtime run        the worker: pollers and answer loops, and /healthz, /metrics, /status
 aishie-runtime check      validate the configuration; with --live, connect each agent and show its seats
 aishie-runtime migrate    the store's schema (Postgres)
+aishie-runtime keys       the sealed secrets: check that each opens, or rewrap them under the current key
 aishie-runtime catalogue  fetch Core's GET /v1/tools, print its hash, compare it with a snapshot
 aishie-runtime version
 ```
 
-The hosted UI of M2 (SSO, connecting by token, the secret store under KMS,
-the owner's page) is not here yet. Agents are configured from YAML (§4) and
-secrets come from the environment or files, as M1 has it; `/status` is the
-owner's page's data, read-only.
+Agents are configured from YAML (§4), with secrets from the environment or
+files, as M1 has it. M2's hosted agents, which people connect from
+AIShiteru-Frontend, are built in steps (§11): the secret store, which seals
+their tokens and their owners' keys in the runtime's database, is here; the
+registry that runs them beside the YAML agents, and the JSON API the front
+end calls, come next. `/status` is the operator's view, read-only.
 
 ```
 cmd/aishie-runtime/     the binary
@@ -38,7 +41,9 @@ internal/
   toolschema    the sanitiser (§3.8): bind, common transform, dialects, reverse map, validation
   toolset       which tools a seat's model is offered (§4), and running the model's calls
   config        the YAML, its defaults and precedence, validation
-  secrets       secret://, env://, file:// references
+  secrets       secret://, env://, file:// and sealed:// references
+  vault         envelope encryption of the secrets kept in the store: a data key per secret,
+                wrapped by the key KMS_KEY_ID names (§11.1)
   pricing       the versioned price table, and cost
   redact        a log handler that removes tokens and keys
   safety        what the model wrote, made safe to post: links, images, length
@@ -368,9 +373,10 @@ The prompt's hash is kept per answer.
   (a plugin, a preset, a version) must be matched here and re-recorded.
 - `/status` names agents, courses and members, so it answers only clients on
   the loopback interface; `HTTP_ADDR` defaults to `127.0.0.1:9090`.
-- `redact` removes `ais_…`, `aisinv_…`, `sk-…`, `AIza…`, AWS access keys
-  and `LOG_REDACT_EXTRA` from every log line. Logs hold ids, counts and
-  codes, never message text.
+- `redact` removes `ais_…`, `aisinv_…`, `sk-…`, `AIza…`, AWS access keys,
+  JSON Web Tokens (`eyJ….….…`, the assertions of §11) and
+  `LOG_REDACT_EXTRA` from every log line. Logs hold ids, counts and codes,
+  never message text.
 
 ## 8. The store
 
@@ -383,6 +389,7 @@ The prompt's hash is kept per answer.
 | `seat` | (agent, member) → course, seen_at, gone_at |
 | `llm_call`, `answer` | the ledger: ids and numbers |
 | `agent_state` | the owner's page's state |
+| `secret` | sealed secrets (§11.1): id, tenant, kind, the key's id, the wrapped data key, nonce, ciphertext, hint |
 
 `memstore` keeps the same in memory, for one worker and for tests: it loses
 attempts and memory on restart, so a restarted worker may find its keys
@@ -416,6 +423,12 @@ polling 2 s hot for 120 s, 10 s idle to 30 s, events 45 s, seats 300 s,
   back through Core's schema.
 - `storetest`: one suite, run against memstore and against Postgres
   (`TEST_DATABASE_URL`).
+- `vault`: a secret sealed and opened; every field and byte of it tampered
+  with, and moved to another id, tenant or kind, fails to open; a key
+  rotated (added, rewrapped, retired); keyrings that cannot be used are
+  refused without repeating what `KMS_KEY_ID` says. The worker starts an
+  agent from `sealed://` references against the fake Core, and
+  `keys check|rewrap` and `check --live` are run on Postgres.
 - `worker`: the fake Core and the scripted model: every row of §5.3's table,
   moved on, duplicates across two workers, denied, 401, 429, quotas,
   budgets, proposals followed, retractions; no token in any log line; the
@@ -429,3 +442,71 @@ polling 2 s hot for 120 s, 10 s idle to 30 s, events 45 s, seats 300 s,
   when restored; a proposal approved is recorded, and a rejection's reason
   reaches the next attempt; no token or key in any log, before or after
   redaction; the binary's `catalogue --check` and `check --live`.
+
+## 11. Hosted agents
+
+M2 lets people connect their own agents from AIShiteru-Frontend instead of
+an operator writing YAML. The runtime's side is built in steps: the secret
+store (§11.1), the registry of hosted agents that runs them beside the YAML
+agents, and a versioned JSON API for the front end.
+
+### 11.1 The secret store
+
+`internal/vault` is envelope encryption:
+
+- Each secret, an agent's Core token or a model key, has a data key (DEK)
+  of its own, 256 random bits, and is encrypted under it with AES-256-GCM.
+  The additional data is `"aishie/secret/v1" ‖ secret_id ‖ tenant_id ‖
+  kind`, each field a 4-byte length and its bytes, so that fields cannot
+  run together: a ciphertext moved to another row, tenant or kind does not
+  open.
+- The DEK is wrapped by the key-encryption key (KEK), bound to the same
+  additional data; the row keeps the KEK's id beside it. The interface is
+  `Wrap(ctx, dek, aad)` and `Unwrap(ctx, kekID, wrapped, aad)`.
+- `KMS_KEY_ID` chooses the KEK. `local:<dir>/<name>` is a 32-byte key,
+  base64, in the file `<dir>/<name>` (`/secrets/kek/v1` on a server,
+  `docs/deploying.md`); every other file in `<dir>` is kept as a keyring, so
+  that secrets an older key wrapped still open. A key's id is
+  `local:<name>`, whatever the mount. `awskms:` and `vault:` are refused as
+  not built yet; with AWS KMS, the additional data's fields become the
+  encryption context, and a process that only seals needs `Encrypt` and
+  never `Decrypt`.
+- The `secret` table (migration 0002) holds id (`sec_…`), tenant, kind
+  (`core_token` or `model_key`), the KEK's id, the wrapped DEK, the nonce,
+  the ciphertext, a hint, who gave it and when. No column holds plaintext.
+  The hint is all of a secret that is ever shown: for a Core token, `ais_`
+  and its 12-character public prefix (Core's `credential_list` names the
+  token by it); for a model key, its provider's prefix and last four
+  characters (`sk-…3f9a`), fewer for a short key.
+- A secret is referred to as `sealed://<secret id>`. `secrets.Resolver`
+  opens it through `vault.Opener`, reading the row from the store, only
+  where the worker resolves secrets (`Agent.start` for the token,
+  `buildModel` for keys, for the life of the agent instance) and in
+  `check --live`. Without `KMS_KEY_ID` a sealed reference is refused, saying
+  so. The resolver also refuses a `secret://` or `file://` reference that
+  reaches the keyring's directory, which lies in `SECRETS_DIR`, links
+  followed: a KEK sent to a provider as an API key would be every secret.
+- `aishie-runtime keys check` opens every secret with the keyring and says
+  which key wraps how many; `keys rewrap` wraps every DEK an older key
+  wraps under the current one, a row at a time (the ciphertext is not
+  touched, and the DEK is proved against it first), so that a key is
+  retired by adding the next, pointing `KMS_KEY_ID` at it, rewrapping, and
+  removing the old file (`docs/deploying.md`). Neither prints a secret.
+- Deleting a secret destroys its row. Its ciphertext stays in the
+  database's backups until they rotate out, which is why the keyring is
+  kept apart from them.
+
+### 11.2 Where M2 departs from the handout
+
+- **The UI lives in AIShiteru-Frontend** (the product owner's D1), not in a
+  `runtime-web` of the runtime's (§8.3): the runtime will serve a versioned
+  JSON API only, and no HTML. People will authenticate to it with a
+  short-lived assertion Core mints for its signed-in person (Ed25519, the
+  runtime as audience), not as an OIDC client of the institution (D2); the
+  runtime never sees Core's session cookie, and `OIDC_*` is not a runtime
+  setting.
+- **A data key per secret, bound to its tenant** (D12), where §5.4 has a
+  data key per tenant. The tenant is in every secret's additional data, so
+  the isolation is the same; each secret can be destroyed on its own; and
+  with a KMS, the API that seals what people give it can hold no right to
+  read anything back.

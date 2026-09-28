@@ -17,6 +17,7 @@ Core's. On the server:
 | `/etc/aishie-runtime/runtime.env` | the settings, `DATABASE_URL` among them |
 | `/etc/aishie-runtime/agents/` | the agents' configuration, mounted read-only at `/config` |
 | `/etc/aishie-runtime/secrets/` | the secrets it refers to, mounted read-only at `/secrets` |
+| `/etc/aishie-runtime/secrets/kek/` | the key that seals the secrets kept in the database, and older ones ([below](#the-key-that-seals-secrets)) |
 | `/var/backups/aishie-runtime/` | the database's backups |
 | `/var/log/aishie-runtime-deploy.log` | every deploy, from what to what |
 
@@ -67,9 +68,10 @@ repository's, not Core's, though Core has scripts of the same kind:
    database password, `HTTP_ADDR=127.0.0.1:9090`,
    `CORE_BASE_URL_ALLOWLIST` set to that Core and `LOG_FORMAT=json`. It
    creates the directories for the agents' configuration and secrets, the
-   backup directory and a nightly backup, and installs the two scripts. Last,
-   it creates the SSH user `aishie-deploy` for this repository's Deploy
-   workflow.
+   key that seals the secrets kept in the database, with `KMS_KEY_ID` in the
+   env file, the backup directory and a nightly backup, and installs the two
+   scripts. Last, it creates the SSH user `aishie-deploy` for this
+   repository's Deploy workflow.
 
    If it stops, fix what it names and run it again. A server that has just
    booted may still be updating itself, and the script waits for that.
@@ -158,6 +160,50 @@ aishie-runtime check && docker kill -s HUP aishie-runtime
 aishie-runtime-deploy "$(docker inspect -f '{{.Config.Image}}' aishie-runtime)"
 ```
 
+## The key that seals secrets
+
+The tokens and keys of hosted agents, which people give the runtime rather
+than an operator writing them in files, are kept in its database, sealed
+(`docs/design.md` §11.1): each under a data key of its own, which the key
+in `/etc/aishie-runtime/secrets/kek/` wraps. The env file names it:
+`KMS_KEY_ID=local:/secrets/kek/v1`, the path the container sees.
+
+`setup-server.sh` makes `v1` when the directory holds no key: 32 random
+bytes, base64, `root:65532`, mode `640`, in a directory of mode `750`. The
+directory is a keyring: the file `KMS_KEY_ID` names seals new secrets, and
+every other file in it still opens what it sealed. Files whose names begin
+with `.` are passed over; anything else must be a key, or the runtime does
+not start. No `secret://` or `file://` reference may read the directory.
+
+Keep a copy of the directory, encrypted, somewhere other than where the
+database's backups go: a backup and the key together are every secret, and
+without the key the secrets in a backup are lost. To see that every secret
+opens with the keys there:
+
+```
+aishie-runtime keys check
+```
+
+To replace the key (after someone who could read it leaves, or on a
+schedule): add a new one beside the old, point `KMS_KEY_ID` at it, deploy
+the running image again so that the new setting is read, rewrap every
+secret under it, check, and only then remove the old one.
+
+```
+(umask 077 && openssl rand -base64 32 > /etc/aishie-runtime/secrets/kek/.v2.new)
+chown root:65532 /etc/aishie-runtime/secrets/kek/.v2.new && chmod 640 /etc/aishie-runtime/secrets/kek/.v2.new
+mv /etc/aishie-runtime/secrets/kek/.v2.new /etc/aishie-runtime/secrets/kek/v2
+sed -i 's|^KMS_KEY_ID=.*|KMS_KEY_ID=local:/secrets/kek/v2|' /etc/aishie-runtime/runtime.env
+aishie-runtime-deploy "$(docker inspect -f '{{.Config.Image}}' aishie-runtime)"
+aishie-runtime keys rewrap
+aishie-runtime keys check      # every secret opens, and v2 wraps them all
+rm /etc/aishie-runtime/secrets/kek/v1
+```
+
+Keep the old key's copy until the database's backups older than the rewrap
+have rotated out (a week of nightly ones, and the last ten deploys'): their
+secrets are still wrapped by it.
+
 ## The env file
 
 `/etc/aishie-runtime/runtime.env` is one `NAME=value` per line: no quotes,
@@ -175,11 +221,12 @@ running (above): a restart does not read the file again.
 | `EGRESS_PROXY` | the proxy for every call out (Core, the providers, Core's file downloads); without it, the usual `HTTPS_PROXY`. |
 | `SHUTDOWN_GRACE` | how long the runtime lets answers in flight finish on SIGTERM (`15s`). `aishie-runtime-deploy` gives Docker that and 15 seconds more to stop it. |
 | `WORKER_ID`, `PRICES` | this worker's name in the leases (the host's name and the process id), and a price table's path when the `runtime:` document names none. |
+| `KMS_KEY_ID` | the key that seals the secrets kept in the database: `local:/secrets/kek/v1` ([above](#the-key-that-seals-secrets)). `setup-server.sh` adds it. Unset, no sealed secret opens. |
 
 `CONFIG` and `SECRETS_DIR` are set by `aishie-runtime-deploy` to the two
-mounts, whatever the file says. `KMS_KEY_ID` and `OIDC_*` belong to the
-hosted UI, which is not here yet: nothing reads them. `aishie-runtime help`
-lists every setting the image in hand reads.
+mounts, whatever the file says. There is no `OIDC_*`: people sign in to
+Core, which vouches for them to the runtime (`docs/design.md` §11.2).
+`aishie-runtime help` lists every setting the image in hand reads.
 
 ## Connecting the Deploy workflow
 
@@ -353,6 +400,10 @@ else regularly:
 - `/etc/aishie-runtime/`, the env file, the agents' configuration and their
   secrets. It holds every agent's Core token and the providers' keys: keep
   the copy encrypted.
+- `/etc/aishie-runtime/secrets/kek/`, the keyring, which is in the copy
+  above: keep that copy apart from the database's. The database's backups
+  hold the hosted agents' secrets sealed, and the keyring opens them; the
+  two in one place are every secret in the clear.
 
 ## More than one worker
 

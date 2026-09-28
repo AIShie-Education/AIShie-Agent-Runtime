@@ -41,6 +41,7 @@ type Store struct {
 	calls    map[agentKey]store.LLMCall
 	answers  map[agentKey]answerRow
 	states   map[string]store.AgentState
+	secrets  map[string]store.Secret
 }
 
 type lease struct {
@@ -87,6 +88,7 @@ func New() *Store {
 		calls:    map[agentKey]store.LLMCall{},
 		answers:  map[agentKey]answerRow{},
 		states:   map[string]store.AgentState{},
+		secrets:  map[string]store.Secret{},
 	}
 }
 
@@ -606,3 +608,90 @@ func (s *Store) AgentStates(_ context.Context) ([]store.AgentState, error) {
 	slices.SortFunc(out, func(a, b store.AgentState) int { return strings.Compare(a.AgentID, b.AgentID) })
 	return out, nil
 }
+
+// copySecret is sec with bytes of its own.
+func copySecret(sec store.Secret) store.Secret {
+	sec.WrappedDEK = slices.Clone(sec.WrappedDEK)
+	sec.Nonce = slices.Clone(sec.Nonce)
+	sec.Ciphertext = slices.Clone(sec.Ciphertext)
+	return sec
+}
+
+// PutSecret stores sec; an id already taken is store.ErrExists.
+func (s *Store) PutSecret(_ context.Context, sec store.Secret) error {
+	if err := store.CheckSecret(sec); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.secrets[sec.ID]; ok {
+		return fmt.Errorf("secret %s: %w", sec.ID, store.ErrExists)
+	}
+	sec.CreatedAt = s.orNow(sec.CreatedAt)
+	s.secrets[sec.ID] = copySecret(sec)
+	return nil
+}
+
+// Secret is the secret id, or store.ErrNotFound.
+func (s *Store) Secret(_ context.Context, id string) (*store.Secret, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sec, ok := s.secrets[id]
+	if !ok {
+		return nil, fmt.Errorf("secret %s: %w", id, store.ErrNotFound)
+	}
+	sec = copySecret(sec)
+	return &sec, nil
+}
+
+// ListSecrets lists up to limit secrets whose ids sort after afterID, by id.
+func (s *Store) ListSecrets(_ context.Context, afterID string, limit int) ([]store.Secret, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []store.Secret
+	for id, sec := range s.secrets {
+		if id > afterID {
+			out = append(out, copySecret(sec))
+		}
+	}
+	slices.SortFunc(out, func(a, b store.Secret) int { return strings.Compare(a.ID, b.ID) })
+	return out[:min(limit, len(out))], nil
+}
+
+// RewrapSecret replaces the secret's wrapped data key, if fromKEKID still
+// wraps it.
+func (s *Store) RewrapSecret(_ context.Context, id, fromKEKID, kekID string, wrapped []byte) error {
+	if kekID == "" || len(wrapped) == 0 {
+		return fmt.Errorf("store: secret %s: kek_id and the wrapped key required", id)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sec, ok := s.secrets[id]
+	switch {
+	case !ok:
+		return fmt.Errorf("secret %s: %w", id, store.ErrNotFound)
+	case sec.KEKID != fromKEKID:
+		return fmt.Errorf("secret %s: %w", id, store.ErrConflict)
+	}
+	sec.KEKID, sec.WrappedDEK = kekID, slices.Clone(wrapped)
+	s.secrets[id] = sec
+	return nil
+}
+
+// DeleteSecret destroys the secret; one that is not there is nothing.
+func (s *Store) DeleteSecret(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.secretInUse(id); err != nil {
+		return err
+	}
+	delete(s.secrets, id)
+	return nil
+}
+
+// secretInUse refuses to delete a secret a hosted agent refers to. Called
+// with the lock held.
+func (s *Store) secretInUse(string) error { return nil }

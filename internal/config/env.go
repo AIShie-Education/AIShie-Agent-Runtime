@@ -46,6 +46,10 @@ type Env struct {
 	// PricesPath is the price table; when set, it is used instead of
 	// runtime.prices_ref.
 	PricesPath string
+	// KMSKeyID names the key that seals the secrets kept in the store
+	// (package vault): local:<dir>/<name>. Empty, no sealed secret is
+	// opened or made.
+	KMSKeyID string
 }
 
 // Defaults of the environment's settings.
@@ -70,6 +74,7 @@ var envVars = []struct{ name, help string }{
 	{"WORKER_ID", "this process's name in leases (default hostname-pid)"},
 	{"SHUTDOWN_GRACE", "how long answers in progress get on SIGTERM, such as 15s (default 15s)"},
 	{"PRICES", "the price table; overrides the runtime's prices_ref"},
+	{"KMS_KEY_ID", "the key that seals the secrets kept in the store: local:<dir>/<name>, a 32-byte key, base64, in that file, the directory's other files kept for secrets an older key sealed"},
 }
 
 // EnvHelp lists the environment variables FromEnv reads, for the help
@@ -97,6 +102,7 @@ func FromEnv(getenv func(string) string) (Env, error) {
 		SecretsDir:  get("SECRETS_DIR"),
 		WorkerID:    or(get("WORKER_ID"), defaultWorkerID()),
 		PricesPath:  get("PRICES"),
+		KMSKeyID:    get("KMS_KEY_ID"),
 	}
 	var errs []error
 	bad := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
@@ -142,6 +148,11 @@ func FromEnv(getenv func(string) string) (Env, error) {
 	}
 	if e.LogFormat != "json" && e.LogFormat != "text" {
 		bad("LOG_FORMAT: %q is not json or text", e.LogFormat)
+	}
+	if k := e.KMSKeyID; k != "" && !strings.HasPrefix(k, "local:") && !strings.HasPrefix(k, "awskms:") && !strings.HasPrefix(k, "vault:") {
+		// Not repeated: it may be the key itself, pasted where its name
+		// belongs.
+		bad("KMS_KEY_ID: not local:<dir>/<name>, such as local:/secrets/kek/v1")
 	}
 	e.ShutdownGrace = DefaultShutdownGrace
 	if v := get("SHUTDOWN_GRACE"); v != "" {

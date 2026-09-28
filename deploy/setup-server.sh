@@ -15,7 +15,9 @@
 # It installs Docker and PostgreSQL where they are missing; creates the
 # runtime's own database, never Core's, and the env file with a generated
 # database password; the directories for the agents' configuration and
-# secrets, the backup directory and a nightly backup; installs
+# secrets, the key that seals the secrets the runtime keeps in its database
+# (secrets/kek/v1, and KMS_KEY_ID in the env file), the backup directory and
+# a nightly backup; installs
 # aishie-runtime-deploy and aishie-runtime; allows SSH in ufw when ufw is on;
 # and makes an SSH user, aishie-deploy, that can do one thing: run
 # aishie-runtime-deploy, for this repository's Deploy workflow. Core's deploy
@@ -23,9 +25,11 @@
 # only its own image. The runtime serves nothing to the internet: /healthz,
 # /status and /metrics are on 127.0.0.1:9090.
 #
-# Run again, it installs the scripts in this directory over the old ones and
-# leaves everything else as it is: the env file, the database, the
-# configuration, the secrets and aishie-deploy's key. That is how a newer
+# Run again, it installs the scripts in this directory over the old ones,
+# adds what a newer runtime needs and an older set-up lacks (the key that
+# seals secrets, and its line in the env file), and leaves everything else
+# as it is: the env file's other lines, the database, the configuration, the
+# secrets, the keys and aishie-deploy's key. That is how a newer
 # aishie-runtime-deploy reaches the server.
 set -eu
 
@@ -102,7 +106,8 @@ server holds no runtime data yet, remove them and run this again:
 Otherwise give the role a new password (openssl rand -hex 24), with psql:
 ALTER ROLE $DB PASSWORD '...'; and write the env file, mode 600,
 with the lines this script writes: DATABASE_URL, HTTP_ADDR,
-CORE_BASE_URL_ALLOWLIST and LOG_FORMAT (see the script).
+CORE_BASE_URL_ALLOWLIST and LOG_FORMAT (see the script); KMS_KEY_ID is
+added when this script runs again.
 MSG
   exit 1
 else
@@ -140,6 +145,36 @@ cat > /etc/cron.d/aishie-runtime-backup <<CRONEOF
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 30 3 * * * root f=$BACKUPS/daily-\$(date +\%u).dump; runuser -u postgres -- pg_dump -Fc -f "\$f.part" $DB && mv "\$f.part" "\$f"
 CRONEOF
+
+say "The key that seals stored secrets"
+# The runtime seals the Core tokens and model keys of hosted agents in its
+# database, each under a data key of its own, which this key wraps
+# (docs/deploying.md, The key that seals secrets). The directory is the
+# keyring: every file in it is a key, the one KMS_KEY_ID names wraps new
+# secrets, the others still open what they wrapped. It is mounted at
+# /secrets/kek, read-only. A copy of it and a copy of the database's
+# backups together are every secret: keep them in different places.
+KEK_DIR=$ETC/secrets/kek
+if [ -d "$KEK_DIR" ]; then echo "$KEK_DIR is there already: left as it is"; else install -d -o root -g 65532 -m 750 "$KEK_DIR" && echo "made $KEK_DIR"; fi
+if [ -n "$(ls "$KEK_DIR")" ]; then
+  echo "$KEK_DIR holds keys already: left as it is"
+else
+  # Written under a hidden name, which the runtime passes over, until it is
+  # whole.
+  (umask 077 && openssl rand -base64 32 > "$KEK_DIR/.v1.new")
+  chown root:65532 "$KEK_DIR/.v1.new"
+  chmod 640 "$KEK_DIR/.v1.new"
+  mv "$KEK_DIR/.v1.new" "$KEK_DIR/v1"
+  echo "made the key $KEK_DIR/v1"
+fi
+if grep -q '^KMS_KEY_ID=' "$ENV_FILE"; then
+  echo "KMS_KEY_ID is in $ENV_FILE already: left as it is"
+elif [ -e "$KEK_DIR/v1" ]; then
+  echo "KMS_KEY_ID=local:/secrets/kek/v1" >> "$ENV_FILE"
+  echo "added KMS_KEY_ID=local:/secrets/kek/v1 to $ENV_FILE"
+else
+  echo "warning: $ENV_FILE has no KMS_KEY_ID, and $KEK_DIR has no v1: set KMS_KEY_ID=local:/secrets/kek/<the current key's file>" >&2
+fi
 
 say "Firewall"
 # Nothing of the runtime's is served from outside: only SSH, for the Deploy
@@ -198,6 +233,8 @@ cat <<DONE
      install -g 65532 -m 640 tutor.yaml $ETC/agents/
      install -D -g 65532 -m 640 /dev/stdin $ETC/secrets/a/b    (paste, then Ctrl-D)
      AISHIE_RUNTIME_IMAGE=ghcr.io/aishie-education/aishie-agent-runtime:sha-<commit> aishie-runtime check
+   Copy $ETC/secrets/kek somewhere safe, and not where the
+   database's backups go: it opens the secrets the runtime keeps there.
 3. Start it, with the image of the latest green push to main (the CI run's
    publish / image job, or the package's page, names it), or of a release:
      aishie-runtime-deploy ghcr.io/aishie-education/aishie-agent-runtime:sha-<commit>

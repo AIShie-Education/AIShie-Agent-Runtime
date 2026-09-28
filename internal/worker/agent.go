@@ -112,9 +112,7 @@ func (a *Agent) stop(err error) {
 // start resolves the agent's token, fetches Core's catalogue, connects,
 // checks the token with me_get, and builds the model's adapters.
 func (a *Agent) start(ctx context.Context) error {
-	res := a.s.o.Secrets
-	res.BaseDir = a.cfg.Dir
-	token, err := res.Resolve(ctx, a.cfg.Core.TokenRef)
+	token, err := a.s.o.Secrets.Resolve(ctx, a.cfg.Core.TokenRef, a.cfg.Dir)
 	if err != nil {
 		return fmt.Errorf("the Core token: %w", err)
 	}
@@ -194,10 +192,8 @@ func (a *Agent) models(ctx context.Context, m config.Model) (*model, *model, err
 func (a *Agent) buildModel(ctx context.Context, m config.Model) (*model, error) {
 	var key string
 	if m.KeyRef != "" {
-		res := a.s.o.Secrets
-		res.BaseDir = a.cfg.Dir
 		var err error
-		if key, err = res.Resolve(ctx, m.KeyRef); err != nil {
+		if key, err = a.s.o.Secrets.Resolve(ctx, m.KeyRef, a.cfg.Dir); err != nil {
 			return nil, err
 		}
 	}

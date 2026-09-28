@@ -24,7 +24,17 @@ var update = flag.Bool("update", false, "rewrite testdata/schema.golden from the
 
 // tables are every table the migrations make, in the order TRUNCATE takes
 // them.
-var tables = []string{"lease", "attempt", "cursor", "note", "seat", "llm_call", "answer", "agent_state"}
+var tables = []string{"lease", "attempt", "cursor", "note", "seat", "llm_call", "answer", "agent_state", "secret"}
+
+// newest is the newest migration the binary carries.
+func newest(t *testing.T) uint {
+	t.Helper()
+	v, err := latestEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
 
 // openShared opens the run's scratch database, emptied, for one test.
 func openShared(t *testing.T) *Store {
@@ -64,6 +74,7 @@ func TestContract(t *testing.T) {
 func TestMigrateUpDownUp(t *testing.T) {
 	u := freshDatabase(t)
 	ctx := t.Context()
+	top := newest(t)
 
 	version := func(want uint) {
 		t.Helper()
@@ -71,8 +82,8 @@ func TestMigrateUpDownUp(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if latest != 1 {
-			t.Errorf("latest = %d, want 1", latest)
+		if latest != top {
+			t.Errorf("latest = %d, want %d", latest, top)
 		}
 		if current != want || dirty {
 			t.Fatalf("version = %d (dirty %v), want %d", current, dirty, want)
@@ -100,11 +111,11 @@ func TestMigrateUpDownUp(t *testing.T) {
 		version   uint
 		tables    int
 	}{
-		{Up, 1, len(tables)},
-		{Up, 1, len(tables)}, // already there
+		{Up, top, len(tables)},
+		{Up, top, len(tables)}, // already there
 		{Down, 0, 0},
 		{Down, 0, 0}, // already there
-		{Up, 1, len(tables)},
+		{Up, top, len(tables)},
 	} {
 		if err := Migrate(u, step.direction); err != nil {
 			t.Fatalf("step %d, %s: %v", i+1, step.direction, err)
@@ -139,11 +150,12 @@ func TestMigrateRefusesAnUnknownDirection(t *testing.T) {
 // is ahead is a rolling deploy or a rollback, and is taken.
 func TestOpenChecksTheSchema(t *testing.T) {
 	ctx := t.Context()
+	top := newest(t)
 
 	t.Run("older", func(t *testing.T) {
 		u := freshDatabase(t)
 		_, err := Open(ctx, u)
-		if err == nil || !strings.Contains(err.Error(), "version 0") || !strings.Contains(err.Error(), "needs 1") ||
+		if err == nil || !strings.Contains(err.Error(), "version 0") || !strings.Contains(err.Error(), fmt.Sprintf("needs %d", top)) ||
 			!strings.Contains(err.Error(), "aishie-runtime migrate up") {
 			t.Fatalf("Open on an empty database: err = %v, want one saying to run migrate up", err)
 		}
@@ -159,10 +171,11 @@ func TestOpenChecksTheSchema(t *testing.T) {
 			t.Fatal(err)
 		}
 		execOn(t, u, `UPDATE schema_migrations SET dirty = true`)
-		if _, err := Open(ctx, u); err == nil || !strings.Contains(err.Error(), "dirty at version 1") {
+		dirtyAt := fmt.Sprintf("dirty at version %d", top)
+		if _, err := Open(ctx, u); err == nil || !strings.Contains(err.Error(), dirtyAt) {
 			t.Fatalf("Open on a dirty schema: err = %v, want one saying it is dirty", err)
 		}
-		if err := Migrate(u, Up); err == nil || !strings.Contains(err.Error(), "dirty at version 1") {
+		if err := Migrate(u, Up); err == nil || !strings.Contains(err.Error(), dirtyAt) {
 			t.Fatalf("Migrate up on a dirty schema: err = %v, want one saying it is dirty", err)
 		}
 		if _, _, dirty, err := SchemaVersion(ctx, u); err != nil || !dirty {
@@ -175,7 +188,7 @@ func TestOpenChecksTheSchema(t *testing.T) {
 		if err := Migrate(u, Up); err != nil {
 			t.Fatal(err)
 		}
-		execOn(t, u, `UPDATE schema_migrations SET version = 2`)
+		execOn(t, u, fmt.Sprintf(`UPDATE schema_migrations SET version = %d`, top+1))
 		s, err := Open(ctx, u)
 		if err != nil {
 			t.Fatalf("Open on a schema ahead: %v", err)
@@ -185,8 +198,8 @@ func TestOpenChecksTheSchema(t *testing.T) {
 		if err := Migrate(u, Up); err != nil {
 			t.Fatalf("Migrate up on a schema ahead: %v", err)
 		}
-		if current, latest, dirty, err := SchemaVersion(ctx, u); err != nil || current != 2 || latest != 1 || dirty {
-			t.Fatalf("SchemaVersion = %d, %d, %v, %v; want 2, 1, clean", current, latest, dirty, err)
+		if current, latest, dirty, err := SchemaVersion(ctx, u); err != nil || current != top+1 || latest != top || dirty {
+			t.Fatalf("SchemaVersion = %d, %d, %v, %v; want %d, %d, clean", current, latest, dirty, err, top+1, top)
 		}
 	})
 }

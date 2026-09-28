@@ -15,9 +15,11 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/redact"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/secrets"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/memstore"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/pgstore"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/vault"
 )
 
 // loaded is the configuration as run and check load it.
@@ -175,6 +177,37 @@ func openStore(ctx context.Context, env config.Env, log *slog.Logger) (store.Sto
 		return nil, "", err
 	}
 	return st, "postgres", nil
+}
+
+// resolver is how run and check --live resolve references: SECRETS_DIR
+// and the environment, files, and, when KMS_KEY_ID is set and st is not
+// nil, the secrets sealed in st; never the keyring itself. A keyring that
+// cannot be read is an error: a runtime that holds sealed secrets must not
+// start without them.
+func resolver(env config.Env, st store.Secrets) (secrets.Resolver, *vault.Vault, error) {
+	res := secrets.Resolver{Dir: env.SecretsDir}
+	if d := vault.KeyringDir(env.KMSKeyID); d != "" {
+		res.Deny = []string{d}
+	}
+	if env.KMSKeyID == "" {
+		return res, nil, nil
+	}
+	v, err := vault.Open(env.KMSKeyID)
+	if err != nil {
+		return res, nil, err
+	}
+	if st != nil {
+		res.Sealed = vault.Opener{Vault: v, Store: st}
+	}
+	return res, v, nil
+}
+
+// kekID is the key sealing new secrets, for the log: "" without one.
+func kekID(v *vault.Vault) string {
+	if v == nil {
+		return ""
+	}
+	return v.KEKID()
 }
 
 // problemsText is err as lines, one per problem.

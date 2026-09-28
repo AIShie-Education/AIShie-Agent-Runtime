@@ -14,7 +14,6 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/httpserver"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/metrics"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/secrets"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/version"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/worker"
 )
@@ -59,12 +58,17 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 		return exitFailure
 	}
 	defer func() { _ = st.Close() }()
+	res, v, err := resolver(env, st)
+	if err != nil {
+		log.Error("the sealed secrets' keyring cannot be used", "err", err)
+		return exitFailure
+	}
 
 	reg := prometheus.NewRegistry()
 	reg.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	sup, err := worker.NewSupervisor(worker.Options{
 		Config: l.cfg, Env: env, Store: st, Metrics: metrics.New(reg), Log: log,
-		Secrets: secrets.Resolver{Dir: env.SecretsDir}, Prices: l.prices, HTTPClient: client, WorkerID: env.WorkerID,
+		Secrets: res, Prices: l.prices, HTTPClient: client, WorkerID: env.WorkerID,
 	})
 	if err != nil {
 		log.Error("the worker", "err", err)
@@ -76,7 +80,7 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 		return exitFailure
 	}
 	log.Info("aishie-runtime started", "version", version.Version, "commit", version.Commit, "worker", sup.WorkerID(),
-		"addr", srv.Addr(), "agents", len(l.cfg.Agents), "store", kind, "prices", l.pricesPath)
+		"addr", srv.Addr(), "agents", len(l.cfg.Agents), "store", kind, "prices", l.pricesPath, "kek", kekID(v))
 	warnNoAgents(log, l.cfg)
 
 	ctx, cancel := context.WithCancel(ctx)
