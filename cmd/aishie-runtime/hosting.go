@@ -36,6 +36,12 @@ type hosting struct {
 	reported []string
 }
 
+// registryTimeout bounds each build's read of the registry, so that a
+// database that does not answer holds up neither SIGHUP, whose reload
+// waits for the build (and the signals after it wait for the reload), nor
+// the start.
+var registryTimeout = registry.DefaultTimeout
+
 // options are the registry's settings from the environment.
 func (h *hosting) options() registry.Options {
 	return registry.Options{CoreBaseURL: h.env.CoreBaseURL, Allowlist: h.env.CoreBaseURLAllowlist}
@@ -50,6 +56,8 @@ func (h *hosting) build(ctx context.Context) (*config.Config, int64, error) {
 	if h.pg == nil {
 		return h.yaml, 0, nil
 	}
+	ctx, cancel := context.WithTimeout(ctx, registryTimeout)
+	defer cancel()
 	cfg, rev, err := registry.Build(ctx, h.yaml, h.pg, h.options())
 	if err != nil {
 		return h.withLastHosted(), 0, err

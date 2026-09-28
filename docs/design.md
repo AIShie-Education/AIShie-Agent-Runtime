@@ -601,8 +601,11 @@ document a YAML file would hold, and runs it beside the YAML agents:
   listens on a pgx connection of its own, not the pool's, connecting again
   with a backoff when it is lost, and reading the registry once it listens,
   for what changed meanwhile; a poll of the revision every 30 s covers a
-  notification lost. A registry that cannot be read leaves the
-  configuration in force as it is.
+  notification lost. Every read of the registry, the poll's, a rebuild's,
+  SIGHUP's and the start's, ends within 10 s, so that a database that does
+  not answer (a lock held, a connection lost without a word) holds up
+  neither the watcher nor SIGHUP, nor the signals after it. A registry
+  that cannot be read leaves the configuration in force as it is.
 - **The store's side.** Creating an agent stores the secrets it refers to
   in the same transaction; its token must be a `core_token` and its key a
   `model_key` of its tenant, and no other agent's. An update names the

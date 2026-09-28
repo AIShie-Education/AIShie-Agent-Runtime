@@ -17,6 +17,8 @@ const (
 	// listener's connection fails.
 	DefaultRetry    = time.Second
 	DefaultRetryMax = 30 * time.Second
+	// DefaultTimeout bounds each read of the revision and each rebuild.
+	DefaultTimeout = 10 * time.Second
 )
 
 // Watcher puts the registry's changes in force: it rebuilds the runtime's
@@ -40,6 +42,11 @@ type Watcher struct {
 	// Retry is the first wait before listening again after a failure,
 	// doubling to RetryMax; DefaultRetry and DefaultRetryMax when zero.
 	Retry, RetryMax time.Duration
+	// Timeout bounds each read of the revision and each rebuild, so that
+	// a database that does not answer (a lock held, a connection lost
+	// without a word) holds up neither the poll nor the notifications
+	// after it; DefaultTimeout when zero.
+	Timeout time.Duration
 	// Log is where failures are logged; nowhere when nil.
 	Log *slog.Logger
 }
@@ -72,7 +79,7 @@ func (w *Watcher) Run(ctx context.Context, rev int64) {
 		case <-kick:
 			rev = w.rebuild(ctx, log, rev, "a notification")
 		case <-poll.C:
-			now, err := w.Rev(ctx)
+			now, err := w.rev(ctx)
 			switch {
 			case err != nil:
 				if ctx.Err() == nil {
@@ -85,10 +92,20 @@ func (w *Watcher) Run(ctx context.Context, rev int64) {
 	}
 }
 
-// rebuild rebuilds, and returns the revision now in force: last, if the
-// registry could not be read, so that the next poll tries again.
+// rev reads the registry's revision, within Timeout.
+func (w *Watcher) rev(ctx context.Context) (int64, error) {
+	ctx, cancel := context.WithTimeout(ctx, or(w.Timeout, DefaultTimeout))
+	defer cancel()
+	return w.Rev(ctx)
+}
+
+// rebuild rebuilds, within Timeout, and returns the revision now in force:
+// last, if the registry could not be read, so that the next poll tries
+// again.
 func (w *Watcher) rebuild(ctx context.Context, log *slog.Logger, last int64, why string) int64 {
-	rev, err := w.Rebuild(ctx)
+	rctx, cancel := context.WithTimeout(ctx, or(w.Timeout, DefaultTimeout))
+	defer cancel()
+	rev, err := w.Rebuild(rctx)
 	if err != nil {
 		if ctx.Err() == nil {
 			log.Warn("the registry could not be read; the configuration in force stays, and it is read again at the next poll",

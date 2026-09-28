@@ -168,3 +168,35 @@ func TestWatcherListensAgain(t *testing.T) {
 	createAgent(t, st, "agt_2")
 	eventually(t, "a rebuild after a write, listening again", func() bool { return r.n.Load() > n })
 }
+
+// A database that does not answer holds the watcher up no longer than its
+// timeout: neither a read of the revision nor a rebuild that hangs (a lock
+// held, a connection lost without a word) keeps the poll from trying
+// again.
+func TestWatcherIsNotHeldUp(t *testing.T) {
+	var cur atomic.Int64
+	var revCalls, rebuildCalls, rebuilt atomic.Int32
+	hang := func(ctx context.Context) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	rev := func(ctx context.Context) (int64, error) {
+		if revCalls.Add(1) == 1 {
+			return 0, hang(ctx)
+		}
+		return cur.Load(), nil
+	}
+	rebuild := func(ctx context.Context) (int64, error) {
+		if rebuildCalls.Add(1) == 1 {
+			return 0, hang(ctx)
+		}
+		rebuilt.Add(1)
+		return cur.Load(), nil
+	}
+	cur.Store(1)
+	run(t, &Watcher{Rev: rev, Rebuild: rebuild, Poll: 10 * time.Millisecond, Timeout: 50 * time.Millisecond}, 0)
+	eventually(t, "a rebuild after a read and a rebuild that hung", func() bool { return rebuilt.Load() == 1 })
+	if n := rebuildCalls.Load(); n != 2 {
+		t.Errorf("%d rebuilds, want the one that hung and the one after", n)
+	}
+}

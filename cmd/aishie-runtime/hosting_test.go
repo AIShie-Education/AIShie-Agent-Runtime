@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/fakecore"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/pgstore"
@@ -258,5 +262,54 @@ func TestCheckLiveRefusesAPersonsToken(t *testing.T) {
 		if c.ActorID == person.ID && c.Tool != "me_get" {
 			t.Errorf("check --live called %s with the person's token", c.Tool)
 		}
+	}
+}
+
+// TestBuildIsNotHeldUpByTheDatabase: a read of the registry that the
+// database does not answer (here a lock held on it) ends at its timeout,
+// as an error, with the hosted agents as last built: SIGHUP, which waits
+// for it, and the signals after SIGHUP, are held up no longer.
+func TestBuildIsNotHeldUpByTheDatabase(t *testing.T) {
+	w := newRegistryWorld(t)
+	w.host(t, "agt_ok", 0, hostedSettings)
+	h := &hosting{env: config.Env{CoreBaseURL: w.coreURL}, pg: w.st, log: slog.New(slog.DiscardHandler), yaml: &config.Config{}}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if cfg, _, err := h.build(t.Context()); err != nil || len(cfg.Agents) != 1 {
+		t.Fatalf("the first build: %v, %+v", err, cfg)
+	}
+
+	defer func(d time.Duration) { registryTimeout = d }(registryTimeout)
+	registryTimeout = 200 * time.Millisecond
+	lock, err := pgx.Connect(t.Context(), w.dbURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = lock.Close(context.Background()) }()
+	tx, err := lock.Begin(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, err := tx.Exec(t.Context(), `LOCK TABLE registry_rev IN ACCESS EXCLUSIVE MODE`); err != nil {
+		t.Fatal(err)
+	}
+
+	type result struct {
+		cfg *config.Config
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		cfg, _, err := h.build(t.Context())
+		done <- result{cfg, err}
+	}()
+	select {
+	case r := <-done:
+		if r.err == nil || len(r.cfg.Agents) != 1 || r.cfg.Agents[0].ID != "agt_ok" {
+			t.Errorf("a build the database does not answer: %v, %+v", r.err, r.cfg)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("a build the database does not answer did not end")
 	}
 }
