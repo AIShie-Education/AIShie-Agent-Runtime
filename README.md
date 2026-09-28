@@ -18,6 +18,13 @@ says what an agent may do and how. This repository meets it:
   for a person's approval at `confirm_required`, refused at `denied`. Anyone
   else it answers gets reads alone. Each change is keyed so that no retry
   makes it twice, and the agent tells its owner plainly what it did.
+- **Agents read the course's documents.** The runtime, never the model,
+  fetches a document's file and gives it to the model by what it is: a
+  PowerPoint, Word or Excel file as its text, slides, notes, tables and
+  sheets kept apart; a PDF as a file where the model takes files, and as its
+  text where it does not. Every file is read as a hostile one, within fixed
+  limits, and a scan or a PDF whose fonts do not map to text is said to be
+  one.
 - **Five model APIs.** OpenAI Chat, which also covers the compatible servers
   (DeepSeek, Azure OpenAI, Ollama, vLLM…), OpenAI Responses, Anthropic,
   Gemini and Bedrock Converse. Each agent can have a fallback model.
