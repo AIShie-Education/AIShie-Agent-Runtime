@@ -35,15 +35,18 @@ const (
 )
 
 // Hint is what may be shown of a secret of kind, and never more: for a
-// Core token, ais_ and its public prefix (ais_k7v2m4qhx3ab…); for a model
+// Core token, ais_ and its public prefix (ais_k7v2m4qhx3ab…), nothing for
+// a token not of Core's shape; for a model
 // key, the provider's prefix and the last four characters (sk-…3f9a), the
 // prefix alone for a key too short to show four of, and the last four
 // alone for a key of no known prefix.
 func Hint(kind, secret string) string {
 	secret = strings.TrimSpace(secret)
 	if kind == store.SecretCoreToken {
+		// The prefix is the 12 characters between ais_ and the next _;
+		// twelve characters with no _ after them may be the secret's.
 		public, ok := strings.CutPrefix(secret, coreTokenPrefix)
-		if !ok || len(public) < corePublicLen || !isPublicPrefix(public[:corePublicLen]) {
+		if !ok || len(public) <= corePublicLen || public[corePublicLen] != '_' || !isPublicPrefix(public[:corePublicLen]) {
 			return Ellipsis
 		}
 		return coreTokenPrefix + public[:corePublicLen] + Ellipsis

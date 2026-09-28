@@ -340,6 +340,10 @@ func TestHint(t *testing.T) {
 		{store.SecretCoreToken, "ais_short", "…"},
 		{store.SecretCoreToken, "ais_NOTAPREFIX!_secretsecretsecret", "…"},
 		{store.SecretCoreToken, "sk-proj-not-a-token-at-all-0123456789", "…"},
+		// Twelve characters of the prefix's alphabet are a prefix only
+		// where Core's _ follows them: here they are a secret's.
+		{store.SecretCoreToken, "ais_abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnop", "…"},
+		{store.SecretCoreToken, "ais_k7v2m4qhx3ab", "…"},
 		{store.SecretModelKey, "sk-0123456789abcdef0123456789ab3f9a", "sk-…3f9a"},
 		{store.SecretModelKey, modelKey, "sk-proj-…3f9a"},
 		{store.SecretModelKey, "sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWx-9z0Q", "sk-ant-…9z0Q"},
