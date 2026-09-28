@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strconv"
 	"strings"
@@ -1196,5 +1197,141 @@ func TestAStudentSeatListsItself(t *testing.T) {
 	}
 	if subs := list(mustCall(t, c, "submission_list", map[string]any{"course_id": co.ID}), "submissions"); len(subs) != 1 {
 		t.Errorf("a student's own work: %v", subs)
+	}
+}
+
+// me_get names the person who owns an agent, and nobody for a person or an
+// agent nobody owns. SetOwner changes it as actor.set_owner does in Core:
+// refused while the agent is seated in a course that is not archived, and
+// revoking every token the agent has. A fake from before C1 names no owner,
+// and describes none, over GET /v1/tools and tools/list alike.
+func TestOwners(t *testing.T) {
+	ctx := context.Background()
+	for _, before := range []bool{false, true} {
+		t.Run(fmt.Sprintf("before C1 %v", before), func(t *testing.T) {
+			fc := New(Options{BeforeOwners: before})
+			srv := httptest.NewServer(fc.Handler())
+			t.Cleanup(srv.Close)
+			owner := func(token string) (string, bool) {
+				t.Helper()
+				c := newMCPClient(srv.URL, token, nil)
+				if h, err := c.initialize(ctx); err != nil || h.Status != http.StatusOK {
+					t.Fatalf("initialize: %v %d", err, h.Status)
+				}
+				res, _ := mustCall(t, c, "me_get", map[string]any{}).Structured["result"].(map[string]any)
+				v, ok := res["owner_actor_id"]
+				s, _ := v.(string)
+				return s, ok
+			}
+			co := fc.AddCourse("CS101")
+			yuki, ken := fc.AddPerson("Yuki"), fc.AddPerson("Ken")
+			helper, err := fc.AddAgent("Yuki's helper", yuki.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if o, ok := owner(yuki.Token); ok {
+				t.Errorf("a person's me_get names an owner: %q", o)
+			}
+			o, ok := owner(helper.Token)
+			switch {
+			case before && ok:
+				t.Errorf("a Core from before C1 names an owner: %q", o)
+			case !before && o != yuki.ID:
+				t.Errorf("the agent's owner is %q, %v; want Yuki", o, ok)
+			}
+			schemaNames := func(raw []byte, path ...string) bool {
+				t.Helper()
+				var v any
+				if err := json.Unmarshal(raw, &v); err != nil {
+					t.Fatal(err)
+				}
+				for _, p := range path {
+					m, _ := v.(map[string]any)
+					v = m[p]
+				}
+				_, ok := v.(map[string]any)["owner_actor_id"]
+				return ok
+			}
+			var cat struct {
+				Tools []struct {
+					Name         string          `json:"name"`
+					Description  string          `json:"description"`
+					OutputSchema json.RawMessage `json:"output_schema"`
+				} `json:"tools"`
+			}
+			h, err := (&restClient{base: srv.URL, hc: http.DefaultClient}).do(ctx, "GET", "/v1/tools", nil, "")
+			if err != nil || json.Unmarshal(h.Body, &cat) != nil {
+				t.Fatalf("GET /v1/tools: %v %d", err, h.Status)
+			}
+			for _, tl := range cat.Tools {
+				if tl.Name == "me.get" && (schemaNames(tl.OutputSchema, "properties") == before || (tl.Description == meGetBeforeOwners) != before) {
+					t.Errorf("GET /v1/tools' me.get: %s %s", tl.Description, tl.OutputSchema)
+				}
+			}
+			c := newMCPClient(srv.URL, yuki.Token, nil)
+			l, err := c.post(ctx, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+			var list struct {
+				Result struct {
+					Tools []struct {
+						Name         string          `json:"name"`
+						OutputSchema json.RawMessage `json:"outputSchema"`
+					} `json:"tools"`
+				} `json:"result"`
+			}
+			if err != nil || json.Unmarshal(l.Body, &list) != nil || len(list.Result.Tools) != 104 {
+				t.Fatalf("tools/list: %v %d", err, l.Status)
+			}
+			for _, tl := range list.Result.Tools {
+				if tl.Name == "me_get" && schemaNames(tl.OutputSchema, "properties", "result", "properties") == before {
+					t.Errorf("tools/list's me_get: %s", tl.OutputSchema)
+				}
+			}
+			if before {
+				return
+			}
+
+			ys, err := fc.Seat(yuki.ID, co.ID, SeatOptions{Preset: "student"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			hs, err := fc.Seat(helper.ID, co.ID, SeatOptions{Preset: "delegate", Principal: ys.ID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := fc.SetOwner(helper.ID, ken.ID); err == nil {
+				t.Error("the owner of an agent seated in an active course was changed")
+			}
+			if err := fc.RemoveSeat(hs.ID); err != nil {
+				t.Fatal(err)
+			}
+			if err := fc.SetOwner(helper.ID, ken.ID); err != nil {
+				t.Fatal(err)
+			}
+			a, err := newMCPClient(srv.URL, helper.Token, nil).call(ctx, "me_get", map[string]any{})
+			if err != nil || a.Status != http.StatusUnauthorized {
+				t.Errorf("the token of an agent whose owner changed: %v %d", err, a.Status)
+			}
+			token, err := fc.IssueToken(helper.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if o, _ := owner(token); o != ken.ID {
+				t.Errorf("the owner is %q, not Ken", o)
+			}
+			if err := fc.SetOwner(helper.ID, ""); err != nil {
+				t.Fatal(err)
+			}
+			if token, err = fc.IssueToken(helper.ID); err != nil {
+				t.Fatal(err)
+			}
+			if o, ok := owner(token); ok {
+				t.Errorf("an agent nobody owns names an owner: %q", o)
+			}
+			for _, bad := range [][2]string{{helper.ID, ""}, {yuki.ID, ken.ID}, {helper.ID, helper.ID}} {
+				if err := fc.SetOwner(bad[0], bad[1]); err == nil {
+					t.Errorf("SetOwner(%s, %s) passed", bad[0], bad[1])
+				}
+			}
+		})
 	}
 }

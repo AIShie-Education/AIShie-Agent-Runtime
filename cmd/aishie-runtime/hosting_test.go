@@ -30,7 +30,9 @@ type registryWorld struct {
 	st      *pgstore.Store
 	v       *vault.Vault
 	kms     string
-	agents  []fakecore.Actor
+	// yuki owns the agents in Core, and connected them here.
+	yuki   fakecore.Actor
+	agents []fakecore.Actor
 }
 
 func newRegistryWorld(t *testing.T) *registryWorld {
@@ -54,6 +56,7 @@ func newRegistryWorld(t *testing.T) *registryWorld {
 	}
 	co := fc.AddCourse("CS101")
 	yuki := fc.AddPerson("Yuki")
+	w.yuki = yuki
 	seat, err := fc.Seat(yuki.ID, co.ID, fakecore.SeatOptions{Preset: "student"})
 	if err != nil {
 		t.Fatal(err)
@@ -79,8 +82,15 @@ func (w *registryWorld) host(t *testing.T, id string, i int, settings string) {
 }
 
 // hostActor connects actor as the hosted agent id, with its token and
-// settings.
+// settings, as Yuki.
 func (w *registryWorld) hostActor(t *testing.T, id string, actor fakecore.Actor, settings string) {
+	t.Helper()
+	w.hostAs(t, id, actor, w.yuki.ID, settings)
+}
+
+// hostAs connects actor as the hosted agent id, with its token and
+// settings, as the person owner.
+func (w *registryWorld) hostAs(t *testing.T, id string, actor fakecore.Actor, owner, settings string) {
 	t.Helper()
 	seal := func(kind, plaintext string) store.Secret {
 		s, err := w.v.Seal(context.Background(), store.Secret{ID: vault.NewSecretID(), TenantID: "ten_yuki", Kind: kind}, plaintext)
@@ -91,7 +101,7 @@ func (w *registryWorld) hostActor(t *testing.T, id string, actor fakecore.Actor,
 	}
 	tok, key := seal(store.SecretCoreToken, actor.Token), seal(store.SecretModelKey, "sk-test-0123456789abcdefghij")
 	_, err := w.st.CreateHostedAgent(t.Context(), store.HostedAgent{
-		ID: id, CoreActorID: actor.ID, OwnerActorID: "yuki", TenantID: "ten_yuki", DisplayName: "Hosted " + id,
+		ID: id, CoreActorID: actor.ID, OwnerActorID: owner, TenantID: "ten_yuki", DisplayName: "Hosted " + id,
 		TokenSecretID: tok.ID, TokenHint: tok.Hint, KeySecretID: key.ID, KeyHint: key.Hint, Settings: json.RawMessage(settings),
 	}, tok, key)
 	if err != nil {
@@ -261,6 +271,51 @@ func TestCheckLiveRefusesAPersonsToken(t *testing.T) {
 	for _, c := range w.fc.Calls() {
 		if c.ActorID == person.ID && c.Tool != "me_get" {
 			t.Errorf("check --live called %s with the person's token", c.Tool)
+		}
+	}
+}
+
+// TestCheckLiveChecksTheOwner: check --live holds a hosted agent's owner
+// to what run does, and fails one Core names another owner for, or none,
+// with the state run would give it and what that state says, naming no one;
+// nothing more is read with its token.
+func TestCheckLiveChecksTheOwner(t *testing.T) {
+	w := newRegistryWorld(t)
+	ken := w.fc.AddPerson("Ken")
+	w.hostAs(t, "agt_kens", w.agents[0], ken.ID, hostedSettings)
+	unowned, err := w.fc.AddAgent("Nobody's helper", w.yuki.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.fc.SetOwner(unowned.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if unowned.Token, err = w.fc.IssueToken(unowned.ID); err != nil {
+		t.Fatal(err)
+	}
+	w.hostActor(t, "agt_nobodys", unowned, hostedSettings)
+	getenv := env("CONFIG", t.TempDir(), "DATABASE_URL", w.dbURL, "CORE_BASE_URL", w.coreURL, "KMS_KEY_ID", w.kms)
+	code, out, errs := runCmd(t, getenv, "check", "--live")
+	for _, want := range []string{
+		"agent agt_kens: FAILED: owner_changed: the agent's owner in Core is no longer the person who connected it here: its owner must connect it again",
+		"agent agt_nobodys: FAILED: owner_changed: Core names no owner for the agent now",
+		"2 of 2 agents failed the live check",
+	} {
+		if !strings.Contains(out+errs, want) {
+			t.Errorf("check --live does not say %q: %d\n%s%s", want, code, out, errs)
+		}
+	}
+	if code != exitFailure {
+		t.Errorf("check --live: %d", code)
+	}
+	for _, id := range []string{w.yuki.ID, ken.ID} {
+		if strings.Contains(out+errs, id) {
+			t.Errorf("check --live names an owner's id:\n%s%s", out, errs)
+		}
+	}
+	for _, c := range w.fc.Calls() {
+		if (c.ActorID == w.agents[0].ID || c.ActorID == unowned.ID) && c.Tool != "me_get" {
+			t.Errorf("check --live called %s with the token of an agent whose owner does not pass", c.Tool)
 		}
 	}
 }

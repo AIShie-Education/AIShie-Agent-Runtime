@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/fakecore"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/scripted"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/registry"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/secrets"
@@ -58,8 +59,15 @@ func (h *hosting) seal(tenant, kind, plaintext string) store.Secret {
 }
 
 // host connects ag as the hosted agent id, with token (ag's own when "")
-// and settings, as the API would: its token and the model key sealed.
+// and settings, as the API would: its token and the model key sealed, and
+// its owner in Core recorded as the person who connected it.
 func (h *hosting) host(id string, ag agent, token string, settings json.RawMessage) {
+	h.w.t.Helper()
+	h.hostAs(id, ag, ag.owner.ID, token, settings)
+}
+
+// hostAs is host, connected by the person owner.
+func (h *hosting) hostAs(id string, ag agent, owner, token string, settings json.RawMessage) {
 	h.w.t.Helper()
 	if token == "" {
 		token = ag.actor.Token
@@ -67,7 +75,7 @@ func (h *hosting) host(id string, ag agent, token string, settings json.RawMessa
 	tok := h.seal("ten_"+id, store.SecretCoreToken, token)
 	key := h.seal("ten_"+id, store.SecretModelKey, modelKey)
 	_, err := h.st.CreateHostedAgent(context.Background(), store.HostedAgent{
-		ID: id, CoreActorID: ag.actor.ID, OwnerActorID: "owner", TenantID: "ten_" + id, DisplayName: "Hosted " + id,
+		ID: id, CoreActorID: ag.actor.ID, OwnerActorID: owner, TenantID: "ten_" + id, DisplayName: "Hosted " + id,
 		TokenSecretID: tok.ID, KeySecretID: key.ID, Settings: settings,
 	}, tok, key)
 	h.w.ok(err)
@@ -339,4 +347,148 @@ func TestActorKey(t *testing.T) {
 	if actorKey(same[0], "a1") == actorKey(same[0], "a2") {
 		t.Error("two actors are one")
 	}
+}
+
+// unownedAgent is an agent of Yuki's whose owner Core has since taken
+// away, with the token issued to it after: me_get names no owner. It holds
+// no seat, as Core takes an owner away only from an agent seated nowhere.
+func (w *world) unownedAgent(id string) agent {
+	w.t.Helper()
+	a, err := w.fc.AddAgent("Yuki's old helper", w.students[0].ID)
+	w.ok(err)
+	w.ok(w.fc.SetOwner(a.ID, ""))
+	a.Token, err = w.fc.IssueToken(a.ID)
+	w.ok(err)
+	w.env.Store(tokenVar(id), a.Token)
+	return agent{id: id, actor: a, owner: w.students[0]}
+}
+
+// A hosted agent runs only while Core names as its owner the person who
+// connected it. One Core names another owner for, or none, stops in state
+// owner_changed, and one on a Core that does not say who owns an agent in
+// state error; each having called me_get once and nothing else, with a
+// state that names no one and holds no secret, and its row not marked
+// verified. The YAML agent beside it runs whatever Core says of owners.
+// One whose owner passes is marked verified in the registry, which
+// restarts nothing.
+func TestHostedOwnerCheck(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		before bool // a Core from before C1
+		// connect hosts the agent and returns it, with who connected it.
+		connect func(w *world, h *hosting) (agent, string)
+		state   string
+		detail  string
+	}{
+		{name: "Core names the person who connected it", connect: func(w *world, h *hosting) (agent, string) {
+			own := w.ownAgent("agt_yuki", 0)
+			h.host("agt_yuki", own, "", hostedSettings("m1"))
+			return own, own.owner.ID
+		}, state: store.AgentRunning},
+		{name: "Core names another owner", connect: func(w *world, h *hosting) (agent, string) {
+			own := w.ownAgent("agt_yuki", 0)
+			h.hostAs("agt_yuki", own, w.students[1].ID, "", hostedSettings("m1"))
+			return own, w.students[1].ID
+		}, state: store.AgentOwnerChanged, detail: ownerChangedDetail},
+		{name: "Core names no owner", connect: func(w *world, h *hosting) (agent, string) {
+			old := w.unownedAgent("agt_yuki")
+			h.host("agt_yuki", old, "", hostedSettings("m1"))
+			return old, old.owner.ID
+		}, state: store.AgentOwnerChanged, detail: ownerGoneDetail},
+		{name: "a Core that does not say who owns an agent", before: true, connect: func(w *world, h *hosting) (agent, string) {
+			own := w.ownAgent("agt_yuki", 0)
+			h.host("agt_yuki", own, "", hostedSettings("m1"))
+			return own, own.owner.ID
+		}, state: store.AgentError, detail: ownerUnknownDetail},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := newWorldWith(t, fakecore.Options{BeforeOwners: tc.before})
+			h := w.hosting()
+			ag, connectedBy := tc.connect(w, h)
+			tu := w.tutor("cs101-tutor")
+			yaml := w.config(nil, w.agentDoc("cs101-tutor", "m2", nil, nil))
+			wk := h.start(h.build(yaml), models{"m1": scripted.New(scripted.Reply("Hosted.")), "m2": scripted.New(scripted.Reply("From YAML."))})
+
+			st := wk.waitState("agt_yuki", tc.state)
+			wk.waitState("cs101-tutor", store.AgentRunning)
+			conv, _ := w.ask(1, tu, "Does the YAML agent answer?")
+			w.waitAnswers(conv, 1)
+			row, err := h.st.HostedAgent(context.Background(), "agt_yuki")
+			w.ok(err)
+			if tc.state == store.AgentRunning {
+				if !row.OwnerVerified || row.Version != 2 {
+					t.Errorf("the row of an agent whose owner passes: verified %v at version %d", row.OwnerVerified, row.Version)
+				}
+				// The registry's change, rebuilt, restarts nothing.
+				wk.sup.Update(h.build(yaml))
+				time.Sleep(200 * time.Millisecond)
+				if n := len(w.calls(ag.actor.ID, "me_get")); n != 1 || !wk.statusOf("agt_yuki").Running {
+					t.Errorf("after its owner was recorded verified: %d me_get, running %v", n, wk.statusOf("agt_yuki").Running)
+				}
+				return
+			}
+			if st.Detail != tc.detail {
+				t.Errorf("the state says %q, want %q", st.Detail, tc.detail)
+			}
+			for what, s := range map[string]string{"its token": ag.actor.Token, "the model key": modelKey, "its actor": ag.actor.ID,
+				"who connected it": connectedBy, "its owner": ag.owner.ID, "the other student": w.students[1].ID, "a token's prefix": "ais_"} {
+				if strings.Contains(st.Detail, s) {
+					t.Errorf("the state holds %s: %q", what, st.Detail)
+				}
+			}
+			if row.OwnerVerified {
+				t.Error("the row of an agent whose owner does not pass is marked verified")
+			}
+			if s := wk.statusOf("agt_yuki"); !s.Hosted || s.Running || s.State != tc.state {
+				t.Errorf("its status: %+v", s)
+			}
+			time.Sleep(100 * time.Millisecond)
+			if n := len(w.calls(ag.actor.ID, "")); n != 1 || len(w.calls(ag.actor.ID, "me_get")) != 1 {
+				t.Errorf("%d calls to Core with its token; want its one me_get", n)
+			}
+		})
+	}
+}
+
+// A hosted agent stopped as owner_changed stays stopped through changes to
+// the registry that are not its own, making no call, as an unauthorized
+// one does; its owner connecting it again, a change of its own, starts it.
+func TestHostedOwnerChangedWaitsForItsRow(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("agt_yuki", 0)
+	other := w.ownAgent("agt_ken", 1)
+	h := w.hosting()
+	// Connected by Ken, who held its token without owning it.
+	h.hostAs("agt_yuki", own, other.owner.ID, "", hostedSettings("m1"))
+	h.host("agt_ken", other, "", hostedSettings("m1"))
+	yaml := &config.Config{}
+	wk := h.start(h.build(yaml), models{"m1": scripted.New(scripted.Reply("Back again."))})
+	wk.waitState("agt_yuki", store.AgentOwnerChanged)
+	wk.waitState("agt_ken", store.AgentRunning)
+
+	_, err := h.st.SetHostedAgentPaused(context.Background(), "agt_ken", true)
+	w.ok(err)
+	wk.sup.Update(h.build(yaml))
+	wk.waitState("agt_ken", store.AgentPaused)
+	time.Sleep(200 * time.Millisecond)
+	if n := len(w.calls(own.actor.ID, "")); n != 1 {
+		t.Errorf("%d calls with its token after a change to another agent; want its first me_get alone", n)
+	}
+	if st := wk.state("agt_yuki"); st.State != store.AgentOwnerChanged {
+		t.Errorf("the agent is %s", st.State)
+	}
+
+	// Yuki, its owner, connects it again: her token, and her as its owner.
+	token, err := w.fc.IssueToken(own.actor.ID)
+	w.ok(err)
+	a, err := h.st.HostedAgent(context.Background(), "agt_yuki")
+	w.ok(err)
+	tok := h.seal(a.TenantID, store.SecretCoreToken, token)
+	a.TokenSecretID, a.OwnerActorID = tok.ID, own.owner.ID
+	_, err = h.st.UpdateHostedAgent(context.Background(), *a, tok)
+	w.ok(err)
+	wk.sup.Update(h.build(yaml))
+	wk.waitState("agt_yuki", store.AgentRunning)
+	conv, _ := w.ask(0, own, "Are you back?")
+	w.waitAnswers(conv, 1)
 }

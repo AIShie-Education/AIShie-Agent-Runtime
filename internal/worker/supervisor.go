@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -228,11 +227,13 @@ func (s *Supervisor) apply(ctx context.Context) {
 			changes = append(changes, change{r, true, "removed from the configuration"})
 		case a.Paused:
 			changes = append(changes, change{r, true, ""})
-		case !reflect.DeepEqual(r.cfg, a):
+		case !sameRun(r.cfg, a):
 			changes = append(changes, change{r: r})
 			r.cfg, r.blocked, r.failures, r.retryAt = a, false, 0, time.Time{}
 		case retry && (r.blocked || r.state == store.AgentError):
-			r.blocked, r.failures, r.retryAt = false, 0, time.Time{}
+			r.cfg, r.blocked, r.failures, r.retryAt = a, false, 0, time.Time{}
+		default:
+			r.cfg = a
 		}
 	}
 	// A rejected agent's state is error, written below, not stopped.
@@ -442,8 +443,10 @@ func (s *Supervisor) stopRunner(r *runner, grace time.Duration) {
 }
 
 // agentEnded records what became of an instance that returned: Core
-// refused its token (unauthorized, not started again until a reload), it
-// failed (error, started again after a backoff), or it was stopped.
+// refused its token (unauthorized, not started again until a reload), a
+// hosted agent's owner is not the one who connected it (owner_changed,
+// likewise), it failed (error, started again after a backoff), or it was
+// stopped.
 func (s *Supervisor) agentEnded(r *runner, ag *Agent, err error) {
 	s.mu.Lock()
 	if r.agent != ag {
@@ -455,6 +458,7 @@ func (s *Supervisor) agentEnded(r *runner, ag *Agent, err error) {
 	r.stopping = false
 	var state, detail string
 	var blocked *blockedError
+	var owner *OwnerProblem
 	switch {
 	case isUnauthenticated(err) && r.cfg.Hosted != nil:
 		// Its owner gave the token, and gives the next one: no file of
@@ -466,6 +470,12 @@ func (s *Supervisor) agentEnded(r *runner, ag *Agent, err error) {
 		r.blocked = true
 		state, detail = store.AgentUnauthorized,
 			"Core refused the agent's token (401): issue a new token for it in Core, put it where core.token_ref points, and reload"
+	case errors.As(err, &owner):
+		// Stopped until its row changes (its owner connecting it again)
+		// or a reload, as for a refused token: started again as it is,
+		// it would meet the same owner.
+		r.blocked = true
+		state, detail = owner.State, owner.Detail
 	case errors.As(err, &blocked):
 		r.blocked = true
 		state, detail = store.AgentError, blocked.Error()
@@ -480,9 +490,12 @@ func (s *Supervisor) agentEnded(r *runner, ag *Agent, err error) {
 	if state == "" {
 		return
 	}
-	if state == store.AgentUnauthorized {
+	switch {
+	case state == store.AgentUnauthorized:
 		s.log.Warn("agent stopped: Core refused its token", "agent", r.id)
-	} else {
+	case owner != nil:
+		s.log.Warn("hosted agent stopped: Core does not name as its owner the person who connected it", "agent", r.id, "state", state)
+	default:
 		s.log.Error("agent failed", "agent", r.id, "err", err)
 	}
 	s.writeState(context.Background(), r.id, state, detail)
@@ -561,7 +574,7 @@ func (s *Supervisor) setDetail(id, detail string) {
 }
 
 // states are those Metrics.AgentStates reports.
-var states = []string{store.AgentStarting, store.AgentRunning, store.AgentUnauthorized, store.AgentError}
+var states = []string{store.AgentStarting, store.AgentRunning, store.AgentUnauthorized, store.AgentOwnerChanged, store.AgentError}
 
 // updateGauge sets Metrics.AgentStates: the agents this worker runs, by
 // state.

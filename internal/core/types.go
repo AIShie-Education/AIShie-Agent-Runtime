@@ -5,12 +5,17 @@ import (
 	"strconv"
 )
 
-// Actor is me_get's result. It does not say who owns the agent (§10).
+// Actor is me_get's result.
 type Actor struct {
 	ID          string `json:"id"`
 	Kind        string `json:"kind"`
 	DisplayName string `json:"display_name"`
 	Status      string `json:"status"`
+	// OwnerActorID is, for an agent a person owns, that person's actor id
+	// (§2.3, §10.1). It is "" for a person, for an agent nobody owns, and
+	// for every actor on a Core from before it said so: me_get's answer
+	// alone does not tell those apart (MeGetNamesOwners does).
+	OwnerActorID string `json:"owner_actor_id,omitempty"`
 }
 
 // KindAgent is an agent's Actor.Kind; a person's is "human".

@@ -42,7 +42,7 @@ func (c *Core) routes() http.Handler {
 	})
 	mux.HandleFunc("GET /v1/tools", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(catalogueJSON)
+		_, _ = w.Write(c.cat.raw)
 	})
 	mux.Handle("POST /v1/tools/{tool_name}", c.restAuth(c.callByName))
 	for _, t := range c.cat.tools {

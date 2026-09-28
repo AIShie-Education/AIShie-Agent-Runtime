@@ -19,7 +19,7 @@ func meGet() *impl {
 	return define(spec[emptyIn]{
 		gate:    gate{self: true},
 		resolve: func(*Core, *course, emptyIn) (target, error) { return target{typ: "actor"}, nil },
-		query: func(_ *Core, rc *readCtx, _ emptyIn) (any, error) {
+		query: func(c *Core, rc *readCtx, _ emptyIn) (any, error) {
 			a := rc.actor
 			out := struct {
 				ID          string `json:"id"`
@@ -27,10 +27,11 @@ func meGet() *impl {
 				DisplayName string `json:"display_name"`
 				Status      string `json:"status"`
 				// OwnerActorID is the person who owns an agent, absent for
-				// a person and for an agent nobody owns (Core's C1).
+				// a person and for an agent nobody owns (Core's C1), and
+				// for everyone on a Core from before (Options.BeforeOwners).
 				OwnerActorID *string `json:"owner_actor_id,omitempty"`
 			}{ID: a.id, Kind: a.kind, DisplayName: a.name, Status: a.status}
-			if a.owner != nil {
+			if a.owner != nil && !c.opts.BeforeOwners {
 				out.OwnerActorID = &a.owner.id
 			}
 			return out, nil

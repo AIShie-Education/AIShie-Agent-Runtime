@@ -157,6 +157,29 @@ func (c *Catalogue) Tools() []CatalogueTool {
 // Len is how many tools there are.
 func (c *Catalogue) Len() int { return len(c.tools) }
 
+// MeGetNamesOwners reports whether this Core's me_get says who owns an
+// agent: whether its result, as the catalogue describes it, has
+// owner_actor_id. A Core from before it did (Core's C1) leaves the field
+// out for every actor, as a Core that has it leaves it out for an agent
+// nobody owns; only the catalogue tells the two apart.
+func (c *Catalogue) MeGetNamesOwners() bool {
+	if c == nil {
+		return false
+	}
+	t, ok := c.Tool("me_get")
+	if !ok {
+		return false
+	}
+	var schema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(t.OutputSchema, &schema); err != nil {
+		return false
+	}
+	_, ok = schema.Properties["owner_actor_id"]
+	return ok
+}
+
 // canonicalHash is the sha256 of raw's canonical JSON.
 func canonicalHash(raw []byte) (string, error) {
 	var buf bytes.Buffer

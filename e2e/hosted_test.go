@@ -38,7 +38,9 @@ import (
 // connected to it as the API does it, its token and her model key sealed
 // in the runtime's database with its row; the registry's notification puts
 // it in force at once, and it answers Yuki, having opened its token and
-// key from the database, and never logging either.
+// key from the database, and never logging either. Core's me.get names
+// its owner: the row that names Yuki is marked verified, and an agent of
+// hers whose row names Ken does not run.
 func hostedAgentAnswers(t *testing.T, w *world) {
 	st, dbURL := runtimeStore(t)
 	v, kek := keyring(t)
@@ -96,6 +98,61 @@ func hostedAgentAnswers(t *testing.T, w *world) {
 	}
 	if at := rt.attempt(id, answerKey(conv, msg, 1)); at == nil || at.State != store.AttemptExecuted {
 		t.Errorf("the attempt under answer:{x}:{m}:1 is %s", attemptState(at))
+	}
+
+	// Core's me.get named Yuki as its owner, as its row does: the row is
+	// marked verified, which restarted nothing.
+	row, err := st.HostedAgent(t.Context(), id)
+	if err != nil || !row.OwnerVerified {
+		t.Errorf("the row of the agent whose owner Core named: %+v, %v", row, err)
+	}
+	started := 0
+	for _, line := range strings.Split(rt.log.String(), "\n") {
+		if strings.Contains(line, `"msg":"agent started"`) && strings.Contains(line, `"agent":"`+id+`"`) {
+			started++
+		}
+	}
+	if started != 1 {
+		t.Errorf("the hosted agent started %d times", started)
+	}
+
+	// Another agent of Yuki's, connected by Ken, who held its token
+	// without owning it: Core names Yuki, so it does not run, and its state
+	// names neither of them.
+	second := w.newAgent(t, w.yuki, "Yuki's second helper", "")
+	w.addSecret("the token of Yuki's second agent", second.token)
+	id2 := "agt_" + uuid.NewString()
+	tok2, key2 := seal(store.SecretCoreToken, second.token), seal(store.SecretModelKey, w.modelKey)
+	_, err = st.CreateHostedAgent(t.Context(), store.HostedAgent{
+		ID: id2, CoreActorID: second.id, OwnerActorID: w.ken.id, TenantID: tenant, DisplayName: "Yuki's second helper",
+		TokenSecretID: tok2.ID, TokenHint: tok2.Hint, KeySecretID: key2.ID, KeyHint: key2.Hint, Settings: settings,
+	}, tok2, key2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var changed store.AgentState
+	eventually(t, answerWait, "the agent Ken connected stopped as owner_changed", func() bool {
+		states, err := st.AgentStates(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range states {
+			if s.AgentID == id2 {
+				changed = s
+			}
+		}
+		return changed.State == store.AgentOwnerChanged
+	})
+	for _, who := range []string{w.yuki.id, w.ken.id, second.id} {
+		if strings.Contains(changed.Detail, who) {
+			t.Errorf("the owner_changed state names an actor: %q", changed.Detail)
+		}
+	}
+	if rt.inboxPolls(id2) != 0 {
+		t.Error("the agent Ken connected polled its inbox")
+	}
+	if row, err := st.HostedAgent(t.Context(), id2); err != nil || row.OwnerVerified {
+		t.Errorf("the row of the agent Ken connected: %+v, %v", row, err)
 	}
 
 	// Paused, it stops; its state says so.

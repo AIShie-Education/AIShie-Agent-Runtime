@@ -50,6 +50,10 @@ type Options struct {
 	// BaseURL is where the fake is served, for the download URLs it hands
 	// out; empty takes it from each request.
 	BaseURL string
+	// BeforeOwners answers as a Core from before me_get said who owns an
+	// agent (Core's C1): me_get names no one's owner, and the catalogue,
+	// GET /v1/tools and tools/list alike, describes no owner_actor_id.
+	BeforeOwners bool
 }
 
 // Core's defaults.
@@ -123,7 +127,22 @@ func implemented() map[string]*impl {
 // theCatalogue is the embedded catalogue with the fake's implementations,
 // loaded once: it is never changed after, and every fake shares it.
 var theCatalogue = sync.OnceValues(func() (*catalogue, error) {
-	cat, err := loadCatalogue(catalogueJSON)
+	return withImpls(catalogueJSON)
+})
+
+// catalogueBeforeOwners is theCatalogue as a Core from before C1 serves
+// it (Options.BeforeOwners), loaded once.
+var catalogueBeforeOwners = sync.OnceValues(func() (*catalogue, error) {
+	raw, err := withoutOwners(catalogueJSON)
+	if err != nil {
+		return nil, err
+	}
+	return withImpls(raw)
+})
+
+// withImpls loads the catalogue raw, with the fake's implementations.
+func withImpls(raw []byte) (*catalogue, error) {
+	cat, err := loadCatalogue(raw)
 	if err != nil {
 		return nil, err
 	}
@@ -132,13 +151,17 @@ var theCatalogue = sync.OnceValues(func() (*catalogue, error) {
 		t.impl = impls[t.Name]
 	}
 	return cat, nil
-})
+}
 
 // New makes a fake Core with nobody in it. It panics only if the embedded
 // catalogue does not load, which TestCatalogueSnapshot rules out at build
 // time, as the SDK panics on a tool it cannot register.
 func New(o Options) *Core {
-	cat, err := theCatalogue()
+	load := theCatalogue
+	if o.BeforeOwners {
+		load = catalogueBeforeOwners
+	}
+	cat, err := load()
 	if err != nil {
 		panic(err)
 	}

@@ -110,7 +110,8 @@ func (a *Agent) stop(err error) {
 }
 
 // start resolves the agent's token, fetches Core's catalogue, connects,
-// checks the token with me_get, and builds the model's adapters.
+// checks the token with me_get (and a hosted agent's owner), and builds
+// the model's adapters.
 func (a *Agent) start(ctx context.Context) error {
 	token, err := a.s.o.Secrets.Resolve(ctx, a.cfg.Core.TokenRef, a.cfg.Dir)
 	if err != nil {
@@ -135,6 +136,10 @@ func (a *Agent) start(ctx context.Context) error {
 	if msg := HostedActorProblem(a.cfg, me); msg != "" {
 		return &blockedError{msg: msg}
 	}
+	if p := HostedOwnerProblem(a.cfg, me, cat); p != nil {
+		return p
+	}
+	a.s.markOwnerVerified(ctx, a.cfg)
 	// One actor in Core is one agent here: two agents on one token would
 	// answer every question twice over, and spend its rate limit twice.
 	other, preempted := a.s.claimActor(a.cfg.Core.BaseURL, me.ID, a.id)
