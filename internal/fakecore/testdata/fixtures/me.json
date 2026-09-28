@@ -8,6 +8,7 @@
      "display_name": "CS101 Tutor",
      "id": "<id:1>",
      "kind": "agent",
+     "owner_actor_id": "<id:2>",
      "status": "active"
     },
     "status": "executed"
@@ -27,9 +28,9 @@
        "answers_course": true,
        "assignment_scope": "all",
        "code": "CS101",
-       "course_id": "<id:2>",
+       "course_id": "<id:3>",
        "course_status": "active",
-       "member_id": "<id:3>",
+       "member_id": "<id:4>",
        "perms": {
         "action_decide": "denied",
         "agent_delegate": "denied",
@@ -48,7 +49,7 @@
         "submission_read": "denied",
         "submission_write": "denied"
        },
-       "principal_member_id": "<id:4>",
+       "principal_member_id": "<id:5>",
        "role": "assistant",
        "section": "A",
        "status": "active",
@@ -67,17 +68,17 @@
   },
   {
    "args": {
-    "course_id": "<id:2>"
+    "course_id": "<id:3>"
    },
    "envelope": {
     "result": {
      "code": "CS101",
      "created_at": "<time>",
-     "dept_id": "<id:5>",
-     "id": "<id:2>",
+     "dept_id": "<id:6>",
+     "id": "<id:3>",
      "section": "A",
      "status": "active",
-     "term_id": "<id:6>",
+     "term_id": "<id:7>",
      "title": "CS101"
     },
     "status": "executed"
@@ -90,7 +91,7 @@
   },
   {
    "args": {
-    "course_id": "<id:2>"
+    "course_id": "<id:3>"
    },
    "envelope": {
     "error": {
@@ -110,8 +111,8 @@
   },
   {
    "args": {
-    "course_id": "<id:2>",
-    "student_member_id": "<id:7>"
+    "course_id": "<id:3>",
+    "student_member_id": "<id:8>"
    },
    "envelope": {
     "error": {
@@ -131,27 +132,27 @@
   },
   {
    "args": {
-    "course_id": "<id:2>",
+    "course_id": "<id:3>",
     "since_seq": 0
    },
    "envelope": {
     "result": {
      "events": [
       {
-       "action_id": "<id:8>",
+       "action_id": "<id:9>",
        "occurred_at": "<time>",
        "payload": {},
        "seq": "<seq:1>",
-       "subject_id": "<id:2>",
+       "subject_id": "<id:3>",
        "subject_type": "course",
        "type": "course.created"
       },
       {
-       "action_id": "<id:9>",
+       "action_id": "<id:10>",
        "occurred_at": "<time>",
        "payload": {},
        "seq": "<seq:2>",
-       "subject_id": "<id:2>",
+       "subject_id": "<id:3>",
        "subject_type": "course",
        "type": "course.activated"
       }
@@ -169,7 +170,7 @@
   },
   {
    "args": {
-    "course_id": "<id:2>"
+    "course_id": "<id:3>"
    },
    "envelope": {
     "result": {

@@ -859,10 +859,10 @@
       "openWorldHint": false,
       "readOnlyHint": true
      },
-     "description_sha256": "e5295e1b69731c1a91d452171b939d0b46f731d93ddd0c848eed4d0367f803e8",
+     "description_sha256": "1cfceb255af1db79adff9c3348ba6fc9bb403d0891cc70e248560659d343dfe8",
      "input_schema_sha256": "cd1a463c46d6264134447db17a8c3c7abe5b9a2488c6d759fea66da1f96b133e",
      "name": "me_get",
-     "output_schema_sha256": "53bd872fca71031cc37ffc9d2525e154b5af75514f51e54e6e37ddd66bdeb042"
+     "output_schema_sha256": "9f60b2f7ac4ce2e8ec7834b989306009c3150a18f54367541ec93bf0b1b1c76a"
     },
     {
      "annotations": {

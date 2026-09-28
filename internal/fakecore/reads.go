@@ -21,12 +21,19 @@ func meGet() *impl {
 		resolve: func(*Core, *course, emptyIn) (target, error) { return target{typ: "actor"}, nil },
 		query: func(_ *Core, rc *readCtx, _ emptyIn) (any, error) {
 			a := rc.actor
-			return struct {
+			out := struct {
 				ID          string `json:"id"`
 				Kind        string `json:"kind"`
 				DisplayName string `json:"display_name"`
 				Status      string `json:"status"`
-			}{a.id, a.kind, a.name, a.status}, nil
+				// OwnerActorID is the person who owns an agent, absent for
+				// a person and for an agent nobody owns (Core's C1).
+				OwnerActorID *string `json:"owner_actor_id,omitempty"`
+			}{ID: a.id, Kind: a.kind, DisplayName: a.name, Status: a.status}
+			if a.owner != nil {
+				out.OwnerActorID = &a.owner.id
+			}
+			return out, nil
 		},
 	})
 }

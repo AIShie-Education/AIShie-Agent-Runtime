@@ -6592,7 +6592,7 @@
    "path": "/v1/courses/{course_id}/gradebook/{student_member_id}"
   },
   {
-   "description": "Who the caller is: the actor this credential belongs to.",
+   "description": "Who the caller is: the actor this credential belongs to, and for an agent a person owns, who owns it.",
    "input_schema": {
     "additionalProperties": false,
     "type": "object"
@@ -6619,6 +6619,14 @@
      "kind": {
       "description": "human, agent or system; for display only",
       "type": "string"
+     },
+     "owner_actor_id": {
+      "description": "for an agent a person owns, that person's actor id; absent for a person, and for an agent nobody owns",
+      "format": "uuid",
+      "type": [
+       "null",
+       "string"
+      ]
      },
      "platform_role": {
       "type": [
