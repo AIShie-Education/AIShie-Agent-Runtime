@@ -59,8 +59,13 @@ func (c *Catalogue) Check() error {
 			errs = append(errs, fmt.Errorf("toolset: the gated tool %s is no longer a %s (kind %q)", name, kind, t.Kind))
 			continue
 		}
+		shown, err := shownSchema(name, t.InputSchema)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
 		for _, d := range toolschema.Dialects {
-			if _, err := toolschema.Sanitise(t.InputSchema, d, Bound); err != nil {
+			if _, err := toolschema.Sanitise(shown, d, Bound); err != nil {
 				errs = append(errs, fmt.Errorf("toolset: %s under %s: %w", name, d, err))
 			}
 		}
@@ -134,7 +139,11 @@ func (c *Catalogue) Build(perms map[string]string, cfg config.Tools, access Acce
 		if !ok || t.Kind != kind {
 			continue
 		}
-		schema, err := cache.Sanitise(c.Hash, name, t.InputSchema, dialect, Bound)
+		shown, err := shownSchema(name, t.InputSchema)
+		if err != nil {
+			return nil, err
+		}
+		schema, err := cache.Sanitise(c.Hash, name, shown, dialect, Bound)
 		if err != nil {
 			return nil, fmt.Errorf("toolset: %s: %w", name, err)
 		}
@@ -146,6 +155,17 @@ func (c *Catalogue) Build(perms map[string]string, cfg config.Tools, access Acce
 	}
 	s.names = sortedKeys(s.tools)
 	return s, nil
+}
+
+// shownSchema is the input schema the model is shown of the tool name,
+// before it is sanitised: Core's, and for FilePartTool, with the
+// runtime's FilePartArg added. Calls are still reversed and validated
+// against Core's own, once the runtime has taken its argument out.
+func shownSchema(name string, schema json.RawMessage) (json.RawMessage, error) {
+	if name != FilePartTool {
+		return schema, nil
+	}
+	return withFilePart(schema)
 }
 
 // offerable is the part of §4's formula that needs no catalogue: a gate

@@ -23,6 +23,7 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/secrets"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolset"
 )
 
 // Options are what a Supervisor is built from. Every dependency can be
@@ -85,6 +86,11 @@ type Options struct {
 	WorkerID string
 	// Timing is the supervisor's own intervals.
 	Timing Timing
+	// OCR recognizes the text of scanned PDFs and of images for the
+	// models that cannot take the files (an *ocr.Service, shared by the
+	// worker's agents); nil recognizes nothing, and a model is told there
+	// is no OCR here.
+	OCR toolset.OCR
 }
 
 // SecretResolver resolves references to secrets (package secrets): ref,

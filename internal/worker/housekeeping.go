@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/ocr"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
 )
 
@@ -25,9 +26,11 @@ const OrphanAge = 10 * time.Minute
 // housekeep purges the memory of seats gone longer ago than their agent's
 // retention_days_after_removal (§2.5): notes, attempts and cursors, then the
 // seat's row. The ledger's ids and numbers stay. It also destroys the
-// audit's events older than AuditRetention, and purges hosted agents that
-// are gone (purgeGone). Any worker may do it; it is the same work done
-// twice at worst.
+// audit's events older than AuditRetention, the texts OCR recognized
+// older than ocr.TextRetention and its failures older than
+// ocr.FailedRetention, and purges hosted agents that are gone
+// (purgeGone). Any worker may do it; it is the same work done twice at
+// worst.
 func (s *Supervisor) housekeep(ctx context.Context) {
 	if n, err := s.o.Store.PruneAudit(ctx, s.o.Now().Add(-AuditRetention)); err != nil {
 		if ctx.Err() == nil {
@@ -35,6 +38,13 @@ func (s *Supervisor) housekeep(ctx context.Context) {
 		}
 	} else if n > 0 {
 		s.log.Info("housekeeping: the audit's oldest events were destroyed", "events", n)
+	}
+	if n, err := s.o.Store.PurgeOCRTexts(ctx, s.o.Now().Add(-ocr.TextRetention), s.o.Now().Add(-ocr.FailedRetention)); err != nil {
+		if ctx.Err() == nil {
+			s.log.Warn("housekeeping: the texts OCR recognized not purged", "err", err)
+		}
+	} else if n > 0 {
+		s.log.Info("housekeeping: the oldest texts OCR recognized were destroyed, and its failures tried again when next asked", "texts", n)
 	}
 	cfg := s.config()
 	if cfg == nil {

@@ -41,6 +41,14 @@ type Runner struct {
 	// DocLimits bound the reading of a file's text (doctext); its zero
 	// fields are doctext's defaults.
 	DocLimits doctext.Limits
+	// Texts keeps what was read of files for the models given their text,
+	// so that a file read in parts is fetched and read once; nil keeps
+	// nothing.
+	Texts *TextCache
+	// OCR recognizes the text of a scanned PDF or an image for a model
+	// that cannot take the file; nil recognizes nothing, and the model is
+	// told there is no OCR here.
+	OCR OCR
 	// Writes is the answer's account of its writes: their keys and their
 	// budget. Nil refuses every write, whatever the set offers.
 	Writes *Writes
@@ -368,6 +376,9 @@ type prepared struct {
 	write bool
 	n     int
 	key   string
+	// part is the part of a document's file text the model asked for
+	// (FilePartArg), 0 when it asked for none.
+	part int
 }
 
 func refusedCall(res llm.Part, code, msg string) prepared {
@@ -392,20 +403,30 @@ func (s *Set) prepare(r Runner, courseID string, call llm.Part) prepared {
 		return refusedCall(res, core.CodeInvalidArgument, fmt.Sprintf(
 			"the arguments to %s are not a JSON object; call it again with its parameters as one JSON object", call.Name))
 	}
+	// The runtime's own argument is taken out before Core's schema sees
+	// the call: Core takes no other.
+	callArgs, part := call.Args, 0
+	if call.Name == FilePartTool {
+		var err error
+		if part, callArgs, err = takeFilePart(call.Args); err != nil {
+			return refusedCall(res, core.CodeInvalidArgument, fmt.Sprintf(
+				"%s: %s is the part of the file's text to read, a whole number from 1 (file.parts says how many there are); call it again", call.Name, FilePartArg))
+		}
+	}
 	bound := map[string]any{"course_id": courseID}
 	if write {
 		// The model's key, if it wrote one, goes: bindKey gives the
 		// runtime's once the write is numbered.
 		bound["idempotency_key"] = ""
 	}
-	args, err := toolschema.Reverse(t.input, call.Args, bound)
+	args, err := toolschema.Reverse(t.input, callArgs, bound)
 	if err == nil {
 		err = toolschema.Validate(t.input, args)
 	}
 	if err != nil {
 		return refusedCall(res, core.CodeInvalidArgument, argumentMessage(call.Name, err))
 	}
-	return prepared{res: res, t: t, args: args, write: write}
+	return prepared{res: res, t: t, args: args, write: write, part: part}
 }
 
 // bindKey is a write's arguments with its idempotency key, which Core's
@@ -442,7 +463,7 @@ func (s *Set) send(ctx context.Context, r Runner, p prepared) (llm.Part, *llm.Fi
 		return refuse(res, codeUnavailable,
 			"Core could not be reached for this call; answer without it, or try it once more"), nil, nil, nil
 	}
-	content, file := r.render(ctx, res.Name, env)
+	content, file := r.render(ctx, res.Name, env, p.part)
 	res.Content = content
 	res.IsError = env.Status != core.StatusExecuted && env.Status != core.StatusProposed
 	return res, file, env, nil
@@ -584,8 +605,9 @@ type truncated struct {
 }
 
 // render is the content of Core's answer to a call, and the file to give
-// the model beside it, if any.
-func (r Runner) render(ctx context.Context, tool string, env *core.Envelope) (string, *llm.File) {
+// the model beside it, if any; part is the part of a document's file text
+// the model asked for, 0 for none.
+func (r Runner) render(ctx context.Context, tool string, env *core.Envelope, part int) (string, *llm.File) {
 	c := content{Status: env.Status, ActionID: env.ActionID, ReviewState: env.ReviewState,
 		Replayed: env.Replayed, Note: env.Note, Error: env.Error}
 	var doc *docFile
@@ -600,28 +622,43 @@ func (r Runner) render(ctx context.Context, tool string, env *core.Envelope) (st
 			c.Result = json.RawMessage(encodeJSON(v))
 		}
 	}
-	var text string
-	var file *llm.File
-	if doc != nil {
-		c.File, text, file = r.giveFile(ctx, doc)
+	if doc == nil {
+		return r.fit(c, nil, given{}, 0), nil
 	}
-	return r.fit(c, text), file
+	g := r.giveFile(ctx, doc)
+	c.File = g.rec
+	if part > 1 && g.text == "" && g.rec.GivenAs != givenNot {
+		g.rec.Note = strings.TrimPrefix(g.rec.Note+"; ", "; ") + FilePartArg + " does not apply: the file itself is given, whole"
+	}
+	return r.fit(c, doc, g, part), g.file
 }
 
-// fit makes c at most MaxResultBytes: the envelope, then a text file's
-// text in the room left, cut to fit; an envelope too large on its own is
-// truncated.
-func (r Runner) fit(c content, text string) string {
+// fit makes c at most MaxResultBytes: the envelope, then a file's text, whole
+// when it fits a part (partBudget) and the part of it the model asked for
+// otherwise (pageText), in the room left, cut to fit; an envelope too large
+// on its own is truncated.
+func (r Runner) fit(c content, d *docFile, g given, part int) string {
 	limit := r.MaxResultBytes
-	if text != "" {
-		base := encodeJSON(c)
-		room := limit - len(base) - len(`,"file_text":`)
-		if t, ok := fitString(text, room); ok && room >= minTextRoom {
-			c.FileText = t
-			return encodeJSON(c)
+	if text := g.text; text != "" {
+		if escapedLenOf(text) > r.partBudget() || part > 1 {
+			text = r.pageText(c.File, d, g.text, g.sections, part)
 		}
-		c.File.GivenAs, c.File.ExtractedFrom = givenNot, ""
-		c.File.Note = "the file's text could not be given to the model: the result left no room for it"
+		if text != "" {
+			room := limit - len(encodeJSON(c)) - len(`,"file_text":`)
+			if escapedLenOf(text)+len(`""`) > room && c.File.Part > 0 {
+				// Only an envelope far larger than a document's leaves a
+				// part too little room: it is cut, and says so.
+				c.File.Note += "; this part is cut short, as the rest of the result leaves it too little room"
+				room = limit - len(encodeJSON(c)) - len(`,"file_text":`)
+			}
+			if t, ok := fitString(text, room); ok && room >= minTextRoom {
+				c.FileText = t
+				return encodeJSON(c)
+			}
+			c.File.GivenAs, c.File.ExtractedFrom = givenNot, ""
+			c.File.Part, c.File.PartHolds, c.File.NextPart = 0, "", nil
+			c.File.Note = "the file's text could not be given to the model: the result left no room for it"
+		}
 	}
 	if out := encodeJSON(c); len(out) <= limit {
 		return out

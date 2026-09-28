@@ -32,28 +32,6 @@
     "action_id": "<id:5>",
     "error": {
      "code": "forbidden",
-     "message": "nobody decides their own proposal, nor their agent's, nor their owner's"
-    },
-    "review_state": "none",
-    "status": "failed"
-   },
-   "http_status": 200,
-   "is_error": true,
-   "step": "its_owner_approves",
-   "text_is_envelope": true,
-   "tool": "action_decide"
-  },
-  {
-   "args": {
-    "action_id": "<id:4>",
-    "course_id": "<id:2>",
-    "decision": "approve",
-    "idempotency_key": "decide:<id:4>"
-   },
-   "envelope": {
-    "action_id": "<id:6>",
-    "error": {
-     "code": "forbidden",
      "details": {
       "reason": "permission_denied"
      },
@@ -76,7 +54,7 @@
     "idempotency_key": "decide:<id:4>:0"
    },
    "envelope": {
-    "action_id": "<id:7>",
+    "action_id": "<id:6>",
     "error": {
      "code": "invalid_argument",
      "message": "decision must be \"approve\" or \"reject\""
@@ -94,22 +72,25 @@
    "args": {
     "action_id": "<id:4>",
     "course_id": "<id:2>",
-    "decision": "reject",
-    "idempotency_key": "decide:<id:4>",
-    "reason": "Say when the deadline is."
+    "decision": "approve",
+    "idempotency_key": "decide:<id:4>"
    },
    "envelope": {
-    "action_id": "<id:8>",
+    "action_id": "<id:7>",
     "result": {
      "action_id": "<id:4>",
-     "outcome": "rejected"
+     "by_owner": true,
+     "outcome": "executed",
+     "result": {
+      "message_id": "<id:8>"
+     }
     },
     "review_state": "none",
     "status": "executed"
    },
    "http_status": 200,
    "is_error": false,
-   "step": "another_rejects",
+   "step": "its_owner_approves",
    "text_is_envelope": true,
    "tool": "action_decide"
   },
@@ -117,14 +98,15 @@
    "args": {
     "action_id": "<id:4>",
     "course_id": "<id:2>",
-    "decision": "approve",
-    "idempotency_key": "decide:<id:4>:2"
+    "decision": "reject",
+    "idempotency_key": "decide:<id:4>:2",
+    "reason": "Say when the deadline is."
    },
    "envelope": {
     "action_id": "<id:9>",
     "error": {
      "code": "conflict",
-     "message": "the action is rejected, not awaiting a decision"
+     "message": "the action is executed, not awaiting a decision"
     },
     "review_state": "none",
     "status": "failed"
@@ -167,17 +149,13 @@
     "action_id": "<id:4>",
     "replayed": true,
     "result": {
-     "decision": {
-      "by_action_id": "<id:8>",
-      "decision": "reject",
-      "reason": "Say when the deadline is."
-     }
+     "message_id": "<id:8>"
     },
     "review_state": "none",
-    "status": "rejected"
+    "status": "executed"
    },
    "http_status": 200,
-   "is_error": true,
+   "is_error": false,
    "step": "replay",
    "text_is_envelope": true,
    "tool": "conversation_answer"
@@ -254,16 +232,33 @@
        "occurred_at": "<time>",
        "payload": {
         "action_type": "conversation.answer",
-        "by_action_id": "<id:8>"
+        "by_action_id": "<id:7>",
+        "by_owner": true,
+        "outcome": "executed"
        },
        "seq": "<seq:6>",
        "subject_id": "<id:4>",
        "subject_type": "action",
-       "type": "action.rejected"
+       "type": "action.approved"
+      },
+      {
+       "action_id": "<id:4>",
+       "occurred_at": "<time>",
+       "payload": {
+        "author_member_id": "<id:15>",
+        "conversation_id": "<id:1>",
+        "message_id": "<id:8>",
+        "opener_member_id": "<id:14>",
+        "respondent_member_id": "<id:15>"
+       },
+       "seq": "<seq:7>",
+       "subject_id": "<id:1>",
+       "subject_type": "conversation",
+       "type": "conversation.message_posted"
       }
      ],
      "more": false,
-     "next_seq": "<seq:6>"
+     "next_seq": "<seq:7>"
     },
     "status": "executed"
    },

@@ -187,7 +187,8 @@ func TestRunFiles(t *testing.T) {
 			size: len(scanned), fileInput: true, pdfLimits: llm.FileLimits{PDFPages: 10}, givenAs: givenFile, fetched: true, wantFile: true},
 		{name: "a scanned PDF is not given where the model takes no files", path: "/scanned.pdf", title: "Scan", ct: "application/pdf",
 			size: len(scanned), givenAs: givenNot, fetched: true,
-			note: "this model does not take files, and the PDF has no text to read: it looks scanned, or like pictures of text; ask for a version with selectable text"},
+			note: "this model does not take files, and the PDF has no text to read: it looks scanned, or like pictures of text; " +
+				"the runtime has no OCR here to recognize its text; ask for a version with selectable text"},
 		{name: "a scanned PDF of more pages than its provider takes is not given", path: "/scanned.pdf", title: "Scan", ct: "application/pdf",
 			size: len(scanned), fileInput: true, pdfLimits: llm.FileLimits{PDFPages: 1}, givenAs: givenNot, fetched: true,
 			note: "it has 2 pages, more than the 1 this model takes in a file, and the PDF has no text to read"},
@@ -195,7 +196,8 @@ func TestRunFiles(t *testing.T) {
 			size: len(garbled), fileInput: true, pdfLimits: llm.FileLimits{PDFPages: 10}, givenAs: givenFile, fetched: true, wantFile: true},
 		{name: "a PDF whose fonts do not map is not given where the model takes no files", path: "/garbled.pdf", title: "Midterm", ct: "application/pdf",
 			size: len(garbled), givenAs: givenNot, fetched: true,
-			note: "this model does not take files, and the PDF's text cannot be read: its fonts do not map to text; ask for a version with selectable text"},
+			note: "this model does not take files, and the PDF's text cannot be read: its fonts do not map to text; " +
+				"the runtime has no OCR here to recognize its text; ask for a version with selectable text"},
 		{name: "a PDF that needs a password is given to no model", path: "/locked.pdf", title: "Answers", ct: "application/pdf",
 			size: len(locked), fileInput: true, pdfLimits: llm.FileLimits{PDFPages: 10}, givenAs: givenNot, fetched: true, note: "password-protected"},
 		{name: "a PDF that does not read is not given where the model takes no files", path: "/syllabus.pdf", title: "Syllabus", ct: "application/pdf",
@@ -319,39 +321,9 @@ func TestRunFiles(t *testing.T) {
 	}
 }
 
-// TestRunExtractedTextBounded checks that a document's extracted text is
-// cut to the room the result leaves, as a text file's is, and still says
-// where it came from.
-func TestRunExtractedTextBounded(t *testing.T) {
-	var slides []doctexttest.Slide
-	for i := range 200 {
-		slides = append(slides, doctexttest.Slide{Title: fmt.Sprint("Slide title ", i), Body: []doctexttest.Bullet{{Text: strings.Repeat("words ", 40)}}})
-	}
-	big := doctexttest.PPTX(slides...)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(big) }))
-	t.Cleanup(srv.Close)
-	f := &fakeCore{respond: func(context.Context, string, json.RawMessage) (*core.Envelope, error) {
-		return executed(documentResult(srv.URL+"/deck?"+signature, "Big deck", doctexttest.PPTXType, len(big))), nil
-	}}
-	r := Runner{Client: core.NewClient(f), Files: NewHTTPFetcher(srv.Client())}
-	parts, err := delegateSet(t).Run(context.Background(), r, courseID, []llm.Part{call("d", "document_get", `{"document_id":"`+docID+`"}`)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n := len(parts[0].Content); n > DefaultMaxResultBytes || n < DefaultMaxResultBytes-40 {
-		t.Errorf("%d bytes, want close to the limit of %d", n, DefaultMaxResultBytes)
-	}
-	text, _ := contentOf(t, parts[0])["file_text"].(string)
-	if !strings.HasPrefix(text, "## Slide 1: Slide title 0\n- words") || !strings.Contains(text, "…[truncated, ") {
-		t.Errorf("file_text %q…", text[:min(len(text), 60)])
-	}
-	if rec := fileRecordOf(t, parts[0]); rec["given_as"] != givenText || rec["extracted_from"] != "pptx" {
-		t.Errorf("file record %v", rec)
-	}
-}
-
-// TestRunFileTextBounded checks that a file's text is cut to the room the
-// result leaves, and that the whole stays within MaxResultBytes.
+// TestRunFileTextBounded checks that a text file too long for one result
+// is given in parts that each fit it, whatever the limit, and that the
+// first says how many there are.
 func TestRunFileTextBounded(t *testing.T) {
 	fs := newFileServer(t)
 	for _, limit := range []int{0, 4000} {
@@ -365,15 +337,20 @@ func TestRunFileTextBounded(t *testing.T) {
 				t.Fatal(err)
 			}
 			max := r.withDefaults().MaxResultBytes
-			if n := len(parts[0].Content); n > max || n < max-40 {
-				t.Errorf("%d bytes, want close to the limit of %d", n, max)
+			if n := len(parts[0].Content); n > max {
+				t.Errorf("%d bytes, over the limit of %d", n, max)
 			}
 			text, _ := contentOf(t, parts[0])["file_text"].(string)
-			if !strings.HasPrefix(text, "line of text\n") || !strings.HasSuffix(text, "…[truncated, 130000 bytes]") {
+			if !strings.HasPrefix(text, "line of text\n") || strings.Contains(text, "truncated") || !strings.HasSuffix(text, "line of text\n") {
 				t.Errorf("file_text %q…", text[:min(len(text), 40)])
 			}
-			if rec := fileRecordOf(t, parts[0]); rec["given_as"] != givenText || rec["byte_size"] != float64(130000) {
-				t.Errorf("file record %v", rec)
+			rec := fileRecordOf(t, parts[0])
+			wantParts := (130000 + len(text) - 1) / len(text)
+			if rec["given_as"] != givenText || rec["byte_size"] != float64(130000) || rec["part"] != float64(1) || int(rec["parts"].(float64)) != wantParts {
+				t.Errorf("file record %v, want part 1 of %d", rec, wantParts)
+			}
+			if note, _ := rec["note"].(string); !strings.Contains(note, fmt.Sprintf("given in %d parts", wantParts)) {
+				t.Errorf("note %q", note)
 			}
 		})
 	}

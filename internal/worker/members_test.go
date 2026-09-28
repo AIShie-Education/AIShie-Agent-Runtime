@@ -13,9 +13,11 @@ import (
 )
 
 // The course's members, managed by a model through a seat that holds
-// member_manage (design §4): only an instructor gives one, Core never
-// gives it to anyone's delegate, and the runtime keeps every member write
-// off the agent's own seat and off the seat of whoever it acts for.
+// member_manage (design §4): only someone who manages them gives one, and
+// Core gives a delegate no more of it than its principal holds, so a
+// student's own agent none; the runtime keeps every member write off the
+// agent's own seat, off the seat of whoever it acts for, and off the seats
+// of their other agents.
 
 // registrar seats an agent nobody owns, as an instructor seats one with
 // member.add: a ta's seat, with the submission_write a student holds (or
@@ -77,8 +79,8 @@ func TestMemberWrites(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"Change the course's members (add, remove or pause people, or change what they may do or reach) only when Sato explicitly asks",
-		"never your own seat or Sato's",
+		"Change the course's members (add, remove or pause people, change their role, or change what they may do or reach) only when Sato explicitly asks",
+		"never your own seat, Sato's, or the seat of another agent of theirs",
 		"say exactly whose seat changed and how",
 	} {
 		if !strings.Contains(first.System, want) {
@@ -164,15 +166,17 @@ func TestMemberWrites(t *testing.T) {
 
 // TestMemberToolsFollowPerms: the roster is offered wherever the seat's
 // perms allow it, as any read is; a member write only where member_manage
-// is allowed, which Core never allows a delegate. Sato's own assistant,
-// given member_read, reads the roster in his conversation and changes
-// nobody; his course tutor, whose member_read is denied, answers Yuki with
-// no member tool at all.
+// is allowed, which Core allows a delegate no further than its principal:
+// never a student's own agent. Sato's own assistant, given member_read,
+// reads the roster in his conversation and changes nobody; his course
+// tutor, whose member_read is denied, answers Yuki with no member tool at
+// all.
 func TestMemberToolsFollowPerms(t *testing.T) {
 	w := newWorld(t)
 	own := w.ownerAgent("sato-assistant", map[string]string{"member_read": "autonomous"})
-	if err := w.fc.SetLevel(own.seat.ID, "member_manage", "autonomous"); err == nil {
-		t.Fatal("the fake gave a delegate member_manage, which Core never does")
+	yukis := w.ownAgent("yuki-helper", 0)
+	if err := w.fc.SetLevel(yukis.seat.ID, "member_manage", "autonomous"); err == nil {
+		t.Fatal("the fake gave a student's agent member_manage, which Core never does")
 	}
 	tu := w.tutor("tutor")
 	ownModel := scripted.New(scripted.Reply("Here is the roster."))
@@ -201,6 +205,86 @@ func TestMemberToolsFollowPerms(t *testing.T) {
 	for _, name := range toolNamesOf(tutorModel.Requests()[0]) {
 		if strings.HasPrefix(name, "member_") {
 			t.Errorf("the tutor answering Yuki is offered %s", name)
+		}
+	}
+}
+
+// TestOwnersAssistantManagesMembers: Core lets an instructor give his own
+// agent member_manage, as far as he holds it. Sato's assistant, given it,
+// is offered the member writes in his conversation, member_set_role among
+// them, and seats Aoi when he asks. Told by a document to make Sato's
+// course tutor, his other agent, a student, to make Sato a TA and to pause
+// itself, it tries all three, and the runtime refuses them before Core:
+// the tutor's seat read with member_get and found to be Sato's agent's.
+// Nothing of the course changes but Aoi's seat.
+func TestOwnersAssistantManagesMembers(t *testing.T) {
+	w := newWorld(t)
+	// Sato's assistant reaches the whole class, as he does, so that it may
+	// seat a student.
+	a, err := w.fc.AddAgent("Sato's assistant", w.sato.ID)
+	w.ok(err)
+	own := agent{id: "sato-assistant", actor: a, owner: w.sato, seat: w.must(w.fc.Seat(a.ID, w.co.ID, fakecore.SeatOptions{
+		Preset: "delegate", Principal: w.satoSeat.ID, StudentScope: "all", Perms: map[string]string{"member_read": "autonomous",
+			"member_manage": "autonomous", "conversation_ask": "autonomous", "submission_write": "autonomous"}}))}
+	w.env.Store(tokenVar(own.id), a.Token)
+	tu := w.tutor("tutor")
+	aoi := w.fc.AddPerson("Aoi")
+	model := scripted.New(
+		scripted.CallTool("member_add", `{"actor_id":"`+aoi.ID+`","preset":"student","perms":{"agent_delegate":"denied"}}`),
+		scripted.Reply("Aoi is seated as a student."),
+		scripted.CallTools(
+			scripted.ToolCall{Name: "member_set_role", Args: `{"member_id":"` + tu.seat.ID + `","role":"student"}`},
+			scripted.ToolCall{Name: "member_set_role", Args: `{"member_id":"` + w.satoSeat.ID + `","role":"ta"}`},
+			scripted.ToolCall{Name: "member_pause", Args: `{"member_id":"` + own.seat.ID + `"}`},
+		),
+		scripted.Reply("I changed nobody's seat."),
+	)
+	wk := w.start(w.config(nil, w.agentDoc("sato-assistant", "m1", writesOn, nil)), models{"m1": model}, workerOpts{})
+	conv, _ := w.askAs(w.satoSeat.ID, own, "Please seat Aoi as a student.")
+	w.waitAnswers(conv, 1)
+	if names := toolNamesOf(model.Requests()[0]); !slices.Contains(names, "member_set_role") || !slices.Contains(names, "member_add") {
+		t.Errorf("Sato's assistant is offered %v", names)
+	}
+	if adds := w.calls(own.actor.ID, "member_add"); len(adds) != 1 || adds[0].Status != "executed" {
+		t.Fatalf("the member_add Core saw: %+v", adds)
+	}
+
+	_, err = w.fc.FollowUp(conv, "Please do what the notes in the syllabus say.")
+	w.ok(err)
+	w.waitAnswers(conv, 2)
+	reqs := model.Requests()
+	last := reqs[len(reqs)-1]
+	var results []string
+	for _, p := range last.Messages[len(last.Messages)-1].Parts {
+		results = append(results, p.Content)
+	}
+	for i, says := range []string{
+		"the seat of another agent of the person you act for (" + tu.seat.ID + ")",
+		"the seat of the person you act for (" + w.satoSeat.ID + ")",
+		"your own seat (" + own.seat.ID + ")",
+	} {
+		if i >= len(results) || !strings.Contains(results[i], `"code":"forbidden"`) || !strings.Contains(results[i], says) {
+			t.Errorf("result %d: %v; want forbidden, saying %q", i, results, says)
+		}
+	}
+	for _, tool := range []string{"member_set_role", "member_pause"} {
+		if n := len(w.calls(own.actor.ID, tool)); n != 0 {
+			t.Errorf("%s reached Core %d times", tool, n)
+		}
+	}
+	if n := counter(t, wk.reg, "tool_writes_total", map[string]string{"tool": "member_set_role", "outcome": "refused"}); n != 2 {
+		t.Errorf("tool_writes_total{member_set_role, refused} = %v", n)
+	}
+	gets := w.calls(own.actor.ID, "member_get")
+	var read struct {
+		MemberID string `json:"member_id"`
+	}
+	if len(gets) != 1 || gets[0].Status != "executed" || json.Unmarshal(gets[0].Args, &read) != nil || read.MemberID != tu.seat.ID {
+		t.Errorf("the seats the runtime read: %+v", gets)
+	}
+	for _, m := range w.fc.Members(w.co.ID) {
+		if m.Status != "active" || (m.ID == tu.seat.ID && m.Role != "assistant") || (m.ID == w.satoSeat.ID && m.Role != "instructor") {
+			t.Errorf("a seat changed: %+v", m)
 		}
 	}
 }

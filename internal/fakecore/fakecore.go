@@ -13,11 +13,15 @@
 //
 // The tools the runtime calls (me_*, conversation_*, event_list,
 // action_list_mine, and credential_list and credential_revoke, with which
-// an agent's token revokes a token of its own; me_site_chat, a newer
-// Core's, with Options.SiteChat) are carried out with Core's semantics:
+// an agent's token revokes a token of its own; me_site_chat, but with
+// Options.WithoutSiteChat) are carried out with Core's semantics:
 // authorization,
-// idempotency, proposals and their decisions, the inbox, events and who sees
-// them; so are the writes people make that the test controls go through
+// each seat's ceilings (the most it may hold of each permission, as Core's
+// domain.Ceiling works them out, and as its views show them), idempotency,
+// proposals and their decisions (an agent's owner's among them, where they
+// could have done it themselves), the inbox, events and who sees them, and
+// no question to an agent that has not declared it answers in the site; so
+// are the writes people make that the test controls go through
 // (conversation_open, conversation_ask, action_decide, action_review), and
 // document_create and member_add, writes a model makes through its seat's
 // perms, and the roster a model reads (member_list, member_get,
@@ -61,10 +65,10 @@ type Options struct {
 	// agent (Core's C1): me_get names no one's owner, and the catalogue,
 	// GET /v1/tools and tools/list alike, describes no owner_actor_id.
 	BeforeOwners bool
-	// SiteChat answers as a Core newer than the pinned one, which offers
-	// me.site_chat (sitechat.go): its catalogue has the tool, and the fake
-	// carries it out.
-	SiteChat bool
+	// WithoutSiteChat answers as a Core from before me.site_chat, as the
+	// runtime was pinned to before 61b7494 (sitechat.go): its catalogue
+	// has no such tool, and the fake knows none.
+	WithoutSiteChat bool
 }
 
 // Core's defaults.
@@ -97,7 +101,7 @@ type Core struct {
 	blobs            map[string]*document
 	calls            []Call
 	nextKey          int
-	// siteChat is each actor's last me.site_chat (Options.SiteChat).
+	// siteChat is each actor's last me.site_chat.
 	siteChat map[string]bool
 	// presetIDs are the built-in presets' ids, by name.
 	presetIDs map[string]string
@@ -165,9 +169,9 @@ var catalogueBeforeOwners = sync.OnceValues(func() (*catalogue, error) {
 	return withImpls(raw)
 })
 
-// siteChatCatalogue is the catalogue with me.site_chat, as a Core newer
-// than the pinned one serves it (Options.SiteChat), before C1 or not.
-func siteChatCatalogue(beforeOwners bool) (*catalogue, error) {
+// catalogueWithoutSiteChat is the catalogue as a Core from before
+// me.site_chat serves it (Options.WithoutSiteChat), before C1 or not.
+func catalogueWithoutSiteChat(beforeOwners bool) (*catalogue, error) {
 	raw := catalogueJSON
 	if beforeOwners {
 		var err error
@@ -175,7 +179,7 @@ func siteChatCatalogue(beforeOwners bool) (*catalogue, error) {
 			return nil, err
 		}
 	}
-	raw, err := withSiteChat(raw)
+	raw, err := withoutSiteChat(raw)
 	if err != nil {
 		return nil, err
 	}
@@ -203,8 +207,8 @@ func New(o Options) *Core {
 	if o.BeforeOwners {
 		load = catalogueBeforeOwners
 	}
-	if o.SiteChat {
-		load = func() (*catalogue, error) { return siteChatCatalogue(o.BeforeOwners) }
+	if o.WithoutSiteChat {
+		load = func() (*catalogue, error) { return catalogueWithoutSiteChat(o.BeforeOwners) }
 	}
 	cat, err := load()
 	if err != nil {

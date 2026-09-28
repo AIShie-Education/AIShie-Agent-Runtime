@@ -31,6 +31,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Store is all of it.
@@ -46,6 +47,7 @@ type Store interface {
 	Registry
 	Reports
 	Audit
+	OCRTexts
 	Close() error
 }
 
@@ -871,6 +873,104 @@ func CheckAuditEvent(e AuditEvent) (AuditEvent, error) {
 	}
 	e.Detail = detail
 	return e, nil
+}
+
+// OCRText is what the runtime's OCR recognized of one file (docs/design.md
+// §4, Files): the text of a scanned PDF, or of one whose fonts map to
+// nothing, or of an image, which recognizing again would cost minutes of
+// CPU. It is kept by the file's checksum, which the runtime computes from
+// the bytes it fetched, never Core's word for it: one file's text is every
+// copy's, in whatever course, and no other file's.
+type OCRText struct {
+	// Sum is the file's sha256, as "sha256:<hex>".
+	Sum string
+	// Status is OCRDone or OCRFailed.
+	Status string
+	// Kind is OCRPDF or OCRImage.
+	Kind string
+	// Text is what was recognized, each page of a PDF under its heading;
+	// "" for a failure, or a file OCR found no text in.
+	Text string
+	// Pages is the pages recognized, of PagesOf the file has.
+	Pages, PagesOf int
+	// Sections are where each page's heading begins in Text.
+	Sections []OCRSection
+	// Notes say what the text leaves out: the pages past the limit, those
+	// OCR found nothing on, those it could not read.
+	Notes []string
+	// Reason is a failure's cause, as a code: timeout, failed, too_large,
+	// malformed.
+	Reason string
+	// Engine names what recognized it: the program, its version, the
+	// languages and the resolution.
+	Engine string
+	// DurationMS is how long recognizing it took.
+	DurationMS int64
+	// CreatedAt is when it was kept; a zero time is the store's now.
+	CreatedAt time.Time
+}
+
+// OCRSection is where one page of an OCRText begins: its number, from 1,
+// and the byte offset of its heading.
+type OCRSection struct {
+	N      int `json:"n"`
+	Offset int `json:"offset"`
+}
+
+// What an OCRText is, and how it ended.
+const (
+	OCRDone   = "done"
+	OCRFailed = "failed"
+	OCRPDF    = "pdf"
+	OCRImage  = "image"
+)
+
+// MaxOCRText bounds an OCRText's text: a page of dense Chinese is a few
+// kilobytes, so this is far past the pages OCR reads of a file.
+const MaxOCRText = 4 << 20
+
+var ocrSum = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
+// CheckOCRText refuses what a store must not keep as OCR text: a sum that
+// is not a sha256, a status or kind of no known value, a text past
+// MaxOCRText or not valid UTF-8, or holding NUL, and sections out of the
+// text or out of order.
+func CheckOCRText(t OCRText) error {
+	switch {
+	case !ocrSum.MatchString(t.Sum):
+		return errors.New("store: OCR text: the sum is not sha256:<hex>")
+	case t.Status != OCRDone && t.Status != OCRFailed:
+		return fmt.Errorf("store: OCR text: status %q is not done or failed", t.Status)
+	case t.Kind != OCRPDF && t.Kind != OCRImage:
+		return fmt.Errorf("store: OCR text: kind %q is not pdf or image", t.Kind)
+	case len(t.Text) > MaxOCRText:
+		return errors.New("store: OCR text: the text is past MaxOCRText")
+	case !utf8.ValidString(t.Text) || strings.ContainsRune(t.Text, 0):
+		return errors.New("store: OCR text: the text is not valid UTF-8 without NUL")
+	case t.Pages < 0 || t.PagesOf < 0:
+		return errors.New("store: OCR text: pages are negative")
+	}
+	last := 0
+	for _, s := range t.Sections {
+		if s.Offset < last || s.Offset > len(t.Text) || s.N < 1 {
+			return errors.New("store: OCR text: a section is out of the text, or out of order")
+		}
+		last = s.Offset
+	}
+	return nil
+}
+
+// OCRTexts keep what the runtime's OCR recognized, by the file's checksum,
+// for every worker: a file is recognized once, and read again from here.
+type OCRTexts interface {
+	// OCRText is the text kept under sum; ErrNotFound when there is none.
+	OCRText(ctx context.Context, sum string) (OCRText, error)
+	// PutOCRText keeps t under t.Sum, in place of what was there.
+	PutOCRText(ctx context.Context, t OCRText) error
+	// PurgeOCRTexts destroys the texts kept before doneBefore, and the
+	// failures kept before failedBefore, so that a file is recognized
+	// again when next asked; it says how many it destroyed.
+	PurgeOCRTexts(ctx context.Context, doneBefore, failedBefore time.Time) (int64, error)
 }
 
 // UsageRow is what an agent used in one course on one UTC day: ids and

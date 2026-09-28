@@ -97,9 +97,21 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 		log.Error("the hosted agents' model client", "err", err)
 		return exitFailure
 	}
+	m := metrics.New(reg)
+	// OCR's jobs end as the worker stops: what they had recognized is not
+	// kept, and the file is recognized again when next asked.
+	ocrCtx, stopOCR := context.WithCancel(ctx)
+	recognizer, err := newOCR(ocrCtx, env, st, m, log)
+	if err != nil {
+		stopOCR()
+		log.Error("OCR=on, and OCR cannot run here", "err", err)
+		return exitFailure
+	}
+	defer func() { stopOCR(); recognizer.Wait() }()
 	sup, err := worker.NewSupervisor(worker.Options{
-		Config: cfg, Env: env, Store: st, Metrics: metrics.New(reg), Log: log,
+		Config: cfg, Env: env, Store: st, Metrics: m, Log: log,
 		Secrets: res, Prices: l.prices, HTTPClient: client, HostedHTTPClient: hostedClient, WorkerID: env.WorkerID,
+		OCR: recognizer,
 	})
 	if err != nil {
 		log.Error("the worker", "err", err)
@@ -125,7 +137,7 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 	}
 	log.Info("aishie-runtime started", "version", version.Version, "commit", version.Commit, "worker", sup.WorkerID(),
 		"addr", srv.Addr(), "api", apiAddr, "agents", len(cfg.Agents), "hosted", len(h.hosted), "registry", h.pg != nil,
-		"store", kind, "prices", l.pricesPath, "kek", kekID(v))
+		"store", kind, "prices", l.pricesPath, "kek", kekID(v), "ocr", recognizer.String())
 	warnNoAgents(log, cfg)
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -177,6 +189,7 @@ wait:
 		}
 	}
 	cancel()
+	stopOCR()
 	deadline := time.NewTimer(env.ShutdownGrace + stopMargin)
 	defer deadline.Stop()
 	for supDone != nil || watchDone != nil {

@@ -16,6 +16,7 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/netguard"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/ocr"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/probe"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/redact"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/secrets"
@@ -88,6 +89,16 @@ func cmdCheck(ctx context.Context, args []string, getenv func(string) string, st
 			return failure(stderr, "the sealed secrets' keyring: %v", err)
 		}
 		p("sealed secrets: new ones are sealed by %s", kek.ID())
+	}
+	if o := env.OCR.WithDefaults(); o.Mode == ocr.ModeOff {
+		p("ocr: off (OCR=off)")
+	} else if e, err := ocr.NewEngine(ctx, o); err != nil {
+		if o.Mode == ocr.ModeOn {
+			return failure(stderr, "OCR=on, and OCR cannot run here: %v", err)
+		}
+		p("ocr: off: %v", err)
+	} else {
+		p("ocr: %s, %d at once, %d pages a file at most", e.Describe(), o.Concurrency, o.MaxPages)
 	}
 	switch {
 	case l.pricesPath != "":

@@ -79,7 +79,7 @@ func readDOCX(data []byte, b *budget) (*Result, error) {
 			return nil, err
 		}
 		r.res.Notes = append(r.res.Notes, restNote(err))
-		r.res.Text = out.done()
+		out.finish(r.res)
 		return r.res, nil
 	}
 	for _, kind := range []string{"footnotes", "endnotes"} {
@@ -88,7 +88,7 @@ func readDOCX(data []byte, b *budget) (*Result, error) {
 				if err := r.notes(rl.target, kind, out); err != nil {
 					r.res.Notes = append(r.res.Notes, "its "+kind+" are not given: they could not be read")
 					if cutShort(err) {
-						r.res.Text = out.done()
+						out.finish(r.res)
 						return r.res, nil
 					}
 				}
@@ -105,7 +105,7 @@ func readDOCX(data []byte, b *budget) (*Result, error) {
 			var ls lines
 			if err := r.part(rl.target, "hdr ftr", &ls); err != nil {
 				if cutShort(err) {
-					r.res.Text = out.done()
+					out.finish(r.res)
 					return r.res, nil
 				}
 				continue
@@ -119,7 +119,7 @@ func readDOCX(data []byte, b *budget) (*Result, error) {
 			out.line(strings.ToUpper(kind[:1]) + kind[1:] + ": " + text)
 		}
 	}
-	r.res.Text = out.done()
+	out.finish(r.res)
 	return r.res, nil
 }
 

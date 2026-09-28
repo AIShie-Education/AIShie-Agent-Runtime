@@ -86,30 +86,28 @@ func TestCatalogueSnapshot(t *testing.T) {
 			reads++
 		}
 	}
-	if len(cat.tools) != 104 || reads != 41 || writes != 63 {
-		t.Errorf("%d tools, %d reads, %d writes; the handout says 104, 41, 63", len(cat.tools), reads, writes)
+	if len(cat.tools) != 132 || reads != 48 || writes != 84 {
+		t.Errorf("%d tools, %d reads, %d writes; the snapshot holds 132, 48, 84", len(cat.tools), reads, writes)
 	}
-	newer, err := siteChatCatalogue(false)
+	older, err := catalogueWithoutSiteChat(false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for name := range implemented() {
-		// me.site_chat is a newer Core's, in the catalogue with
-		// Options.SiteChat alone.
-		if cat.byName[name] == nil && (name != "me.site_chat" || newer.byName[name] == nil) {
+		if cat.byName[name] == nil {
 			t.Errorf("the fake implements %s, which the catalogue does not have", name)
 		}
 	}
-	if len(newer.tools) != len(cat.tools)+1 || cat.byName["me.site_chat"] != nil {
-		t.Errorf("the catalogue with me.site_chat has %d tools", len(newer.tools))
+	if len(older.tools) != len(cat.tools)-1 || older.byName["me.site_chat"] != nil {
+		t.Errorf("the catalogue without me.site_chat has %d tools", len(older.tools))
 	}
 }
 
-// TestSiteChat: a fake with Options.SiteChat offers me.site_chat, as a
-// newer Core does, and keeps each actor's declaration; one without it, as
-// the pinned Core, knows no such tool.
+// TestSiteChat: the fake offers me.site_chat, as the pinned Core does, and
+// keeps each actor's declaration; one with Options.WithoutSiteChat, as a
+// Core from before it, knows no such tool.
 func TestSiteChat(t *testing.T) {
-	w := newFakeWorld(t, Options{SiteChat: true})
+	w := newFakeWorld(t, Options{})
 	a := mustCall(t, w.agentC, "me_site_chat", map[string]any{"on": true, "idempotency_key": "site-chat:1"})
 	if wantEnvelope(t, a, "executed", "", ""); a.Structured["result"].(map[string]any)["on"] != true || !w.fc.SiteChat(w.tutorA.ID) {
 		t.Errorf("declared: %s", a.Text)
@@ -125,10 +123,10 @@ func TestSiteChat(t *testing.T) {
 	}
 	wantEnvelope(t, mustCall(t, w.agentC, "me_site_chat", map[string]any{"on": true}), "error", codeInvalidArgument, "")
 
-	old := newFakeWorld(t, Options{})
+	old := newFakeWorld(t, Options{WithoutSiteChat: true})
 	if a, err := old.agentC.call(context.Background(), "me_site_chat", map[string]any{"on": true, "idempotency_key": "k"}); err != nil ||
 		(a.RPCError == nil && a.status() != "error") {
-		t.Errorf("the pinned Core's fake took me.site_chat: %v %s", err, a.Body)
+		t.Errorf("an older Core's fake took me.site_chat: %v %s", err, a.Body)
 	}
 }
 
@@ -434,7 +432,11 @@ func TestProposals(t *testing.T) {
 			t.Fatalf("approve: %s %v", out, err)
 		}
 	})
-	t.Run("nobody decides their own agent's proposal", func(t *testing.T) {
+	// An agent's proposal is its owner's to decide where they could make
+	// it themselves without anyone's confirmation, and nobody's else of
+	// its party: with no one else to decide it, the owner does, until
+	// their own level for it is below autonomous.
+	t.Run("an agent's owner decides its proposal only where they could make it themselves", func(t *testing.T) {
 		fc := New(Options{})
 		co := fc.AddCourse("CS101")
 		sato := fc.AddPerson("Sato")
@@ -447,18 +449,31 @@ func TestProposals(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		conv, m, err := fc.Ask(co.ID, yukiM.ID, tutorM.ID, "Q")
-		if err != nil {
+		if err := fc.DeclareSiteChat(tutor.ID); err != nil {
 			t.Fatal(err)
 		}
-		fc.mu.Lock()
-		out := fc.invoke(fc.actors[tutor.ID], fc.cat.byName["conversation.answer"],
-			[]byte(fmt.Sprintf(`{"course_id":%q,"conversation_id":%q,"in_reply_to_message_id":%q,"body":"A"}`, co.ID, conv.ID, m.ID)), "k", "")
-		fc.mu.Unlock()
-		if out.Status != "proposed" {
-			t.Fatalf("%+v", out)
+		propose := func(body string) string {
+			t.Helper()
+			conv, m, err := fc.Ask(co.ID, yukiM.ID, tutorM.ID, "Q")
+			if err != nil {
+				t.Fatal(err)
+			}
+			fc.mu.Lock()
+			out := fc.invoke(fc.actors[tutor.ID], fc.cat.byName["conversation.answer"],
+				[]byte(fmt.Sprintf(`{"course_id":%q,"conversation_id":%q,"in_reply_to_message_id":%q,"body":%q}`, co.ID, conv.ID, m.ID, body)), "k:"+body, "")
+			fc.mu.Unlock()
+			if out.Status != "proposed" {
+				t.Fatalf("%+v", out)
+			}
+			return out.ActionID
 		}
-		if _, err := fc.Approve(out.ActionID); err == nil || !strings.Contains(err.Error(), "nobody in the course may judge") {
+		if out, err := fc.Approve(propose("A")); err != nil || out != "executed" {
+			t.Errorf("its owner, who answers at autonomous, approved: %s %v", out, err)
+		}
+		if err := fc.SetLevel(satoM.ID, permConversationAnswer, "confirm_required"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := fc.Approve(propose("B")); err == nil || !strings.Contains(err.Error(), "nobody in the course may judge") {
 			t.Errorf("approved by its owner's party: %v", err)
 		}
 	})
@@ -551,8 +566,27 @@ func TestDelegates(t *testing.T) {
 		}
 		conv, m1 := w.ask(1, "Q")
 		wantEnvelope(t, mustCall(t, w.agentC, "conversation_answer", answer(w, conv, m1, "A", 1)), "proposed", "", "")
-		if err := w.fc.SetLevel(w.tutorM.ID, permMemberManage, "autonomous"); err == nil {
-			t.Error("a delegate widened past its principal")
+		// Its ceilings: agent_delegate never, action_decide by proposal,
+		// member_manage as far as a principal who manages members holds
+		// it, and nothing past a student's for a student's agent.
+		if err := w.fc.SetLevel(w.tutorM.ID, permAgentDelegate, "autonomous"); err == nil {
+			t.Error("a delegate was given agent_delegate")
+		}
+		if err := w.fc.SetLevel(w.tutorM.ID, permActionDecide, "autonomous"); err == nil {
+			t.Error("an agent was given action_decide past confirm_required")
+		}
+		if err := w.fc.SetLevel(w.tutorM.ID, permMemberManage, "autonomous"); err != nil {
+			t.Errorf("an instructor's delegate may manage members as its principal does: %v", err)
+		}
+		if err := w.fc.SetLevel(w.ownM.ID, permMemberManage, "autonomous"); err == nil {
+			t.Error("a student's agent widened past its principal")
+		}
+		ceil := seat(own)
+		if ceil["perm_ceilings"].(map[string]any)[permMemberManage] != "denied" ||
+			ceil["perm_ceiling_reasons"].(map[string]any)[permMemberManage] != "principal_level" ||
+			ceil["perm_ceiling_reasons"].(map[string]any)[permDocumentWrite] != "principal_level" ||
+			ceil["perm_ceilings"].(map[string]any)[permConversationAsk] != "confirm_required" {
+			t.Errorf("a student's agent's ceilings: %v %v", ceil["perm_ceilings"], ceil["perm_ceiling_reasons"])
 		}
 	})
 	t.Run("paused with its principal", func(t *testing.T) {
@@ -1133,21 +1167,17 @@ func TestReview(t *testing.T) {
 	if got := replayed(); got != "escalated" {
 		t.Errorf("replayed after an escalation: %s", got)
 	}
-	// Mori escalated it, and Sato owns the agent: nobody is left to close it.
-	var refused *RefusedError
-	if err := w.fc.Review(id, "reviewed"); err == nil || errors.As(err, &refused) {
-		t.Errorf("an escalation closed by whoever raised it, or by the agent's owner: %v", err)
-	}
-	third := w.fc.AddPerson("Tanaka")
-	if _, err := w.fc.Seat(third.ID, w.co.ID, SeatOptions{Preset: "instructor"}); err != nil {
-		t.Fatal(err)
-	}
+	// Mori escalated it, and may not close it; Sato owns the agent, and,
+	// answering at autonomous himself, closes it as its owner.
+	morisReview := mustCall(t, w.as("mori"), "action_review", inCourseArgs(w, "action_id", id, "outcome", "reviewed", "idempotency_key", "r1"))
+	wantEnvelope(t, morisReview, "failed", codeForbidden, "")
 	if err := w.fc.Review(id, "reviewed"); err != nil {
 		t.Fatal(err)
 	}
 	if got := replayed(); got != "reviewed" {
 		t.Errorf("replayed after a review: %s", got)
 	}
+	var refused *RefusedError
 	if err := w.fc.Review(id, "reviewed"); !errors.As(err, &refused) || refused.Code != codeConflict {
 		t.Errorf("reviewed twice: %v", err)
 	}
@@ -1344,9 +1374,9 @@ func TestAStudentSeatListsItself(t *testing.T) {
 }
 
 // me_get names the person who owns an agent, and nobody for a person or an
-// agent nobody owns. SetOwner changes it as actor.set_owner does in Core:
-// refused while the agent is seated in a course that is not archived, and
-// revoking every token the agent has. A fake from before C1 names no owner,
+// agent nobody owns. SetOwner changes it as an administrator could in a
+// Core from before 169cf50: refused while the agent is seated in a course
+// that is not archived, and revoking every token the agent has. A fake from before C1 names no owner,
 // and describes none, over GET /v1/tools and tools/list alike.
 func TestOwners(t *testing.T) {
 	ctx := context.Background()
@@ -1421,7 +1451,7 @@ func TestOwners(t *testing.T) {
 					} `json:"tools"`
 				} `json:"result"`
 			}
-			if err != nil || json.Unmarshal(l.Body, &list) != nil || len(list.Result.Tools) != 104 {
+			if err != nil || json.Unmarshal(l.Body, &list) != nil || len(list.Result.Tools) != 132 {
 				t.Fatalf("tools/list: %v %d", err, l.Status)
 			}
 			for _, tl := range list.Result.Tools {

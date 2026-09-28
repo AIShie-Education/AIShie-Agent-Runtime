@@ -72,7 +72,7 @@
    "envelope": {
     "error": {
      "code": "invalid_argument",
-     "message": "give one of email or actor_id"
+     "message": "give one of email, login_id and actor_id"
     },
     "status": "error"
    },
@@ -91,7 +91,7 @@
    "envelope": {
     "error": {
      "code": "invalid_argument",
-     "message": "give one of email or actor_id"
+     "message": "give one of email, login_id and actor_id"
     },
     "status": "error"
    },
@@ -109,7 +109,7 @@
    "envelope": {
     "error": {
      "code": "not_found",
-     "message": "nobody is registered with that email or id"
+     "message": "nobody is registered with that email, login ID or id"
     },
     "status": "error"
    },
@@ -127,7 +127,7 @@
    "envelope": {
     "error": {
      "code": "not_found",
-     "message": "nobody is registered with that email or id"
+     "message": "nobody is registered with that email, login ID or id"
     },
     "status": "error"
    },
@@ -503,6 +503,25 @@
      "listed_students": [
       "<id:12>"
      ],
+     "perm_ceilings": {
+      "action_decide": "autonomous",
+      "agent_delegate": "autonomous",
+      "assignment_write": "autonomous",
+      "conversation_answer": "autonomous",
+      "conversation_ask": "autonomous",
+      "document_read": "autonomous",
+      "document_read_draft": "autonomous",
+      "document_write": "autonomous",
+      "grade_post": "autonomous",
+      "grade_read": "autonomous",
+      "grade_submit": "autonomous",
+      "member_invite": "autonomous",
+      "member_manage": "autonomous",
+      "member_read": "autonomous",
+      "rubric_read": "autonomous",
+      "submission_read": "autonomous",
+      "submission_write": "autonomous"
+     },
      "perms": {
       "action_decide": "denied",
       "agent_delegate": "confirm_required",
@@ -515,6 +534,7 @@
       "grade_post": "denied",
       "grade_read": "autonomous",
       "grade_submit": "denied",
+      "member_invite": "denied",
       "member_manage": "denied",
       "member_read": "denied",
       "rubric_read": "denied",
@@ -548,6 +568,28 @@
      "display_name": "CS101 Registrar",
      "id": "<id:26>",
      "kind": "agent",
+     "perm_ceiling_reasons": {
+      "action_decide": "agent_decides_by_proposal"
+     },
+     "perm_ceilings": {
+      "action_decide": "confirm_required",
+      "agent_delegate": "autonomous",
+      "assignment_write": "autonomous",
+      "conversation_answer": "autonomous",
+      "conversation_ask": "autonomous",
+      "document_read": "autonomous",
+      "document_read_draft": "autonomous",
+      "document_write": "autonomous",
+      "grade_post": "autonomous",
+      "grade_read": "autonomous",
+      "grade_submit": "autonomous",
+      "member_invite": "autonomous",
+      "member_manage": "autonomous",
+      "member_read": "autonomous",
+      "rubric_read": "autonomous",
+      "submission_read": "autonomous",
+      "submission_write": "autonomous"
+     },
      "perms": {
       "action_decide": "denied",
       "agent_delegate": "confirm_required",
@@ -560,6 +602,7 @@
       "grade_post": "denied",
       "grade_read": "autonomous",
       "grade_submit": "autonomous",
+      "member_invite": "denied",
       "member_manage": "autonomous",
       "member_read": "autonomous",
       "rubric_read": "autonomous",
@@ -568,6 +611,7 @@
      },
      "preset_id": "<id:28>",
      "role": "ta",
+     "site_chat": true,
      "status": "active",
      "student_scope": "all"
     },
@@ -595,6 +639,29 @@
      "kind": "agent",
      "owner_actor_id": "<id:7>",
      "owner_name": "Sato",
+     "perm_ceiling_reasons": {
+      "action_decide": "agent_decides_by_proposal",
+      "agent_delegate": "agent_never"
+     },
+     "perm_ceilings": {
+      "action_decide": "confirm_required",
+      "agent_delegate": "denied",
+      "assignment_write": "autonomous",
+      "conversation_answer": "autonomous",
+      "conversation_ask": "autonomous",
+      "document_read": "autonomous",
+      "document_read_draft": "autonomous",
+      "document_write": "autonomous",
+      "grade_post": "autonomous",
+      "grade_read": "autonomous",
+      "grade_submit": "autonomous",
+      "member_invite": "autonomous",
+      "member_manage": "autonomous",
+      "member_read": "autonomous",
+      "rubric_read": "autonomous",
+      "submission_read": "autonomous",
+      "submission_write": "autonomous"
+     },
      "perms": {
       "action_decide": "denied",
       "agent_delegate": "denied",
@@ -607,6 +674,7 @@
       "grade_post": "denied",
       "grade_read": "denied",
       "grade_submit": "denied",
+      "member_invite": "denied",
       "member_manage": "denied",
       "member_read": "denied",
       "rubric_read": "denied",
@@ -616,6 +684,7 @@
      "preset_id": "<id:29>",
      "principal_member_id": "<id:30>",
      "role": "assistant",
+     "site_chat": true,
      "status": "active",
      "student_scope": "listed"
     },
@@ -661,6 +730,25 @@
        "display_name": "Yuki",
        "id": "<id:4>",
        "kind": "human",
+       "perm_ceilings": {
+        "action_decide": "autonomous",
+        "agent_delegate": "autonomous",
+        "assignment_write": "autonomous",
+        "conversation_answer": "autonomous",
+        "conversation_ask": "autonomous",
+        "document_read": "autonomous",
+        "document_read_draft": "autonomous",
+        "document_write": "autonomous",
+        "grade_post": "autonomous",
+        "grade_read": "autonomous",
+        "grade_submit": "autonomous",
+        "member_invite": "autonomous",
+        "member_manage": "autonomous",
+        "member_read": "autonomous",
+        "rubric_read": "autonomous",
+        "submission_read": "autonomous",
+        "submission_write": "autonomous"
+       },
        "perms": {
         "action_decide": "denied",
         "agent_delegate": "confirm_required",
@@ -673,6 +761,7 @@
         "grade_post": "denied",
         "grade_read": "autonomous",
         "grade_submit": "denied",
+        "member_invite": "denied",
         "member_manage": "denied",
         "member_read": "denied",
         "rubric_read": "denied",
@@ -692,6 +781,25 @@
        "display_name": "Ken",
        "id": "<id:32>",
        "kind": "human",
+       "perm_ceilings": {
+        "action_decide": "autonomous",
+        "agent_delegate": "autonomous",
+        "assignment_write": "autonomous",
+        "conversation_answer": "autonomous",
+        "conversation_ask": "autonomous",
+        "document_read": "autonomous",
+        "document_read_draft": "autonomous",
+        "document_write": "autonomous",
+        "grade_post": "autonomous",
+        "grade_read": "autonomous",
+        "grade_submit": "autonomous",
+        "member_invite": "autonomous",
+        "member_manage": "autonomous",
+        "member_read": "autonomous",
+        "rubric_read": "autonomous",
+        "submission_read": "autonomous",
+        "submission_write": "autonomous"
+       },
        "perms": {
         "action_decide": "denied",
         "agent_delegate": "confirm_required",
@@ -704,6 +812,7 @@
         "grade_post": "denied",
         "grade_read": "autonomous",
         "grade_submit": "denied",
+        "member_invite": "denied",
         "member_manage": "denied",
         "member_read": "denied",
         "rubric_read": "denied",
@@ -723,6 +832,25 @@
        "display_name": "Ren",
        "id": "<id:12>",
        "kind": "human",
+       "perm_ceilings": {
+        "action_decide": "autonomous",
+        "agent_delegate": "autonomous",
+        "assignment_write": "autonomous",
+        "conversation_answer": "autonomous",
+        "conversation_ask": "autonomous",
+        "document_read": "autonomous",
+        "document_read_draft": "autonomous",
+        "document_write": "autonomous",
+        "grade_post": "autonomous",
+        "grade_read": "autonomous",
+        "grade_submit": "autonomous",
+        "member_invite": "autonomous",
+        "member_manage": "autonomous",
+        "member_read": "autonomous",
+        "rubric_read": "autonomous",
+        "submission_read": "autonomous",
+        "submission_write": "autonomous"
+       },
        "perms": {
         "action_decide": "denied",
         "agent_delegate": "confirm_required",
@@ -735,6 +863,7 @@
         "grade_post": "denied",
         "grade_read": "autonomous",
         "grade_submit": "denied",
+        "member_invite": "denied",
         "member_manage": "denied",
         "member_read": "denied",
         "rubric_read": "denied",
@@ -772,6 +901,25 @@
        "display_name": "Sato",
        "id": "<id:30>",
        "kind": "human",
+       "perm_ceilings": {
+        "action_decide": "autonomous",
+        "agent_delegate": "autonomous",
+        "assignment_write": "autonomous",
+        "conversation_answer": "autonomous",
+        "conversation_ask": "autonomous",
+        "document_read": "autonomous",
+        "document_read_draft": "autonomous",
+        "document_write": "autonomous",
+        "grade_post": "autonomous",
+        "grade_read": "autonomous",
+        "grade_submit": "autonomous",
+        "member_invite": "autonomous",
+        "member_manage": "autonomous",
+        "member_read": "autonomous",
+        "rubric_read": "autonomous",
+        "submission_read": "autonomous",
+        "submission_write": "autonomous"
+       },
        "perms": {
         "action_decide": "autonomous",
         "agent_delegate": "autonomous",
@@ -784,6 +932,7 @@
         "grade_post": "autonomous",
         "grade_read": "autonomous",
         "grade_submit": "autonomous",
+        "member_invite": "autonomous",
         "member_manage": "autonomous",
         "member_read": "autonomous",
         "rubric_read": "autonomous",
@@ -803,6 +952,25 @@
        "display_name": "Mori",
        "id": "<id:35>",
        "kind": "human",
+       "perm_ceilings": {
+        "action_decide": "autonomous",
+        "agent_delegate": "autonomous",
+        "assignment_write": "autonomous",
+        "conversation_answer": "autonomous",
+        "conversation_ask": "autonomous",
+        "document_read": "autonomous",
+        "document_read_draft": "autonomous",
+        "document_write": "autonomous",
+        "grade_post": "autonomous",
+        "grade_read": "autonomous",
+        "grade_submit": "autonomous",
+        "member_invite": "autonomous",
+        "member_manage": "autonomous",
+        "member_read": "autonomous",
+        "rubric_read": "autonomous",
+        "submission_read": "autonomous",
+        "submission_write": "autonomous"
+       },
        "perms": {
         "action_decide": "autonomous",
         "agent_delegate": "autonomous",
@@ -815,6 +983,7 @@
         "grade_post": "autonomous",
         "grade_read": "autonomous",
         "grade_submit": "autonomous",
+        "member_invite": "autonomous",
         "member_manage": "autonomous",
         "member_read": "autonomous",
         "rubric_read": "autonomous",

@@ -1,6 +1,9 @@
 package fakecore
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // Why authorization denied a call: Core's authz.Reason, which goes in the
 // error's details.reason.
@@ -16,8 +19,7 @@ const (
 )
 
 // perm is the seat's level for p. A delegate's is the lower of its own and
-// its principal's, with conversation_answer capped by the principal's
-// conversation_ask, and member_manage and agent_delegate never held
+// its ceiling (delegateCap), which authorization applies on every call
 // (Core's domain.Member.Perm).
 func (m *member) perm(p string) level {
 	own := m.perms[p]
@@ -27,14 +29,121 @@ func (m *member) perm(p string) level {
 	return min(own, delegateCap(m.principal, p))
 }
 
+// delegateCap is the most a delegate of principal may hold of p: its
+// ceiling (Core's domain.DelegateCap).
 func delegateCap(principal *member, p string) level {
-	switch p {
-	case permMemberManage, permAgentDelegate:
-		return denied
-	case permConversationAnswer:
-		return principal.perm(permConversationAsk)
+	l, _ := ceiling(true, principal, p)
+	return l
+}
+
+// Why a ceiling is below autonomous (Core's domain.CeilingReason): the
+// codes a refusal to go above it gives, and the views' perm_ceiling_reasons.
+const (
+	ceilingAgentNever             = "agent_never"
+	ceilingAgentDecidesByProposal = "agent_decides_by_proposal"
+	ceilingStudentAgentByProposal = "student_agent_by_proposal"
+	ceilingPrincipalLevel         = "principal_level"
+)
+
+// delegatePresetLevels is what the built-in delegate preset gives, every
+// other permission denied (Core's domain.DelegatePresetLevels).
+var delegatePresetLevels = map[string]level{
+	permDocumentRead: autonomous, permSubmissionRead: autonomous, permGradeRead: autonomous, permConversationAnswer: autonomous,
+}
+
+// ceiling is the most a seat may hold of p at all, whoever grants it, and
+// why when that is below autonomous (Core's domain.Ceiling, the one rule):
+// an agent decides and reviews only by proposal; a delegate never brings
+// agents of its own, holds no more than its principal (conversation_answer
+// no more than the principal's conversation_ask), and, for a principal who
+// does not manage the course's members, does only by proposal what the
+// delegate preset does not give, member_manage and member_invite left to
+// the principal's own level. principal is a delegate's principal's seat;
+// a delegate is always an agent.
+func ceiling(agent bool, principal *member, p string) (level, string) {
+	lvl, why := autonomous, ""
+	lower := func(l level, r string) {
+		if l < lvl {
+			lvl, why = l, r
+		}
 	}
-	return principal.perm(p)
+	if principal != nil {
+		agent = true
+		if p == permAgentDelegate {
+			lower(denied, ceilingAgentNever)
+		}
+	}
+	if agent && p == permActionDecide {
+		lower(confirmRequired, ceilingAgentDecidesByProposal)
+	}
+	if principal == nil {
+		return lvl, why
+	}
+	if p != permMemberManage && p != permMemberInvite && !principal.perm(permMemberManage).allowed() {
+		lower(max(delegatePresetLevels[p], confirmRequired), ceilingStudentAgentByProposal)
+	}
+	if p == permConversationAnswer {
+		lower(principal.perm(permConversationAsk), ceilingPrincipalLevel)
+	} else {
+		lower(principal.perm(p), ceilingPrincipalLevel)
+	}
+	return lvl, why
+}
+
+// ceilings is what the views say of a seat's ceilings (Core's Ceilings).
+type ceilings struct {
+	PermCeilings       map[string]string `json:"perm_ceilings"`
+	PermCeilingReasons map[string]string `json:"perm_ceiling_reasons,omitempty"`
+}
+
+// ceilingsOf is m's ceilings, its principal's as it stands.
+func ceilingsOf(m *member) ceilings {
+	out := ceilings{PermCeilings: make(map[string]string, len(allPerms))}
+	for _, p := range allPerms {
+		l, why := ceiling(m.actor.kind == "agent", m.principal, p)
+		out.PermCeilings[p] = l.String()
+		if why != "" {
+			if out.PermCeilingReasons == nil {
+				out.PermCeilingReasons = map[string]string{}
+			}
+			out.PermCeilingReasons[p] = why
+		}
+	}
+	return out
+}
+
+// errAboveCeiling refuses a level above what a seat may hold at all, as
+// Core's does.
+func errAboveCeiling(p string, asked, limit level, why string) *apiError {
+	var msg string
+	switch why {
+	case ceilingAgentNever:
+		msg = fmt.Sprintf("a delegate never holds %s: it brings no agents of its own", p)
+	case ceilingAgentDecidesByProposal:
+		msg = fmt.Sprintf("an agent holds %s at %s at most: it decides and reviews only by proposal, which a person confirms", p, limit)
+	case ceilingStudentAgentByProposal:
+		msg = fmt.Sprintf("the agent of someone who does not manage the course's members holds %s at %s at most: "+
+			"beyond what the delegate preset gives, it acts only by proposal", p, limit)
+	default:
+		msg = fmt.Sprintf("the delegate's principal holds %s at %s, so the delegate cannot hold it at %s", p, limit, asked)
+	}
+	return forbid("%s", msg).with("permission", p).with("reason", why).with("ceiling", limit.String())
+}
+
+// toCeilings cuts the levels a seat is being given down to its ceilings, a
+// level named in the call refused instead (Core's toCeilings).
+func toCeilings(agent bool, principal *member, perms map[string]level, named map[string]string) error {
+	for _, p := range allPerms {
+		limit, why := ceiling(agent, principal, p)
+		if perms[p] <= limit {
+			continue
+		}
+		if _, ok := named[p]; ok {
+			return errAboveCeiling(p, perms[p], limit, why)
+		}
+		perms[p] = limit
+	}
+	return nil
 }
 
 // answersOthers reports whether a delegate may be addressed by anyone but its

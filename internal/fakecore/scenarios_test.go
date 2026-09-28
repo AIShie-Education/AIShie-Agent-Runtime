@@ -918,7 +918,7 @@ var scenarios = []scenario{
 		call(t, w, s, "replay", "conversation_answer", args)
 		call(t, w, s, "messages", "conversation_messages", inCourseArgs(w, "conversation_id", strings.ToUpper(conv)))
 	}},
-	{name: "decide_own_party", about: "nobody decides their own agent's proposal: its owner is refused, the agent is denied, another instructor decides once", run: func(t *testing.T, w world, s *steps) {
+	{name: "decide_own_party", about: "an agent's proposal is decided by its owner where they could make it themselves, never by the agent: the agent is refused, its owner approves at once, and it is decided for anyone after", run: func(t *testing.T, w world, s *steps) {
 		w.setTutorLevel("confirm_required")
 		conv, m1 := w.ask(0, "May I submit HW1 late?")
 		args := answer(w, conv, m1, "Ask your instructor.", 1)
@@ -929,17 +929,16 @@ var scenarios = []scenario{
 			return inCourseArgs(w, append([]any{"action_id", id, "decision", decision, "idempotency_key", key}, more...)...)
 		}
 		sato, mori := w.as("sato"), w.as("mori")
-		callAs(t, sato, s, "its_owner_approves", "action_decide", decide("approve", "decide:"+id))
 		call(t, w, s, "the_agent_approves", "action_decide", decide("approve", "decide:"+id))
 		callAs(t, mori, s, "not_a_decision", "action_decide", decide("maybe", "decide:"+id+":0"))
-		wantStatus(t, callAs(t, mori, s, "another_rejects", "action_decide", decide("reject", "decide:"+id, "reason", "Say when the deadline is.")), "executed")
-		callAs(t, mori, s, "decided_again", "action_decide", decide("approve", "decide:"+id+":2"))
+		wantStatus(t, callAs(t, sato, s, "its_owner_approves", "action_decide", decide("approve", "decide:"+id)), "executed")
+		callAs(t, mori, s, "decided_again", "action_decide", decide("reject", "decide:"+id+":2", "reason", "Say when the deadline is."))
 		callAs(t, mori, s, "no_such_action", "action_decide", inCourseArgs(w, "action_id", uuid.NewString(), "decision", "approve",
 			"idempotency_key", "decide:"+id+":3"))
 		call(t, w, s, "replay", "conversation_answer", args)
 		call(t, w, s, "events", "event_list", inCourseArgs(w, "since_seq", 0))
 	}},
-	{name: "reviewed", about: "answers at pending_review reviewed after: escalated, reviewed, the refusals, and what the agent sees of it", run: func(t *testing.T, w world, s *steps) {
+	{name: "reviewed", about: "answers at pending_review reviewed after: escalated, reviewed by the agent's owner, the refusals, and what the agent sees of it", run: func(t *testing.T, w world, s *steps) {
 		w.setTutorLevel("pending_review")
 		c1, m1 := w.ask(0, "Is the quiz on Friday?")
 		first := answer(w, c1, m1, "Yes, at noon.", 1)
@@ -950,7 +949,6 @@ var scenarios = []scenario{
 			return inCourseArgs(w, "action_id", id, "outcome", outcome, "idempotency_key", key)
 		}
 		sato, mori := w.as("sato"), w.as("mori")
-		callAs(t, sato, s, "its_owner_reviews", "action_review", review(id1, "reviewed", "review:"+id1))
 		call(t, w, s, "the_agent_reviews", "action_review", review(id1, "reviewed", "review:"+id1))
 		callAs(t, mori, s, "not_an_outcome", "action_review", review(id1, "fine", "review:"+id1+":0"))
 		wantStatus(t, callAs(t, mori, s, "escalated", "action_review", review(id1, "escalated", "review:"+id1)), "executed")
@@ -962,7 +960,7 @@ var scenarios = []scenario{
 		a2 := call(t, w, s, "answer_2", "conversation_answer", second)
 		wantStatus(t, a2, "executed")
 		id2 := a2.str("action_id")
-		wantStatus(t, callAs(t, mori, s, "reviewed", "action_review", review(id2, "reviewed", "review:"+id2)), "executed")
+		wantStatus(t, callAs(t, sato, s, "its_owner_reviews", "action_review", review(id2, "reviewed", "review:"+id2)), "executed")
 		callAs(t, mori, s, "reviewed_again", "action_review", review(id2, "reviewed", "review:"+id2+":2"))
 		call(t, w, s, "replay_2", "conversation_answer", second)
 		call(t, w, s, "events", "event_list", inCourseArgs(w, "since_seq", 0))

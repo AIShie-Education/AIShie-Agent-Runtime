@@ -26,7 +26,7 @@ func (w *world) siteChatCalls(actor string) []map[string]any {
 // conversations in the site, under a key of its own; it never takes that
 // back, stopping included.
 func TestSiteChatDeclared(t *testing.T) {
-	w := newWorldWith(t, fakecore.Options{SiteChat: true})
+	w := newWorld(t)
 	own, tu := w.ownAgent("yuki-helper", 0), w.tutor("tutor")
 	cfg := w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil), w.agentDoc("tutor", "m2", nil, nil))
 	wk := w.start(cfg, models{"m1": scripted.New(scripted.Reply("Hello.")), "m2": scripted.New()}, workerOpts{})
@@ -60,7 +60,7 @@ func TestSiteChatDeclared(t *testing.T) {
 // TestSiteChatUnowned: an agent nobody owns declares once a seat of its
 // answers, and not before.
 func TestSiteChatUnowned(t *testing.T) {
-	w := newWorldWith(t, fakecore.Options{SiteChat: true})
+	w := newWorld(t)
 	a, err := w.fc.AddAgent("The department's helper", w.sato.ID)
 	w.ok(err)
 	w.ok(w.fc.SetOwner(a.ID, ""))
@@ -86,10 +86,10 @@ func TestSiteChatUnowned(t *testing.T) {
 }
 
 // TestSiteChatUnknownToCore: a Core that does not offer me.site_chat, as
-// the pinned one does not, is sent none, and the runtime says so once per
+// one from before it, is sent none, and the runtime says so once per
 // catalogue; its agents answer as ever.
 func TestSiteChatUnknownToCore(t *testing.T) {
-	w := newWorld(t)
+	w := newWorldWith(t, fakecore.Options{WithoutSiteChat: true})
 	own, tu := w.ownAgent("yuki-helper", 0), w.tutor("tutor")
 	cfg := w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil), w.agentDoc("tutor", "m2", nil, nil))
 	w.start(cfg, models{"m1": scripted.New(scripted.Reply("Hello.")), "m2": scripted.New()}, workerOpts{})

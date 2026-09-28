@@ -139,9 +139,9 @@ jobs:
           go-version-file: go.mod
       - run: make build
       - run: ./bin/aishie-runtime version
-      # Proves the Dockerfile still builds. Nothing is pushed from CI.
-      - run: make docker
-      - run: docker run --rm aishie-runtime:dev version
+      # Proves the Dockerfile still builds, and that the image runs as
+      # deployed with its OCR's programs. Nothing is pushed from CI.
+      - run: make docker-test
 
   vuln:
     runs-on: ubuntu-24.04

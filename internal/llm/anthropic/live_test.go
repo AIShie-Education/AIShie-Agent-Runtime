@@ -102,8 +102,8 @@ func catalogueTools(t *testing.T) []llm.Tool {
 // a schema that is an object.
 func TestCatalogueCanBeDeclared(t *testing.T) {
 	tools := catalogueTools(t)
-	if len(tools) != 104 {
-		t.Fatalf("%d tools in the catalogue, want 104", len(tools))
+	if len(tools) != 132 {
+		t.Fatalf("%d tools in the catalogue, want 132", len(tools))
 	}
 	a := newAdapter(t, llm.Config{})
 	w, err := a.buildRequest(&llm.Request{Messages: []llm.Message{question}, Tools: tools, ToolMode: llm.ToolAuto})

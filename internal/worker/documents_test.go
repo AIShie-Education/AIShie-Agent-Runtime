@@ -1,13 +1,23 @@
 package worker
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/doctext"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/doctext/doctexttest"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/scripted"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/ocr"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/memstore"
 )
 
 // fileResult is what a document_get result says of its file: the record
@@ -18,6 +28,13 @@ type fileResult struct {
 		GivenAs       string `json:"given_as"`
 		ExtractedFrom string `json:"extracted_from"`
 		Note          string `json:"note"`
+		Part          int    `json:"part"`
+		Parts         int    `json:"parts"`
+		PartHolds     string `json:"part_holds"`
+		NextPart      *struct {
+			Tool      string          `json:"tool"`
+			Arguments json.RawMessage `json:"arguments"`
+		} `json:"next_part"`
 	} `json:"file"`
 	FileText string `json:"file_text"`
 }
@@ -114,7 +131,193 @@ func TestCourseDocumentsReachTheModel(t *testing.T) {
 	res, _ := resultsOf(t, noFiles.Requests()[1])
 	if s := res[2]; s.File.GivenAs != "not_given" || s.FileText != "" ||
 		s.File.Note != "the file could not be given to the model: this model does not take files, and the PDF has no text to read: "+
-			"it looks scanned, or like pictures of text; ask for a version with selectable text" {
+			"it looks scanned, or like pictures of text; the runtime has no OCR here to recognize its text; ask for a version with selectable text" {
 		t.Errorf("Ken's scan: %+v", s)
+	}
+}
+
+// countBlobs counts the files fetched from the fake Core through the
+// worker's client.
+type countBlobs struct {
+	next  http.RoundTripper
+	blobs atomic.Int32
+}
+
+func (c *countBlobs) RoundTrip(req *http.Request) (*http.Response, error) {
+	if strings.HasPrefix(req.URL.Path, "/v1/blobs/") {
+		c.blobs.Add(1)
+	}
+	return c.next.RoundTrip(req)
+}
+
+// TestLongDeckReadInParts: a lecture's deck too long for one result
+// reaches a model that takes no files in parts, end to end. The model
+// reads the first, which says how many there are, then asks for each next
+// part with the call the part before names, and answers once it has read
+// the last. The parts are the runtime's text of the deck, nothing lost at
+// their edges and nothing given twice; the worker fetched and read the
+// file once for all of them.
+func TestLongDeckReadInParts(t *testing.T) {
+	w := newWorld(t)
+	var slides []doctexttest.Slide
+	for i := range 38 {
+		slides = append(slides, doctexttest.Slide{
+			Title: fmt.Sprintf("第%d講 Sorting", i+1),
+			Body:  []doctexttest.Bullet{{Text: fmt.Sprintf("Point %d: merge sort splits the list in two", i+1)}, {Text: "穩定排序", Level: 1}},
+			Notes: strings.Repeat(fmt.Sprintf("Ask the class about slide %d. ", i+1), 45),
+		})
+	}
+	deck := doctexttest.PPTX(slides...)
+	want, err := doctext.Extract(context.Background(), deck, doctext.PPTX, doctext.Limits{})
+	w.ok(err)
+	id, err := w.fc.AddFile(w.co.ID, "Week 3 slides", doctexttest.PPTXType, deck)
+	w.ok(err)
+
+	// follow reads the part the last result gave and asks for the next,
+	// or answers when it was the last.
+	var parts []fileResult
+	follow := func(_ context.Context, req *llm.Request) (*llm.Response, error) {
+		res, _ := resultsOf(t, req)
+		if len(res) != 1 {
+			return nil, fmt.Errorf("%d results", len(res))
+		}
+		parts = append(parts, res[0])
+		if n := res[0].File.NextPart; n != nil {
+			return scripted.CallTool(n.Tool, string(n.Arguments))(context.Background(), req)
+		}
+		return scripted.Reply("Slide 38 says the list is split in two.")(context.Background(), req)
+	}
+	m := scripted.New(scripted.CallTool("document_get", `{"document_id":"`+id+`"}`), follow, follow, follow, follow).
+		WithCapabilities(llm.Capabilities{ParallelToolCalls: true, ToolChoiceNone: true})
+	counter := &countBlobs{next: http.DefaultTransport}
+	yuki := w.ownAgent("yuki-helper", 0)
+	w.start(w.config(nil, w.agentDoc("yuki-helper", "text", nil, nil)), models{"text": m},
+		workerOpts{edit: func(o *Options) {
+			o.HTTPClient = &http.Client{Timeout: 5 * time.Second, Transport: counter}
+			o.HostedHTTPClient = o.HTTPClient
+		}})
+	c, _ := w.ask(0, yuki, "What does the last slide of week 3 say?")
+	if a := w.waitAnswers(c, 1); a[0].Body != "Slide 38 says the list is split in two." {
+		t.Errorf("the answer: %q", a[0].Body)
+	}
+	w.ok(m.Err())
+
+	if len(parts) < 3 || parts[0].File.Parts != len(parts) || !strings.Contains(parts[0].File.Note, fmt.Sprintf("given in %d parts", len(parts))) {
+		t.Fatalf("%d parts read; the first says %+v", len(parts), parts[0].File)
+	}
+	var got strings.Builder
+	for i, p := range parts {
+		if p.File.GivenAs != "text" || p.File.ExtractedFrom != "pptx" || p.File.Part != i+1 || !strings.HasPrefix(p.FileText, "## Slide ") {
+			t.Errorf("part %d: %+v", i+1, p.File)
+		}
+		got.WriteString(p.FileText)
+	}
+	if got.String() != want.Text {
+		t.Errorf("the parts are not the deck's text: %d bytes of %d", got.Len(), len(want.Text))
+	}
+	if n := counter.blobs.Load(); n != 1 {
+		t.Errorf("the deck was fetched %d times, want once", n)
+	}
+}
+
+// gatedRecognizer recognizes a file as text once released, counting its
+// runs.
+type gatedRecognizer struct {
+	release chan struct{}
+	runs    atomic.Int32
+	text    string
+}
+
+func (g *gatedRecognizer) Recognize(ctx context.Context, _ []byte, _ ocr.Kind, pages int, progress func(done, of int)) (*ocr.Result, error) {
+	g.runs.Add(1)
+	progress(0, pages)
+	select {
+	case <-g.release:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	progress(pages, pages)
+	return &ocr.Result{Text: g.text, Sections: []ocr.Section{{N: 1}}, Pages: 1, Of: 1}, nil
+}
+
+func (*gatedRecognizer) Describe() string { return "gated 1.0" }
+
+// TestScanReadByOCR: a scanned handout reaches a model that takes no files
+// as what OCR recognized of it, end to end. The first question starts its
+// recognition, in the background, and the model is told it is in
+// progress, with the call to ask again; asked again once it is done, the
+// model is given the text, marked as OCR's, and answers from it. The file
+// was fetched once and recognized once, and its text is kept in the store
+// by its checksum.
+func TestScanReadByOCR(t *testing.T) {
+	w := newWorld(t)
+	scan := doctexttest.PDF(doctexttest.PDFPage{Image: true})
+	scanID, err := w.fc.AddFile(w.co.ID, "Old handout", "application/pdf", scan)
+	w.ok(err)
+	rec := &gatedRecognizer{release: make(chan struct{}), text: "## Page 1\n期中考試範圍：第一章到第五章"}
+	st := memstore.New()
+	svc := ocr.NewService(t.Context(), ocr.ServiceOptions{Recognizer: rec, Config: ocr.Config{Wait: time.Second}, Store: st, Holder: "w1"})
+	t.Cleanup(svc.Wait)
+
+	var results []fileResult
+	var askAgain string
+	again := func(_ context.Context, req *llm.Request) (*llm.Response, error) {
+		res, _ := resultsOf(t, req)
+		results = append(results, res...)
+		var raw struct {
+			File struct {
+				OCR      string `json:"ocr"`
+				AskAgain *struct {
+					Arguments json.RawMessage `json:"arguments"`
+				} `json:"ask_again"`
+			} `json:"file"`
+		}
+		_ = json.Unmarshal([]byte(req.Messages[len(req.Messages)-1].Parts[0].Content), &raw)
+		if raw.File.OCR != "in_progress" || raw.File.AskAgain == nil {
+			return nil, fmt.Errorf("the first result: %+v", res)
+		}
+		askAgain = string(raw.File.AskAgain.Arguments)
+		close(rec.release)
+		return scripted.CallTool("document_get", askAgain)(context.Background(), req)
+	}
+	answer := func(_ context.Context, req *llm.Request) (*llm.Response, error) {
+		res, _ := resultsOf(t, req)
+		results = append(results, res...)
+		return scripted.Reply("第一章到第五章")(context.Background(), req)
+	}
+	m := scripted.New(scripted.CallTool("document_get", `{"document_id":"`+scanID+`"}`), again, answer).
+		WithCapabilities(llm.Capabilities{ParallelToolCalls: true, ToolChoiceNone: true})
+	counter := &countBlobs{next: http.DefaultTransport}
+	ken := w.ownAgent("ken-helper", 1)
+	w.start(w.config(nil, w.agentDoc("ken-helper", "text", nil, nil)), models{"text": m},
+		workerOpts{edit: func(o *Options) {
+			o.OCR = svc
+			o.HTTPClient = &http.Client{Timeout: 5 * time.Second, Transport: counter}
+			o.HostedHTTPClient = o.HTTPClient
+		}})
+	c, _ := w.ask(1, ken, "期中考範圍是什麼？")
+	if a := w.waitAnswers(c, 1); a[0].Body != "第一章到第五章" {
+		t.Errorf("Ken's answer: %q", a[0].Body)
+	}
+	w.ok(m.Err())
+	if len(results) != 2 {
+		t.Fatalf("%d results", len(results))
+	}
+	if r := results[0]; r.File.GivenAs != "not_given" || r.FileText != "" || !strings.Contains(r.File.Note, "the runtime is recognizing its text now (OCR)") {
+		t.Errorf("the first result: %+v", r)
+	}
+	if !strings.Contains(askAgain, scanID) {
+		t.Errorf("ask_again %s", askAgain)
+	}
+	if r := results[1]; r.File.GivenAs != "text" || r.File.ExtractedFrom != "ocr" || r.FileText != rec.text ||
+		!strings.Contains(r.File.Note, "may hold recognition errors") {
+		t.Errorf("asked again: %+v", r)
+	}
+	if n := counter.blobs.Load(); n != 1 || rec.runs.Load() != 1 {
+		t.Errorf("fetched %d times, recognized %d times; want once each", n, rec.runs.Load())
+	}
+	sum := sha256.Sum256(scan)
+	if kept, err := st.OCRText(t.Context(), "sha256:"+hex.EncodeToString(sum[:])); err != nil || kept.Text != rec.text || kept.Engine != "gated 1.0" {
+		t.Errorf("kept %+v %v", kept, err)
 	}
 }

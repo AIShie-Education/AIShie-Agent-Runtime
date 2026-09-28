@@ -59,6 +59,11 @@ type world struct {
 	env sync.Map // the environment secrets are read from
 	// catalogueFetches counts GET /v1/tools.
 	catalogueFetches atomic.Int32
+	// running counts the world's workers that run.
+	running atomic.Int32
+	// noSiteChat: the fake answers as a Core from before me_site_chat,
+	// which asks no agent for it.
+	noSiteChat bool
 
 	logs *logBuffer
 }
@@ -71,7 +76,7 @@ func newWorld(t *testing.T) *world {
 func newWorldWith(t *testing.T, o fakecore.Options) *world {
 	t.Helper()
 	fc := fakecore.New(o)
-	w := &world{t: t, fc: fc, dir: t.TempDir(), logs: &logBuffer{}}
+	w := &world{t: t, fc: fc, dir: t.TempDir(), logs: &logBuffer{}, noSiteChat: o.WithoutSiteChat}
 	w.srv = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/tools" {
 			w.catalogueFetches.Add(1)
@@ -144,6 +149,23 @@ func (w *world) tutor(id string) agent {
 	return agent{id: id, actor: a, seat: m, owner: w.sato}
 }
 
+// answersInSite waits until ag may be asked: Core takes a question for an
+// agent only once what runs it has declared that it answers in the site
+// (me_site_chat), which the runtime does as it starts the agent. With a
+// worker of the world's running, the question waits for that; with none,
+// the agent is one an earlier run of the runtime declared.
+func (w *world) answersInSite(ag agent) {
+	w.t.Helper()
+	if w.noSiteChat || w.fc.SiteChat(ag.actor.ID) {
+		return
+	}
+	if w.running.Load() > 0 {
+		eventually(w.t, ag.id+" declaring that it answers in the site", func() bool { return w.fc.SiteChat(ag.actor.ID) })
+		return
+	}
+	w.ok(w.fc.DeclareSiteChat(ag.actor.ID))
+}
+
 func tokenVar(id string) string {
 	return "TOKEN_" + strings.ToUpper(strings.NewReplacer("-", "_").Replace(id))
 }
@@ -152,6 +174,7 @@ func tokenVar(id string) string {
 // and the message.
 func (w *world) ask(i int, ag agent, body string) (string, string) {
 	w.t.Helper()
+	w.answersInSite(ag)
 	cv, m, err := w.fc.Ask(w.co.ID, w.studentSeats[i].ID, ag.seat.ID, body)
 	w.ok(err)
 	return cv.ID, m.ID
@@ -234,6 +257,8 @@ type worker struct {
 	m      *metrics.Metrics
 	cancel context.CancelFunc
 	done   chan struct{}
+	// stopped counts the worker out of the world's running once.
+	stopped sync.Once
 }
 
 // workerOpts are a test's changes to a worker's options.
@@ -288,6 +313,7 @@ func (w *world) start(cfg *config.Config, ms models, wo workerOpts) *worker {
 	w.ok(err)
 	ctx, cancel := context.WithCancel(context.Background())
 	wk := &worker{w: w, sup: sup, st: st, reg: reg, m: m, cancel: cancel, done: make(chan struct{})}
+	w.running.Add(1)
 	go func() {
 		defer close(wk.done)
 		if err := sup.Run(ctx); err != nil {
@@ -306,6 +332,7 @@ func (wk *worker) stop() {
 	case <-time.After(20 * time.Second):
 		wk.w.t.Error("the supervisor did not stop within 20 s")
 	}
+	wk.stopped.Do(func() { wk.w.running.Add(-1) })
 }
 
 // eventually waits for cond, failing the test after a deadline.

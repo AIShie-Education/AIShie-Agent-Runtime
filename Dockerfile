@@ -19,11 +19,30 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
       -X github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/version.Date=${DATE}" \
     -o /out/aishie-runtime ./cmd/aishie-runtime
 
-# The store's migrations and the built-in prompts are embedded in the binary,
-# so the image is just the binary: no shell, no package manager, not root.
-# Agents' configuration and secrets are mounted in (CONFIG, SECRETS_DIR).
-FROM gcr.io/distroless/static-debian12:nonroot
+# The store's migrations and the built-in prompts are embedded in the binary.
+# Beside it the image holds only what the runtime's OCR runs (package ocr,
+# docs/deploying.md): tesseract with its Chinese, simplified and traditional,
+# and English data (Debian packages tessdata_fast's models, the small ones),
+# pdftoppm (poppler-utils) to render a PDF's pages, and prlimit, which is
+# util-linux's and in every Debian; and the CA certificates the runtime's
+# HTTPS calls need, which distroless held. gpg is named only so that
+# poppler's library, which asks for gnupg or gpg, takes gpg alone: 9 MB less,
+# no agent, dirmngr or translations. No recommended package is installed, and
+# apt's lists and caches are removed. It runs as 65532:65532,
+# distroless's nonroot user, whose uid and gid the deploy script passes, with
+# the same home and working directory. Agents' configuration and secrets are
+# mounted in (CONFIG, SECRETS_DIR).
+FROM debian:13-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates gpg poppler-utils \
+      tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-chi-tra tesseract-ocr-eng \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/* /var/cache/debconf/*-old /var/log/apt /var/log/dpkg.log \
+ && groupadd --gid 65532 nonroot \
+ && useradd --uid 65532 --gid 65532 --home-dir /home/nonroot --create-home --shell /usr/sbin/nologin nonroot
 COPY --from=build /out/aishie-runtime /usr/local/bin/aishie-runtime
+USER 65532:65532
+WORKDIR /home/nonroot
 EXPOSE 9090
 ENTRYPOINT ["/usr/local/bin/aishie-runtime"]
 CMD ["run"]

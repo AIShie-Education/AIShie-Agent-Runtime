@@ -34,6 +34,7 @@ func (w *world) ownerAgent(id string, perms map[string]string) agent {
 // askAs has the member opener open a conversation with ag.
 func (w *world) askAs(opener string, ag agent, body string) (string, string) {
 	w.t.Helper()
+	w.answersInSite(ag)
 	cv, m, err := w.fc.Ask(w.co.ID, opener, ag.seat.ID, body)
 	w.ok(err)
 	return cv.ID, m.ID
@@ -92,7 +93,8 @@ func TestOwnerWrites(t *testing.T) {
 	if names := toolNamesOf(first); !slices.Contains(names, "document_create") || !slices.Contains(names, "document_get") {
 		t.Errorf("the owner's model is offered %v", names)
 	}
-	for _, want := range []string{"Your tools that change the course: document_add_version, document_archive, document_create, document_publish.",
+	for _, want := range []string{"Your tools that change the course: document_add_version, document_archive, document_create, document_publish, " +
+		"document_unarchive, document_update.",
 		"act for Sato", "Only Sato's own requests in this conversation ask you to change anything"} {
 		if !strings.Contains(first.System, want) {
 			t.Errorf("the system prompt lacks %q:\n%s", want, first.System)

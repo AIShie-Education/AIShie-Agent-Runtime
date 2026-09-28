@@ -54,6 +54,7 @@ type membershipView struct {
 	PrincipalMemberID *string           `json:"principal_member_id,omitempty"`
 	Perms             map[string]string `json:"perms"`
 	AnswersCourse     bool              `json:"answers_course"`
+	ceilings
 }
 
 func meMemberships() *impl {
@@ -84,7 +85,7 @@ func meMemberships() *impl {
 				v := membershipView{MemberID: m.id, CourseID: m.course.id, Code: m.course.code, Section: m.course.section,
 					Title: m.course.title, CourseStatus: m.course.status, Role: m.role, Status: m.status, ExpiresAt: m.expiresAt,
 					StudentScope: m.studentScope, AssignmentScope: m.assignmentScope, Perms: m.effectivePerms(rc.now),
-					AnswersCourse: m.answersOthers()}
+					AnswersCourse: m.answersOthers(), ceilings: ceilingsOf(m)}
 				if m.principal != nil {
 					id := m.principal.id
 					v.PrincipalMemberID = &id

@@ -54,13 +54,14 @@ const (
 	permAgentDelegate      = "agent_delegate"
 	permConversationAsk    = "conversation_ask"
 	permConversationAnswer = "conversation_answer"
+	permMemberInvite       = "member_invite"
 )
 
 var allPerms = []string{
 	permDocumentRead, permDocumentReadDraft, permDocumentWrite, permRubricRead,
 	permAssignmentWrite, permSubmissionRead, permSubmissionWrite, permGradeRead,
 	permGradeSubmit, permGradePost, permMemberRead, permMemberManage, permActionDecide,
-	permAgentDelegate, permConversationAsk, permConversationAnswer,
+	permAgentDelegate, permConversationAsk, permConversationAnswer, permMemberInvite,
 }
 
 func validPerm(p string) bool {
@@ -77,13 +78,13 @@ type preset struct {
 	role            string
 	studentScope    string
 	assignmentScope string
-	levels          [16]level // in allPerms order
+	levels          [17]level // in allPerms order
 }
 
 // ladder reads a preset's levels written one letter each, in allPerms order:
 // d denied, c confirm_required, p pending_review, a autonomous.
-func ladder(s string) [16]level {
-	var out [16]level
+func ladder(s string) [17]level {
+	var out [17]level
 	for i := range out {
 		switch s[i] {
 		case 'c':
@@ -97,16 +98,17 @@ func ladder(s string) [16]level {
 	return out
 }
 
-// presets are Core's built-ins, level for level.
+// presets are Core's built-ins, level for level: member_invite, the last,
+// an instructor's alone.
 var presets = map[string]preset{
-	"student":      {"student", scopeListed, scopeAll, ladder("addddaaadddddcad")},
-	"observer":     {"observer", scopeAll, scopeAll, ladder("adddddddddaddddd")},
-	"ta":           {"ta", scopeAll, scopeAll, ladder("aadadadaadaddcad")},
-	"instructor":   {"instructor", scopeAll, scopeAll, ladder("aaaaaaaaaaaaaaaa")},
-	"tutor":        {"assistant", scopeListed, scopeAll, ladder("addddadaddddddda")},
-	"grader":       {"assistant", scopeAll, scopeListed, ladder("addadaddcddddddd")},
-	"delegate":     {"assistant", scopeListed, scopeAll, ladder("addddadaddddddda")},
-	"course_tutor": {"assistant", scopeListed, scopeAll, ladder("adddddddddddddda")},
+	"student":      {"student", scopeListed, scopeAll, ladder("addddaaadddddcadd")},
+	"observer":     {"observer", scopeAll, scopeAll, ladder("adddddddddadddddd")},
+	"ta":           {"ta", scopeAll, scopeAll, ladder("aadadadaadaddcadd")},
+	"instructor":   {"instructor", scopeAll, scopeAll, ladder("aaaaaaaaaaaaaaaaa")},
+	"tutor":        {"assistant", scopeListed, scopeAll, ladder("addddadadddddddad")},
+	"grader":       {"assistant", scopeAll, scopeListed, ladder("addadaddcdddddddd")},
+	"delegate":     {"assistant", scopeListed, scopeAll, ladder("addddadadddddddad")},
+	"course_tutor": {"assistant", scopeListed, scopeAll, ladder("addddddddddddddad")},
 }
 
 const (

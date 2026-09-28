@@ -255,6 +255,8 @@ func movedOn(t *testing.T, w *world) {
 		firstReply  = "Question 2 is about loops."
 		secondReply = "Question 3 is about recursion."
 	)
+	// Asked before the runtime starts: an earlier run declared the agent.
+	w.declareSiteChat(t, w.own)
 	conv, m1 := w.ask(t, w.yuki, w.own.member, first)
 	followed := make(chan string, 1)
 	var once sync.Once
@@ -344,6 +346,8 @@ func duplicates(t *testing.T, w *world) {
 		}
 		return fakellm.Reply("Worker " + tag + " says: read chapter 2.")
 	})
+	// Asked before the runtime starts: an earlier run declared the agent.
+	w.declareSiteChat(t, w.own)
 	conv, m1 := w.ask(t, w.yuki, w.own.member, q)
 	agents := []agentConf{{id: "yuki-helper", seat: w.own}}
 	workers := []*instance{

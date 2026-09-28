@@ -102,11 +102,12 @@ func membersResponder(req fakellm.ChatRequest) fakellm.ChatResponse {
 }
 
 // memberWrites is an agent that manages the course's members, against the
-// real Core. Core gives member_manage to no delegate (domain.DelegateCap),
-// so Sato's own agent cannot be given it, whatever he asks: an agent that
-// seats people is one nobody owns, which the administrator registers and
-// Sato seats with member_manage, and which an operator runs with
-// tools.writes on. Sato asks it to seat Aoi as a student: at autonomous it
+// real Core. Core gives a delegate member_manage no further than its
+// principal holds it (domain.Ceiling): Sato's own agent may be seated with
+// it, and Yuki's may not be given it, her seat holding none. The agent
+// that seats people here is one nobody owns, which the administrator
+// registers and Sato seats with member_manage, and which an operator runs
+// with tools.writes on. Sato asks it to seat Aoi as a student: at autonomous it
 // is executed, and Aoi is in Core; at confirm_required, seating Ren is
 // proposed, and Ren is not. Then Sato asks it to do what a document of his
 // says, and the document orders it to pause Sato's seat, raise its own and
@@ -116,16 +117,19 @@ func membersResponder(req fakellm.ChatRequest) fakellm.ChatResponse {
 func memberWrites(t *testing.T, w *world) {
 	api := w.api
 
-	// No delegate holds member_manage in Core.
+	// A delegate holds member_manage as far as its principal does: Sato's
+	// own agent may, Yuki's may not.
 	mine := w.newAgent(t, w.sato, "Sato's assistant", "")
 	w.addSecret("the token of Sato's assistant", mine.token)
-	r, err := api.send(t.Context(), w.sato.token, "POST", w.path("/delegates"), map[string]any{"actor_id": mine.id, "preset": "delegate",
-		"perms": map[string]string{"member_manage": "autonomous"}}, "")
+	w.memberID(t, w.sato.token, w.path("/delegates"), map[string]any{"actor_id": mine.id, "preset": "delegate",
+		"perms": map[string]string{"member_manage": "autonomous"}})
+	r, err := api.send(t.Context(), w.sato.token, "POST", w.path("/members/"+w.own.member+"/perms"),
+		map[string]any{"perms": map[string]string{"member_manage": "autonomous"}}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Status == "executed" || r.Error == nil || r.Error.Code != "forbidden" || !strings.Contains(r.Error.Message, "member_manage") {
-		t.Errorf("Sato's own agent seated with member_manage: %s; want it refused (forbidden)", r)
+	if r.Status == "executed" || r.Error == nil || r.Error.Code != "forbidden" || r.Error.Details["reason"] != "principal_level" {
+		t.Errorf("Yuki's own agent given member_manage: %s; want it refused (forbidden, principal_level)", r)
 	}
 
 	id := result[struct {

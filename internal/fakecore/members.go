@@ -42,9 +42,13 @@ type memberView struct {
 	OwnerActorID      *string           `json:"owner_actor_id,omitempty"`
 	OwnerName         *string           `json:"owner_name,omitempty"`
 	AnswersCourse     bool              `json:"answers_course"`
+	// SiteChat, for an agent's seat: whether people in the site may ask
+	// it (me_site_chat); absent for a person's.
+	SiteChat *bool `json:"site_chat,omitempty"`
+	ceilings
 }
 
-func viewMember(m *member) memberView {
+func (c *Core) viewMember(m *member) memberView {
 	v := memberView{ID: m.id, ActorID: m.actor.id, DisplayName: m.actor.name, Kind: m.actor.kind, Role: m.role, Status: m.status,
 		ExpiresAt: m.expiresAt, StudentScope: m.studentScope, AssignmentScope: m.assignmentScope,
 		Perms: make(map[string]string, len(allPerms)), CreatedAt: m.createdAt, AnswersCourse: m.answersCourse}
@@ -60,6 +64,10 @@ func viewMember(m *member) memberView {
 	if o := m.actor.owner; o != nil {
 		v.OwnerActorID, v.OwnerName = ptr(o.id), ptr(o.name)
 	}
+	if m.actor.kind == "agent" {
+		v.SiteChat = ptr(c.takesSiteChat(m.actor))
+	}
+	v.ceilings = ceilingsOf(m)
 	return v
 }
 
@@ -100,7 +108,7 @@ func memberList() *impl {
 					(!in.IncludeRemoved && m.status == statusRemoved) {
 					continue
 				}
-				out.Members = append(out.Members, viewMember(m))
+				out.Members = append(out.Members, c.viewMember(m))
 			}
 			if n := len(out.Members); n > 0 && n == limit {
 				out.Next = &out.Members[n-1].ID
@@ -140,7 +148,7 @@ func memberGet() *impl {
 			if err != nil {
 				return nil, err
 			}
-			v := viewMember(m)
+			v := c.viewMember(m)
 			v.ListedStudents, v.ListedAssignments = sortedIDs(m.students), sortedIDs(m.assignments)
 			return v, nil
 		},
@@ -150,33 +158,39 @@ func memberGet() *impl {
 type memberLookupActorIn struct {
 	inCourse
 	Email   *string    `json:"email,omitempty"`
+	LoginID *string    `json:"login_id,omitempty"`
 	ActorID *uuid.UUID `json:"actor_id,omitempty"`
 }
 
 // memberLookupActor finds the actor an id names, for whoever seats people:
 // with their seat here when they have one, and their owner when an agent
-// is someone's. Nobody here has an email address, so an email finds
-// nobody.
+// is someone's. Nobody here has an email address or a login ID, so
+// neither finds anybody.
 func memberLookupActor() *impl {
 	return define(spec[memberLookupActorIn]{
 		gate:    gateManageMembers,
 		resolve: func(*Core, *course, memberLookupActorIn) (target, error) { return target{typ: "actor"}, nil },
 		query: func(c *Core, rc *readCtx, in memberLookupActorIn) (any, error) {
-			var email *string
-			if in.Email != nil {
-				if e := strings.TrimSpace(*in.Email); e != "" {
-					email = &e
+			given := 0
+			for _, v := range []*string{in.Email, in.LoginID} {
+				if v != nil && strings.TrimSpace(*v) != "" {
+					given++
 				}
 			}
-			if (email == nil) == (in.ActorID == nil) {
-				return nil, invalid("give one of email or actor_id")
+			if in.ActorID != nil {
+				given++
 			}
+			if given != 1 {
+				return nil, invalid("give one of email, login_id and actor_id")
+			}
+			// The fake keeps nobody's email or login ID: only an id
+			// finds anyone.
 			var a *actor
 			if in.ActorID != nil {
 				a = c.actors[in.ActorID.String()]
 			}
 			if a == nil || a.kind == "system" {
-				return nil, missing("nobody is registered with that email or id")
+				return nil, missing("nobody is registered with that email, login ID or id")
 			}
 			out := struct {
 				ActorID      string  `json:"actor_id"`
@@ -351,6 +365,9 @@ func memberAdd() *impl {
 			}
 			m, err := c.seatNew(ec, in.ActorID.String(), role, name, perms, expiresAt)
 			if err != nil {
+				return nil, err
+			}
+			if err := toCeilings(m.actor.kind == "agent", nil, m.perms, in.Perms); err != nil {
 				return nil, err
 			}
 			if err := c.writeScope(m, studentScope, students, listsItself, assignmentScope, assignments); err != nil {

@@ -28,8 +28,8 @@ type agentSeat struct {
 // world is one test's own piece of Core, built as Core's scripts/e2e.sh
 // builds its worked example: an admin, a term, a department and CS101 (A),
 // activated; Sato, who teaches it and owns its tutor; Mori, a second
-// instructor, who decides the tutor's proposals, since nobody decides their
-// own agent's; the students Yuki and Ken; HW3, published; Yuki's own agent,
+// instructor, who decides the tutor's proposals; the students Yuki and
+// Ken; HW3, published; Yuki's own agent,
 // seated as a student's is, by her request and Sato's approval; and Sato's
 // course tutor. No two worlds share a course, a person or an agent, so the
 // tests run side by side without seeing each other.
@@ -261,9 +261,11 @@ func (c conversation) pending() string {
 }
 
 // ask has p open a conversation with the member respondent, asking body,
-// and returns the conversation and the question.
+// and returns the conversation and the question. An agent is asked once it
+// answers in the site (answersInSite).
 func (w *world) ask(t testing.TB, p person, respondent, body string) (conv, msg string) {
 	t.Helper()
+	w.answersInSite(t, respondent)
 	r := result[struct {
 		ConversationID string `json:"conversation_id"`
 		MessageID      string `json:"message_id"`
@@ -272,6 +274,37 @@ func (w *world) ask(t testing.TB, p person, respondent, body string) (conv, msg 
 		t.Fatalf("%s asked, and Core named no conversation or message", p.name)
 	}
 	return r.ConversationID, r.MessageID
+}
+
+// answersInSite waits until the seat member, when it is an agent's, answers
+// in the site: Core asks an agent nothing (agent_answers_elsewhere) until
+// what runs it has said so with its token (me_site_chat), which the runtime
+// does as it starts the agent. Sato, who reads the roster, reads the seat's
+// site_chat.
+func (w *world) answersInSite(t testing.TB, member string) {
+	t.Helper()
+	deadline := time.Now().Add(answerWait)
+	for {
+		seat := result[struct {
+			Kind     string `json:"kind"`
+			SiteChat *bool  `json:"site_chat"`
+		}](t, w.api, w.sato.token, "GET", w.path("/members/"+member), nil)
+		if seat.Kind != "agent" || seat.SiteChat != nil && *seat.SiteChat {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the agent seated as %s never came to answer in the site: nothing declared it with me_site_chat", member)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// declareSiteChat declares with a's token that it answers in the site, as
+// a runtime that ran it before did: for a question asked before the
+// runtime under test starts.
+func (w *world) declareSiteChat(t testing.TB, a agentSeat) {
+	t.Helper()
+	w.api.call(t, http.StatusOK, a.token, "POST", "/v1/me/site-chat", map[string]any{"on": true})
 }
 
 // followUp has p write again in conv, and returns the message. It may be
