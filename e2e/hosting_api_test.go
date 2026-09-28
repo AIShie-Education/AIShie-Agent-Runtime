@@ -178,9 +178,15 @@ func hostingThroughTheAPI(t *testing.T, w *world) {
 		t.Errorf("the answer is %q in reply to %s", ans.text(), ans.replyTo())
 	}
 	// Today's use counts it (its cost is unknown: the worker here has no
-	// price table).
-	if got := waitStatus(api.StatusRunning); got.Today.Answers < 1 || got.Today.CostUSD != "0.000000" || len(got.Seats) != 1 {
-		t.Errorf("after an answer: %+v", got)
+	// price table). The ledger has it once the worker has recorded the
+	// answer, which is after Core took it: waited for, not read at once.
+	var used api.HostedAgent
+	eventually(t, answerWait, "today's use counting the answer", func() bool {
+		an := call("GET", "agents/"+id, "")
+		return an.code == 200 && json.Unmarshal(an.body, &used) == nil && used.Today.Answers >= 1
+	})
+	if used.Status != api.StatusRunning || used.Today.CostUSD != "0.000000" || len(used.Seats) != 1 {
+		t.Errorf("after an answer: %+v", used)
 	}
 
 	// Paused: it calls Core no more. Resumed: it runs again.
