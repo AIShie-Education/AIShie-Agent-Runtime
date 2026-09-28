@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
+
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/jsonstrict"
 )
 
 // REST, as Core's httpapi answers it: every tool at its catalogue route and
@@ -254,7 +256,7 @@ func buildArgs(t *toolDef, method, pattern string, r *http.Request) ([]byte, err
 			return nil, err
 		}
 		if len(body) > 0 {
-			if err := checkJSON(body); err != nil {
+			if err := jsonstrict.Check(body); err != nil {
 				return nil, invalid("the body: %v", err)
 			}
 			dec := json.NewDecoder(bytes.NewReader(body))

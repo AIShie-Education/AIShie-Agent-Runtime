@@ -151,21 +151,10 @@ func TestCanonicalize(t *testing.T) {
 	if _, err := canonicalize([]byte(`[1]`)); err == nil {
 		t.Error("an array canonicalized")
 	}
-	for _, lit := range []string{`{"n":1e401}`, `{"n":1e-401}`, `{"n":1` + strings.Repeat("0", 400) + `}`, `{"n":1e400}`} {
-		if err := checkJSON([]byte(lit)); err == nil {
-			t.Errorf("%.40s: a number out of canon's bounds passed", lit)
-		}
-	}
 	for lit, want := range map[string]string{`{"n":1e2}`: `{"n":100}`, `{"n":-0.0}`: `{"n":0}`, `{"n":12.340e-3}`: `{"n":0.01234}`} {
 		if got, err := canonicalize([]byte(lit)); err != nil || string(got) != want {
 			t.Errorf("%s: %s %v, want %s", lit, got, err, want)
 		}
-	}
-	if err := checkJSON([]byte(`{"a":1,"b":{"c":2,"c":3}}`)); err == nil {
-		t.Error("a key given twice passed")
-	}
-	if err := checkJSON([]byte(`{"a":[{"b":1},{"b":2}],"c":{}}`)); err != nil {
-		t.Errorf("the same key in two objects: %v", err)
 	}
 }
 
