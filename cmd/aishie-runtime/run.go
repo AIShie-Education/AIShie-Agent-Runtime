@@ -174,7 +174,8 @@ wait:
 
 // noAgentsNote says what a runtime with no agent does, and how one is added.
 const noAgentsNote = "no agent is configured: the runtime starts and waits. Add an agent's YAML to CONFIG, " +
-	"check it (aishie-runtime check --live), and send the runtime SIGHUP (docker kill -s HUP aishie-runtime)"
+	"check it (aishie-runtime check --live), and send the runtime SIGHUP (in the compose stack, " +
+	"aishie compose kill -s HUP runtime; deployed with aishie-runtime-deploy, docker kill -s HUP aishie-runtime)"
 
 // warnNoAgents logs, at start and on every reload, that there is no agent:
 // the runtime is healthy and does nothing, which is right before the first
