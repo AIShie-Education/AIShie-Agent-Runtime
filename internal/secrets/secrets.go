@@ -132,8 +132,9 @@ type Resolver struct {
 	// without KMS_KEY_ID must.
 	Sealed Opener
 	// Deny are directories no secret:// or file:// reference may read,
-	// its links followed: the keyring of sealed secrets, which lies in
-	// SECRETS_DIR, and must never be sent to a provider as a key.
+	// its links followed, nor any file of theirs by another path (a link
+	// or a mount from elsewhere): the keyring of sealed secrets, which
+	// lies in SECRETS_DIR, and must never be sent to a provider as a key.
 	Deny []string
 }
 
@@ -179,7 +180,7 @@ func (r Resolver) Resolve(ctx context.Context, ref, baseDir string) (string, err
 			err = fmt.Errorf("%s: %w", redact.String(ref), errDenied)
 			break
 		}
-		v, err = readFile(p)
+		v, err = readFile(p, r.keyFile)
 		if err != nil {
 			err = fmt.Errorf("%s: %w", redact.String(ref), redactedError{err})
 		}
@@ -212,7 +213,7 @@ func (r Resolver) secret(ref string) (string, error) {
 		return "", fmt.Errorf("%s: %w", redact.String(ref), errDenied)
 	}
 	if r.Dir != "" {
-		v, err := readInRoot(r.Dir, p)
+		v, err := readInRoot(r.Dir, p, r.keyFile)
 		switch {
 		case err == nil:
 			return v, nil
@@ -242,8 +243,34 @@ func (r Resolver) sealed(ctx context.Context, ref string) (string, error) {
 	return v, nil
 }
 
-// errDenied is a reference that reaches a directory of Deny.
+// errDenied is a reference that reaches a directory of Deny, or a file of
+// one by another path.
 var errDenied = errors.New("it is in the keyring of sealed secrets (KMS_KEY_ID's directory), which no reference reads")
+
+// keyFile reports whether info, a file just opened, is a file of a Deny
+// directory, its links followed: the same file (os.SameFile), whatever
+// path reached it. A path is not enough: a key file may be a link to a
+// file kept elsewhere, have a hard link elsewhere, or its directory be
+// mounted a second time, and each is a path outside the directory to the
+// key itself.
+func (r Resolver) keyFile(info fs.FileInfo) bool {
+	for _, d := range r.Deny {
+		if d == "" {
+			continue
+		}
+		entries, err := os.ReadDir(d)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			k, err := os.Stat(filepath.Join(d, e.Name()))
+			if err == nil && k.Mode().IsRegular() && os.SameFile(k, info) {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // denied reports whether path, its links followed, is within a directory
 // of Deny, its links followed too. A path that is not there is judged as
@@ -286,9 +313,10 @@ func filePath(ref, baseDir string) string {
 	return filepath.Join(baseDir, p)
 }
 
-// readInRoot reads the file at slash-separated path p within dir. os.Root
-// refuses a path, or a symbolic link, that leads outside dir.
-func readInRoot(dir, p string) (string, error) {
+// readInRoot reads the file at slash-separated path p within dir, unless
+// denied says it is not to be read. os.Root refuses a path, or a symbolic
+// link, that leads outside dir.
+func readInRoot(dir, p string, denied func(fs.FileInfo) bool) (string, error) {
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return "", err
@@ -307,10 +335,12 @@ func readInRoot(dir, p string) (string, error) {
 		return "", err
 	}
 	defer func() { _ = f.Close() }()
-	return readLimited(f)
+	return readLimited(f, denied)
 }
 
-func readFile(path string) (string, error) {
+// readFile reads the file at path, unless denied says it is not to be
+// read.
+func readFile(path string, denied func(fs.FileInfo) bool) (string, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return "", err
@@ -323,7 +353,7 @@ func readFile(path string) (string, error) {
 		return "", err
 	}
 	defer func() { _ = f.Close() }()
-	return readLimited(f)
+	return readLimited(f, denied)
 }
 
 // redactedError is an error whose text is redacted, as an *fs.PathError
@@ -345,13 +375,19 @@ func regular(info fs.FileInfo) error {
 	return nil
 }
 
-func readLimited(f *os.File) (string, error) {
+// readLimited reads f, an open file, unless denied says the file it is
+// (as it was opened, whatever became of its path meanwhile) is not to be
+// read.
+func readLimited(f *os.File, denied func(fs.FileInfo) bool) (string, error) {
 	info, err := f.Stat()
 	if err != nil {
 		return "", err
 	}
 	if info.IsDir() {
 		return "", errors.New("is a directory")
+	}
+	if denied(info) {
+		return "", errDenied
 	}
 	b, err := io.ReadAll(io.LimitReader(f, maxSecretBytes+1))
 	if err != nil {

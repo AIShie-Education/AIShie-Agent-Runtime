@@ -311,3 +311,42 @@ func TestResolveDeniesTheKeyring(t *testing.T) {
 		t.Error("secret://kek/v9 was read from the environment")
 	}
 }
+
+// A key of the keyring is refused by what it is, not only by where it is
+// named: a key file that is a link to a file outside the keyring's
+// directory, a hard link to one, or the directory mounted again elsewhere
+// all reach the same file by a path outside it.
+func TestResolveDeniesTheKeyringsFilesWhereverTheyAre(t *testing.T) {
+	dir := t.TempDir()
+	kek := filepath.Join(dir, "kek")
+	if err := os.Mkdir(kek, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const key1 = "WlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlo="
+	const key2 = "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE="
+	// v1 is kept outside the keyring's directory, which links to it.
+	if err := os.WriteFile(filepath.Join(dir, "master.key"), []byte(key1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "master.key"), filepath.Join(kek, "v1")); err != nil {
+		t.Fatal(err)
+	}
+	// v2 is in it, and hard-linked from outside it.
+	if err := os.WriteFile(filepath.Join(kek, "v2"), []byte(key2), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(filepath.Join(kek, "v2"), filepath.Join(dir, "copy")); err != nil {
+		t.Skipf("no hard links here: %v", err)
+	}
+	r := Resolver{Dir: dir, Getenv: env(nil), Deny: []string{kek}}
+	for _, ref := range []string{"secret://master.key", "file://" + filepath.Join(dir, "master.key"), "file://master.key",
+		"secret://copy", "file://" + filepath.Join(dir, "copy")} {
+		v, err := r.Resolve(context.Background(), ref, dir)
+		if err == nil || !strings.Contains(err.Error(), "keyring of sealed secrets") {
+			t.Errorf("Resolve(%s) = %d bytes, %v; want it refused", ref, len(v), err)
+		}
+		if err != nil && (strings.Contains(err.Error(), key1) || strings.Contains(err.Error(), key2)) {
+			t.Errorf("Resolve(%s): the error holds the key", ref)
+		}
+	}
+}

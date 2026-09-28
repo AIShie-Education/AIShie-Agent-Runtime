@@ -533,7 +533,9 @@ agents, and a versioned JSON API for the front end.
   `check --live`. Without `KMS_KEY_ID` a sealed reference is refused, saying
   so. The resolver also refuses a `secret://` or `file://` reference that
   reaches the keyring's directory, which lies in `SECRETS_DIR`, links
-  followed: a KEK sent to a provider as an API key would be every secret.
+  followed, or, once the file is open, that is one of its keys by any other
+  path (a key file linked from elsewhere, a hard link, the directory mounted
+  twice): a KEK sent to a provider as an API key would be every secret.
 - `aishie-runtime keys check` opens every secret with the keyring and says
   which key wraps how many; `keys rewrap` wraps every DEK an older key
   wraps under the current one, a row at a time (the ciphertext is not
