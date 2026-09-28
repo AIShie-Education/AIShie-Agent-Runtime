@@ -38,7 +38,7 @@ func apiTakesCoresAssertion(t *testing.T, w *world) {
 		t.Skip("E2E_RUNTIME_AUDIENCE is not set: this Core makes no assertion for a runtime (scripts/ci-core.sh sets it)")
 	}
 	st, _ := runtimeStore(t)
-	rt := w.startAPI(t, st, audience)
+	rt := w.startAPI(t, st, audience, nil)
 
 	// What a front end reads first.
 	var info api.Info
@@ -176,8 +176,9 @@ type apiInstance struct {
 
 // startAPI serves the API on 127.0.0.1:0 as run does with API_ADDR: its
 // store st, its assertions Core's for audience, checked against the keys
-// Core publishes; its log, redacted and not, among the world's logs.
-func (w *world) startAPI(t *testing.T, st store.Store, audience string) *apiInstance {
+// Core publishes, and its Core the world's; its log, redacted and not,
+// among the world's logs. edit sets what else it is given.
+func (w *world) startAPI(t *testing.T, st store.Store, audience string, edit func(*api.Options)) *apiInstance {
 	t.Helper()
 	rt := &apiInstance{answers: &logBuffer{}, raw: &logBuffer{}}
 	redacted := &logBuffer{}
@@ -188,12 +189,16 @@ func (w *world) startAPI(t *testing.T, st store.Store, audience string) *apiInst
 	w.addLog(t.Name()+" (the API's answers)", rt.answers.String)
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	t.Cleanup(tr.CloseIdleConnections)
-	s := api.New(api.Options{
+	o := api.Options{
 		Addr: "127.0.0.1:0",
 		Verifier: &webauth.Verifier{Keys: webauth.NewRemoteKeys(w.api.base, &http.Client{Transport: tr}), Issuer: w.api.base, Audience: audience,
 			Now: func() time.Time { return time.Now().Add(time.Duration(rt.offset.Load())) }},
-		Store: st, Registerer: prometheus.NewRegistry(), Log: logger,
-	})
+		Store: st, CoreBaseURL: w.api.base, CoreHTTP: &http.Client{Transport: tr}, Registerer: prometheus.NewRegistry(), Log: logger,
+	}
+	if edit != nil {
+		edit(&o)
+	}
+	s := api.New(o)
 	if err := s.Listen(); err != nil {
 		t.Fatal(err)
 	}
@@ -219,12 +224,31 @@ func (w *world) startAPI(t *testing.T, st store.Store, audience string) *apiInst
 // the body, which it keeps with the API's answers.
 func (rt *apiInstance) get(t *testing.T, path, assertion string) (int, []byte) {
 	t.Helper()
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, rt.base+path, nil)
+	code, _, raw := rt.do(t, http.MethodGet, path, assertion, "")
+	return code, raw
+}
+
+// do sends a request to the API, with the assertion, a JSON body when body
+// is not "", and the headers given; it returns the status, the headers and
+// the body, which it keeps with the API's answers.
+func (rt *apiInstance) do(t *testing.T, method, path, assertion, body string, headers ...string) (int, http.Header, []byte) {
+	t.Helper()
+	var rd io.Reader
+	if body != "" {
+		rd = strings.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(t.Context(), method, rt.base+path, rd)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if assertion != "" {
 		req.Header.Set("Authorization", "Bearer "+assertion)
+	}
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	for i := 0; i+1 < len(headers); i += 2 {
+		req.Header.Set(headers[i], headers[i+1])
 	}
 	resp, err := rt.hc.Do(req)
 	if err != nil {
@@ -233,7 +257,7 @@ func (rt *apiInstance) get(t *testing.T, path, assertion string) (int, []byte) {
 	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	_, _ = rt.answers.Write(append(raw, '\n'))
-	return resp.StatusCode, raw
+	return resp.StatusCode, resp.Header, raw
 }
 
 func (rt *apiInstance) getJSON(t *testing.T, path, assertion string, want int, v any) {

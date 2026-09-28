@@ -28,6 +28,7 @@ var scenarios = []scenario{
 	{"binary", theBinary},
 	{"hosted-agent-from-the-registry", hostedAgentAnswers},
 	{"api-takes-cores-assertion", apiTakesCoresAssertion},
+	{"hosting-through-the-api", hostingThroughTheAPI},
 }
 
 // TestRuntimeAgainstCore runs every scenario against the Core under test.
@@ -84,7 +85,7 @@ func noTokenInAnyLog(t *testing.T, worlds []*world) {
 			logs++
 			for n, line := range strings.Split(text, "\n") {
 				lines++
-				if coreTokenRe.MatchString(line) {
+				if holdsToken(line) {
 					t.Errorf("%s, line %d, holds a Core token (ais_…)", c.name, n+1)
 				}
 				if providerKeyRe.MatchString(line) {
@@ -104,6 +105,21 @@ func noTokenInAnyLog(t *testing.T, worlds []*world) {
 		t.Fatal("no log was written, so none could be searched")
 	}
 	t.Logf("searched %d logs, %d lines, for %d secrets", logs, lines, len(secrets))
+}
+
+// hintRe is a token's hint, what the API shows of one (vault.Hint): ais_,
+// its public prefix, and an ellipsis.
+var hintRe = regexp.MustCompile(`^ais_[a-z2-7]{12}…`)
+
+// holdsToken reports whether line holds a Core token: an ais_… that is not
+// a token's hint.
+func holdsToken(line string) bool {
+	for _, loc := range coreTokenRe.FindAllStringIndex(line, -1) {
+		if !hintRe.MatchString(line[loc[0]:]) {
+			return true
+		}
+	}
+	return false
 }
 
 // secretParts are what of a secret must not be found: all of it, and for a
@@ -162,4 +178,20 @@ func ours() []string {
 		}
 	}
 	return out
+}
+
+// A token's hint is not a token; a token is, whether or not a hint's shape
+// begins it.
+func TestHoldsToken(t *testing.T) {
+	for line, want := range map[string]bool{
+		`{"hint":"ais_k7v2m4qhx3ab…"}`:                                             false,
+		`{"token":"ais_k7v2m4qhx3ab_9Jx2abcdefghijklmnopqrstuvwxyz0123456789ABC"}`: true,
+		`ais_k7v2m4qhx3ab… then ais_other_token`:                                   true,
+		`ais_K7V2M4QHX3AB…`:                                                        true,
+		`nothing here`:                                                             false,
+	} {
+		if holdsToken(line) != want {
+			t.Errorf("holdsToken(%q) = %v", line, !want)
+		}
+	}
 }
