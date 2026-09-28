@@ -297,6 +297,26 @@ func TestHostedTokenOfAnotherActor(t *testing.T) {
 	}
 }
 
+// A hosted agent whose row names a person, with the person's own token, is
+// not run: the runtime would act in Core as the person, with every seat of
+// theirs. The API refuses such a token as it connects one; the worker
+// refuses it too.
+func TestHostedTokenOfAPerson(t *testing.T) {
+	w := newWorld(t)
+	person := w.fc.AddPerson("Mallory")
+	h := w.hosting()
+	h.host("agt_person", agent{actor: person}, "", hostedSettings("m1"))
+	wk := h.start(h.build(&config.Config{}), models{"m1": scripted.New()})
+	st := wk.waitState("agt_person", store.AgentError)
+	if !strings.Contains(st.Detail, "its token is not an agent's in Core") {
+		t.Errorf("detail %q", st.Detail)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if n := len(w.calls(person.ID, "")); n != 1 {
+		t.Errorf("%d calls to Core under the person's token; want its one me_get", n)
+	}
+}
+
 // One Core is one Core in the actor claim, however its base URL is
 // written; another host, port or path is another.
 func TestActorKey(t *testing.T) {

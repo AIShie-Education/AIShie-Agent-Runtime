@@ -71,6 +71,13 @@ func newRegistryWorld(t *testing.T) *registryWorld {
 // would.
 func (w *registryWorld) host(t *testing.T, id string, i int, settings string) {
 	t.Helper()
+	w.hostActor(t, id, w.agents[i], settings)
+}
+
+// hostActor connects actor as the hosted agent id, with its token and
+// settings.
+func (w *registryWorld) hostActor(t *testing.T, id string, actor fakecore.Actor, settings string) {
+	t.Helper()
 	seal := func(kind, plaintext string) store.Secret {
 		s, err := w.v.Seal(context.Background(), store.Secret{ID: vault.NewSecretID(), TenantID: "ten_yuki", Kind: kind}, plaintext)
 		if err != nil {
@@ -78,9 +85,9 @@ func (w *registryWorld) host(t *testing.T, id string, i int, settings string) {
 		}
 		return s
 	}
-	tok, key := seal(store.SecretCoreToken, w.agents[i].Token), seal(store.SecretModelKey, "sk-test-0123456789abcdefghij")
+	tok, key := seal(store.SecretCoreToken, actor.Token), seal(store.SecretModelKey, "sk-test-0123456789abcdefghij")
 	_, err := w.st.CreateHostedAgent(t.Context(), store.HostedAgent{
-		ID: id, CoreActorID: w.agents[i].ID, OwnerActorID: "yuki", TenantID: "ten_yuki", DisplayName: "Hosted " + id,
+		ID: id, CoreActorID: actor.ID, OwnerActorID: "yuki", TenantID: "ten_yuki", DisplayName: "Hosted " + id,
 		TokenSecretID: tok.ID, TokenHint: tok.Hint, KeySecretID: key.ID, KeyHint: key.Hint, Settings: json.RawMessage(settings),
 	}, tok, key)
 	if err != nil {
@@ -232,5 +239,24 @@ func TestCheckReadsTheRegistry(t *testing.T) {
 	code, out, errs = runCmd(t, env("CONFIG", t.TempDir(), "DATABASE_URL", fresh), "check")
 	if code != exitOK || !strings.Contains(out, "registry: not read: pgstore: the schema is at version 0") {
 		t.Errorf("check on a schema not migrated: %d\n%s%s", code, out, errs)
+	}
+}
+
+// TestCheckLiveRefusesAPersonsToken: check --live holds a hosted agent's
+// token to what run does: its own actor's, an agent's. A person's own token
+// fails the check at me_get, and nothing more is read with it.
+func TestCheckLiveRefusesAPersonsToken(t *testing.T) {
+	w := newRegistryWorld(t)
+	person := w.fc.AddPerson("Mallory")
+	w.hostActor(t, "agt_person", person, hostedSettings)
+	getenv := env("CONFIG", t.TempDir(), "DATABASE_URL", w.dbURL, "CORE_BASE_URL", w.coreURL, "KMS_KEY_ID", w.kms)
+	code, out, errs := runCmd(t, getenv, "check", "--live")
+	if code != exitFailure || !strings.Contains(out, "agent agt_person: FAILED: me_get: its token is not an agent's in Core") {
+		t.Errorf("check --live of a hosted agent on a person's token: %d\n%s%s", code, out, errs)
+	}
+	for _, c := range w.fc.Calls() {
+		if c.ActorID == person.ID && c.Tool != "me_get" {
+			t.Errorf("check --live called %s with the person's token", c.Tool)
+		}
 	}
 }

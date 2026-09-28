@@ -273,6 +273,9 @@ func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, res
 		return fail("me_get", err)
 	}
 	p("agent %s: connected as %q (%s, %s)", a.ID, redact.String(me.DisplayName), me.ID, me.Kind)
+	if msg := worker.HostedActorProblem(a, me); msg != "" {
+		return fail("me_get", errors.New(msg))
+	}
 	ms, err := c.Memberships(ctx)
 	if err != nil {
 		return fail("me_memberships", err)

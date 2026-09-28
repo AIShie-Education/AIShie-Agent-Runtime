@@ -132,10 +132,8 @@ func (a *Agent) start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("me_get: %w", err)
 	}
-	// A hosted agent's token must be its own actor's: one pasted for
-	// another agent would run that one under this one's settings.
-	if h := a.cfg.Hosted; h != nil && me.ID != h.CoreActorID {
-		return &blockedError{msg: "its token is another Core actor's than the agent's: connect the agent again with a token of its own"}
+	if msg := HostedActorProblem(a.cfg, me); msg != "" {
+		return &blockedError{msg: msg}
 	}
 	// One actor in Core is one agent here: two agents on one token would
 	// answer every question twice over, and spend its rate limit twice.
@@ -164,6 +162,24 @@ func (a *Agent) start(ctx context.Context) error {
 	a.log.Info("agent started", "actor", me.ID, "catalogue", cat.Hash(), "transport", a.cfg.Core.Transport,
 		"adapter", a.primary.ad.Name(), "provider", a.primary.ad.Provider(), "model", a.primary.ad.Model())
 	return nil
+}
+
+// HostedActorProblem says why the actor me_get names, me, is not one hosted
+// agent cfg may run as, or "" when it is, or cfg is not hosted. Its token
+// must be its own actor's: one pasted for another agent would run that one
+// under this one's settings. And that actor must be an agent: a person's
+// own token would have the runtime act as the person, with every seat of
+// theirs.
+func HostedActorProblem(cfg *config.Agent, me *core.Actor) string {
+	switch h := cfg.Hosted; {
+	case h == nil:
+		return ""
+	case me.ID != h.CoreActorID:
+		return "its token is another Core actor's than the agent's: connect the agent again with a token of its own"
+	case me.Kind != core.KindAgent:
+		return "its token is not an agent's in Core: a hosted agent runs only on an agent's own token, never a person's"
+	}
+	return ""
 }
 
 // name is what the agent is called in its prompts: its name in Core.

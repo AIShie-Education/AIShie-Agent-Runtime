@@ -13,6 +13,9 @@ type Actor struct {
 	Status      string `json:"status"`
 }
 
+// KindAgent is an agent's Actor.Kind; a person's is "human".
+const KindAgent = "agent"
+
 // Permission levels, as perms maps carry them.
 const (
 	LevelDenied          = "denied"

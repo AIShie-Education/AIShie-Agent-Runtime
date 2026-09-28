@@ -198,7 +198,10 @@ not pass is not run, and is shown in state `error` with every problem; it
 keeps none of the others from running.
 
 A hosted agent's token must be its own: `me_get` must name the Core actor
-its row does, or it is stopped in state `error` until it changes. And the
+its row does, and that actor must be an agent (a person's own token would
+have the runtime act as the person, in every seat of theirs), or it is
+stopped in state `error` until it changes; `check --live` fails it the same
+way, before reading anything more with the token. And the
 operator's configuration wins a Core actor: a hosted agent on the actor of a
 YAML agent this worker runs is stopped in state `error`, whichever started
 first, until a reload.
