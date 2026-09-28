@@ -384,6 +384,13 @@ func validateRuntimeRules(a *Agent, rt *Runtime, is *issues) {
 	}
 }
 
+// DeniedModel reports whether rt's runtime.denied_models denies model of
+// provider behind adapter, even on an owner's own key, and the pattern
+// that does.
+func DeniedModel(rt Runtime, adapter, provider, model string) (pattern string, denied bool) {
+	return matchModel(rt.DeniedModels, adapter+":"+provider+":"+model)
+}
+
 // matchModel finds the first of patterns that "adapter:provider:model"
 // matches, part by part.
 func matchModel(patterns []string, triple string) (string, bool) {

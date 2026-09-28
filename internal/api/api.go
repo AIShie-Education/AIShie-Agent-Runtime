@@ -29,6 +29,7 @@ import (
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/netguard"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/vault"
@@ -112,7 +113,10 @@ type Server struct {
 	handler  http.Handler
 	m        *metrics
 	coreHTTP *http.Client
-	cats     catalogueCache
+	// modelHTTP carries keys/test's calls: Options.ModelHTTP, or the
+	// guarded client made from CoreHTTP.
+	modelHTTP *http.Client
+	cats      catalogueCache
 
 	perIP, failures, general, token, keyTest *limiter
 	keyDay                                   *dailyLimiter
@@ -143,8 +147,17 @@ func New(o Options) *Server {
 		admins[i] = strings.ToLower(id)
 	}
 	o.AdminActorIDs = admins
+	modelHTTP := o.ModelHTTP
+	if modelHTTP == nil {
+		c, err := netguard.Client(o.CoreHTTP)
+		if err != nil {
+			// A transport it cannot guard: the default one, guarded.
+			c, _ = netguard.Client(nil)
+		}
+		modelHTTP = c
+	}
 	s := &Server{
-		o: o, mux: http.NewServeMux(), m: newMetrics(o.Registerer), coreHTTP: coreClient(o.CoreHTTP),
+		o: o, mux: http.NewServeMux(), m: newMetrics(o.Registerer), coreHTTP: coreClient(o.CoreHTTP), modelHTTP: modelHTTP,
 		perIP: newLimiter(RatePerIP), failures: newLimiter(RateFailures), general: newLimiter(RateGeneral),
 		token: newLimiter(RateToken), keyTest: newLimiter(RateKeyTest), keyDay: newDailyLimiter(KeyTestsPerDay),
 		seen: map[string]time.Time{},
@@ -159,6 +172,9 @@ func New(o Options) *Server {
 	s.mux.Handle("POST "+Prefix+"agents/{id}/pause", s.authed(s.audited("agent.pause", s.pause(true))))
 	s.mux.Handle("POST "+Prefix+"agents/{id}/resume", s.authed(s.audited("agent.resume", s.pause(false))))
 	s.mux.Handle("DELETE "+Prefix+"agents/{id}", s.authedBody(s.audited("agent.delete", s.remove)))
+	s.mux.Handle("PATCH "+Prefix+"agents/{id}", s.authedBody(s.audited("agent.update", s.update)))
+	s.mux.Handle("GET "+Prefix+"models", s.authed(s.models))
+	s.mux.Handle("POST "+Prefix+"keys/test", s.authedBody(s.limitedKeyTest(s.audited("key.test", s.testKey))))
 
 	guard := http.NewCrossOriginProtection()
 	guard.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

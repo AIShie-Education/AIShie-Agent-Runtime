@@ -171,6 +171,23 @@ func (s *Server) limited(l *limiter, h func(http.ResponseWriter, *http.Request, 
 	}
 }
 
+// limitedKeyTest serves h within the caller's allowance of keys/test: its
+// bucket, and KeyTestsPerDay in a UTC day.
+func (s *Server) limitedKeyTest(h func(http.ResponseWriter, *http.Request, *Caller)) func(http.ResponseWriter, *http.Request, *Caller) {
+	return func(w http.ResponseWriter, r *http.Request, c *Caller) {
+		now := s.o.Now()
+		if ok, wait := s.keyTest.take(c.ActorID, now); !ok {
+			writeRateLimited(w, wait)
+			return
+		}
+		if ok, wait := s.keyDay.take(c.ActorID, now); !ok {
+			writeRateLimited(w, wait)
+			return
+		}
+		h(w, r, c)
+	}
+}
+
 // readToken reads a token route's body and the agent it means, having
 // answered a refusal.
 func readToken(w http.ResponseWriter, r *http.Request, c *Caller, au *auditing) (tokenRequest, probe.Want, bool) {
