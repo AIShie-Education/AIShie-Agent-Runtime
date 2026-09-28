@@ -165,6 +165,18 @@ answer makes at most `budgets.per_answer.max_writes` changes (10), and
 `tools.deny` or `tools.allow` narrow which, as they do reads
 (`docs/design.md` §4).
 
+The course's members (seating people, pausing or removing them, changing
+what they may do) an agent manages only when its seat holds
+`member_manage`, which only an instructor gives, and never more than they
+hold. Core gives it to nobody's own agent, so an agent that seats people is
+one nobody owns: an instructor seats it with `member.add`, and it runs here
+from YAML with `tools: {writes: true}`, answering whoever Core lets address
+it (those who hold at least what it holds). It never changes its own seat,
+nor the seat of the person it acts for, whatever it is told, and never
+seats agents; `tools.deny: [member_*]` takes member changes away from it
+altogether. The roster (`member_list`, `member_get`) is read where the
+seat's `member_read` allows, as any read is.
+
 To apply a change to the agents, check it, then either tell the runtime to
 read its configuration again, or deploy the image that is running again,
 which checks it first and changes nothing if the new version refuses it:
