@@ -39,14 +39,18 @@ var ErrRedirect = errors.New("netguard: a redirect is not followed for a hosted 
 // metadata services' 169.254.169.254 among them), carrier-grade NAT, and
 // what is no one's to call (this network, IETF protocol assignments,
 // benchmarking, documentation, reserved, multicast, broadcast, the
-// unspecified addresses).
+// unspecified addresses). The IPv4-compatible (::/96, deprecated) and the
+// IPv4-translated (::ffff:0:0:0/96, SIIT) addresses are refused whole: no
+// provider is reached at one, and a host or a translator may take either
+// for the IPv4 address it holds (::7f00:1 for 127.0.0.1).
 var blocked = func() []netip.Prefix {
 	var out []netip.Prefix
 	for _, p := range []string{
 		"0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12",
 		"192.0.0.0/24", "192.0.2.0/24", "192.168.0.0/16", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24",
 		"224.0.0.0/4", "240.0.0.0/4", "255.255.255.255/32",
-		"::/128", "::1/128", "100::/64", "2001:db8::/32", "fc00::/7", "fe80::/10", "fec0::/10", "ff00::/8",
+		"::/128", "::1/128", "::/96", "::ffff:0:0:0/96", "100::/64", "2001:db8::/32", "fc00::/7", "fe80::/10", "fec0::/10",
+		"ff00::/8",
 	} {
 		out = append(out, netip.MustParsePrefix(p))
 	}

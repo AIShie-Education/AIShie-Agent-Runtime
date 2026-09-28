@@ -55,6 +55,11 @@ var (
 	coreTokenRe = regexp.MustCompile(`ais(?:inv)?_[a-z2-7]{12}_[A-Za-z0-9_-]{16,}`)
 )
 
+// HoldsCoreToken reports whether s holds a Core token or invitation, as
+// Core makes them, anywhere in it: what is never written in configuration,
+// nor sent to a model's provider as its key.
+func HoldsCoreToken(s string) bool { return coreTokenRe.MatchString(s) }
+
 var (
 	adapters = []string{llm.AdapterOpenAIChat, llm.AdapterOpenAIResponses, llm.AdapterAnthropic, llm.AdapterGemini, llm.AdapterBedrockConverse}
 	// providers are the names llm.DetectProvider gives, which an agent may

@@ -85,6 +85,38 @@ func TestLookup(t *testing.T) {
 	}
 }
 
+// PricedAs names the row Lookup takes in the table's own text: the model
+// for a row that names it, the glob that prices it otherwise, whatever the
+// model asked about; nothing when no row prices it.
+func TestPricedAs(t *testing.T) {
+	tab, err := Load("testdata/table.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		provider, model string
+		at              time.Time
+		want            string
+		ok              bool
+	}{
+		{"anthropic", "claude-sonnet-4-5", day("2026-07-01"), "claude-sonnet-4-5", true},
+		{"anthropic", "claude-sonnet-4-20250514", day("2025-06-01"), "claude-sonnet-4*", true},
+		{"anthropic", "claude-haiku-4-5", day("2026-01-01"), "claude-*", true},
+		{"anthropic", "any text {at all}", day("2026-01-01"), "*", true},
+		{"deepseek", "deepseek-chat", day("2025-01-01"), "", false},
+		{"deepseek", "deepseek-chat-v2", day("2026-01-01"), "", false},
+		{"openai", "gpt-4.1", day("2026-01-01"), "", false},
+	} {
+		if got, ok := tab.PricedAs(tc.provider, tc.model, tc.at); got != tc.want || ok != tc.ok {
+			t.Errorf("PricedAs(%s, %s) = %q, %v; want %q, %v", tc.provider, tc.model, got, ok, tc.want, tc.ok)
+		}
+	}
+	var nilTable *Table
+	if _, ok := nilTable.PricedAs("a", "b", time.Now()); ok {
+		t.Error("a nil table prices nothing")
+	}
+}
+
 func TestParseUSDPerMTok(t *testing.T) {
 	for _, tc := range []struct {
 		in   string

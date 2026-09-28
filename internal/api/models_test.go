@@ -259,6 +259,9 @@ func TestKeyTestRefuses(t *testing.T) {
 		{"a model of no model's shape", keysTest("openai", "gpt 4", ownKey), 400, ReasonInvalidField, "/model"},
 		{"a Core token as the key", keysTest("openai", "gpt-4.1-mini", "ais_"+strings.Repeat("a", 12)+"_"+strings.Repeat("B", 43)), 400, ReasonKeyMalformed, "/key"},
 		{"an invitation as the key", keysTest("openai", "gpt-4.1-mini", "aisinv_abcdefgh"), 400, ReasonKeyMalformed, "/key"},
+		{"a Core token in quotes as the key", keysTest("openai", "gpt-4.1-mini", `"ais_`+strings.Repeat("a", 12)+"_"+strings.Repeat("B", 43)+`"`), 400, ReasonKeyMalformed, "/key"},
+		{"a Core token after a key's prefix", keysTest("openai", "gpt-4.1-mini", "sk-proj-ais_"+strings.Repeat("a", 12)+"_"+strings.Repeat("B", 43)), 400, ReasonKeyMalformed, "/key"},
+		{"an invitation inside a key", keysTest("openai", "gpt-4.1-mini", "x-aisinv_"+strings.Repeat("b", 12)+"_"+strings.Repeat("C", 43)), 400, ReasonKeyMalformed, "/key"},
 		{"a short key", keysTest("openai", "gpt-4.1-mini", "sk-1"), 400, ReasonKeyMalformed, "/key"},
 		{"a key with a space", keysTest("openai", "gpt-4.1-mini", "sk-proj abc defgh"), 400, ReasonKeyMalformed, "/key"},
 		{"a key of more than ASCII", keysTest("openai", "gpt-4.1-mini", "sk-proj-ключключ"), 400, ReasonKeyMalformed, "/key"},
@@ -313,6 +316,39 @@ func TestKeyTestRefuses(t *testing.T) {
 	h.add(14 * time.Hour)
 	if a := h.call("POST", "keys/test", h.yuki, keysTest("openai", "gpt-4.1-mini", ownKey)); a.code != 200 {
 		t.Errorf("the next day: %d %s", a.code, a.body)
+	}
+}
+
+// keys/test audits a key's hint only once the key has passed as one a
+// provider may be sent: a Core token given as the key, refused for itself
+// or for another member first, leaves nothing of its secret in the audit.
+func TestKeyTestAuditsNoTokensHint(t *testing.T) {
+	h, p, _ := newModelWorld(t, denyPreviews)
+	token := "ais_" + strings.Repeat("a", 12) + "_" + strings.Repeat("B", 39) + "Zq9x"
+	for _, body := range []string{
+		keysTest("openai", "", token),
+		keysTest("openai", "gpt 4", token),
+		keysTest("openai", "gpt-4.1-mini", token),
+		keysTest("openai", "gpt-4.1-mini", `"`+token+`"`),
+		keysTest("openai", "gpt-4.1-mini", "sk-"+token),
+	} {
+		if a := h.call("POST", "keys/test", h.yuki, body); a.code != http.StatusBadRequest {
+			t.Errorf("%s: %d %s", body, a.code, a.body)
+		}
+	}
+	ev := h.events("key.test")
+	if len(ev) != 5 {
+		t.Fatalf("the audit: %+v", ev)
+	}
+	for _, e := range ev {
+		if strings.Contains(string(e.Detail), "key_hint") || strings.Contains(string(e.Detail), "Zq9x") {
+			t.Errorf("the audit keeps a hint of a Core token: %s", e.Detail)
+		}
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.seen) != 0 {
+		t.Errorf("the provider was asked %d times", len(p.seen))
 	}
 }
 
@@ -447,6 +483,8 @@ func TestPatchRefuses(t *testing.T) {
 		{"a denied model", `"1"`, `{"model":{"own":{"provider":"openai","model":"gpt-5-preview"}},"own_key":{"value":"` + ownKey + `"}}`, 422,
 			CodeFailedPrecondition, ReasonModelDenied, "/model/own/model"},
 		{"a Core token as the key", `"1"`, `{"own_key":{"value":"` + h.helper.Token + `"}}`, 400, CodeInvalidArgument, ReasonKeyMalformed, "/own_key/value"},
+		{"a Core token inside the key", `"1"`, `{"own_key":{"value":"sk-proj-` + h.helper.Token + `"}}`, 400, CodeInvalidArgument, ReasonKeyMalformed, "/own_key/value"},
+		{"a Core token in quotes as the key", `"1"`, `{"own_key":{"value":"\"` + h.helper.Token + `\""}}`, 400, CodeInvalidArgument, ReasonKeyMalformed, "/own_key/value"},
 		{"no key's value", `"1"`, `{"own_key":{}}`, 400, CodeInvalidArgument, ReasonMissingField, "/own_key/value"},
 		{"a member of own it does not take", `"1"`, `{"model":{"own":{"provider":"openai","model":"m","base_url":"https://x"}}}`, 400,
 			CodeInvalidArgument, ReasonUnknownField, "/model/own/base_url"},

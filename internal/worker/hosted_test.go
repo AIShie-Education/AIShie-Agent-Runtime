@@ -10,6 +10,7 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/fakecore"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/scripted"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/registry"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/secrets"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
@@ -497,4 +498,52 @@ func TestHostedOwnerChangedWaitsForItsRow(t *testing.T) {
 	wk.waitState("agt_yuki", store.AgentRunning)
 	conv, _ := w.ask(0, own, "Are you back?")
 	w.waitAnswers(conv, 1)
+}
+
+// A hosted agent's model is its owner's choice, of any text: its calls are
+// counted under the name the price table gives it, and under "other" when
+// the table does not price it, so that no owner's text becomes a metric's
+// label. A YAML agent's model is counted under the name its operator
+// wrote.
+func TestHostedModelsLabels(t *testing.T) {
+	w := newWorld(t)
+	yuki, ken, tu := w.ownAgent("agt_yuki", 0), w.ownAgent("agt_ken", 1), w.tutor("cs101-tutor")
+	h := w.hosting()
+	h.host("agt_yuki", yuki, "", hostedSettings("m1"))
+	h.host("agt_ken", ken, "", hostedSettings("m2"))
+	prices, err := pricing.Parse([]byte(`version: "test"
+prices:
+  - {provider: openai, model: gpt-4.1-mini, from: 2020-01-01, usd_per_mtok: {input: 1, output: 1}}
+  - {provider: openai, model: "o*", from: 2020-01-01, usd_per_mtok: {input: 1, output: 1}}
+`))
+	w.ok(err)
+	const owners = `Ken's model {with} "quotes", and anything`
+	ms := models{
+		"m1": scripted.New(scripted.Reply("Priced.")).WithProvider("openai").WithModel("gpt-4.1-mini"),
+		"m2": scripted.New(scripted.Reply("Not priced.")).WithProvider("openai").WithModel(owners),
+		"m3": scripted.New(scripted.Reply("The operator's.")).WithProvider("vllm").WithModel("operator-model"),
+	}
+	wk := w.start(h.build(w.config(nil, w.agentDoc("cs101-tutor", "m3", nil, nil))), ms, workerOpts{store: h.st, prices: prices,
+		edit: func(o *Options) {
+			o.Secrets = secrets.Resolver{Getenv: w.getenv, Sealed: vault.Opener{Vault: h.v, Store: h.st}}
+		}})
+	for _, id := range []string{"agt_yuki", "agt_ken", "cs101-tutor"} {
+		wk.waitState(id, store.AgentRunning)
+	}
+	c1, _ := w.ask(0, yuki, "A question for my helper.")
+	c2, _ := w.ask(1, ken, "A question for mine.")
+	c3, _ := w.ask(0, tu, "A question for the tutor.")
+	for _, c := range []string{c1, c2, c3} {
+		w.waitAnswers(c, 1)
+	}
+	for _, model := range []string{"gpt-4.1-mini", otherModel, "operator-model"} {
+		if n := counter(t, wk.reg, "llm_calls_total", map[string]string{"model": model}); n < 1 {
+			t.Errorf("no call counted under %q", model)
+		}
+	}
+	for _, name := range []string{"llm_calls_total", "llm_tokens_total"} {
+		if n := counter(t, wk.reg, name, map[string]string{"model": owners}); n != 0 {
+			t.Errorf("%s is labelled with the owner's text", name)
+		}
+	}
 }

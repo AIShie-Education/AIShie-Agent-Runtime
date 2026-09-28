@@ -215,10 +215,15 @@ func (s *Server) denied(sec *modelSection, at string) *Error {
 }
 
 // keyMalformed refuses a key that cannot be a provider's: not 8 to 4,096
-// printable characters of ASCII with no space, or a Core token, which is
-// never sent to a provider.
+// printable characters of ASCII with no space; and one that begins as a
+// Core token or invitation does, or holds one anywhere (pasted in quotes,
+// or after something else), which is never sent to a provider.
 func keyMalformed(key, field string) *Error {
-	bad := len(key) < 8 || len(key) > 4096 || strings.HasPrefix(key, "ais_") || strings.HasPrefix(key, "aisinv_")
+	if strings.HasPrefix(key, "ais_") || strings.HasPrefix(key, "aisinv_") || config.HoldsCoreToken(key) {
+		return fieldError(CodeInvalidArgument, ReasonKeyMalformed, field,
+			"that is an AIShie token, a person's or an agent's, not a provider's API key: it is never sent to a provider")
+	}
+	bad := len(key) < 8 || len(key) > 4096
 	for i := 0; i < len(key) && !bad; i++ {
 		bad = key[i] < 0x21 || key[i] > 0x7e
 	}
@@ -247,14 +252,12 @@ type KeyTest struct {
 // testKey is POST /keys/test: the owner's key tried with the model they
 // chose, in one call of one output token over the hosted-model client.
 // The key is never stored, logged, audited or given back: its hint alone
-// is audited.
+// is audited, and only once it has passed as a key a provider may be sent
+// (keyMalformed), so that nothing of a Core token given as one is kept.
 func (s *Server) testKey(w http.ResponseWriter, r *http.Request, c *Caller, au *auditing) {
 	var req keyTestRequest
 	if !readBody(w, r, &req) {
 		return
-	}
-	if req.Key != "" {
-		au.detail["key_hint"] = vault.Hint(store.SecretModelKey, req.Key)
 	}
 	if req.Provider != "" {
 		au.target("provider", req.Provider)
@@ -265,10 +268,10 @@ func (s *Server) testKey(w http.ResponseWriter, r *http.Request, c *Caller, au *
 		return
 	}
 	if e := keyMalformed(req.Key, "/key"); e != nil {
-		delete(au.detail, "key_hint")
 		WriteError(w, *e)
 		return
 	}
+	au.detail["key_hint"] = vault.Hint(store.SecretModelKey, req.Key)
 	sec, e := req.section("")
 	if e == nil {
 		e = s.denied(sec, "")

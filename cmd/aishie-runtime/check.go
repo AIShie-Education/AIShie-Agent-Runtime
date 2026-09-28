@@ -15,6 +15,7 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/netguard"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/probe"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/redact"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/secrets"
@@ -106,7 +107,7 @@ func cmdCheck(ctx context.Context, args []string, getenv func(string) string, st
 	if !*live {
 		return exitOK
 	}
-	client, err := egressClient(env)
+	clients, err := newLiveClients(env)
 	if err != nil {
 		return failure(stderr, "%v", err)
 	}
@@ -124,7 +125,7 @@ func cmdCheck(ctx context.Context, args []string, getenv func(string) string, st
 	failed := 0
 	cats := map[string]*core.Catalogue{}
 	for _, a := range cfg.Agents {
-		if !checkLive(ctx, p, a, res, client, cats) {
+		if !checkLive(ctx, p, a, res, clients, cats) {
 			failed++
 		}
 	}
@@ -230,9 +231,41 @@ func quotaLine(q config.Quota) string {
 	return strings.Join(parts, " and ") + " a day"
 }
 
+// liveClients are what check --live calls out with: the egress client,
+// and the hosted-model client made from it (netguard.Client), which calls
+// a hosted agent's model at public addresses alone and follows no
+// redirect, as run calls it: an owner chose the model, and its key is
+// theirs.
+type liveClients struct {
+	egress, hosted *http.Client
+}
+
+// newLiveClients makes check --live's clients from the environment, as
+// run makes them.
+func newLiveClients(env config.Env) (liveClients, error) {
+	egress, err := egressClient(env)
+	if err != nil {
+		return liveClients{}, err
+	}
+	hosted, err := netguard.Client(egress)
+	if err != nil {
+		return liveClients{}, fmt.Errorf("the hosted agents' model client: %w", err)
+	}
+	return liveClients{egress: egress, hosted: hosted}, nil
+}
+
+// model is the client agent a's model is called over.
+func (c liveClients) model(a *config.Agent) *http.Client {
+	if a.Hosted != nil {
+		return c.hosted
+	}
+	return c.egress
+}
+
 // checkLive connects one agent as run would, shows its seats, and tries
-// its model's key. It reports whether all went well.
-func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, res secrets.Resolver, client *http.Client, cats map[string]*core.Catalogue) bool {
+// its model's key, over the client run would call it with. It reports
+// whether all went well.
+func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, res secrets.Resolver, clients liveClients, cats map[string]*core.Catalogue) bool {
 	if a.Paused {
 		p("agent %s: paused, not connected", a.ID)
 		return true
@@ -247,7 +280,7 @@ func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, res
 	if err != nil {
 		return fail("the Core token", err)
 	}
-	coreHTTP := *client
+	coreHTTP := *clients.egress
 	coreHTTP.Timeout = core.DefaultTimeout
 	cat := cats[a.Core.BaseURL]
 	if cat == nil {
@@ -316,10 +349,10 @@ func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, res
 			p("    tools: none; it answers from the conversation alone")
 		}
 	}
-	if !tryModel(ctx, p, a, a.Model, res, client) {
+	if !tryModel(ctx, p, a, a.Model, res, clients.model(a)) {
 		ok = false
 	}
-	if fb := a.Model.Fallback; fb != nil && !tryModel(ctx, p, a, *fb, res, client) {
+	if fb := a.Model.Fallback; fb != nil && !tryModel(ctx, p, a, *fb, res, clients.model(a)) {
 		ok = false
 	}
 	return ok

@@ -15,7 +15,8 @@ import (
 
 // Public refuses this host, its networks, link-local and the metadata
 // service, carrier-grade NAT and the ranges no one calls, in both families
-// and in IPv4 written or held in IPv6; it takes public addresses.
+// and in IPv4 written or held in IPv6, the IPv4-compatible and
+// IPv4-translated forms whole; it takes public addresses.
 func TestPublic(t *testing.T) {
 	for _, s := range []string{
 		"127.0.0.1", "127.8.9.10", "10.1.2.3", "172.16.0.1", "172.31.255.255", "192.168.1.1", "169.254.169.254", "169.254.0.1",
@@ -24,6 +25,7 @@ func TestPublic(t *testing.T) {
 		"::1", "::", "fd00::1", "fc00::1", "fe80::1", "fe80::1%eth0", "ff02::1", "2001:db8::1",
 		"::ffff:10.0.0.1", "::ffff:127.0.0.1", "::ffff:169.254.169.254",
 		"64:ff9b::a00:1", "64:ff9b::a9fe:a9fe", "64:ff9b:1::7f00:1", "2002:a00:1::1", "2002:7f00:1::1",
+		"::7f00:1", "::a9fe:a9fe", "::a00:1", "::808:808", "::ffff:0:7f00:1", "::ffff:0:a9fe:a9fe", "::ffff:0:808:808",
 	} {
 		if Public(netip.MustParseAddr(s)) {
 			t.Errorf("%s is taken as public", s)
@@ -64,7 +66,7 @@ func TestDialer(t *testing.T) {
 		dialled = append(dialled, address)
 		return nil, errors.New("no network in this test")
 	}
-	for _, ip := range []string{"127.0.0.1", "10.1.2.3", "169.254.169.254", "::1", "fd00::1", "::ffff:10.0.0.1"} {
+	for _, ip := range []string{"127.0.0.1", "10.1.2.3", "169.254.169.254", "::1", "fd00::1", "::ffff:10.0.0.1", "::7f00:1", "::ffff:0:a9fe:a9fe"} {
 		d := &Dialer{Resolver: resolver{ip}, Dial: dial}
 		if _, err := d.DialContext(t.Context(), "tcp", "api.openai.com:443"); !errors.Is(err, ErrBlocked) {
 			t.Errorf("a name that resolves to %s: %v", ip, err)
