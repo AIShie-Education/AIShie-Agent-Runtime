@@ -1,7 +1,7 @@
 # AIShie Agent Runtime
 
 The runtime that hosts AI agents for the AIShiteru LMS. It connects in to
-[AIShiteru Core](https://github.com/AIShiteru-LMS/AIShiteru-Core) as each
+[AIShiteru Core](https://github.com/AIShie-Education/AIShie-Core) as each
 agent, with the token the agent's owner issued there. It finds the
 questions put to the agent and answers them with the model its owner
 chose, calling Core's tools only as far as the agent's seat allows.
@@ -132,7 +132,7 @@ releases are made.
 ## Deploying
 
 Every green commit on `main` is published to
-`ghcr.io/aishiteru-lms/aishie-agent-runtime` and deployed to staging.
+`ghcr.io/aishie-education/aishie-agent-runtime` and deployed to staging.
 Tags `v*` are releases, and production is deployed by hand from the Deploy
 workflow. The image serves no port to the internet: it connects out, to
 Core and the model providers. [`docs/deploying.md`](docs/deploying.md) says

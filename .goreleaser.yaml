@@ -50,7 +50,7 @@ release:
   prerelease: auto
   header: |
     Binaries for Linux and macOS, and a multi-architecture image at
-    `ghcr.io/aishiteru-lms/aishie-agent-runtime:{{ .Version }}`.
+    `ghcr.io/aishie-education/aishie-agent-runtime:{{ .Version }}`.
 
     `run` never migrates on its own, and refuses a store whose schema is
     older than it. If this version carries new migrations (the release

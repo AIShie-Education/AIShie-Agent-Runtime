@@ -3,7 +3,7 @@
 # start, an upgrade and a rollback alike. Run as root, by hand or by the
 # Deploy workflow over SSH (docs/deploying.md):
 #
-#   aishie-runtime-deploy ghcr.io/aishiteru-lms/aishie-agent-runtime:0.2.0
+#   aishie-runtime-deploy ghcr.io/aishie-education/aishie-agent-runtime:0.2.0
 #
 # In order: check the agents' configuration with the new image, back up the
 # runtime's database, `migrate up` with the new image, replace the container,
@@ -32,7 +32,7 @@ HEALTH_TRIES=${AISHIE_RUNTIME_HEALTH_TRIES:-30}
 # Core's env file, as Core's setup-server.sh writes it: its database is never
 # the runtime's.
 CORE_ENV_FILE=${AISHIE_RUNTIME_CORE_ENV_FILE:-/etc/aishiteru/aishiteru.env}
-REPO=ghcr.io/aishiteru-lms/aishie-agent-runtime
+REPO=ghcr.io/aishie-education/aishie-agent-runtime
 NAME=aishie-runtime
 KEEP_BACKUPS=10
 # The image's nonroot user (distroless), whatever the image says.
@@ -239,4 +239,4 @@ echo "deployed: $want (before: ${prev:-none})"
 
 # The images of this project that no container uses, the one before included:
 # a rollback pulls its image again. Core's images carry another source.
-docker image prune -af --filter "label=org.opencontainers.image.source=https://github.com/AIShiteru-LMS/AIShie-Agent-Runtime" >/dev/null 2>&1 || true
+docker image prune -af --filter "label=org.opencontainers.image.source=https://github.com/AIShie-Education/AIShie-Agent-Runtime" >/dev/null 2>&1 || true

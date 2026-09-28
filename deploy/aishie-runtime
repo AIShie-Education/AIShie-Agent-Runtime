@@ -9,7 +9,7 @@
 #
 # Before the first deploy there is no image running: name one.
 #
-#   AISHIE_RUNTIME_IMAGE=ghcr.io/aishiteru-lms/aishie-agent-runtime:sha-<commit> aishie-runtime check
+#   AISHIE_RUNTIME_IMAGE=ghcr.io/aishie-education/aishie-agent-runtime:sha-<commit> aishie-runtime check
 set -eu
 ENV_FILE=${AISHIE_RUNTIME_ENV_FILE:-/etc/aishie-runtime/runtime.env}
 CONFIG_DIR=${AISHIE_RUNTIME_CONFIG_DIR:-/etc/aishie-runtime/agents}

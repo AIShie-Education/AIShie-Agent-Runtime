@@ -197,10 +197,10 @@ cat <<DONE
    agents' configuration and secrets):
      install -g 65532 -m 640 tutor.yaml $ETC/agents/
      install -D -g 65532 -m 640 /dev/stdin $ETC/secrets/a/b    (paste, then Ctrl-D)
-     AISHIE_RUNTIME_IMAGE=ghcr.io/aishiteru-lms/aishie-agent-runtime:sha-<commit> aishie-runtime check
+     AISHIE_RUNTIME_IMAGE=ghcr.io/aishie-education/aishie-agent-runtime:sha-<commit> aishie-runtime check
 3. Start it, with the image of the latest green push to main (the CI run's
    publish / image job, or the package's page, names it), or of a release:
-     aishie-runtime-deploy ghcr.io/aishiteru-lms/aishie-agent-runtime:sha-<commit>
+     aishie-runtime-deploy ghcr.io/aishie-education/aishie-agent-runtime:sha-<commit>
      curl -s 127.0.0.1:9090/healthz
 4. For the Deploy workflow, in the AIShie-Agent-Runtime repository's
    Settings → Secrets and variables → Actions (not Core's):

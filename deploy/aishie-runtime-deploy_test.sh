@@ -9,7 +9,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-REPO=ghcr.io/aishiteru-lms/aishie-agent-runtime
+REPO=ghcr.io/aishie-education/aishie-agent-runtime
 IMG=$REPO:0.2.0
 OLD=$REPO:0.1.0
 
@@ -100,7 +100,7 @@ ran_nothing() { [ ! -s "$CALLS" ] || fail "ran something: $(paste -sd ';' "$CALL
 # Anything that is not this repository's image is refused before anything
 # runs, Core's own included: each repository deploys only its own image.
 for bad in "" "nginx:latest" "$REPO" "$REPO-evil:1" "ghcr.io/other/aishie-agent-runtime:1" \
-  "ghcr.io/aishiteru-lms/aishiteru-core:0.2.0" \
+  "ghcr.io/aishie-education/aishie-core:0.2.0" \
   "$IMG;id" "$IMG id" "$IMG\$(id)" "$IMG\`id\`" "$IMG|id" "$IMG&id" "$IMG'x"; do
   setup refused
   if deploy "$bad"; then fail "accepted «$bad»"; fi
@@ -124,7 +124,7 @@ done
 [ "$(line 'migrate up')" -lt "$(line 'docker run -d')" ] || fail "started before migrating"
 [ "$(line 'docker run -d')" -lt "$(line 'docker image prune')" ] || fail "images not pruned after the deploy"
 # Only this repository's images: Core's may share the server.
-called "docker image prune -af --filter label=org.opencontainers.image.source=https://github.com/AIShiteru-LMS/AIShie-Agent-Runtime$" ||
+called "docker image prune -af --filter label=org.opencontainers.image.source=https://github.com/AIShie-Education/AIShie-Agent-Runtime$" ||
   fail "pruned $(grep 'image prune' "$CALLS")"
 grep -q -- "--sig-proxy=false .* migrate up" "$CALLS" || fail "migrate up passes a Ctrl-C on: $(grep 'migrate up' "$CALLS")"
 # The service and every one-off see the same things, as the nonroot user.
