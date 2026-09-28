@@ -119,6 +119,8 @@ type agent struct {
 	id    string
 	actor fakecore.Actor
 	seat  fakecore.Member
+	// owner is the person who owns it in Core.
+	owner fakecore.Actor
 }
 
 // ownAgent seats a student's own agent (preset delegate) under student i.
@@ -128,7 +130,7 @@ func (w *world) ownAgent(id string, i int) agent {
 	w.ok(err)
 	m := w.must(w.fc.Seat(a.ID, w.co.ID, fakecore.SeatOptions{Preset: "delegate", Principal: w.studentSeats[i].ID}))
 	w.env.Store(tokenVar(id), a.Token)
-	return agent{id: id, actor: a, seat: m}
+	return agent{id: id, actor: a, seat: m, owner: w.students[i]}
 }
 
 // tutor seats Sato's course tutor (preset course_tutor), answering every
@@ -139,7 +141,7 @@ func (w *world) tutor(id string) agent {
 	w.ok(err)
 	m := w.must(w.fc.Seat(a.ID, w.co.ID, fakecore.SeatOptions{Preset: "course_tutor", Principal: w.satoSeat.ID}))
 	w.env.Store(tokenVar(id), a.Token)
-	return agent{id: id, actor: a, seat: m}
+	return agent{id: id, actor: a, seat: m, owner: w.sato}
 }
 
 func tokenVar(id string) string {

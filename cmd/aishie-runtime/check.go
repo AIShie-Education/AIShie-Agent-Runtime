@@ -276,6 +276,14 @@ func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, res
 	if msg := worker.HostedActorProblem(a, me); msg != "" {
 		return fail("me_get", errors.New(msg))
 	}
+	// A hosted agent's owner is checked as run checks it at the agent's
+	// start, and a failure named by the state run would give it.
+	if prob := worker.HostedOwnerProblem(a, me, cat); prob != nil {
+		return fail(prob.State, prob)
+	}
+	if a.Hosted != nil {
+		p("  owner: Core names the person who connected it")
+	}
 	ms, err := c.Memberships(ctx)
 	if err != nil {
 		return fail("me_memberships", err)

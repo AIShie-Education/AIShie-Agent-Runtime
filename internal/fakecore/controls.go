@@ -222,6 +222,42 @@ func (c *Core) AddAgent(name, ownerID string) (Actor, error) {
 	return c.addActor(name, "agent", owner), nil
 }
 
+// SetOwner gives the agent agentID the person ownerID as its owner, or
+// takes its owner away when ownerID is "", as an administrator's
+// actor.set_owner does in Core: refused while the agent is seated in a
+// course that is not archived, and revoking every token the agent has,
+// since whoever owned it before may hold them. IssueToken issues it the
+// next.
+func (c *Core) SetOwner(agentID, ownerID string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	a := c.actors[agentID]
+	if a == nil || a.kind != "agent" {
+		return fmt.Errorf("fakecore: SetOwner: %s is not an agent here", agentID)
+	}
+	var owner *actor
+	if ownerID != "" {
+		if owner = c.actors[ownerID]; owner == nil || owner.kind != "human" {
+			return fmt.Errorf("fakecore: SetOwner: %s is not a person here", ownerID)
+		}
+	}
+	if a.owner == owner {
+		return errors.New("fakecore: SetOwner: the agent already has that owner")
+	}
+	for _, m := range c.memberList {
+		if m.actor == a && m.status != statusRemoved && m.course.status != statusArchived {
+			return fmt.Errorf("fakecore: SetOwner: %s is seated in %s: take it out first", a.name, m.course.code)
+		}
+	}
+	a.owner = owner
+	for _, cr := range c.tokens {
+		if cr.actor == a {
+			cr.revoked = true
+		}
+	}
+	return nil
+}
+
 // IssueToken issues the actor another token.
 func (c *Core) IssueToken(actorID string) (string, error) {
 	c.mu.Lock()

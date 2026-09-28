@@ -378,6 +378,10 @@ const (
 	AgentRunning      = "running"
 	AgentPaused       = "paused"
 	AgentUnauthorized = "unauthorized" // Core said 401: the owner must issue a new token
+	// AgentOwnerChanged is a hosted agent whose owner in Core is not the
+	// person who connected it here, or who Core says has no owner: it does
+	// not run until its owner connects it again.
+	AgentOwnerChanged = "owner_changed"
 	AgentError        = "error"
 	AgentStopped      = "stopped"
 )

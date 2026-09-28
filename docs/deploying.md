@@ -169,7 +169,12 @@ agents people connect to it themselves, from AIShiteru-Frontend
 their tokens and keys sealed. It is on whenever `DATABASE_URL` is set; the
 runtime puts a change to it in force at once, and `check` lists the hosted
 agents it would run, and those it would not, with why. `/status` marks them
-`hosted`. They connect to `CORE_BASE_URL`. A hosted agent whose id or Core
+`hosted`. They connect to `CORE_BASE_URL`, which must be a Core that names
+an agent's owner (`me.get`'s `owner_actor_id`, since Core's C1): a hosted
+agent runs only while Core names as its owner the person who connected it,
+and is stopped otherwise, in state `owner_changed`, or in state `error` on
+an older Core, which cannot say. `check --live` checks the owner as `run`
+does. A hosted agent whose id or Core
 actor is a YAML agent's does not run: the operator's configuration wins.
 
 ## The key that seals secrets
@@ -340,7 +345,12 @@ machine's loopback, should `HTTP_ADDR` listen wider).
   proposals waiting, the answers and spend today, and the catalogue's hash.
   An agent `unauthorized` has a Core token that no longer works: issue a new
   one, put it in its secret file, and reload; a hosted agent's owner
-  connects it again with a new token instead.
+  connects it again with a new token instead. A hosted agent
+  `owner_changed` is one whose owner in Core is no longer the person who
+  connected it here (Core names someone else, or no one): it does not run
+  until its owner in Core connects it again. A hosted agent in state
+  `error` that says Core does not say who owns an agent is on a Core from
+  before owners were named (C1): upgrade Core, then reload the runtime.
 - **Metrics:** `curl -s 127.0.0.1:9090/metrics`, in Prometheus's format, for
   a Prometheus on the same machine, or through an SSH tunnel. The one to
   watch is `presence_gap_seconds`: above 60, Core shows the agents as away.

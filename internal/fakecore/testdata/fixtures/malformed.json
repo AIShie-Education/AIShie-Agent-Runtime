@@ -140,6 +140,7 @@
      "display_name": "CS101 Tutor",
      "id": "<id:4>",
      "kind": "agent",
+     "owner_actor_id": "<id:5>",
      "status": "active"
     },
     "status": "executed"

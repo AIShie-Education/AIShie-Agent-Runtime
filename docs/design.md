@@ -206,6 +206,30 @@ operator's configuration wins a Core actor: a hosted agent on the actor of a
 YAML agent this worker runs is stopped in state `error`, whichever started
 first, until a reload.
 
+A hosted agent runs only for its owner (the product owner's D5): at each
+start, `me_get`'s `owner_actor_id` (Core's C1) must be the owner its row
+names, the person who connected it. When Core names another owner (the
+agent was given to someone else, or connected by someone who held its
+token without owning it) or none (its owner was taken away), it is
+stopped in state `owner_changed`, whose detail says that its owner in Core
+is no longer the person who connected it here and that its owner must
+connect it again, naming no one; it stays stopped, making no call, through
+other agents' changes, until its row changes (its owner connecting it
+again) or a reload, as an unauthorized agent does. A Core from before C1
+says nothing of owners, which `me_get`'s answer alone cannot tell from an
+agent nobody owns; its catalogue can, since only a Core that names owners
+describes `owner_actor_id`. There the owner cannot be checked, and holding
+the token is not taken as proof of it: the agent is stopped in state
+`error`, saying that Core must be upgraded (`worker.HostedOwnerProblem`).
+`check --live` fails an agent the same way, naming the state `run` would
+give it. When the check passes on a row not yet marked `owner_verified`
+(one stored while holding the token was the proof), the worker marks it,
+with the store's only write of a row, `UpdateHostedAgent`, at the version
+it read: the row's version and the registry's revision move on, and the
+rebuild that follows restarts nothing, since whether an owner has been
+verified changes nothing in how an agent runs. YAML agents are not
+checked: their owner is whoever their operator says.
+
 An agent (`worker.Agent`) starts with `me_get` (the token works), the
 catalogue, and `me_memberships`. It reads memberships again every
 `memberships_s`, and at once after a `forbidden`, `not_found` or `denied`,

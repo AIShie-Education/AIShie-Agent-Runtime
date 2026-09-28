@@ -1,8 +1,10 @@
 package fakecore
 
 import (
+	"bytes"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -54,6 +56,8 @@ type toolDef struct {
 
 // catalogue is every tool, by registry name and by MCP name.
 type catalogue struct {
+	// raw is what GET /v1/tools serves.
+	raw    []byte
 	tools  []*toolDef
 	byName map[string]*toolDef
 	byMCP  map[string]*toolDef
@@ -69,7 +73,7 @@ func loadCatalogue(raw []byte) (*catalogue, error) {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return nil, fmt.Errorf("fakecore: the catalogue: %w", err)
 	}
-	c := &catalogue{byName: map[string]*toolDef{}, byMCP: map[string]*toolDef{}}
+	c := &catalogue{raw: raw, byName: map[string]*toolDef{}, byMCP: map[string]*toolDef{}}
 	for _, t := range doc.Tools {
 		if err := t.prepare(); err != nil {
 			return nil, fmt.Errorf("fakecore: the catalogue: %s: %w", t.Name, err)
@@ -82,6 +86,40 @@ func loadCatalogue(raw []byte) (*catalogue, error) {
 		c.byMCP[t.mcpName] = t
 	}
 	return c, nil
+}
+
+// meGetBeforeOwners is me.get's description before C1.
+const meGetBeforeOwners = "Who the caller is: the actor this credential belongs to."
+
+// withoutOwners is the catalogue raw as a Core from before C1 served it:
+// me.get's result without owner_actor_id, and its description as it was.
+func withoutOwners(raw []byte) ([]byte, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var doc map[string]any
+	if err := dec.Decode(&doc); err != nil {
+		return nil, fmt.Errorf("fakecore: the catalogue: %w", err)
+	}
+	tools, _ := doc["tools"].([]any)
+	found := false
+	for _, t := range tools {
+		tool, _ := t.(map[string]any)
+		if tool == nil || tool["name"] != "me.get" {
+			continue
+		}
+		out, _ := tool["output_schema"].(map[string]any)
+		props, _ := out["properties"].(map[string]any)
+		if _, ok := props["owner_actor_id"]; !ok {
+			return nil, errors.New("fakecore: the catalogue's me.get has no owner_actor_id to take out")
+		}
+		delete(props, "owner_actor_id")
+		tool["description"] = meGetBeforeOwners
+		found = true
+	}
+	if !found {
+		return nil, errors.New("fakecore: the catalogue has no me.get")
+	}
+	return json.Marshal(doc)
 }
 
 func (t *toolDef) prepare() error {
