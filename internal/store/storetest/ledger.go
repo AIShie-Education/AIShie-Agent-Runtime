@@ -293,6 +293,36 @@ func testStatus(t *testing.T, open Opener) {
 		}
 	})
 
+	t.Run("never back to an older version", func(t *testing.T) {
+		s, ctx := open(t), t.Context()
+		for _, st := range []store.AgentState{
+			{AgentID: "agt_1", State: store.AgentRunning, Worker: "w1", ConfigVersion: 4, UpdatedAt: at(time.Minute)},
+			// A slower worker, which put version 3 in force, writes late.
+			{AgentID: "agt_1", State: store.AgentPaused, Worker: "w2", ConfigVersion: 3, UpdatedAt: at(2 * time.Minute)},
+		} {
+			if err := s.SetAgentState(ctx, st); err != nil {
+				t.Fatal(err)
+			}
+		}
+		got, err := s.AgentState(ctx, "agt_1")
+		if err != nil || got.State != store.AgentRunning || got.Worker != "w1" || got.ConfigVersion != 4 {
+			t.Fatalf("an older version's state written over a newer: %+v %v", got, err)
+		}
+		sameTime(t, "updated_at", got.UpdatedAt, us(at(time.Minute)))
+		// The same version, and a later one, replace it.
+		for i, st := range []store.AgentState{
+			{AgentID: "agt_1", State: store.AgentUnauthorized, Reason: store.ReasonTokenRefused, Worker: "w1", ConfigVersion: 4},
+			{AgentID: "agt_1", State: store.AgentStarting, Worker: "w2", ConfigVersion: 5},
+		} {
+			if err := s.SetAgentState(ctx, st); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := s.AgentState(ctx, "agt_1"); err != nil || got.State != st.State || got.ConfigVersion != st.ConfigVersion {
+				t.Errorf("write %d: %+v %v, want %s at %d", i, got, err, st.State, st.ConfigVersion)
+			}
+		}
+	})
+
 	t.Run("a zero UpdatedAt is the store's now", func(t *testing.T) {
 		s, ctx := open(t), t.Context()
 		before := time.Now()

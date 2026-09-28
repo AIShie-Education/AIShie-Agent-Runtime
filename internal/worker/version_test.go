@@ -285,3 +285,78 @@ func TestHostedModelsUseTheGuardedClient(t *testing.T) {
 type roundTrip func(*http.Request) (*http.Response, error)
 
 func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// A worker whose configuration is older than another's never writes over
+// the state the other wrote for a newer version of the row: a second
+// worker that read the registry while the agent was paused (version 3)
+// and puts that in force after the holder resumed it (version 4, running)
+// leaves running as it is, as the store refuses its paused at 3.
+func TestAnOlderVersionsStateIsNotWrittenOverANewer(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("agt_yuki", 0)
+	h := w.hosting()
+	h.host("agt_yuki", own, "", hostedSettings("m1"))
+	yaml := &config.Config{}
+	ctx := context.Background()
+	w1 := h.start(h.build(yaml), models{"m1": scripted.New()})
+	w1.waitState("agt_yuki", store.AgentRunning)
+	eventually(t, "the owner recorded verified", func() bool {
+		row, err := h.st.HostedAgent(ctx, "agt_yuki")
+		return err == nil && row.Version == 2
+	})
+	_, err := h.st.SetHostedAgentPaused(ctx, "agt_yuki", true, 0)
+	w.ok(err)
+	paused := h.build(yaml) // what the slower worker's watcher read
+	_, err = h.st.SetHostedAgentPaused(ctx, "agt_yuki", false, 0)
+	w.ok(err)
+	resumed := h.build(yaml)
+	w1.sup.Update(paused)
+	w1.waitVersion("agt_yuki", store.AgentPaused, 3)
+	w1.sup.Update(resumed)
+	w1.waitVersion("agt_yuki", store.AgentRunning, 4)
+
+	w2 := h.w.start(paused, models{"m1": scripted.New()}, workerOpts{id: "w2", store: h.st, edit: func(o *Options) {
+		o.Secrets = secrets.Resolver{Getenv: h.w.getenv, Sealed: vault.Opener{Vault: h.v, Store: h.st}}
+	}})
+	// w2 has put version 3 in force, and written its paused for it.
+	eventually(t, "the slower worker's paused written", func() bool {
+		w2.sup.mu.Lock()
+		defer w2.sup.mu.Unlock()
+		v, ok := w2.sup.paused["agt_yuki"]
+		return ok && v == 3
+	})
+	w2.sup.Update(resumed)
+	eventually(t, "the slower worker caught up", func() bool {
+		w2.sup.mu.Lock()
+		defer w2.sup.mu.Unlock()
+		r := w2.sup.runners["agt_yuki"]
+		return r != nil && hostedVersion(r.cfg) == 4
+	})
+	if st := w1.state("agt_yuki"); st.State != store.AgentRunning || st.ConfigVersion != 4 || st.Worker != "w1" {
+		t.Errorf("the agent runs on w1 at version 4; its state: %+v", st)
+	}
+}
+
+// An agent removed from the configuration (its row deleted) is recorded
+// stopped at the version of the row it ran, which its state already
+// names: the store takes no state of an older version over it.
+func TestRemovedIsStoppedAtItsVersion(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("agt_yuki", 0)
+	h := w.hosting()
+	h.host("agt_yuki", own, "", hostedSettings("m1"))
+	yaml := &config.Config{}
+	ctx := context.Background()
+	wk := h.start(h.build(yaml), models{"m1": scripted.New()})
+	eventually(t, "the owner recorded verified", func() bool {
+		row, err := h.st.HostedAgent(ctx, "agt_yuki")
+		return err == nil && row.Version == 2
+	})
+	wk.sup.Update(h.build(yaml))
+	wk.waitVersion("agt_yuki", store.AgentRunning, 2)
+	w.ok(h.st.DeleteHostedAgent(ctx, "agt_yuki", store.DeleteIf{}))
+	wk.sup.Update(h.build(yaml))
+	if st := wk.waitState("agt_yuki", store.AgentStopped); st.ConfigVersion != 2 || st.Detail != "removed from the configuration" {
+		t.Errorf("stopped: %+v", st)
+	}
+}

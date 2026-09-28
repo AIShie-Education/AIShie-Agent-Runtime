@@ -3,12 +3,15 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/fakecore"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/scripted"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/registry"
@@ -545,5 +548,74 @@ prices:
 		if n := counter(t, wk.reg, name, map[string]string{"model": owners}); n != 0 {
 			t.Errorf("%s is labelled with the owner's text", name)
 		}
+	}
+}
+
+// A new token put in force while the instance on the old one winds down:
+// that instance meets Core's 401 (the new token revoked the old), and
+// ends only after apply has put the new configuration in force. How it
+// ended is not the new token's: nothing is written for it, nothing is
+// blocked, and the agent runs on its new token, its state at the row's
+// new version.
+func TestNewTokenWhileTheOldWindsDown(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("agt_yuki", 0)
+	h := w.hosting()
+	h.host("agt_yuki", own, "", hostedSettings("m1"))
+	yaml := &config.Config{}
+	started, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	slow := func(ctx context.Context, req *llm.Request) (*llm.Response, error) {
+		once.Do(func() { close(started) })
+		<-release // an answer in progress, which the old instance waits for
+		return scripted.Reply("Late, but here.")(ctx, req)
+	}
+	again := scripted.Reply("On the new token.")
+	wk := h.start(h.build(yaml), models{"m1": scripted.New(slow, again, again, again)})
+	wk.waitState("agt_yuki", store.AgentRunning)
+	eventually(t, "the owner recorded as verified", func() bool {
+		row, err := h.st.HostedAgent(context.Background(), "agt_yuki")
+		return err == nil && row.Version == 2
+	})
+	w.ask(0, own, "Take your time.")
+	<-started
+
+	// PUT /token: the new token written, then the old one revoked with
+	// it; the old instance's pollers meet the 401.
+	token, err := w.fc.IssueToken(own.actor.ID)
+	w.ok(err)
+	row, err := h.st.HostedAgent(context.Background(), "agt_yuki")
+	w.ok(err)
+	tok := h.seal(row.TenantID, store.SecretCoreToken, token)
+	row.TokenSecretID = tok.ID
+	updated, err := h.st.UpdateHostedAgent(context.Background(), *row, tok)
+	w.ok(err)
+	n := len(w.fc.Calls())
+	w.ok(w.fc.Revoke(own.actor.Token))
+	eventually(t, "the old token refused", func() bool {
+		for _, c := range w.fc.Calls()[n:] {
+			if c.ActorID == own.actor.ID && c.HTTPStatus == http.StatusUnauthorized {
+				return true
+			}
+		}
+		return false
+	})
+	// The worker puts the new row in force while the old instance waits
+	// for its answer.
+	wk.sup.Update(h.build(yaml))
+	eventually(t, "the new row put in force, the old instance stopping", func() bool {
+		wk.sup.mu.Lock()
+		defer wk.sup.mu.Unlock()
+		r := wk.sup.runners["agt_yuki"]
+		return r != nil && r.stopping && hostedVersion(r.cfg) == updated.Version
+	})
+	close(release)
+	st := wk.waitVersion("agt_yuki", store.AgentRunning, updated.Version)
+	if st.Reason != "" {
+		t.Errorf("running on the new token, with a reason: %+v", st)
+	}
+	conv, _ := w.ask(0, own, "Are you there, on the new token?")
+	if got := w.waitAnswers(conv, 1); got[0].Body != "On the new token." {
+		t.Errorf("the answer: %q", got[0].Body)
 	}
 }

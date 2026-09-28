@@ -140,7 +140,8 @@ func (s *Store) RecentAnswerCosts(ctx context.Context, agentID string, n int) ([
 	return out, nil
 }
 
-// SetAgentState records the agent's state, replacing the one before.
+// SetAgentState records the agent's state, replacing the one before
+// unless that one names a later config version.
 func (s *Store) SetAgentState(ctx context.Context, st store.AgentState) error {
 	if err := required("agent_id", st.AgentID, "state", st.State); err != nil {
 		return err
@@ -150,7 +151,8 @@ func (s *Store) SetAgentState(ctx context.Context, st store.AgentState) error {
 		VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::timestamptz, now()))
 		ON CONFLICT (agent_id) DO UPDATE
 		   SET state = EXCLUDED.state, reason = EXCLUDED.reason, detail = EXCLUDED.detail, worker = EXCLUDED.worker,
-		       config_version = EXCLUDED.config_version, updated_at = EXCLUDED.updated_at`,
+		       config_version = EXCLUDED.config_version, updated_at = EXCLUDED.updated_at
+		 WHERE agent_state.config_version <= EXCLUDED.config_version`,
 		st.AgentID, st.State, st.Reason, st.Detail, st.Worker, st.ConfigVersion, orNow(st.UpdatedAt))
 	if err != nil {
 		return fmt.Errorf("store: set state of agent %s: %w", st.AgentID, err)

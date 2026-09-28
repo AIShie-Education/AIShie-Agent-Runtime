@@ -307,15 +307,19 @@ func (s *Supervisor) apply(ctx context.Context) {
 			continue
 		}
 		s.mu.Lock()
-		delete(s.runners, c.r.id)
 		holds := c.r.holds
-		c.r.holds = false
 		s.mu.Unlock()
 		// The state is written before the lease goes, so that a worker
-		// taking the agent up reads a handover, not a lapse.
+		// taking the agent up reads a handover, not a lapse; and before
+		// the runner goes, so that it names the version of the row the
+		// agent ran, over whose state the store writes no older one.
 		if c.why != "" && holds {
 			s.writeState(ctx, c.r.id, store.AgentStopped, "", c.why)
 		}
+		s.mu.Lock()
+		delete(s.runners, c.r.id)
+		c.r.holds = false
+		s.mu.Unlock()
 		if holds {
 			s.releaseLease(c.r.id)
 		}
@@ -497,7 +501,11 @@ func (s *Supervisor) stopRunner(r *runner, grace time.Duration) {
 // hosted agent's owner is not the one who connected it (owner_changed,
 // likewise), it failed (error, started again after a backoff, with why:
 // agent_suspended for an agent Core suspended, failing for the rest), or
-// it was stopped.
+// it was stopped. An instance of a configuration since replaced (apply
+// put a new token or new settings in force while it wound down) records
+// nothing: how it ended says nothing of the configuration in force, which
+// the next lease tick starts, and whose state is its own to write. Its
+// 401 is most often that of the token the new one revoked.
 func (s *Supervisor) agentEnded(r *runner, ag *Agent, err error) {
 	s.mu.Lock()
 	if r.agent != ag {
@@ -507,6 +515,10 @@ func (s *Supervisor) agentEnded(r *runner, ag *Agent, err error) {
 	r.agent = nil
 	stopping := r.stopping
 	r.stopping = false
+	if !sameRun(ag.cfg, r.cfg) {
+		s.mu.Unlock()
+		return
+	}
 	var state, reason, detail string
 	var blocked *blockedError
 	var owner *OwnerProblem

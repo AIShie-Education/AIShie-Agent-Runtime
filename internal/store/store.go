@@ -446,6 +446,11 @@ type AgentState struct {
 
 // Status is each agent's state.
 type Status interface {
+	// SetAgentState records s as the agent's state, in place of the one
+	// before, unless that one names a later ConfigVersion: a worker that
+	// put an older version of a hosted agent's row in force (a slower
+	// watcher, a late write) never writes over the state of a newer one.
+	// That is not an error: the newer state stands.
 	SetAgentState(ctx context.Context, s AgentState) error
 	// AgentState is one agent's state, or ErrNotFound when none is
 	// recorded.

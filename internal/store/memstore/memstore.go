@@ -637,13 +637,17 @@ func (s *Store) RecentAnswerCosts(_ context.Context, agentID string, n int) ([]i
 	return out, nil
 }
 
-// SetAgentState records the agent's state, replacing the one before.
+// SetAgentState records the agent's state, replacing the one before
+// unless that one names a later config version.
 func (s *Store) SetAgentState(_ context.Context, st store.AgentState) error {
 	if err := required("agent_id", st.AgentID, "state", st.State); err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if old, ok := s.states[st.AgentID]; ok && old.ConfigVersion > st.ConfigVersion {
+		return nil
+	}
 	st.UpdatedAt = s.orNow(st.UpdatedAt)
 	s.states[st.AgentID] = st
 	return nil
