@@ -287,20 +287,35 @@ func wantRefused(t *testing.T, a answer, status int, code, reason string) refusa
 }
 
 // GET /info answers anyone, cached a minute: what the runtime is, its
-// version, the audience to ask Core for, the issuer, and what it offers.
+// version, the audience to ask Core for, the issuer, and what it offers:
+// hosting only when it has a Core to ask and a vault to seal with, as run
+// gives it both.
 func TestInfo(t *testing.T) {
-	f := newFixture(t, nil)
-	a := f.get(Prefix+"info", "")
-	wantSecured(t, a, "public, max-age=60")
-	var info Info
-	a.decode(t, &info)
-	want := Info{API: "aishie-runtime", APIVersion: 1, Version: version.Version, Commit: version.Commit, Audience: audience, Issuer: issuer,
-		Features: Features{ConnectByToken: true, OwnKey: true}}
-	if a.code != http.StatusOK || info != want {
-		t.Errorf("info: %d %+v", a.code, info)
-	}
-	if !strings.Contains(a.body, `"school_key":false`) || !strings.Contains(a.body, `"api_version":1`) {
-		t.Errorf("info: %s", a.body)
+	for _, tc := range []struct {
+		name  string
+		edit  func(*Options)
+		hosts bool
+	}{
+		{"no vault, no Core", nil, false},
+		{"no Core", func(o *Options) { o.Vault = testVault(t) }, false},
+		{"no vault", func(o *Options) { o.CoreBaseURL = issuer }, false},
+		{"both", func(o *Options) { o.Vault, o.CoreBaseURL = testVault(t), issuer }, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t, tc.edit)
+			a := f.get(Prefix+"info", "")
+			wantSecured(t, a, "public, max-age=60")
+			var info Info
+			a.decode(t, &info)
+			want := Info{API: "aishie-runtime", APIVersion: 1, Version: version.Version, Commit: version.Commit, Audience: audience, Issuer: issuer,
+				Features: Features{ConnectByToken: tc.hosts, OwnKey: tc.hosts}}
+			if a.code != http.StatusOK || info != want {
+				t.Errorf("info: %d %+v", a.code, info)
+			}
+			if !strings.Contains(a.body, `"school_key":false`) || !strings.Contains(a.body, `"api_version":1`) {
+				t.Errorf("info: %s", a.body)
+			}
+		})
 	}
 }
 

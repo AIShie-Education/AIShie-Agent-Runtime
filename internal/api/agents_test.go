@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -446,6 +447,52 @@ func TestReplaceToken(t *testing.T) {
 	// Once the worker runs the new version, it shows running.
 	h.ok(h.st.SetAgentState(ctx, store.AgentState{AgentID: v.ID, State: store.AgentRunning, ConfigVersion: 2}))
 	h.noSecrets(a, b)
+}
+
+// racingStore runs before once, just before the first write of a hosted
+// agent: a request that won the race to it.
+type racingStore struct {
+	store.Store
+	ran    atomic.Bool
+	before func()
+}
+
+func (s *racingStore) UpdateHostedAgent(ctx context.Context, a store.HostedAgent, secrets ...store.Secret) (*store.HostedAgent, error) {
+	if s.ran.CompareAndSwap(false, true) {
+		s.before()
+	}
+	return s.Store.UpdateHostedAgent(ctx, a, secrets...)
+}
+
+// Two requests giving the same new token at once: the one that loses the
+// race to the row answers as a replay, and never revokes the token the
+// winner put in as the one it replaced.
+func TestReplaceTokenRace(t *testing.T) {
+	var h *hostWorld
+	var next fakecore.Token
+	var path string
+	var won answer
+	h = newHostWorld(t, fakecore.Options{}, func(o *Options) {
+		o.Store = &racingStore{Store: o.Store, before: func() { won = h.call("PUT", path, h.yuki, tokenBody(next.Token, "")) }}
+	})
+	v := h.connect(h.yuki, h.helper.Token)
+	next, path = h.token(h.helper.ID), "agents/"+v.ID+"/token"
+	var lost, first TokenReplaced
+	a := h.call("PUT", path, h.yuki, tokenBody(next.Token, ""))
+	a.decode(t, &lost)
+	won.decode(t, &first)
+	if won.code != 200 || first.PreviousToken.Revocation != probe.Revoked || first.Agent.Version != 2 {
+		t.Errorf("the winner: %d %s", won.code, won.body)
+	}
+	if a.code != 200 || a.header.Get("Idempotency-Replayed") != "true" || lost.PreviousToken.Revocation != probe.NotAttempted ||
+		lost.Agent.Version != 2 || lost.Agent.Token.Prefix != next.Prefix {
+		t.Errorf("the loser: %d %s", a.code, a.body)
+	}
+	for _, c := range h.fc.Credentials(h.helper.ID) {
+		if live := c.RevokedAt == nil; (c.ID == next.CredentialID) != live {
+			t.Errorf("credential %s (%s): revoked %v", c.ID, c.Label, !live)
+		}
+	}
 }
 
 // A new token whose revocation of the old one fails still replaces it: the

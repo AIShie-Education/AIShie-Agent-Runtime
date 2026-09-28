@@ -25,7 +25,10 @@ type Info struct {
 	Features Features `json:"features"`
 }
 
-// Features say what the API offers.
+// Features say what the API offers, as it is served: connecting an agent
+// by its token, and choosing its model on the owner's own key, each only
+// when the API was given a Core to ask and a vault to seal with, as run
+// always gives it.
 type Features struct {
 	ConnectByToken bool `json:"connect_by_token"`
 	OwnKey         bool `json:"own_key"`
@@ -34,10 +37,16 @@ type Features struct {
 	SchoolKey bool `json:"school_key"`
 }
 
+// features are what this API can do.
+func (s *Server) features() Features {
+	hosts := s.o.Vault != nil && s.o.CoreBaseURL != ""
+	return Features{ConnectByToken: hosts, OwnKey: hosts}
+}
+
 func (s *Server) info(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Cache-Control", "public, max-age=60")
 	writeJSON(w, http.StatusOK, Info{API: "aishie-runtime", APIVersion: 1, Version: version.Version, Commit: version.Commit,
-		Audience: s.o.Verifier.Audience, Issuer: s.o.Verifier.Issuer, Features: Features{ConnectByToken: true, OwnKey: true}})
+		Audience: s.o.Verifier.Audience, Issuer: s.o.Verifier.Issuer, Features: s.features()})
 }
 
 // Me is GET /me's answer: the person the assertion names, whether they are

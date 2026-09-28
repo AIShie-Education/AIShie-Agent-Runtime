@@ -485,15 +485,7 @@ func (s *Server) replaceToken(w http.ResponseWriter, r *http.Request, c *Caller,
 	}
 	oldHint := row.TokenHint
 	if probe.HintPrefix(oldHint) == ins.prefix {
-		au.detail["revocation"] = probe.NotAttempted
-		v, err := s.view(ctx, row)
-		if err != nil {
-			s.storeUnavailable(w, "a hosted agent's view", err)
-			return
-		}
-		w.Header().Set("Idempotency-Replayed", "true")
-		w.Header().Set("ETag", etag(row.Version))
-		writeJSON(w, http.StatusOK, TokenReplaced{Agent: *v, PreviousToken: revokedToken(oldHint, probe.Revocation{Outcome: probe.NotAttempted})})
+		s.replayToken(ctx, w, row, au)
 		return
 	}
 	if s.o.Vault == nil {
@@ -516,6 +508,12 @@ func (s *Server) replaceToken(w http.ResponseWriter, r *http.Request, c *Caller,
 			break
 		}
 		if row = s.ownRow(ctx, w, row.ID, c); row == nil {
+			return
+		}
+		if probe.HintPrefix(row.TokenHint) == ins.prefix {
+			// A concurrent request gave this very token: what it did,
+			// and never the token revoked as the one replaced.
+			s.replayToken(ctx, w, row, au)
 			return
 		}
 		oldHint = row.TokenHint
@@ -552,6 +550,20 @@ func (s *Server) replaceToken(w http.ResponseWriter, r *http.Request, c *Caller,
 	}
 	w.Header().Set("ETag", etag(updated.Version))
 	writeJSON(w, http.StatusOK, TokenReplaced{Agent: *v, PreviousToken: revokedToken(oldHint, rev)})
+}
+
+// replayToken answers PUT /token given the token the row holds already:
+// the agent as it is, its token not revoked, nothing written.
+func (s *Server) replayToken(ctx context.Context, w http.ResponseWriter, row *store.HostedAgent, au *auditing) {
+	au.detail["revocation"] = probe.NotAttempted
+	v, err := s.view(ctx, row)
+	if err != nil {
+		s.storeUnavailable(w, "a hosted agent's view", err)
+		return
+	}
+	w.Header().Set("Idempotency-Replayed", "true")
+	w.Header().Set("ETag", etag(row.Version))
+	writeJSON(w, http.StatusOK, TokenReplaced{Agent: *v, PreviousToken: revokedToken(row.TokenHint, probe.Revocation{Outcome: probe.NotAttempted})})
 }
 
 // pause is POST /agents/{id}/pause (paused) and …/resume: the agent set
