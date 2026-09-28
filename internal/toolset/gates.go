@@ -58,23 +58,31 @@ func (g Gate) Allowed(perms map[string]string) bool {
 }
 
 // Gates are the permission gates of the read tools a model may be offered,
-// kept by hand because GET /v1/tools does not name them (§4, §10 item 2).
-// CheckCatalogue holds them to the catalogue whenever its hash changes. A
-// tool with no gate here or in WriteGates is never offered: event_list and
-// action_list_mine, which §4 gates on document_read, are left out with
-// BuiltinDeny's reason.
+// kept by hand because GET /v1/tools does not name them (§4, §10 item 2):
+// each is the permissions Core's declaration of the tool checks
+// (internal/tools in AIShiteru-Core). CheckCatalogue holds them to the
+// catalogue whenever its hash changes. A tool with no gate here or in
+// WriteGates is never offered: event_list and action_list_mine, which §4
+// gates on document_read, are left out with BuiltinDeny's reason.
 var Gates = map[string]Gate{
 	"course_get":      {Any: []string{"document_read"}},
 	"assignment_list": {Any: []string{"document_read"}},
 	"assignment_get":  {Any: []string{"document_read"}},
 	"document_list":   {Any: []string{"document_read", "rubric_read"}},
 	"document_get":    {Any: []string{"document_read", "rubric_read", "submission_read", "grade_read"}},
-	"submission_list": {Any: []string{"submission_read"}},
-	"submission_get":  {Any: []string{"submission_read"}},
-	"grade_list":      {Any: []string{"grade_read"}},
-	"grade_get":       {Any: []string{"grade_read"}},
-	"component_tree":  {Any: []string{"grade_read"}},
-	"gradebook_get":   {Any: []string{"grade_read"}},
+	// Every version of a document, for whoever reads drafts; Core then
+	// holds the caller to the document's kind as document_get does.
+	"document_versions": {Any: []string{"document_read_draft"}},
+	"submission_list":   {Any: []string{"submission_read"}},
+	"submission_get":    {Any: []string{"submission_read"}},
+	// Where every student in the caller's scope stands on an assignment,
+	// those who have not started among them; their names only for a seat
+	// that reads the roster.
+	"submission_roster": {Any: []string{"submission_read"}},
+	"grade_list":        {Any: []string{"grade_read"}},
+	"grade_get":         {Any: []string{"grade_read"}},
+	"component_tree":    {Any: []string{"grade_read"}},
+	"gradebook_get":     {Any: []string{"grade_read"}},
 	// The roster, and whom an email or an actor id names, which Core gates
 	// on member_manage: it is for whoever seats people (member_add takes
 	// the actor it finds).
@@ -131,10 +139,11 @@ var WriteGates = map[string]Gate{
 // that may have writes is offered.
 var DefaultAllow = append(slices.Clone(defaultReads), sortedKeys(WriteGates)...)
 
-// defaultReads are the read tools of §2.3, and the roster's.
+// defaultReads are the read tools of §2.3, the versions of a document and
+// where students stand on an assignment, and the roster's.
 var defaultReads = []string{
-	"course_get", "document_list", "document_get", "assignment_list", "assignment_get",
-	"submission_list", "submission_get", "grade_list", "grade_get", "component_tree", "gradebook_get",
+	"course_get", "document_list", "document_get", "document_versions", "assignment_list", "assignment_get",
+	"submission_list", "submission_get", "submission_roster", "grade_list", "grade_get", "component_tree", "gradebook_get",
 	"member_list", "member_get", "member_lookup_actor",
 }
 

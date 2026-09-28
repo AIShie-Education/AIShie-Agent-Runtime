@@ -20,13 +20,17 @@ func TestBuild(t *testing.T) {
 		want  []string
 	}{
 		{
-			name: "a course tutor reads the material and nobody's work", perms: tutorPerms,
+			name: "a course tutor reads the material and nobody's work: no roster of submissions, no drafts", perms: tutorPerms,
 			want: []string{"assignment_get", "assignment_list", "course_get", "document_get", "document_list"},
 		},
 		{
-			name: "a student's own agent reads its principal's work too", perms: delegatePerms,
+			name: "a student's own agent reads its principal's work too, and where they stand on an assignment", perms: delegatePerms,
 			want: []string{"assignment_get", "assignment_list", "component_tree", "course_get", "document_get",
-				"document_list", "grade_get", "grade_list", "gradebook_get", "submission_get", "submission_list"},
+				"document_list", "grade_get", "grade_list", "gradebook_get", "submission_get", "submission_list", "submission_roster"},
+		},
+		{
+			name: "document_read_draft reads a document's versions", perms: map[string]string{"document_read": "autonomous", "document_read_draft": "autonomous"},
+			want: []string{"assignment_get", "assignment_list", "course_get", "document_get", "document_list", "document_versions"},
 		},
 		{
 			name: "rubric_read alone opens the any-gates", perms: map[string]string{"rubric_read": "autonomous"},
@@ -41,7 +45,7 @@ func TestBuild(t *testing.T) {
 			perms: map[string]string{"document_read": "confirm_required", "submission_read": "pending_review",
 				"grade_read": "denied"},
 			want: []string{"assignment_get", "assignment_list", "course_get", "document_get", "document_list",
-				"submission_get", "submission_list"},
+				"submission_get", "submission_list", "submission_roster"},
 		},
 		{
 			name:  "member_read reads the roster, and member_manage alone looks up whom to seat",
@@ -64,7 +68,7 @@ func TestBuild(t *testing.T) {
 			name: "deny takes tools away", perms: delegatePerms,
 			cfg: config.Tools{Deny: []string{"document_get", "grade_get", "not_a_tool"}},
 			want: []string{"assignment_get", "assignment_list", "component_tree", "course_get",
-				"document_list", "grade_list", "gradebook_get", "submission_get", "submission_list"},
+				"document_list", "grade_list", "gradebook_get", "submission_get", "submission_list", "submission_roster"},
 		},
 		{
 			name: "a deny entry ending in * takes every tool it begins", perms: delegatePerms,
@@ -83,12 +87,12 @@ func TestBuild(t *testing.T) {
 			want: []string{"course_get"},
 		},
 		{
-			name: "writes, the built-in deny list and ungated tools are never offered, even allowed",
+			name: "writes, the built-in deny list and tools the seat's perms do not open are never offered, even allowed",
 			perms: map[string]string{"document_read": "autonomous", "grade_submit": "autonomous",
 				"conversation_answer": "autonomous", "member_manage": "autonomous"},
 			cfg: config.Tools{Allow: []string{"conversation_answer", "conversation_messages", "member_add", "member_add_delegate",
 				"member_delegate_defaults", "member_list", "grade_submit", "document_upload_url", "agent_get", "action_decide",
-				"course_update", "course_list", "me_get", "document_versions", "course_get"}},
+				"action_get", "action_list_mine", "course_update", "course_list", "me_get", "document_versions", "submission_roster", "course_get"}},
 			want: []string{"course_get"},
 		},
 		{
@@ -182,9 +186,17 @@ var memberWrites = []string{"member_add", "member_pause", "member_remove", "memb
 func TestBuildWrites(t *testing.T) {
 	cat := snapshot(t)
 	reads := []string{"assignment_get", "assignment_list", "course_get", "document_get", "document_list"}
+	// ownerReads are the instructor's own agent's: it reads drafts.
+	ownerReads := append(slices.Clone(reads), "document_versions")
+	slices.Sort(ownerReads)
 	docWrites := []string{"document_add_version", "document_archive", "document_create", "document_publish"}
 	withReads := func(writes ...string) []string {
 		out := append(slices.Clone(reads), writes...)
+		slices.Sort(out)
+		return out
+	}
+	withOwnerReads := func(writes ...string) []string {
+		out := append(slices.Clone(ownerReads), writes...)
 		slices.Sort(out)
 		return out
 	}
@@ -199,15 +211,15 @@ func TestBuildWrites(t *testing.T) {
 		{
 			name: "its owner's conversation is offered the writes the seat's perms allow", perms: ownerPerms,
 			cfg: config.Tools{Writes: true}, access: ReadWrite,
-			want: withReads(append([]string{"grade_post"}, docWrites...)...), wantWrites: append(slices.Clone(docWrites[:3]), "document_publish", "grade_post"),
+			want: withOwnerReads(append([]string{"grade_post"}, docWrites...)...), wantWrites: append(slices.Clone(docWrites[:3]), "document_publish", "grade_post"),
 		},
 		{
 			name: "anyone else's conversation is offered none", perms: ownerPerms,
-			cfg: config.Tools{Writes: true}, access: ReadOnly, want: reads,
+			cfg: config.Tools{Writes: true}, access: ReadOnly, want: ownerReads,
 		},
 		{
 			name: "writes off in the configuration, none even for its owner", perms: ownerPerms,
-			cfg: config.Tools{}, access: ReadWrite, want: reads,
+			cfg: config.Tools{}, access: ReadWrite, want: ownerReads,
 		},
 		{
 			name: "a denied permission offers none of its writes, and a gate of both needs both",
@@ -236,7 +248,7 @@ func TestBuildWrites(t *testing.T) {
 		{
 			name: "deny takes writes away, by name or beginning", perms: ownerPerms,
 			cfg: config.Tools{Writes: true, Deny: []string{"document_archive", "grade_*"}}, access: ReadWrite,
-			want: withReads("document_add_version", "document_create", "document_publish"),
+			want: withOwnerReads("document_add_version", "document_create", "document_publish"),
 		},
 		{
 			name: "mode none offers no write either", perms: ownerPerms,
@@ -349,7 +361,7 @@ func TestBuildMissingTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Has("grade_get") || s.Len() != 10 {
+	if s.Has("grade_get") || s.Len() != 11 {
 		t.Errorf("offered %v, want the defaults but grade_get", s.Names())
 	}
 }
@@ -363,8 +375,8 @@ func TestDeclarations(t *testing.T) {
 			t.Fatal(err)
 		}
 		decls := s.Declarations()
-		if len(decls) != 11 {
-			t.Fatalf("%s: %d declarations, want 11", d, len(decls))
+		if len(decls) != 12 {
+			t.Fatalf("%s: %d declarations, want 12", d, len(decls))
 		}
 		for i, decl := range decls {
 			if decl.Name != s.Names()[i] {
@@ -390,7 +402,7 @@ func TestDeclarations(t *testing.T) {
 			t.Errorf("%s: a caller's change reached the set", d)
 		}
 	}
-	if cache.Len() != 11*len(toolschema.Dialects) {
+	if cache.Len() != 12*len(toolschema.Dialects) {
 		t.Errorf("the cache holds %d schemas, want one per tool and dialect", cache.Len())
 	}
 }
