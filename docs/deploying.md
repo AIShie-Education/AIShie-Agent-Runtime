@@ -38,9 +38,11 @@ repository's, not Core's, though Core has scripts of the same kind:
 - Beside Core: nothing more than Core's server has. The runtime uses little
   of it: memory for its pollers, and a database far smaller than Core's.
 - On its own: Ubuntu 24.04 or later, 2 CPUs, 2 GB of memory and 20 GB of
-  disk, to start with. The database holds who asked what and when (ids, not
-  what they wrote) and what each answer cost, so pick a provider and a region
-  your institution allows for that.
+  disk, to start with. OCR ([below](#scanned-documents-ocr)) takes one of
+  the CPUs while it reads a scan, and some 200 MB of memory. The database
+  holds who asked what and when (ids, not what they wrote) and what each
+  answer cost, so pick a provider and a region your institution allows for
+  that.
 - Port 22 open, for the Deploy workflow, from GitHub's runners: so, to the
   internet. The only key this repository's workflow uses there can run
   `aishie-runtime-deploy` and nothing else.
@@ -198,12 +200,64 @@ too long for one result (32 KB) is given in parts, which the model asks
 for one after another; each worker keeps what it read of a file (at most
 32 MiB in all), so that the file is fetched and read once for all its
 parts. A
-scanned PDF, or one whose fonts do not map to text, reaches a model that
-takes no files as a note asking for a version with selectable text; an
-older Office file (`.doc`, `.ppt`, `.xls`) as one asking for `.pptx`,
+scanned PDF, or one whose fonts do not map to text, and an image reach a
+model that takes no files as the text the runtime's OCR recognizes of
+them ([below](#scanned-documents-ocr)), marked as OCR's; without OCR, as a
+note asking for a version with selectable text. An older Office file
+(`.doc`, `.ppt`, `.xls`) reaches every model as a note asking for `.pptx`,
 `.docx` or `.xlsx`, or a PDF. Whether a model takes files is its
 adapter's default for its provider, which `model.capabilities.file_input`
 overrides.
+
+### Scanned documents (OCR)
+
+The image holds tesseract, with the Chinese (simplified and traditional)
+and English data Debian packages (the fast models, 2 to 4 MB a language),
+and poppler's `pdftoppm`, which renders a PDF's pages. With them the
+runtime recognizes the text of a scanned PDF, of one whose fonts do not
+map to text, and of an image, for a model that cannot take the file, or
+a PDF past what its provider takes; a model that takes the file is still
+given it, and nothing is recognized for it. `docs/design.md` §4 (OCR) has
+how it works and how it is held in.
+
+- **The image** is Debian 13 slim with those packages, instead of
+  distroless: some 240 MB unpacked and 92 MB to pull (for amd64), where it
+  was 30 MB and 10 MB. It still runs as `65532:65532`, with the same
+  entrypoint, and needs nothing new of `aishie-runtime-deploy`.
+- **What it costs:** one CPU while a file is read, at a lower priority
+  than the runtime's own work, so that answering is not starved. At the
+  default 300 dpi, a dense page of Chinese (some 1,300 characters) takes
+  about 9 s of CPU, a sparse one 1 to 2 s, a blank one well under 1 s: a
+  40-page scan, a few minutes. `OCR_DPI=200` roughly halves that and reads
+  small print less well. tesseract takes about 200 MB of memory while it
+  reads a page, within the 1 GiB (`OCR_MEMORY_MB`) it may have.
+- **How the model sees it:** the first question about a scan starts it in
+  the background and waits for it up to 5 s (`OCR_WAIT`), never past half
+  the answer's time left. A long scan is not ready by then: the model is
+  told it is being read, how far it has come, and to ask again in a
+  minute, with the call to make, and it says so to the person or asks
+  again. Once read, the text is kept in the database by the file's
+  checksum (`ocr_text`, 180 days) and every worker gives it at once, in
+  parts as any long text is, marked `extracted_from: "ocr"` with a note
+  that it may hold recognition errors. A failure is kept a day, then tried
+  again.
+- **The knobs** (in the env file, [below](#the-env-file)): `OCR` (`auto`,
+  `on` or `off`), `OCR_LANGUAGES`, `OCR_MAX_PAGES` (40), `OCR_DPI` (300),
+  `OCR_PAGE_TIMEOUT` (90s), `OCR_TIMEOUT` (15m), `OCR_MEMORY_MB` (1024),
+  `OCR_CONCURRENCY` (files at once per worker: 1; 2 on a server with CPUs
+  to spare), `OCR_QUEUE` (files waiting: 8) and `OCR_WAIT` (5s).
+- **Is it on:** the start's log line says `ocr` and what runs it, or why
+  not, and so does `aishie-runtime check`: `ocr: tesseract 5.5.0
+  chi_sim+chi_tra+eng 300dpi, 1 at once, 40 pages a file at most`. With
+  `OCR=auto` (the default) and the programs missing (a binary run outside
+  the image), OCR is off with a warning, and models are told there is no
+  OCR here; `OCR=on` refuses to start without them.
+- **Watching it:** `ocr_jobs_total{kind,outcome}`, `ocr_pages_total`,
+  `ocr_job_seconds`, `ocr_page_seconds{step}`, `ocr_jobs_running`,
+  `ocr_jobs_waiting` and `ocr_requests_total{result}` in `/metrics`; a
+  `busy` result is a file not started, most often because the queue was
+  full. One log line a file, with the
+  start of its checksum, its outcome, pages and time, never its text.
 
 To apply a change to the agents, check it, then either tell the runtime to
 read its configuration again, or deploy the image that is running again,
@@ -358,6 +412,10 @@ running (above): a restart does not read the file again.
 | `CORE_ASSERTION_KEY` | Core's assertion key, pinned: its Ed25519 public key as the `x` of Core's `/v1/auth/keys`. Unset (the usual), the runtime fetches the keys from `CORE_BASE_URL`. |
 | `ADMIN_ACTOR_IDS` | Core actor ids, comma-separated: the runtime's administrators are Core's `root` and `admin` accounts among them. Unset, all of Core's. |
 | `API_TRUSTED_PROXIES` | the addresses or CIDRs of the proxy in front of the API (`127.0.0.1/32` when Caddy runs on this server), whose `X-Forwarded-For` the audit and the per-address limits believe. Unset, every request seems to come from the proxy, which then shares one allowance. |
+| `OCR` | `auto` (the default: on where its programs are, as in the image), `on` (the runtime does not start without them) or `off` ([above](#scanned-documents-ocr)). |
+| `OCR_LANGUAGES`, `OCR_MAX_PAGES`, `OCR_DPI` | tesseract's languages (`chi_sim+chi_tra+eng`; the image has only these), the pages of a PDF read (`40`), and the resolution they are rendered at (`300`, from 72 to 600). |
+| `OCR_PAGE_TIMEOUT`, `OCR_TIMEOUT`, `OCR_MEMORY_MB` | how long one page may take to render or read (`90s`), one file in all (`15m`), and the memory each program may take (`1024`). |
+| `OCR_CONCURRENCY`, `OCR_QUEUE`, `OCR_WAIT` | the files a worker reads at once (`1`, at most 8), those that may wait (`8`), and how long a question waits for a file's text before the model is told to ask again (`5s`; `0` waits not at all). |
 
 `CONFIG` and `SECRETS_DIR` are set by `aishie-runtime-deploy` to the two
 mounts, whatever the file says. There is no `OIDC_*`: people sign in to

@@ -374,12 +374,12 @@ file (at most 10 MB, a presigned URL through the egress proxy) and gives it
 to the model by what it is, whatever the model; what became of it goes in
 the result as `file`: its name, type and size, `given_as` (`file`, `text`
 in `file_text`, or `not_given`), `extracted_from` when the text is the
-runtime's reading of the file, and a `note` saying why it was not given or
-what the text holds and leaves out.
+runtime's reading of the file (`ocr` when its OCR recognized it), and a
+`note` saying why it was not given or what the text holds and leaves out.
 
 - Text (`text/*`, JSON, Markdown) is its text, to any model.
-- An image is a file part where the adapter takes files, and not given
-  otherwise.
+- An image is a file part where the adapter takes files, and otherwise
+  what the runtime's OCR recognizes of it (OCR, below).
 - A PowerPoint, Word or Excel file (Office Open XML: `.pptx`, `.docx`,
   `.xlsx`, and their macro-enabled and template forms) is the runtime's text
   of it (`internal/doctext`), to every model: a deck's slides in the order
@@ -409,9 +409,10 @@ what the text holds and leaves out.
   letters of two unrelated scripts beyond Latin, Greek, Hangul and those
   written with ideographs at 5 % each (glyph numbers taken for
   characters). A PDF whose text does not read is still a file part where
-  the model and its provider take it; otherwise it is not given, and the
-  note says it looks scanned, or that its fonts do not map to text, and to
-  ask for a version with selectable text.
+  the model and its provider take it; otherwise it is what the runtime's
+  OCR recognizes of it (below), and where there is none, it is not given,
+  and the note says it looks scanned, or that its fonts do not map to
+  text, and to ask for a version with selectable text.
 - An older binary Office file (`.doc`, `.ppt`, `.xls`) is not given: the
   note asks for `.pptx`, `.docx` or `.xlsx`, or a PDF; one encrypted with a
   password, in the same container, is not given either. A file of no type,
@@ -471,6 +472,97 @@ only after Core has given the caller that version, so every agent of the
 worker shares it. It holds at most 32 MiB of text in all, the reading
 used least recently going first past that; a reading that ran out of time
 is not kept, and neither is one larger than the whole bound.
+
+**OCR** (`internal/ocr`, `toolset.giveOCR`). Much of a school's material
+in China is scanned, and many of the models it uses take no files. So a
+PDF whose text does not read (`no_text` or `unmapped`, above) and an image
+are given to a model that cannot take the file, or whose provider does not
+take a PDF of its size or pages, as the text OCR recognizes of it. A model
+that takes the file still gets the file part, as before: its own reading
+of the pages beats tesseract's, and the runtime spends nothing on it.
+
+- *The engine* (`ocr.Engine`) runs two programs: `pdftoppm` (poppler)
+  renders one page at a time (`-r 300 -gray -png`, cropped at 5,000 pixels
+  a side), and `tesseract` recognizes it (`-l chi_sim+chi_tra+eng --psm
+  3`, the fast models Debian packages). A PDF's first 40 pages are read,
+  in order, each under `## Page N` as `doctext` writes pages, so that the
+  text is cut into parts where its pages begin; a page with no text is
+  marked `[no text found on this page]`, one that could not be read or
+  took too long is marked so and the rest go on; notes say which pages
+  were left out and why. An image is read whole, and one past 40 million
+  pixels (its size read from its header, never decoded, before any program
+  runs) is refused. Text is kept valid UTF-8 without controls, at most
+  64 KB a page and 2 MB a file.
+- *Every file is taken to be hostile.* Each program runs as a subprocess
+  of the worker, never in it, and is held from its first instruction by
+  `prlimit` (util-linux), which sets the limits on itself and execs it:
+  its address space (1 GiB: tesseract with three languages peaks near
+  200 MB on a dense page), CPU seconds (the page's timeout), the size of
+  any file it writes (256 MB), 256 open files, and no core dump. A
+  `setrlimit` wrapper of the runtime's own would do the same, but Go
+  cannot set limits between fork and exec for a child alone, and a
+  helper binary to do it would be one more thing in the image; prlimit is
+  Essential in Debian, so it is there, and where it is not, OCR is off,
+  never run without a memory limit. Each program has a hard timeout (90 s
+  a page, 15 min a file) whose end kills its whole process group, as the
+  worker's stopping does; one thread (`OMP_THREAD_LIMIT=1`) at niceness
+  10, so that answering is never starved; an environment of `PATH`,
+  `LC_ALL=C`, and `HOME` and `TMPDIR` in a private directory made for the
+  file (0700) and removed whatever happens, nothing else of the runtime's
+  (no credential, no proxy); its standard output bounded, its standard
+  error only counted. It has no network in the sense that matters: it is
+  given only files the runtime wrote, by arguments the runtime fixed,
+  never a URL (tesseract would fetch one), and neither program follows a
+  reference out of a file. A network namespace would need privileges the
+  container does not have (Docker's default seccomp profile refuses to
+  unshare one), and the deploy runs with `--network host`.
+- *In the background, once.* `ocr.Service` is the worker's: at most
+  `OCR_CONCURRENCY` files at once (1, at most 8), the others waiting their
+  turn, at most `OCR_QUEUE` of them (8: a file waiting holds its bytes),
+  past which a file is not started and the model is told to ask later. A
+  file is known by its checksum, sha256 of its bytes as the runtime
+  fetched them (never Core's, which may name nothing). The first question
+  about it takes its lease in the store (`ocr:<sum>`), so that two workers
+  do not recognize it at once, starts it, and waits for it `OCR_WAIT`
+  (5 s) at most, and never past half the time the answer has left: a
+  small file is answered at once; a long one is not given, its record
+  says `ocr: "in_progress"` with the pages done so far, and `ask_again` is
+  the `document_get` call to make again, naming the version, which the
+  note asks for in a minute or so. A question while it runs waits as long
+  again, so that a model asking at once is not answered at once, again and
+  again; one on a file another worker holds is told the same at once.
+- *Kept.* The text (or why there is none: too large, too long, could not
+  be rendered or read) is kept in the store's `ocr_text` by the checksum,
+  for every worker, and every later question reads it there, through the
+  same paging as any other text: 180 days for a text, a day for a failure,
+  which is then tried again. What was read is kept in the worker's
+  `TextCache` too, under the checksum, so that its parts are read from the
+  store once. The cache and the store are reached only after Core has
+  given the caller the document, with its own token; the checksum is the
+  runtime's own, of the bytes it fetched then, and a file fetched again
+  for OCR must have it.
+- *What the model sees.* `given_as: "text"`, `extracted_from: "ocr"`, and a
+  note that it is the runtime's OCR of the file's pages, why (the model
+  takes no files; the PDF has no text of its own), that it may hold
+  recognition errors (characters misread or missed, a simplified character
+  in its traditional form, lines out of order) and has no pictures or
+  layout, and that where a figure, a name or a date matters it should say
+  it was read by OCR. When OCR is off, the note says the runtime has no
+  OCR here, and why; when it failed, why, and to ask for a version with
+  selectable text.
+- *Off.* `OCR=auto` (the default) is on where tesseract with its languages,
+  pdftoppm and prlimit are installed, as they are in the image, and off,
+  with a warning at the start saying what is missing, where they are not;
+  `OCR=on` refuses to start (and `check` fails) without them; `OCR=off` is
+  off. The start's log line and `check` say which.
+- *Counted*: `ocr_requests_total{result}` (a question's outcome: `done`,
+  `failed`, `in_progress`, `started`, `busy`, `off`),
+  `ocr_jobs_total{kind,outcome}` (`done`, `empty`, `too_large`, `timeout`,
+  `failed`, `cancelled`), `ocr_pages_total{kind,outcome}` (`text`, `empty`,
+  `failed`), `ocr_job_seconds{kind}`, `ocr_page_seconds{step}` (`render`,
+  `recognize`), and the gauges `ocr_jobs_running` and `ocr_jobs_waiting`;
+  and one log line a file, with the start of its checksum, its kind, the
+  outcome, pages, characters and time, never its text.
 
 `internal/doctext` reads every file as hostile, from memory,
 never touching the filesystem nor following a relationship outside the
@@ -854,9 +946,12 @@ The prompt's hash is kept per answer.
 - A course document's file is read by the runtime, never the model, and
   every file is taken to be hostile (§4, Files): bounded in bytes, entries,
   objects, depth, tokens, text and time, read from memory, nothing outside
-  the file followed, a password never guessed. Its text reaches the model
-  as a result does, data like any other: instructions in a slide are not
-  the owner's.
+  the file followed, a password never guessed. OCR runs its programs as
+  subprocesses under prlimit's limits and a hard timeout that kills their
+  process group, with none of the runtime's environment, in a private
+  directory removed after, never given a URL. Its text reaches the model
+  as a result does, data like any other: instructions in a slide, or in
+  a scan, are not the owner's.
 - `safety.Body` strips from the answer every link and image whose URL
   carries context: a query string, a fragment, user information, a scheme
   other than http, https or mailto, or a path segment or host label that
@@ -898,6 +993,7 @@ The prompt's hash is kept per answer.
 | `hosted_course` | (agent, course) → settings (jsonb), who wrote them, when |
 | `registry_rev` | one row: the revision every write to `hosted_agent` or `hosted_course` moves on, by trigger, with `NOTIFY aishie_registry` |
 | `audit` | the API's audit (§11.4): when, who, with which of Core's sessions, from where, what, to what, the outcome, and a detail of ids, hints, providers, models and results; kept 400 days |
+| `ocr_text` | what OCR recognized of a file (§4, OCR), by the sha256 of its bytes: done or failed, pdf or image, the text (at most 4 MB), pages recognized and of how many, where each begins, notes, why it failed, the engine and how long it took; kept 180 days, a failure a day |
 
 Beside the sums quotas are checked against (`Spend`), two reports read the
 ledger for people, ids and numbers only: `Usage(agent, since, until)`, a
@@ -927,7 +1023,10 @@ polling 2 s hot for 120 s, 10 s idle to 30 s, events 45 s, seats 300 s,
 ±25 %, 30 % of 600 a minute; memory on, purged 30 days after a seat goes;
 files of at most 10 MB, read within `doctext.DefaultLimits` and 20 s, their
 text given in parts of 24 KB within results of 32 KB, what was read kept
-per worker up to 32 MiB.
+per worker up to 32 MiB; OCR on where its programs are, in
+`chi_sim+chi_tra+eng`, 40 pages at 300 dpi, 90 s a page and 15 min a file,
+1 GiB a program, one file at a time per worker and eight waiting, the first
+question waiting 5 s for it.
 
 ## 10. Tests
 
@@ -992,8 +1091,15 @@ per worker up to 32 MiB.
   gives a file by what it is: text, an image to a model that takes files,
   an Office file as its text, a PDF as a file within its provider's limits
   and as its text past them or to a model that takes none, a scan or a PDF
-  whose fonts do not map not at all (with its reason), one that needs a
-  password to no model, an older Office file unfetched. A long deck is
+  whose fonts do not map as a file where it may be one and otherwise as
+  what OCR recognized (an image likewise), marked `ocr`, or, where OCR
+  gives nothing, not at all with its reason (in progress with the call to
+  ask again, not started, failed, no text found, no OCR here, and an image
+  then not even fetched), one that needs a password to no model, an older
+  Office file unfetched. A scan's OCR, 51 KB of it, is read in parts cut
+  where its pages begin, OCR asked once and the file fetched once; a
+  question while it is recognized is told so with `ask_again`, and asked
+  again it is given; a file fetched again for OCR must be the one read. A long deck is
   read in parts, each asked for with the call the one before names, until
   the last: the parts are the deck's text exactly, each beginning where a
   slide does, the first saying how many there are, Core asked for each
@@ -1008,6 +1114,28 @@ per worker up to 32 MiB.
   `member_list` and `member_lookup_actor`, held to `member_writes`; and
   `submission_roster` and `document_versions`, held to `roster_reads`; and
   serves the files `AddFile` puts in a course.
+- `ocr`: the engine against programs of the test's own (shell scripts
+  standing in for pdftoppm and tesseract) under the real prlimit: the
+  pages read, their headings, the pages past `MaxPages` left out and said
+  so, a page that fails or passes its time marked and the rest read, a
+  program that sleeps killed with its whole process group at its timeout,
+  one that allocates past its memory limit refused it, the environment
+  each sees (nothing of the runtime's), its niceness and working
+  directory, an image refused by its header's size before any program
+  runs, and the private directory removed. The service: a file recognized
+  once, in the background, and fetched once, the first question told its
+  progress, a question meanwhile waiting as the first did, then the text
+  read from the store; the wait never past half an answer's time left;
+  turns and a full queue; a file another worker holds; failures kept and
+  tried again; nothing kept when the process stops. With the real
+  programs (`TestRecognizeScannedCJK`, skipped only where they are not
+  installed, and never with `OCR_REQUIRED=1`): a scanned notice drawn in
+  Unifont's glyphs, in traditional and simplified Chinese and in English,
+  in a PDF that `doctext` judges `no_text`, recognized page by page with
+  its blank page said so, and as an image; and their limits.
+  `scripts/image_test.sh` (`make docker-test`, in CI) runs the built image
+  as the deploy does (65532:65532, no network), `check` with `OCR=on` in
+  it, and the same real tests against the programs in the image.
 - `storetest`: one suite, run against memstore and against Postgres
   (`TEST_DATABASE_URL`).
 - `vault`: a secret sealed and opened; every field and byte of it tampered
@@ -1047,7 +1175,10 @@ per worker up to 32 MiB.
   (its adapter's `FileLimits`), and by one that takes none, each answered
   from the runtime's text; a deck of 38 slides read in parts by a model
   that follows `next_part` to the last and answers, the parts its text
-  exactly and the file fetched once; the site chat declared once per start, by an
+  exactly and the file fetched once; a scanned handout read by a model
+  that takes no files: told its OCR is in progress, it asks again with
+  `ask_again` and answers from the text, the file fetched and recognized
+  once and the text kept by its checksum; the site chat declared once per start, by an
   agent with an owner at once and by one nobody owns once a seat of its
   answers, never taken back, and not sent to a Core that does not offer
   it; and Sato's own assistant, given `member_manage`, offered
