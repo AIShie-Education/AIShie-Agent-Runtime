@@ -22,6 +22,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -41,6 +42,7 @@ type Store interface {
 	Ledger
 	Status
 	Secrets
+	Registry
 	Close() error
 }
 
@@ -431,7 +433,9 @@ type Secrets interface {
 	// is gone, ErrConflict when it was rewrapped since it was read.
 	RewrapSecret(ctx context.Context, id, fromKEKID, kekID string, wrapped []byte) error
 	// DeleteSecret destroys the secret; one that is not there is nothing.
-	// A secret a hosted agent still refers to is refused with ErrInUse.
+	// A secret a hosted agent still refers to is refused with ErrInUse:
+	// the agent's secrets go with it (DeleteHostedAgent), or when it is
+	// given new ones (UpdateHostedAgent).
 	DeleteSecret(ctx context.Context, id string) error
 }
 
@@ -461,6 +465,230 @@ func CheckSecret(s Secret) error {
 	}
 	if len(bad) > 0 {
 		return fmt.Errorf("store: secret: %s required", strings.Join(bad, ", "))
+	}
+	return nil
+}
+
+// Person is someone who has used the runtime's API, as Core's assertion
+// named them: kept for the admin's view and the audit, never for
+// authorization, which reads the assertion itself.
+type Person struct {
+	CoreActorID string `json:"core_actor_id"`
+	DisplayName string `json:"display_name"`
+	// PlatformRole is root, admin or "", as Core has it.
+	PlatformRole string    `json:"platform_role"`
+	LastSeenAt   time.Time `json:"last_seen_at"`
+}
+
+// hostedIDRe is the shape of a hosted agent's id: agt_ and a UUID, or up to
+// 60 letters, digits, '_' and '-'.
+var hostedIDRe = regexp.MustCompile(`^agt_[A-Za-z0-9_-]{1,60}$`)
+
+// IsHostedAgentID reports whether id has the shape of a hosted agent's id.
+func IsHostedAgentID(id string) bool { return hostedIDRe.MatchString(id) }
+
+// HostedAgent is one agent a person hosts on the runtime, rather than an
+// operator in YAML (docs/design.md §11.2). The registry turns it, with its
+// courses, into the same agent document a YAML file holds.
+type HostedAgent struct {
+	// ID is agt_<uuid>.
+	ID string `json:"id"`
+	// CoreActorID is the agent's actor in Core: one hosted agent each.
+	CoreActorID string `json:"core_actor_id"`
+	// OwnerActorID is who owns the agent in Core, "" when Core names no
+	// one (an agent an administrator registered).
+	OwnerActorID string `json:"owner_actor_id"`
+	// OwnerVerified is whether Core said who the owner is (me_get's
+	// owner_actor_id), rather than holding the token being the proof.
+	OwnerVerified bool `json:"owner_verified"`
+	// TenantID is ten_<owner>: its quotas, and every secret's binding.
+	TenantID    string `json:"tenant_id"`
+	DisplayName string `json:"display_name"`
+	// TokenSecretID is the agent's Core token, sealed: a secret of kind
+	// core_token of its tenant. TokenHint is what may be shown of it.
+	TokenSecretID string `json:"token_secret_id"`
+	TokenHint     string `json:"token_hint"`
+	// KeySecretID is the owner's own model key, sealed, "" when none is
+	// stored: a secret of kind model_key of its tenant, which the registry
+	// gives every model section on the owner's key. KeyHint is what may be
+	// shown of it.
+	KeySecretID string `json:"key_secret_id,omitempty"`
+	KeyHint     string `json:"key_hint,omitempty"`
+	// Paused stops every call to Core for the agent.
+	Paused bool `json:"paused"`
+	// Settings are the rest of the agent document (Core's
+	// docs/agent-runtime.md §4) as a JSON object: never its id, name,
+	// tenant, pause, Core, or any reference (*_ref), which the registry
+	// sets itself. Empty is {}.
+	Settings json.RawMessage `json:"settings"`
+	// Version moves on with every write: UpdateHostedAgent takes the
+	// version the caller read (If-Match).
+	Version   int       `json:"version"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// HostedCourse is a hosted agent's settings for one course, as a YAML
+// agent's courses[course_id] holds them.
+type HostedCourse struct {
+	AgentID  string `json:"agent_id"`
+	CourseID string `json:"course_id"`
+	// Settings are courses[course_id]: the agent's settings, less those
+	// that are the agent's alone, with enabled and prompt_append_text.
+	// Empty is {}.
+	Settings json.RawMessage `json:"settings"`
+	// UpdatedBy is the Core actor who wrote them.
+	UpdatedBy string    `json:"updated_by"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// Registry is the hosted agents, their courses and the people who use the
+// API. Every write to an agent or a course moves the registry's revision
+// on (RegistryRev), and pgstore tells every listener (LISTEN
+// aishie_registry), so that each worker reloads.
+type Registry interface {
+	// PutPerson records p, replacing what was known of them. A zero
+	// LastSeenAt is the store's now.
+	PutPerson(ctx context.Context, p Person) error
+	// Person is the person, or ErrNotFound.
+	Person(ctx context.Context, coreActorID string) (*Person, error)
+
+	// CreateHostedAgent stores a at version 1 with the secrets given,
+	// which must be those it refers to, in one transaction, and returns it
+	// as stored. An id or a Core actor already hosted is ErrExists.
+	CreateHostedAgent(ctx context.Context, a HostedAgent, secrets ...Secret) (*HostedAgent, error)
+	// HostedAgent is the agent id, or ErrNotFound.
+	HostedAgent(ctx context.Context, id string) (*HostedAgent, error)
+	// HostedAgentByActor is the agent of a Core actor, or ErrNotFound.
+	HostedAgentByActor(ctx context.Context, coreActorID string) (*HostedAgent, error)
+	// HostedAgentsOwnedBy lists an owner's agents, by id.
+	HostedAgentsOwnedBy(ctx context.Context, ownerActorID string) ([]HostedAgent, error)
+	// HostedAgents lists every hosted agent, by id.
+	HostedAgents(ctx context.Context) ([]HostedAgent, error)
+	// UpdateHostedAgent writes a over the agent of its id, if a.Version is
+	// still the agent's version, and returns it at the next version:
+	// ErrNotFound when it is gone, ErrConflict when it has been written
+	// since (If-Match). Its Core actor and tenant do not change. The
+	// secrets given are stored in the same transaction, and a secret the
+	// agent referred to and no longer does (a token or a key replaced) is
+	// destroyed in it.
+	UpdateHostedAgent(ctx context.Context, a HostedAgent, secrets ...Secret) (*HostedAgent, error)
+	// SetHostedAgentPaused pauses or resumes the agent, whatever its
+	// version, and returns it at the next version.
+	SetHostedAgentPaused(ctx context.Context, id string, paused bool) (*HostedAgent, error)
+	// DeleteHostedAgent destroys the agent, its courses and its secrets, in
+	// one transaction; ErrNotFound when it is not there.
+	DeleteHostedAgent(ctx context.Context, id string) error
+
+	// PutHostedCourse writes an agent's settings for a course, replacing
+	// those it had; ErrNotFound when the agent is not there. A zero
+	// UpdatedAt is the store's now.
+	PutHostedCourse(ctx context.Context, c HostedCourse) error
+	// HostedCourses lists one agent's courses, by course id.
+	HostedCourses(ctx context.Context, agentID string) ([]HostedCourse, error)
+	// ListHostedCourses lists every hosted agent's courses, by agent, then
+	// course.
+	ListHostedCourses(ctx context.Context) ([]HostedCourse, error)
+	// DeleteHostedCourse removes an agent's settings for a course; ones
+	// not there are nothing.
+	DeleteHostedCourse(ctx context.Context, agentID, courseID string) error
+
+	// RegistryRev is the registry's revision: it moves on with every write
+	// to a hosted agent or course, and with nothing else.
+	RegistryRev(ctx context.Context) (int64, error)
+}
+
+// CheckHostedAgent refuses an agent a store must not keep: without its id
+// (agt_…), Core actor, tenant or token, or whose settings are not a JSON
+// object. It returns the agent with its settings as stored ({} for none).
+func CheckHostedAgent(a HostedAgent) (HostedAgent, error) {
+	var bad []string
+	if !IsHostedAgentID(a.ID) {
+		bad = append(bad, "id (agt_…)")
+	}
+	if a.CoreActorID == "" {
+		bad = append(bad, "core_actor_id")
+	}
+	if a.TenantID == "" {
+		bad = append(bad, "tenant_id")
+	}
+	if !IsSecretID(a.TokenSecretID) {
+		bad = append(bad, "token_secret_id")
+	}
+	if a.KeySecretID != "" && !IsSecretID(a.KeySecretID) {
+		bad = append(bad, "a key_secret_id of a secret's shape")
+	}
+	settings, err := jsonObject(a.Settings)
+	if err != nil {
+		bad = append(bad, "settings that are a JSON object")
+	}
+	if len(bad) > 0 {
+		return a, fmt.Errorf("store: hosted agent: %s required", strings.Join(bad, ", "))
+	}
+	a.Settings = settings
+	return a, nil
+}
+
+// CheckHostedCourse refuses a course's settings a store must not keep, and
+// returns them as stored.
+func CheckHostedCourse(c HostedCourse) (HostedCourse, error) {
+	if c.AgentID == "" || c.CourseID == "" {
+		return c, errors.New("store: hosted course: agent_id and course_id required")
+	}
+	settings, err := jsonObject(c.Settings)
+	if err != nil {
+		return c, fmt.Errorf("store: hosted course %s: settings must be a JSON object", c.CourseID)
+	}
+	c.Settings = settings
+	return c, nil
+}
+
+// jsonObject is raw if it is a JSON object, compacted, and {} if it is
+// empty.
+func jsonObject(raw json.RawMessage) (json.RawMessage, error) {
+	if len(raw) == 0 {
+		return json.RawMessage(`{}`), nil
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil || m == nil {
+		return nil, errors.New("not a JSON object")
+	}
+	var b bytes.Buffer
+	if err := json.Compact(&b, raw); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
+}
+
+// CheckAgentSecrets holds a hosted agent's secrets to it: the token a
+// core_token and the key a model_key, both of its tenant; and every new
+// secret given one of those two. have finds a secret already stored.
+func CheckAgentSecrets(a HostedAgent, secrets []Secret, have func(id string) (*Secret, error)) error {
+	given := map[string]Secret{}
+	for _, s := range secrets {
+		if s.ID != a.TokenSecretID && (a.KeySecretID == "" || s.ID != a.KeySecretID) {
+			return fmt.Errorf("store: hosted agent %s: secret %s is neither its token nor its key", a.ID, s.ID)
+		}
+		given[s.ID] = s
+	}
+	for _, ref := range []struct{ id, kind string }{{a.TokenSecretID, SecretCoreToken}, {a.KeySecretID, SecretModelKey}} {
+		if ref.id == "" {
+			continue
+		}
+		s, ok := given[ref.id]
+		if !ok {
+			stored, err := have(ref.id)
+			if errors.Is(err, ErrNotFound) {
+				return fmt.Errorf("store: hosted agent %s: its secret %s is not stored", a.ID, ref.id)
+			}
+			if err != nil {
+				return err
+			}
+			s = *stored
+		}
+		if s.Kind != ref.kind || s.TenantID != a.TenantID {
+			return fmt.Errorf("store: hosted agent %s: secret %s must be a %s of tenant %s", a.ID, ref.id, ref.kind, a.TenantID)
+		}
 	}
 	return nil
 }

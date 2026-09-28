@@ -14,8 +14,8 @@ import (
 
 // ForCourse is the agent's configuration for one course: its settings with
 // courses[courseID] merged over them, decoded and checked. The course's
-// enabled (true unless it says false) and prompt_append_ref are set apart
-// in Effective. A course with no entry is the agent as it is, enabled.
+// enabled (true unless it says false), prompt_append_ref and
+// prompt_append_text are set apart in Effective. A course with no entry is the agent as it is, enabled.
 // Course ids match without regard to case, as UUIDs do.
 //
 // The checks are those that need nothing but the agent: Validate, at Load,
@@ -50,6 +50,10 @@ func (a *Agent) forCourse(courseID string) (*Effective, []issue, error) {
 			if s, ok := v.(string); ok {
 				e.PromptAppendRef = s
 			}
+		case "prompt_append_text":
+			if s, ok := v.(string); ok {
+				e.PromptAppendText = s
+			}
 		default:
 			rest[k] = v
 		}
@@ -67,6 +71,7 @@ func (a *Agent) forCourse(courseID string) (*Effective, []issue, error) {
 	e.Agent = *b
 	is := &issues{prefix: join("courses", key) + "."}
 	validateAgent(&e.Agent, nil, nil, is)
+	checkText(is, "prompt_append", e.PromptAppendRef, e.PromptAppendText, MaxPromptAppendText)
 	if e.PromptAppendRef != "" {
 		checkFileRef(is, "prompt_append_ref", e.PromptAppendRef, a.Dir)
 	}

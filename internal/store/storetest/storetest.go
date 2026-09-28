@@ -33,9 +33,21 @@
 //     rewrap names the key it replaces, and is ErrConflict when that key no
 //     longer wraps the secret. DeleteSecret of a secret not there is
 //     nothing.
+//   - A hosted agent is created at version 1 with the secrets it refers to,
+//     each of its tenant, its token a core_token and its key a model_key;
+//     a secret it does not refer to, or another agent's, is refused, and a
+//     refused write keeps nothing. An update names the version it read,
+//     and is ErrConflict at any other; its Core actor and tenant never
+//     change; a secret it no longer refers to is destroyed with the write,
+//     and deleting it takes its courses and its secrets. Its settings come
+//     back as the same JSON, not the same bytes: Postgres keeps them as
+//     jsonb. The registry's revision moves on with every write to an agent
+//     or a course (a delete of nothing may move it too), and never with a
+//     read, a person or a secret alone.
 //   - Lists come back in a fixed order: attempts by number, or oldest first;
 //     seats by member id; seats gone by when they went; agent states by
-//     agent id; secrets by id. Ids sort bytewise, and rows written at one
+//     agent id; secrets by id; hosted agents by id; their courses by agent,
+//     then course. Ids sort bytewise, and rows written at one
 //     instant keep the order they were written in.
 package storetest
 
@@ -68,6 +80,7 @@ func Run(t *testing.T, open func(t *testing.T) store.Store) {
 		{"Ledger", testLedger},
 		{"Status", testStatus},
 		{"Secrets", testSecrets},
+		{"Registry", testRegistry},
 	} {
 		t.Run(g.name, func(t *testing.T) { g.run(t, open) })
 	}

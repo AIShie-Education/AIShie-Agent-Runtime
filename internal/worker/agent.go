@@ -132,10 +132,23 @@ func (a *Agent) start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("me_get: %w", err)
 	}
+	// A hosted agent's token must be its own actor's: one pasted for
+	// another agent would run that one under this one's settings.
+	if h := a.cfg.Hosted; h != nil && me.ID != h.CoreActorID {
+		return &blockedError{msg: "its token is another Core actor's than the agent's: connect the agent again with a token of its own"}
+	}
 	// One actor in Core is one agent here: two agents on one token would
 	// answer every question twice over, and spend its rate limit twice.
-	if other := a.s.claimActor(a.cfg.Core.BaseURL, me.ID, a.id); other != "" {
+	other, preempted := a.s.claimActor(a.cfg.Core.BaseURL, me.ID, a.id)
+	switch {
+	case other != "" && a.cfg.Hosted != nil && !a.s.hostedAgent(other):
+		return &blockedError{msg: fmt.Sprintf("its Core actor runs here as agent %q, of the operator's configuration, which wins", other)}
+	case other != "":
 		return fmt.Errorf("its token is agent %q's too: one agent in Core is one agent here, with a token of its own", other)
+	}
+	if preempted != nil {
+		a.log.Warn("a hosted agent ran as this agent's Core actor; the operator's configuration wins, and it is stopped", "hosted", preempted.id)
+		preempted.stop(&blockedError{msg: fmt.Sprintf("its Core actor runs here as agent %q, of the operator's configuration, which wins", a.id)})
 	}
 	primary, _, err := a.models(ctx, a.cfg.Model)
 	if err != nil {

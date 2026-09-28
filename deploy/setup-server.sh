@@ -9,7 +9,8 @@
 # The name is this server's, as the Deploy workflow reaches it over SSH. The
 # environment, staging or production, names the GitHub settings it prints.
 # The URL is the Core the agents here may connect to
-# (CORE_BASE_URL_ALLOWLIST); on a server that runs Core it defaults to Core's
+# (CORE_BASE_URL_ALLOWLIST), and the one hosted agents connect to
+# (CORE_BASE_URL); on a server that runs Core it defaults to Core's
 # PUBLIC_URL.
 #
 # It installs Docker and PostgreSQL where they are missing; creates the
@@ -27,7 +28,8 @@
 #
 # Run again, it installs the scripts in this directory over the old ones,
 # adds what a newer runtime needs and an older set-up lacks (the key that
-# seals secrets, and its line in the env file), and leaves everything else
+# seals secrets, and the lines KMS_KEY_ID and CORE_BASE_URL in the env
+# file), and leaves everything else
 # as it is: the env file's other lines, the database, the configuration, the
 # secrets, the keys and aishie-deploy's key. That is how a newer
 # aishie-runtime-deploy reaches the server.
@@ -106,8 +108,8 @@ server holds no runtime data yet, remove them and run this again:
 Otherwise give the role a new password (openssl rand -hex 24), with psql:
 ALTER ROLE $DB PASSWORD '...'; and write the env file, mode 600,
 with the lines this script writes: DATABASE_URL, HTTP_ADDR,
-CORE_BASE_URL_ALLOWLIST and LOG_FORMAT (see the script); KMS_KEY_ID is
-added when this script runs again.
+CORE_BASE_URL_ALLOWLIST, CORE_BASE_URL and LOG_FORMAT (see the script);
+KMS_KEY_ID is added when this script runs again.
 MSG
   exit 1
 else
@@ -118,6 +120,7 @@ else
 DATABASE_URL=postgres://$DB:$pw@127.0.0.1:5432/$DB
 HTTP_ADDR=127.0.0.1:9090
 CORE_BASE_URL_ALLOWLIST=$CORE_URL
+CORE_BASE_URL=$CORE_URL
 LOG_FORMAT=json
 ENVEOF
   # On psql's input, not its command line, where anyone could read the
@@ -174,6 +177,15 @@ elif [ -e "$KEK_DIR/v1" ]; then
   echo "added KMS_KEY_ID=local:/secrets/kek/v1 to $ENV_FILE"
 else
   echo "warning: $ENV_FILE has no KMS_KEY_ID, and $KEK_DIR has no v1: set KMS_KEY_ID=local:/secrets/kek/<the current key's file>" >&2
+fi
+# The Core the agents people host here connect to (docs/deploying.md).
+if grep -q '^CORE_BASE_URL=' "$ENV_FILE"; then
+  echo "CORE_BASE_URL is in $ENV_FILE already: left as it is"
+elif [ -n "$CORE_URL" ]; then
+  echo "CORE_BASE_URL=$CORE_URL" >> "$ENV_FILE"
+  echo "added CORE_BASE_URL=$CORE_URL to $ENV_FILE"
+else
+  echo "warning: $ENV_FILE has no CORE_BASE_URL: no hosted agent runs until it names the Core they connect to (run this again with the Core's URL)" >&2
 fi
 
 say "Firewall"

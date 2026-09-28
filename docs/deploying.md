@@ -66,7 +66,8 @@ repository's, not Core's, though Core has scripts of the same kind:
    It installs Docker and PostgreSQL where they are missing. It creates the
    database `aishie_runtime` and its role, and the env file with a generated
    database password, `HTTP_ADDR=127.0.0.1:9090`,
-   `CORE_BASE_URL_ALLOWLIST` set to that Core and `LOG_FORMAT=json`. It
+   `CORE_BASE_URL_ALLOWLIST` and `CORE_BASE_URL` set to that Core and
+   `LOG_FORMAT=json`. It
    creates the directories for the agents' configuration and secrets, the
    key that seals the secrets kept in the database, with `KMS_KEY_ID` in the
    env file, the backup directory and a nightly backup, and installs the two
@@ -160,6 +161,17 @@ aishie-runtime check && docker kill -s HUP aishie-runtime
 aishie-runtime-deploy "$(docker inspect -f '{{.Config.Image}}' aishie-runtime)"
 ```
 
+## Hosted agents
+
+Besides the agents in `/etc/aishie-runtime/agents`, the runtime runs the
+agents people connect to it themselves, from AIShiteru-Frontend
+(`docs/design.md` §11): the registry, kept in the runtime's database with
+their tokens and keys sealed. It is on whenever `DATABASE_URL` is set; the
+runtime puts a change to it in force at once, and `check` lists the hosted
+agents it would run, and those it would not, with why. `/status` marks them
+`hosted`. They connect to `CORE_BASE_URL`. A hosted agent whose id or Core
+actor is a YAML agent's does not run: the operator's configuration wins.
+
 ## The key that seals secrets
 
 The tokens and keys of hosted agents, which people give the runtime rather
@@ -216,6 +228,7 @@ running (above): a restart does not read the file again.
 | `DATABASE_URL` | the runtime's own database. Never Core's: `aishie-runtime-deploy` refuses the one Core's env file names, and backs up only a database on this server. |
 | `HTTP_ADDR` | where `/healthz`, `/status` and `/metrics` are served: `127.0.0.1:9090`. Keep it on localhost. |
 | `CORE_BASE_URL_ALLOWLIST` | the Core installations an agent may point at, comma-separated: origins (`https://lms.example.edu`) or host patterns (`*.example.edu`). |
+| `CORE_BASE_URL` | the Core that hosted agents, those people connect rather than an operator writing YAML, connect to: `https://lms.example.edu`, within `CORE_BASE_URL_ALLOWLIST`. `setup-server.sh` sets it to the Core it was given. Unset, no hosted agent runs, and each one's state says so. |
 | `LOG_FORMAT`, `LOG_LEVEL` | `json` (the default) or `text`; `info` by default. |
 | `LOG_REDACT_EXTRA` | comma-separated regular expressions removed from every log line, beside the tokens and keys the runtime always removes. |
 | `EGRESS_PROXY` | the proxy for every call out (Core, the providers, Core's file downloads); without it, the usual `HTTPS_PROXY`. |

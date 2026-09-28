@@ -11,7 +11,10 @@
 // env://NAME or file:///path (package secrets).
 package config
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // Agent is one hosted agent: the `agent:` document of §4, and its courses.
 type Agent struct {
@@ -39,9 +42,22 @@ type Agent struct {
 	// File is the file the agent came from, as Load was given it; problems
 	// name it.
 	File string `yaml:"-"`
+	// Hosted is set for an agent of the registry (docs/design.md §11.2),
+	// nil for one of YAML.
+	Hosted *Hosted `yaml:"-"`
 	// merged is the agent's configuration as a generic map, after the
 	// defaults, for ForCourse to merge a course into.
 	merged map[string]any
+}
+
+// Hosted is what the registry knows of a hosted agent beside its
+// configuration: the Core actor its token must be, and its owner.
+type Hosted struct {
+	// CoreActorID is the actor me_get must name: a token of any other is
+	// not this agent's.
+	CoreActorID   string
+	OwnerActorID  string
+	OwnerVerified bool
 }
 
 // Core is how the agent reaches Core.
@@ -106,6 +122,10 @@ type Prompt struct {
 	// seat's kind (a person's own agent, or a course tutor). Its hash is kept
 	// per answer.
 	SystemRef string `yaml:"system_ref"`
+	// SystemText is the prompt itself, instead of SystemRef, for an agent
+	// with no file of its own (a hosted agent); at most MaxSystemText
+	// characters.
+	SystemText string `yaml:"system_text"`
 	// AnswerLanguage is opener (answer in the asker's language) or
 	// fixed:<bcp47>.
 	AnswerLanguage string `yaml:"answer_language"`
@@ -202,6 +222,9 @@ type Effective struct {
 	Enabled bool
 	// PromptAppendRef is courses[course_id].prompt_append_ref.
 	PromptAppendRef string
+	// PromptAppendText is courses[course_id].prompt_append_text: the text
+	// to append itself, instead of a file.
+	PromptAppendText string
 }
 
 // Runtime is the process's own settings, from the `runtime:` document.
@@ -233,6 +256,35 @@ type Config struct {
 	Agents  []*Agent
 	// Dir is the directory relative runtime refs resolve against.
 	Dir string
+	// Rejected are the agents of the registry that are not run, and why:
+	// each is shown in state error, and none keeps the others from running.
+	Rejected []Rejection
+}
+
+// Rejection is an agent that did not load (LoadDocuments), or that the
+// registry does not run: its id, the source it came from, and why.
+type Rejection struct {
+	AgentID string
+	Source  string
+	Err     error
+}
+
+// Detail is why, as the agent's state shows it: every problem, one after
+// another, without the source's name each problem begins with.
+func (r Rejection) Detail() string {
+	if ps := Problems(r.Err); len(ps) > 0 {
+		parts := make([]string, len(ps))
+		for i, p := range ps {
+			q := *p
+			q.File, q.Line, q.Agent = "", 0, ""
+			parts[i] = q.Error()
+		}
+		return strings.Join(parts, "; ")
+	}
+	if r.Err == nil {
+		return ""
+	}
+	return r.Err.Error()
 }
 
 // Seconds turns a float number of seconds into a duration.

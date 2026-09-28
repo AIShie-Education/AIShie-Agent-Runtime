@@ -1,0 +1,273 @@
+package e2e
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/prometheus/client_golang/prometheus"
+
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/fakellm"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/metrics"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/redact"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/registry"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/secrets"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/pgstore"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/vault"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/worker"
+)
+
+// hostedAgentAnswers is M2's registry against the real Core: a runtime
+// runs, with its state in PostgreSQL and no agent at all; Yuki's agent is
+// connected to it as the API does it, its token and her model key sealed
+// in the runtime's database with its row; the registry's notification puts
+// it in force at once, and it answers Yuki, having opened its token and
+// key from the database, and never logging either.
+func hostedAgentAnswers(t *testing.T, w *world) {
+	st := runtimeStore(t)
+	v := keyring(t)
+	m := newModel(t, fakellm.DefaultResponder)
+	rt := w.startHosted(t, m, st, v)
+
+	// Connected, as the API connects an agent.
+	id := "agt_" + uuid.NewString()
+	tenant := "ten_" + w.yuki.id
+	seal := func(kind, plaintext string) store.Secret {
+		s, err := v.Seal(context.Background(), store.Secret{ID: vault.NewSecretID(), TenantID: tenant, Kind: kind, CreatedBy: w.yuki.id}, plaintext)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	tok, key := seal(store.SecretCoreToken, w.own.token), seal(store.SecretModelKey, w.modelKey)
+	settings, err := json.Marshal(map[string]any{
+		// OpenAI's own endpoint, as a hosted agent must: the runtime's
+		// transport takes its calls to the scripted model.
+		"model":   map[string]any{"adapter": "openai_chat", "model": "e2e-model", "key_source": "own", "params": map[string]any{"max_output_tokens": 500}},
+		"polling": polling(),
+		"budgets": map[string]any{"per_answer": map[string]any{"wall_clock_s": 60}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = st.CreateHostedAgent(t.Context(), store.HostedAgent{
+		ID: id, CoreActorID: w.own.id, OwnerActorID: w.yuki.id, TenantID: tenant, DisplayName: "Yuki's helper",
+		TokenSecretID: tok.ID, TokenHint: tok.Hint, KeySecretID: key.ID, KeyHint: key.Hint, Settings: settings,
+	}, tok, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := w.own.token[:len("ais_")+12] + "…"; tok.Hint != want {
+		t.Error("the token's hint is not ais_ and its public prefix")
+	}
+	rt.waitPolling(id)
+
+	const q = "Can my hosted helper answer?"
+	conv, msg := w.ask(t, w.yuki, w.own.member, q)
+	answer := w.waitAnswer(t, w.yuki, conv, w.own.member)
+	if !strings.HasPrefix(answer.text(), "Answer: "+q) || answer.replyTo() != msg {
+		t.Errorf("the answer is %q in reply to %s; want one to %q in reply to %s", answer.text(), answer.replyTo(), q, msg)
+	}
+	var keyed bool
+	for _, req := range m.Requests() {
+		if req.Header.Get("Authorization") == "Bearer "+w.modelKey {
+			keyed = true
+		}
+	}
+	if !keyed {
+		t.Error("no model request carried Yuki's key, opened from the database")
+	}
+	if at := rt.attempt(id, answerKey(conv, msg, 1)); at == nil || at.State != store.AttemptExecuted {
+		t.Errorf("the attempt under answer:{x}:{m}:1 is %s", attemptState(at))
+	}
+
+	// Paused, it stops; its state says so.
+	if _, err := st.SetHostedAgentPaused(t.Context(), id, true); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, answerWait, "the hosted agent paused", func() bool {
+		for _, a := range rt.sup.Status() {
+			if a.AgentID == id {
+				return a.Paused && !a.Running
+			}
+		}
+		return false
+	})
+}
+
+// runtimeStore is a store of the runtime's own in PostgreSQL, on a scratch
+// database of the server at TEST_DATABASE_URL (the local one by default),
+// migrated up, closed and dropped when t ends. Without a server it skips,
+// or fails when CI is true, as the other end-to-end tests do without Core.
+func runtimeStore(t *testing.T) *pgstore.Store {
+	t.Helper()
+	admin := os.Getenv("TEST_DATABASE_URL")
+	if admin == "" {
+		admin = "postgres:///postgres"
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	conn, err := pgx.Connect(ctx, admin)
+	if err != nil {
+		if ci, _ := strconv.ParseBool(os.Getenv("CI")); !ci {
+			t.Skipf("the runtime's PostgreSQL (TEST_DATABASE_URL) cannot be reached: %v", err)
+		}
+		t.Fatalf("the runtime's PostgreSQL (TEST_DATABASE_URL) cannot be reached: %v", err)
+	}
+	defer func() { _ = conn.Close(context.Background()) }()
+	var b [6]byte
+	_, _ = rand.Read(b[:])
+	name := "aishie_e2e_t_" + hex.EncodeToString(b[:])
+	if _, err := conn.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	u, err := url.Parse(admin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.Path = "/" + name
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if c, err := pgx.Connect(ctx, admin); err == nil {
+			_, _ = c.Exec(ctx, "DROP DATABASE IF EXISTS "+pgx.Identifier{name}.Sanitize()+" WITH (FORCE)")
+			_ = c.Close(ctx)
+		}
+	})
+	if err := pgstore.Migrate(u.String(), pgstore.Up); err != nil {
+		t.Fatal(err)
+	}
+	st, err := pgstore.Open(ctx, u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	return st
+}
+
+// keyring is a vault on a key of its own, in a directory of t's.
+func keyring(t *testing.T) *vault.Vault {
+	t.Helper()
+	dir := t.TempDir()
+	k := make([]byte, 32)
+	if _, err := rand.Read(k); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "v1"), []byte(base64.StdEncoding.EncodeToString(k)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	v, err := vault.Open("local:" + filepath.Join(dir, "v1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+// startHosted runs the runtime as run does with the registry on: its state
+// in st, its configuration YAML ∪ registry (no YAML here), rebuilt by the
+// registry's watcher, its sealed secrets opened with v. Its calls to
+// OpenAI's own endpoint go to m.
+func (w *world) startHosted(t *testing.T, m *fakellm.Server, st *pgstore.Store, v *vault.Vault) *instance {
+	t.Helper()
+	rt := &instance{t: t, reg: prometheus.NewRegistry(), st: st, log: &logBuffer{}, raw: &logBuffer{}}
+	opts := &slog.HandlerOptions{Level: slog.LevelDebug}
+	logger := slog.New(teeHandler{
+		redact.NewHandler(slog.NewJSONHandler(rt.log, opts), nil),
+		slog.NewJSONHandler(rt.raw, opts),
+	})
+	w.addLog(t.Name(), rt.log.String)
+	w.addLog(t.Name()+" (before redaction)", rt.raw.String)
+
+	target, err := url.Parse(m.URL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	o := registry.Options{CoreBaseURL: w.api.base}
+	yaml := &config.Config{}
+	cfg, rev, err := registry.Build(t.Context(), yaml, st, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt.sup, err = worker.NewSupervisor(worker.Options{
+		Config: cfg, Store: st, Metrics: metrics.New(rt.reg), Log: logger, WorkerID: "hosted-w1",
+		Secrets:    secrets.Resolver{Sealed: vault.Opener{Vault: v, Store: st}},
+		HTTPClient: &http.Client{Transport: toModel{next: tr, target: target}},
+		CoreRetry:  core.RetryOptions{Base: 50 * time.Millisecond, Max: time.Second},
+		Timing: worker.Timing{
+			LeaseEvery: time.Second, LeaseTTL: 5 * time.Second, Restart: 100 * time.Millisecond, RestartMax: time.Second,
+			ModelBackoff: 50 * time.Millisecond, ModelBackoffMax: 500 * time.Millisecond,
+			HoldBack: time.Second, HoldBackMax: 5 * time.Second, RetryLater: time.Second,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	watcher := &registry.Watcher{
+		Rev: st.RegistryRev, Listen: st.ListenRegistry, Log: logger,
+		Poll: time.Hour, // the notification alone must do it
+		Rebuild: func(ctx context.Context) (int64, error) {
+			cfg, rev, err := registry.Build(ctx, yaml, st, o)
+			if err != nil {
+				return 0, err
+			}
+			rt.sup.Update(cfg)
+			return rev, nil
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	supDone, watchDone := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(supDone)
+		if err := rt.sup.Run(ctx); err != nil {
+			t.Errorf("Run: %v", err)
+		}
+	}()
+	go func() { defer close(watchDone); watcher.Run(ctx, rev) }()
+	t.Cleanup(func() {
+		cancel()
+		for _, done := range []chan struct{}{supDone, watchDone} {
+			select {
+			case <-done:
+			case <-time.After(30 * time.Second):
+				t.Error("the runtime did not stop within 30 s")
+			}
+		}
+		tr.CloseIdleConnections()
+		if t.Failed() {
+			t.Logf("the log of the hosted runtime (redacted):\n%s", tail(rt.log.String(), 200))
+		}
+	})
+	return rt
+}
+
+// toModel takes the calls to OpenAI's own endpoint to the scripted model.
+type toModel struct {
+	next   http.RoundTripper
+	target *url.URL
+}
+
+func (tm toModel) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.URL.Host != "api.openai.com" {
+		return tm.next.RoundTrip(r)
+	}
+	r = r.Clone(r.Context())
+	r.URL.Scheme, r.URL.Host, r.Host = tm.target.Scheme, tm.target.Host, tm.target.Host
+	return tm.next.RoundTrip(r)
+}

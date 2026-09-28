@@ -93,6 +93,88 @@ func Load(paths ...string) (*Config, error) {
 	return cfg, nil
 }
 
+// Source is configuration from somewhere other than a file: the registry
+// of hosted agents gives one per agent. Name stands where a file's name
+// would in its problems (registry:agt_…), and Data is YAML, or JSON, which
+// is YAML too, holding one agent document: agent: and its courses:.
+type Source struct {
+	Name string
+	Data []byte
+}
+
+// LoadDocuments reads each source's agent as Load reads a file's, over
+// base's runtime settings (the built-in Defaults, then runtime.defaults),
+// and validates it as Validate would, with allowlist as
+// CORE_BASE_URL_ALLOWLIST and base's tenants and model lists, but each on
+// its own: a source that does not pass is rejected, with every problem, and
+// never keeps another from loading, where in Load one problem stops all.
+// It checks neither the ids of the agents against each other nor against
+// base's: that is the caller's. An agent loaded has no directory, so a
+// relative path it names is the working directory's. base is not changed.
+func LoadDocuments(base *Config, allowlist []string, sources ...Source) ([]*Agent, []Rejection) {
+	origins, _ := parseAllowlist(allowlist) // its bad entries are FromEnv's to report
+	c := &Config{}
+	if base != nil {
+		c.Runtime = base.Runtime
+	}
+	defaults := Defaults()
+	if c.Runtime.Defaults != nil {
+		defaults = merge(defaults, c.Runtime.Defaults)
+	}
+	var (
+		agents   []*Agent
+		rejected []Rejection
+	)
+	for _, src := range sources {
+		a, id, err := c.loadDocument(src, defaults, origins)
+		if err != nil {
+			rejected = append(rejected, Rejection{AgentID: id, Source: src.Name, Err: err})
+			continue
+		}
+		agents = append(agents, a)
+	}
+	return agents, rejected
+}
+
+// loadDocument reads and validates one source's agent, against c's
+// runtime settings. It returns the agent's id as the source gives it, even
+// when the source does not pass.
+func (c *Config) loadDocument(src Source, defaults map[string]any, origins []origin) (*Agent, string, error) {
+	var errs []error
+	docs := readDocuments(src.Name, src.Data, &errs)
+	if len(errs) > 0 {
+		return nil, firstID(docs), errors.Join(errs...)
+	}
+	if len(docs) != 1 || docs[0].runtime != nil {
+		return nil, firstID(docs), &Problem{File: src.Name, Msg: "holds one agent document, and nothing else: the runtime's settings are the operator's files'"}
+	}
+	d := docs[0]
+	merged := merge(defaults, d.agent)
+	a, err := decodeAgent(merged)
+	if err != nil {
+		return nil, d.id, &Problem{File: d.file, Line: d.line, Agent: d.id, Path: "agent", Msg: err.Error()}
+	}
+	a.merged, a.Courses, a.File = merged, d.courses, src.Name
+	is := &issues{prefix: "agent."}
+	if !idRe.MatchString(a.ID) {
+		is.add("id", "required: letters, digits, '_' and '-', at most 64")
+	}
+	validateAgent(a, &c.Runtime, origins, is)
+	errs = append(problems(is.list, a.File, a.ID), c.validateCourses(a, is.list)...)
+	if len(errs) > 0 {
+		return nil, a.ID, errors.Join(errs...)
+	}
+	return a, a.ID, nil
+}
+
+// firstID is the id the first of docs gives, "" when none does.
+func firstID(docs []*document) string {
+	if len(docs) == 0 {
+		return ""
+	}
+	return docs[0].id
+}
+
 // expand lists the files paths name: files as given, and each directory's
 // YAML files by name. A file named twice is read once.
 func expand(paths []string) ([]string, error) {
@@ -159,6 +241,12 @@ func readFile(f string, errs *[]error) []*document {
 		*errs = append(*errs, &Problem{File: f, Msg: err.Error()})
 		return nil
 	}
+	return readDocuments(f, b, errs)
+}
+
+// readDocuments walks the YAML documents of b, which problems say are in
+// f.
+func readDocuments(f string, b []byte, errs *[]error) []*document {
 	w := &walker{file: f, errs: errs, budget: maxValues}
 	dec := yaml.NewDecoder(bytes.NewReader(b))
 	var docs []*document

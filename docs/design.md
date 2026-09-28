@@ -20,11 +20,11 @@ aishie-runtime version
 ```
 
 Agents are configured from YAML (§4), with secrets from the environment or
-files, as M1 has it. M2's hosted agents, which people connect from
-AIShiteru-Frontend, are built in steps (§11): the secret store, which seals
-their tokens and their owners' keys in the runtime's database, is here; the
-registry that runs them beside the YAML agents, and the JSON API the front
-end calls, come next. `/status` is the operator's view, read-only.
+files, as M1 has it, and, with the store in PostgreSQL, from the registry of
+hosted agents that people connect from AIShiteru-Frontend (§11): the secret
+store seals their tokens and their owners' keys in the runtime's database,
+and the registry runs them beside the YAML agents. The JSON API the front
+end calls comes next. `/status` is the operator's view, read-only.
 
 ```
 cmd/aishie-runtime/     the binary
@@ -44,6 +44,8 @@ internal/
   secrets       secret://, env://, file:// and sealed:// references
   vault         envelope encryption of the secrets kept in the store: a data key per secret,
                 wrapped by the key KMS_KEY_ID names (§11.1)
+  registry      hosted agents: each row made the agent document YAML would hold, loaded on its
+                own, merged with YAML; the watcher that reloads on the registry's changes (§11.2)
   pricing       the versioned price table, and cost
   redact        a log handler that removes tokens and keys
   safety        what the model wrote, made safe to post: links, images, length
@@ -182,6 +184,24 @@ agents added, removed, paused or changed are started, stopped or restarted.
 A configuration with no agent is valid: the supervisor runs and waits, and
 `run` (at start and on every reload) and `check` say so, so that a server
 can be deployed before its first agent.
+
+The configuration is YAML ∪ registry (§11.2), rebuilt on `SIGHUP`, at each
+notification of the registry (`LISTEN aishie_registry`), and when a poll
+every 30 s finds the registry's revision moved on. A rebuild from the
+registry goes through `Supervisor.Update`, which restarts only the agents
+whose configuration changed: an agent stopped until a reload (Core refused
+its token) stays stopped through another agent's change, and a hosted
+agent's new token, being a new secret, is a change of its own, which starts
+it again. `SIGHUP` goes through `Reload`, which starts every such agent
+again, since a new token may be in the same file. A hosted agent that does
+not pass is not run, and is shown in state `error` with every problem; it
+keeps none of the others from running.
+
+A hosted agent's token must be its own: `me_get` must name the Core actor
+its row does, or it is stopped in state `error` until it changes. And the
+operator's configuration wins a Core actor: a hosted agent on the actor of a
+YAML agent this worker runs is stopped in state `error`, whichever started
+first, until a reload.
 
 An agent (`worker.Agent`) starts with `me_get` (the token works), the
 catalogue, and `me_memberships`. It reads memberships again every
@@ -333,7 +353,9 @@ The built-in system prompts (`prompt/*.md`) are two: a person's own agent
 (it answers only its principal, and may read their work where the seat
 allows) and a course tutor (it answers any student, reads the material and
 nobody's work, and asks them to paste what it needs). Either can be replaced
-(`system_ref`), and a course's `prompt_append_ref` is appended. Around it,
+(`system_ref`, or the text itself, `system_text`, at most 20,000
+characters), and a course's `prompt_append_ref` (or `prompt_append_text`,
+at most 4,000) is appended. A hosted agent's prompts are always the text. Around it,
 the runtime always adds:
 
 - the seat's facts: the course, whom it answers, what it can read, whether a
@@ -390,6 +412,10 @@ The prompt's hash is kept per answer.
 | `llm_call`, `answer` | the ledger: ids and numbers |
 | `agent_state` | the owner's page's state |
 | `secret` | sealed secrets (§11.1): id, tenant, kind, the key's id, the wrapped data key, nonce, ciphertext, hint |
+| `person` | who has used the API: Core actor, name, platform role, last seen |
+| `hosted_agent` | the registry (§11.2): id `agt_…`, Core actor (unique), owner and whether Core said so, tenant, name, token and own key (secrets, with hints), paused, settings (jsonb), version |
+| `hosted_course` | (agent, course) → settings (jsonb), who wrote them, when |
+| `registry_rev` | one row: the revision every write to `hosted_agent` or `hosted_course` moves on, by trigger, with `NOTIFY aishie_registry` |
 
 `memstore` keeps the same in memory, for one worker and for tests: it loses
 attempts and memory on restart, so a restarted worker may find its keys
@@ -429,6 +455,17 @@ polling 2 s hot for 120 s, 10 s idle to 30 s, events 45 s, seats 300 s,
   refused without repeating what `KMS_KEY_ID` says. The worker starts an
   agent from `sealed://` references against the fake Core, and
   `keys check|rewrap` and `check --live` are run on Postgres.
+- `registry`: documents made from rows, and every setting a hosted agent may
+  not have; YAML ∪ registry with a YAML agent winning an id, one bad row
+  beside good ones, no Core; the official endpoints; the watcher on Postgres
+  by notification, by poll, and listening again after its connection is
+  killed. The worker runs hosted agents from their sealed secrets beside
+  YAML ones, pauses them, keeps an unauthorized one stopped through others'
+  changes and starts it again on its new token, and lets YAML win a Core
+  actor whichever started first; the binary picks up an agent connected
+  while it runs, told by the notification; and the end to end connects
+  Yuki's agent to a runtime on Postgres, which answers her against the real
+  Core.
 - `worker`: the fake Core and the scripted model: every row of §5.3's table,
   moved on, duplicates across two workers, denied, 401, 429, quotas,
   budgets, proposals followed, retractions; no token in any log line; the
@@ -496,7 +533,75 @@ agents, and a versioned JSON API for the front end.
   database's backups until they rotate out, which is why the keyring is
   kept apart from them.
 
-### 11.2 Where M2 departs from the handout
+### 11.2 The registry of hosted agents
+
+A hosted agent is a row of `hosted_agent` (migration 0003), with its
+courses' settings in `hosted_course`: what the API writes, from the person
+who connects the agent. `internal/registry` turns each row into the agent
+document a YAML file would hold, and runs it beside the YAML agents:
+
+- **The document.** The row's `settings` (the agent document of §4, as
+  JSON) are the document, with what the registry sets itself: `id`,
+  `display_name`, `tenant_id` and `paused` from the row; `core` as
+  `{base_url: CORE_BASE_URL, token_ref: sealed://<token_secret_id>}`; and
+  the owner's key, `sealed://<key_secret_id>`, on each model section whose
+  key source, as written or inherited, is `own`. Each course's row is its
+  `courses[course_id]`. Settings that set any of those themselves, or refer
+  to any file or secret (a key ending in `_ref`, anywhere), are refused: a
+  hosted agent reads nothing but its own sealed secrets.
+- **The same path as YAML.** `config.LoadDocuments` reads each document as
+  `config.Load` reads a file's (strictly: every key known, every value of
+  its type), over the built-in defaults and `runtime.defaults`, and
+  validates it with the runtime's tenants, model lists and
+  `CORE_BASE_URL_ALLOWLIST`, but each on its own: one that does not pass is
+  rejected with every problem, where `Load` stops at the first file's.
+- **What a hosted agent may call.** Every model it calls, in every course,
+  has the owner's key and no other, never one it would inherit from the
+  runtime's defaults (a fallback it does not set is none, not the
+  defaults'); none is called with the runtime's own credentials (Bedrock
+  without a key would sign with the host's) or at a server that takes no
+  key; `base_url` is empty (the adapter's own) or an official provider's
+  endpoint (§3.9) over https; and it sends no extra headers (D9). The
+  school's key is not offered to hosted agents yet: that waits on the
+  school's model offers and the owners' quotas (below).
+- **YAML ∪ registry.** `registry.Build` is the YAML configuration, then
+  every hosted agent that passes; the rest are in `Config.Rejected`, which
+  the supervisor shows in state `error`. A hosted agent whose id is a YAML
+  agent's loses to it, as does one on a YAML agent's Core actor (§5.1).
+  Without `CORE_BASE_URL`, no hosted agent runs, and each says why. The
+  registry is on only with the store in PostgreSQL: with memstore there is
+  nowhere to keep it, and `run` says it is off.
+- **Reloading.** Every statement that writes `hosted_agent` or
+  `hosted_course` moves `registry_rev` on and notifies `aishie_registry`,
+  by trigger, so a write made by hand counts too. `registry.Watcher`
+  listens on a pgx connection of its own, not the pool's, connecting again
+  with a backoff when it is lost, and reading the registry once it listens,
+  for what changed meanwhile; a poll of the revision every 30 s covers a
+  notification lost. A registry that cannot be read leaves the
+  configuration in force as it is.
+- **The store's side.** Creating an agent stores the secrets it refers to
+  in the same transaction; its token must be a `core_token` and its key a
+  `model_key` of its tenant, and no other agent's. An update names the
+  version it read (If-Match), and is refused at any other; its Core actor
+  and tenant never change; a secret it no longer refers to (a token or key
+  replaced) is destroyed with it. Deleting it destroys its courses and its
+  secrets in one transaction. `registry_rev` moves on with none of the
+  people's or the secrets' writes.
+- **The key pool (D8).** The document's shape holds what the product owner
+  decided for a student's own agent: `model` is the school's offer and
+  `model.fallback` the owner's own-key model, whose key is the row's
+  `key_secret_id`; the worker already falls back when the school's model
+  cannot be reached. Switching when the owner's daily quota on the school's
+  key is spent, and holding the question when there is no own key, come
+  with the quotas; until the school's offers exist, a hosted agent on the
+  school's key is refused.
+- `check`, with `DATABASE_URL`, reads the registry as `run` does, lists
+  the hosted agents it would run and those it would not, with why, and
+  passes: they keep no other from running. A registry it cannot read (a
+  schema older than the binary's, before a deploy's `migrate up`) is said,
+  and passes too. `check --live` connects the hosted agents as well.
+
+### 11.3 Where M2 departs from the handout
 
 - **The UI lives in AIShiteru-Frontend** (the product owner's D1), not in a
   `runtime-web` of the runtime's (§8.3): the runtime will serve a versioned

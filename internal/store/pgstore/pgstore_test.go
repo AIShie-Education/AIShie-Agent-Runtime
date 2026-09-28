@@ -24,7 +24,8 @@ var update = flag.Bool("update", false, "rewrite testdata/schema.golden from the
 
 // tables are every table the migrations make, in the order TRUNCATE takes
 // them.
-var tables = []string{"lease", "attempt", "cursor", "note", "seat", "llm_call", "answer", "agent_state", "secret"}
+var tables = []string{"lease", "attempt", "cursor", "note", "seat", "llm_call", "answer", "agent_state", "secret",
+	"person", "hosted_agent", "hosted_course"}
 
 // newest is the newest migration the binary carries.
 func newest(t *testing.T) uint {
@@ -89,6 +90,8 @@ func TestMigrateUpDownUp(t *testing.T) {
 			t.Fatalf("version = %d (dirty %v), want %d", current, dirty, want)
 		}
 	}
+	// registry_rev is a table too, which TRUNCATE leaves alone.
+	all := len(tables) + 1
 	tableCount := func() int {
 		t.Helper()
 		conn, err := pgx.Connect(ctx, u)
@@ -111,11 +114,11 @@ func TestMigrateUpDownUp(t *testing.T) {
 		version   uint
 		tables    int
 	}{
-		{Up, top, len(tables)},
-		{Up, top, len(tables)}, // already there
+		{Up, top, all},
+		{Up, top, all}, // already there
 		{Down, 0, 0},
 		{Down, 0, 0}, // already there
-		{Up, top, len(tables)},
+		{Up, top, all},
 	} {
 		if err := Migrate(u, step.direction); err != nil {
 			t.Fatalf("step %d, %s: %v", i+1, step.direction, err)
@@ -373,7 +376,7 @@ func TestLeasesRunOnTheDatabasesClock(t *testing.T) {
 }
 
 // The schema, as the migrations leave it, is reviewed as text: every
-// column, constraint and index. A change to it shows here, and needs
+// column, constraint, index and trigger. A change to it shows here, and needs
 // -update and a migration that makes it.
 func TestSchemaGolden(t *testing.T) {
 	s := openShared(t)
@@ -423,6 +426,10 @@ func describeSchema(t *testing.T, s *Store) []byte {
 			SELECT indexdef FROM pg_indexes
 			 WHERE schemaname = 'public' AND tablename <> 'schema_migrations'
 			 ORDER BY tablename COLLATE "C", indexname COLLATE "C"`},
+		{"triggers", `
+			SELECT pg_get_triggerdef(t.oid) FROM pg_trigger t
+			 WHERE NOT t.tgisinternal AND t.tgrelid::regclass::text <> 'schema_migrations'
+			 ORDER BY t.tgrelid::regclass::text COLLATE "C", t.tgname COLLATE "C"`},
 	} {
 		fmt.Fprintf(&b, "-- %s\n", q.title)
 		rows, err := s.pool.Query(ctx, q.sql)

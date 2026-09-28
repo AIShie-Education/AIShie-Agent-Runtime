@@ -48,6 +48,26 @@ cursor.member_id text not null
 cursor.kind text not null
 cursor.value text not null
 cursor.updated_at timestamp with time zone not null default now()
+hosted_agent.id text not null
+hosted_agent.core_actor_id text not null
+hosted_agent.owner_actor_id text not null
+hosted_agent.owner_verified boolean not null
+hosted_agent.tenant_id text not null
+hosted_agent.display_name text not null
+hosted_agent.token_secret_id text not null
+hosted_agent.token_hint text not null
+hosted_agent.key_secret_id text
+hosted_agent.key_hint text not null
+hosted_agent.paused boolean not null
+hosted_agent.settings jsonb not null
+hosted_agent.version integer not null
+hosted_agent.created_at timestamp with time zone not null
+hosted_agent.updated_at timestamp with time zone not null
+hosted_course.agent_id text not null
+hosted_course.course_id text not null
+hosted_course.settings jsonb not null
+hosted_course.updated_by text not null
+hosted_course.updated_at timestamp with time zone not null
 lease.name text not null
 lease.holder text not null
 lease.expires_at timestamp with time zone not null
@@ -84,6 +104,12 @@ note.kind text not null
 note.text text not null
 note.message_id text
 note.created_at timestamp with time zone not null
+person.core_actor_id text not null
+person.display_name text not null
+person.platform_role text not null
+person.last_seen_at timestamp with time zone not null
+registry_rev.one boolean not null default true
+registry_rev.rev bigint not null
 seat.agent_id text not null
 seat.member_id text not null
 seat.course_id text not null
@@ -105,9 +131,24 @@ answer answer_pkey PRIMARY KEY (agent_id, id)
 attempt attempt_pkey PRIMARY KEY (agent_id, key)
 attempt attempt_state_known CHECK ((state = ANY (ARRAY['sending'::text, 'executed'::text, 'proposed'::text, 'failed'::text, 'denied'::text, 'error'::text, 'rejected'::text, 'cancelled'::text])))
 cursor cursor_pkey PRIMARY KEY (agent_id, member_id, kind)
+hosted_agent hosted_agent_core_actor_id_key UNIQUE (core_actor_id)
+hosted_agent hosted_agent_id_shape CHECK ((id ~ '^agt_[A-Za-z0-9_-]{1,60}$'::text))
+hosted_agent hosted_agent_key_secret_id_fkey FOREIGN KEY (key_secret_id) REFERENCES secret(id)
+hosted_agent hosted_agent_key_secret_id_key UNIQUE (key_secret_id)
+hosted_agent hosted_agent_pkey PRIMARY KEY (id)
+hosted_agent hosted_agent_settings_object CHECK ((jsonb_typeof(settings) = 'object'::text))
+hosted_agent hosted_agent_token_secret_id_fkey FOREIGN KEY (token_secret_id) REFERENCES secret(id)
+hosted_agent hosted_agent_token_secret_id_key UNIQUE (token_secret_id)
+hosted_agent hosted_agent_two_secrets CHECK ((key_secret_id IS DISTINCT FROM token_secret_id))
+hosted_course hosted_course_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES hosted_agent(id) ON DELETE CASCADE
+hosted_course hosted_course_pkey PRIMARY KEY (agent_id, course_id)
+hosted_course hosted_course_settings_object CHECK ((jsonb_typeof(settings) = 'object'::text))
 lease lease_pkey PRIMARY KEY (name)
 llm_call llm_call_pkey PRIMARY KEY (agent_id, id)
 note note_pkey PRIMARY KEY (id)
+person person_pkey PRIMARY KEY (core_actor_id)
+registry_rev registry_rev_one_row CHECK (one)
+registry_rev registry_rev_pkey PRIMARY KEY (one)
 seat seat_pkey PRIMARY KEY (agent_id, member_id)
 secret secret_id_shape CHECK ((id ~ '^sec_[A-Za-z0-9_-]{1,60}$'::text))
 secret secret_kind_known CHECK ((kind = ANY (ARRAY['core_token'::text, 'model_key'::text])))
@@ -124,6 +165,12 @@ CREATE INDEX attempt_member_state_idx ON public.attempt USING btree (agent_id, m
 CREATE INDEX attempt_message_idx ON public.attempt USING btree (agent_id, conversation_id, message_id)
 CREATE UNIQUE INDEX attempt_pkey ON public.attempt USING btree (agent_id, key)
 CREATE UNIQUE INDEX cursor_pkey ON public.cursor USING btree (agent_id, member_id, kind)
+CREATE UNIQUE INDEX hosted_agent_core_actor_id_key ON public.hosted_agent USING btree (core_actor_id)
+CREATE UNIQUE INDEX hosted_agent_key_secret_id_key ON public.hosted_agent USING btree (key_secret_id)
+CREATE INDEX hosted_agent_owner_idx ON public.hosted_agent USING btree (owner_actor_id)
+CREATE UNIQUE INDEX hosted_agent_pkey ON public.hosted_agent USING btree (id)
+CREATE UNIQUE INDEX hosted_agent_token_secret_id_key ON public.hosted_agent USING btree (token_secret_id)
+CREATE UNIQUE INDEX hosted_course_pkey ON public.hosted_course USING btree (agent_id, course_id)
 CREATE UNIQUE INDEX lease_pkey ON public.lease USING btree (name)
 CREATE INDEX llm_call_agent_idx ON public.llm_call USING btree (agent_id, at)
 CREATE INDEX llm_call_asker_idx ON public.llm_call USING btree (course_id, opener_member_id, at)
@@ -132,8 +179,13 @@ CREATE UNIQUE INDEX llm_call_pkey ON public.llm_call USING btree (agent_id, id)
 CREATE INDEX llm_call_tenant_idx ON public.llm_call USING btree (tenant_id, at)
 CREATE INDEX note_conversation_idx ON public.note USING btree (agent_id, member_id, conversation_id, created_at)
 CREATE UNIQUE INDEX note_pkey ON public.note USING btree (id)
+CREATE UNIQUE INDEX person_pkey ON public.person USING btree (core_actor_id)
+CREATE UNIQUE INDEX registry_rev_pkey ON public.registry_rev USING btree (one)
 CREATE INDEX seat_gone_idx ON public.seat USING btree (gone_at) WHERE (gone_at IS NOT NULL)
 CREATE UNIQUE INDEX seat_pkey ON public.seat USING btree (agent_id, member_id)
 CREATE INDEX secret_kek_idx ON public.secret USING btree (kek_id)
 CREATE UNIQUE INDEX secret_pkey ON public.secret USING btree (id)
 CREATE INDEX secret_tenant_idx ON public.secret USING btree (tenant_id)
+-- triggers
+CREATE TRIGGER hosted_agent_changed AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE ON public.hosted_agent FOR EACH STATEMENT EXECUTE FUNCTION registry_changed()
+CREATE TRIGGER hosted_course_changed AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE ON public.hosted_course FOR EACH STATEMENT EXECUTE FUNCTION registry_changed()

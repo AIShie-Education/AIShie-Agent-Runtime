@@ -17,6 +17,8 @@ type AgentStatus struct {
 	State  string `json:"state,omitempty"`
 	Detail string `json:"detail,omitempty"`
 	Paused bool   `json:"paused,omitempty"`
+	// Hosted is set for an agent of the registry, rather than of YAML.
+	Hosted bool `json:"hosted,omitempty"`
 	// Leased is whether this worker holds the agent's lease; Running,
 	// whether it runs the agent now.
 	Leased  bool `json:"leased"`
@@ -56,8 +58,14 @@ func (s *Supervisor) Status() []AgentStatus {
 	s.mu.Lock()
 	out := make([]AgentStatus, 0, len(s.runners)+len(s.paused))
 	agents := map[int]*Agent{}
+	hosted := map[string]bool{}
+	if s.cfg != nil {
+		for _, a := range s.cfg.Agents {
+			hosted[a.ID] = a.Hosted != nil
+		}
+	}
 	for _, r := range s.runners {
-		st := AgentStatus{AgentID: r.id, Leased: r.holds, Running: r.agent != nil}
+		st := AgentStatus{AgentID: r.id, Leased: r.holds, Running: r.agent != nil, Hosted: r.cfg.Hosted != nil}
 		if r.holds {
 			st.State, st.Detail = r.state, r.detail
 		}
@@ -67,7 +75,10 @@ func (s *Supervisor) Status() []AgentStatus {
 		out = append(out, st)
 	}
 	for id := range s.paused {
-		out = append(out, AgentStatus{AgentID: id, State: store.AgentPaused, Paused: true})
+		out = append(out, AgentStatus{AgentID: id, State: store.AgentPaused, Paused: true, Hosted: hosted[id]})
+	}
+	for id, detail := range s.rejected {
+		out = append(out, AgentStatus{AgentID: id, State: store.AgentError, Detail: "not run: " + detail, Hosted: true})
 	}
 	s.mu.Unlock()
 	for i, a := range agents {

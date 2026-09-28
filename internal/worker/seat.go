@@ -40,10 +40,11 @@ type Seat struct {
 	primary  *model
 	fallback *model
 	tools    map[toolschema.Dialect]*toolset.Set
-	// custom is the system_ref file's text, when the agent names one; else
-	// the built-in prompt for the seat's kind is used, as it stands at each
-	// answer. appended is the course's prompt_append_ref text. Both are
-	// set before the seat starts, and never changed.
+	// custom is the system_ref file's text, or system_text, when the agent
+	// has either; else the built-in prompt for the seat's kind is used, as
+	// it stands at each answer. appended is the course's prompt_append_ref
+	// file's text, or its prompt_append_text. Both are set before the seat
+	// starts, and never changed.
 	custom   *string
 	appended string
 
@@ -86,17 +87,24 @@ func newSeat(ctx context.Context, a *Agent, m core.Membership, eff *config.Effec
 	if s.primary, s.fallback, err = a.models(ctx, eff.Model); err != nil {
 		return nil, err
 	}
-	if ref := eff.Prompt.SystemRef; ref != "" {
-		text, err := readPrompt(a.cfg.Path(ref))
+	switch p := eff.Prompt; {
+	case p.SystemRef != "":
+		text, err := readPrompt(a.cfg.Path(p.SystemRef))
 		if err != nil {
 			return nil, fmt.Errorf("prompt.system_ref: %w", err)
 		}
 		s.custom = &text
+	case p.SystemText != "":
+		text := p.SystemText
+		s.custom = &text
 	}
-	if ref := eff.PromptAppendRef; ref != "" {
-		if s.appended, err = readPrompt(a.cfg.Path(ref)); err != nil {
+	switch {
+	case eff.PromptAppendRef != "":
+		if s.appended, err = readPrompt(a.cfg.Path(eff.PromptAppendRef)); err != nil {
 			return nil, fmt.Errorf("prompt_append_ref: %w", err)
 		}
+	case eff.PromptAppendText != "":
+		s.appended = eff.PromptAppendText
 	}
 	if _, err := s.toolsFor(s.primary.ad.Dialect()); err != nil {
 		return nil, err
@@ -163,7 +171,7 @@ func (s *Seat) update(m core.Membership, eff *config.Effective) {
 }
 
 // basePrompt is the agent's prompt for the seat as it stands: the
-// system_ref file's, else the built-in one for a course tutor or for a
+// system_ref file's or system_text, else the built-in one for a course tutor or for a
 // person's own agent, as answers_course says now (it turns false when the
 // tutor's principal no longer manages the course's members).
 func (s *Seat) basePrompt(m core.Membership) string {
