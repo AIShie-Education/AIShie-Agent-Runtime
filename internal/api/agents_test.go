@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/fakecore"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/probe"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/fakecore"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/probe"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
 // inspect says what a token is before it is connected, and refuses it in

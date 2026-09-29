@@ -25,7 +25,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 )
 
 // Gate is the permissions that let a seat be offered a tool, as Core's own

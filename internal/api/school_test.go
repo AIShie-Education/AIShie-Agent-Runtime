@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/registry"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
 // schoolRuntime is a runtime with the school's plan: two offers, one the

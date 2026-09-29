@@ -15,7 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/version"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/version"
 )
 
 // DefaultMaxResponseBytes bounds what one answer of Core's may be. The

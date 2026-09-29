@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 )
 
 var toolUseIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,64}$`)

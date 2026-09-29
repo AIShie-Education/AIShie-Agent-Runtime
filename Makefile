@@ -6,7 +6,7 @@ SHELL       := /bin/bash
 .SHELLFLAGS := -eu -o pipefail -c
 
 BIN     := bin/aishie-runtime
-PKG     := github.com/AIShiteru-LMS/AIShie-Agent-Runtime
+PKG     := github.com/AIShie-Education/AIShie-Agent-Runtime
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)

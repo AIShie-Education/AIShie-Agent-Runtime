@@ -9,7 +9,7 @@ import (
 	"mime"
 	"net/http"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 )
 
 // Stream is a provider's 2xx answer to a request that asked for

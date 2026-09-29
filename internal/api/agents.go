@@ -10,10 +10,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/probe"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/vault"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/worker"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/probe"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/worker"
 )
 
 // The routes of a hosted agent's life (the API contract, §5.5 to §5.13):

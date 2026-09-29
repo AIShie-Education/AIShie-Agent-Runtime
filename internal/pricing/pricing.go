@@ -36,7 +36,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 )
 
 // PUSDPerUSD is how many pico-dollars make a dollar.

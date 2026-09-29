@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/ratelimit"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ratelimit"
 )
 
 // liveREST is Core's REST API as the tests' people use it: plain requests,

@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/redact"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/redact"
 )
 
 // coreAPI is Core's REST API as the tests' people use it: plain requests

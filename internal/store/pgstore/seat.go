@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
 // SeatSeen records the seat as current, as r says it is, clearing any

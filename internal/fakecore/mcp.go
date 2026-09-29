@@ -16,7 +16,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/jsonstrict"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/jsonstrict"
 )
 
 // instructions is what Core tells a connecting agent about the whole

@@ -15,7 +15,7 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/jsonstrict"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/jsonstrict"
 )
 
 // REST, as Core's httpapi answers it: every tool at its catalogue route and

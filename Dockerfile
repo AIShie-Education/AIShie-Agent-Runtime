@@ -14,9 +14,9 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
     -ldflags "-s -w \
-      -X github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/version.Version=${VERSION} \
-      -X github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/version.Commit=${COMMIT} \
-      -X github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/version.Date=${DATE}" \
+      -X github.com/AIShie-Education/AIShie-Agent-Runtime/internal/version.Version=${VERSION} \
+      -X github.com/AIShie-Education/AIShie-Agent-Runtime/internal/version.Commit=${COMMIT} \
+      -X github.com/AIShie-Education/AIShie-Agent-Runtime/internal/version.Date=${DATE}" \
     -o /out/aishie-runtime ./cmd/aishie-runtime
 
 # The store's migrations and the built-in prompts are embedded in the binary.

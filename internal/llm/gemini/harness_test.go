@@ -12,7 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files under testdata/golden")

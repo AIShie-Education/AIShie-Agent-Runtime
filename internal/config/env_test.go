@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/ocr"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
 )
 
 func envOf(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
