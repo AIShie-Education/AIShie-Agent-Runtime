@@ -885,11 +885,11 @@ Per seat (§7.2):
   window is settled within milliseconds. So are they, read at once and then
   long-polled, while one of the seat's answers is being written (§5.3's
   step 7), for a retraction of its question, which stops it (§5.3, A
-  question withdrawn). The background read every
-  `events_s` stays at 45 s: the inbox's long poll sees the decisions that
-  put a question back (rejected, cancelled, failed), but only the feed
-  tells a proposal approved and posted after the window, and a message
-  retracted, whose memory is to be forgotten promptly (§6.3). The cursor
+  question withdrawn). The background read every `events_s` stays at
+  45 s: the inbox's long poll sees the decisions that put a question back
+  (rejected, cancelled, failed), but only the feed tells a proposal
+  approved and posted after the window, and a message retracted, whose
+  memory is to be forgotten promptly (§6.3). The cursor
   (`next_seq`) is kept in the store per seat, and moves past a page only
   when every event on it was recorded; a store that fails on one has the
   page read again. The real Core does not move `next_seq` over events the
