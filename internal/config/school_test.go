@@ -190,14 +190,15 @@ func TestSchoolQuotaText(t *testing.T) {
 }
 
 // An offer is the model section the registry writes: the offer's settings
-// on the school's key, and no more than it sets.
+// on the school's key, where the model is always written out, and no more
+// than it sets otherwise.
 func TestSchoolOfferSection(t *testing.T) {
 	temp, strict := 0.2, false
 	o := SchoolOffer{ID: "std", Label: "Std", Adapter: "openai_chat", Model: "m", BaseURL: "https://api.deepseek.com", KeyRef: "secret://school/keys/ds",
 		Params: ModelParams{Temperature: &temp}, Reasoning: Reasoning{Effort: "low"}, Capabilities: Capabilities{StrictTools: &strict}}
 	got := yamlOf(t, o.Section())
 	want := "adapter: openai_chat\nbase_url: https://api.deepseek.com\ncapabilities:\n    strict_tools: false\nkey_ref: secret://school/keys/ds\nkey_source: school\n" +
-		"model: m\noffer: std\nparams:\n    temperature: 0.2\nreasoning:\n    effort: low\n"
+		"model: m\noffer: std\nparams:\n    temperature: 0.2\nprovider: \"\"\nreasoning:\n    effort: low\nregion: \"\"\n"
 	if got != want {
 		t.Fatalf("section:\n%s\nwant\n%s", got, want)
 	}

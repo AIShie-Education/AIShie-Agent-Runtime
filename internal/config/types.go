@@ -358,14 +358,12 @@ func withAnswers(q Quota, n int) Quota {
 
 // Section is the offer as a model section on the school's key, as the
 // registry writes it into a hosted agent's settings: JSON-shaped, with
-// only what the offer sets, so that the defaults fill in the rest.
+// where the model is and its key always written, so that nothing of the
+// runtime's defaults moves it, and otherwise only what the offer sets, so
+// that the defaults fill in the rest.
 func (o SchoolOffer) Section() map[string]any {
-	m := map[string]any{"adapter": o.Adapter, "model": o.Model, "key_source": KeySchool, "key_ref": o.KeyRef, "offer": o.ID}
-	for k, v := range map[string]string{"provider": o.Provider, "base_url": o.BaseURL, "region": o.Region} {
-		if v != "" {
-			m[k] = v
-		}
-	}
+	m := map[string]any{"adapter": o.Adapter, "model": o.Model, "key_source": KeySchool, "key_ref": o.KeyRef, "offer": o.ID,
+		"provider": o.Provider, "base_url": o.BaseURL, "region": o.Region}
 	params := map[string]any{}
 	if o.Params.MaxOutputTokens > 0 {
 		params["max_output_tokens"] = o.Params.MaxOutputTokens

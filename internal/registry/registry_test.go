@@ -596,11 +596,13 @@ func TestDocumentOnTheSchoolPlan(t *testing.T) {
 }
 
 // Build runs a hosted agent on an offer of the school's plan, with the
-// offer's key, and not one on an offer the school has withdrawn; nor one
+// offer's key, where the offer says, whatever the runtime's defaults say
+// of a model; and not one on an offer the school has withdrawn; nor one
 // whose merged model is on the school's key otherwise than by its offer.
 func TestBuildOnTheSchoolPlan(t *testing.T) {
 	yaml := yamlConfig(t, "")
 	yaml.Runtime.School = schoolPlan()
+	yaml.Runtime.Defaults["model"] = map[string]any{"provider": "openrouter", "region": "us-east-1", "base_url": "https://openrouter.ai/api/v1"}
 	st := hostedStore(t, []store.HostedAgent{
 		row("agt_plan", `{"model": {"key_source": "school", "offer": "standard", "fallback": {"adapter": "anthropic", "model": "claude-test", "key_source": "own"}}}`),
 		row("agt_gone", `{"model": {"key_source": "school", "offer": "premium"}}`),
@@ -618,7 +620,8 @@ func TestBuildOnTheSchoolPlan(t *testing.T) {
 	}
 	a := cfg.Agents[2]
 	if a.Model.KeySource != config.KeySchool || a.Model.Offer != "standard" || a.Model.KeyRef != "secret://school/keys/deepseek" ||
-		a.Model.Model != "deepseek-chat" || a.Model.Params.MaxOutputTokens != 1500 || a.TenantID != "ten_owner" {
+		a.Model.Model != "deepseek-chat" || a.Model.Params.MaxOutputTokens != 1500 || a.TenantID != "ten_owner" ||
+		a.Model.BaseURL != "https://api.deepseek.com" || a.Model.Provider != "" || a.Model.Region != "" {
 		t.Errorf("the model on the plan: %+v", a.Model)
 	}
 	if fb := a.Model.Fallback; fb == nil || fb.KeySource != config.KeyOwn || fb.KeyRef != "sealed://sec_k_agt_plan" || fb.Offer != "" {
