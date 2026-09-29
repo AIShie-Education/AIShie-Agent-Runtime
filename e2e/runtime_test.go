@@ -346,6 +346,21 @@ func (rt *instance) attempt(agent, key string) *store.Attempt {
 	return at
 }
 
+// settled is the attempt under key once the runtime has finished recording
+// it: Core may show the answer a moment before the runtime's store says
+// posted, since the runtime writes its own record after Core answers. It
+// waits for the attempt to leave sending, up to answerWait, and returns it as
+// it then stands (nil if there is none).
+func (rt *instance) settled(agent, key string) *store.Attempt {
+	rt.t.Helper()
+	var at *store.Attempt
+	within(answerWait, func() bool {
+		at = rt.attempt(agent, key)
+		return at != nil && at.State != store.AttemptSending
+	})
+	return at
+}
+
 // teeHandler writes every record to both its handlers: the log as the
 // binary writes it, and the same before redaction.
 type teeHandler struct{ a, b slog.Handler }

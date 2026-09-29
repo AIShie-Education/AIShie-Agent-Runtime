@@ -100,7 +100,7 @@ func hostedAgentAnswers(t *testing.T, w *world) {
 	if !keyed {
 		t.Error("no model request carried Yuki's key, opened from the database")
 	}
-	if at := rt.attempt(id, answerKey(conv, msg, 1)); at == nil || at.State != store.AttemptExecuted {
+	if at := rt.settled(id, answerKey(conv, msg, 1)); at == nil || at.State != store.AttemptExecuted {
 		t.Errorf("the attempt under answer:{x}:{m}:1 is %s", attemptState(at))
 	}
 
