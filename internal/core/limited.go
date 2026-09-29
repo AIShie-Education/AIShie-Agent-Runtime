@@ -17,7 +17,10 @@ import (
 // Under Retrying, each attempt waits for its own token: Core counts every
 // request. A call that waits for news (WithWait) takes one token, as Core
 // counts it one call however long it waits, and holds none while it waits:
-// the token is spent before the call is made.
+// the token is spent before the call is made. A best-effort call
+// (WithBestEffort), which Core does not count against the actor's limit,
+// takes no token and waits for none: its caller keeps it to Core's own
+// limit on it.
 func Limited(next Caller, b *ratelimit.Bucket) Caller {
 	if b == nil {
 		return next
@@ -31,8 +34,10 @@ type limited struct {
 }
 
 func (l *limited) Call(ctx context.Context, tool string, args json.RawMessage) (*Envelope, error) {
-	if err := l.b.Wait(ctx, int(PriorityOf(ctx))); err != nil {
-		return nil, err
+	if !BestEffort(ctx) {
+		if err := l.b.Wait(ctx, int(PriorityOf(ctx))); err != nil {
+			return nil, err
+		}
 	}
 	return l.next.Call(ctx, tool, args)
 }

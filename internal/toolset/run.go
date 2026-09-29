@@ -55,6 +55,11 @@ type Runner struct {
 	// Guard is the seats the model's member writes never change; its zero
 	// value refuses every member write.
 	Guard SeatGuard
+	// Seen, when set, is told of each call that reached Core as Core
+	// answers it, with Core's envelope (nil when Core did not answer), on
+	// the goroutine that made it, while the other calls may still run: what
+	// the answer's draft says of the call.
+	Seen func(call llm.Part, env *core.Envelope)
 }
 
 // Defaults of Runner.
@@ -306,6 +311,8 @@ func (s *Set) Run(ctx context.Context, r Runner, courseID string, calls []llm.Pa
 			part, file, env, err := s.send(ctx, r, p)
 			if err != nil {
 				cancel()
+			} else if r.Seen != nil {
+				r.Seen(toolCalls[i], env)
 			}
 			outs[i] = outcome{part, file, env, err}
 		})

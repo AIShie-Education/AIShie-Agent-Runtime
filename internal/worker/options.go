@@ -126,6 +126,9 @@ type Timing struct {
 	// long poll Core did not wait on, refused, or that did not come back
 	// (longpoll.go), jittered as its polling is: 1 min.
 	LongPollFallback time.Duration
+	// DraftEvery is how often, at most, an answer's draft is written to
+	// Core (draft.go): 300 ms.
+	DraftEvery time.Duration
 }
 
 // Defaults of Timing.
@@ -142,6 +145,8 @@ const (
 	DefaultRetryLater      = 10 * time.Second
 	// DefaultLongPollFallback is LongPollFallback's default.
 	DefaultLongPollFallback = time.Minute
+	// DefaultDraftEvery is DraftEvery's default.
+	DefaultDraftEvery = 300 * time.Millisecond
 )
 
 func (t Timing) withDefaults() Timing {
@@ -161,6 +166,7 @@ func (t Timing) withDefaults() Timing {
 	set(&t.HoldBackMax, DefaultHoldBackMax)
 	set(&t.RetryLater, DefaultRetryLater)
 	set(&t.LongPollFallback, DefaultLongPollFallback)
+	set(&t.DraftEvery, DefaultDraftEvery)
 	return t
 }
 

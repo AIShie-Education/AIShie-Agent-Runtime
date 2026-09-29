@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolschema"
@@ -65,6 +66,7 @@ type Adapter struct {
 
 var (
 	_ llm.Adapter     = (*Adapter)(nil)
+	_ llm.Streamer    = (*Adapter)(nil)
 	_ llm.FileLimiter = (*Adapter)(nil)
 )
 
@@ -220,6 +222,68 @@ func (a *Adapter) Call(ctx context.Context, req *llm.Request) (*llm.Response, er
 	}
 	resp.Normalize()
 	return resp, nil
+}
+
+// textKey carries a streamed call's llm.TextFunc to the step that answers
+// it.
+type textKey struct{}
+
+// Stream is Call, streamed: the step answering it is given onText
+// (TextOf), which a streaming step (Streamed) tells its text in pieces,
+// and any other step tells nothing, as an adapter that does not stream.
+func (a *Adapter) Stream(ctx context.Context, req *llm.Request, onText llm.TextFunc) (*llm.Response, error) {
+	return a.Call(context.WithValue(ctx, textKey{}, onText), req)
+}
+
+// TextOf is what the call a step answers tells its text to: the caller's
+// llm.TextFunc for a streamed call, and one that keeps nothing otherwise.
+func TextOf(ctx context.Context) llm.TextFunc {
+	if f, ok := ctx.Value(textKey{}).(llm.TextFunc); ok && f != nil {
+		return f
+	}
+	return func(string) {}
+}
+
+// Streamed answers with the pieces' text, told one piece at a time, every
+// apart, as a provider streams it, and stops at the end. A call that is
+// not streamed gets the same answer whole.
+func Streamed(every time.Duration, pieces ...string) Step {
+	return func(ctx context.Context, req *llm.Request) (*llm.Response, error) {
+		if err := tell(ctx, every, pieces); err != nil {
+			return nil, err
+		}
+		return Reply(strings.Join(pieces, ""))(ctx, req)
+	}
+}
+
+// StreamedThenFail tells the pieces as Streamed does, then fails with err:
+// a stream cut off part way, whose text is no answer.
+func StreamedThenFail(every time.Duration, err error, pieces ...string) Step {
+	return func(ctx context.Context, _ *llm.Request) (*llm.Response, error) {
+		if terr := tell(ctx, every, pieces); terr != nil {
+			return nil, terr
+		}
+		return nil, err
+	}
+}
+
+// tell tells the pieces to the call's TextFunc, every apart; a timeout if
+// the call's context ends first.
+func tell(ctx context.Context, every time.Duration, pieces []string) error {
+	onText := TextOf(ctx)
+	for i, p := range pieces {
+		if i > 0 && every > 0 {
+			t := time.NewTimer(every)
+			select {
+			case <-t.C:
+			case <-ctx.Done():
+				t.Stop()
+				return &llm.Error{Kind: llm.ErrTimeout, Message: "scripted: the stream ran out of time"}
+			}
+		}
+		onText(p)
+	}
+	return nil
 }
 
 // take is the next step, if there is one.

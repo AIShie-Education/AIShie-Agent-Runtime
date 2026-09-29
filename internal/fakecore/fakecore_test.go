@@ -93,10 +93,19 @@ func TestCatalogueSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	drafts, err := catalogueOf(Options{Drafts: true})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for name := range implemented() {
-		if cat.byName[name] == nil {
+		// conversation.draft is served with Options.Drafts, as the
+		// contract describes it, until the pinned Core has it.
+		if cat.byName[name] == nil && (name != "conversation.draft" || drafts.byName[name] == nil) {
 			t.Errorf("the fake implements %s, which the catalogue does not have", name)
 		}
+	}
+	if d := drafts.byName["conversation.draft"]; d == nil || !d.ephemeral || len(drafts.tools) != len(cat.tools)+1 {
+		t.Errorf("the catalogue with conversation.draft: %+v, %d tools", d, len(drafts.tools))
 	}
 	if len(older.tools) != len(cat.tools)-1 || older.byName["me.site_chat"] != nil {
 		t.Errorf("the catalogue without me.site_chat has %d tools", len(older.tools))

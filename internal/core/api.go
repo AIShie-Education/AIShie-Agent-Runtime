@@ -172,6 +172,61 @@ func (c *Client) SiteChat(ctx context.Context, on bool, key string) (*Envelope, 
 	return c.c.Call(ctx, ToolSiteChat, raw)
 }
 
+// ToolDraft is conversation.draft over MCP: the draft of an answer being
+// written, which whoever reads the conversation sees until the answer takes
+// its place (Catalogue.Drafts).
+const ToolDraft = "conversation_draft"
+
+// The kinds of a draft's steps, and their states.
+const (
+	StepThinking          = "thinking"
+	StepReadingDocument   = "reading_document"
+	StepListingDocuments  = "listing_documents"
+	StepReadingAssignment = "reading_assignment"
+	StepReadingSubmission = "reading_submission"
+	StepSearchingMemory   = "searching_memory"
+	StepWriting           = "writing"
+	StepTool              = "tool"
+
+	StepRunning = "running"
+	StepDone    = "done"
+)
+
+// DraftStep is one thing the runtime does, or did, towards an answer: its
+// kind, its state, and what it is about (a document's title), plain text.
+type DraftStep struct {
+	Kind   string `json:"kind"`
+	Target string `json:"target,omitempty"`
+	State  string `json:"state"`
+}
+
+// DraftArgs are conversation_draft's arguments. Text, when set, is the
+// whole answer so far; Steps, when any, every step so far: each replaces
+// what Core keeps, and one left out keeps it. Version rises with each
+// write of an attempt: Core passes over one not newer than it keeps. Done
+// ends the attempt, and Core deletes its draft.
+type DraftArgs struct {
+	CourseID       string      `json:"course_id"`
+	ConversationID string      `json:"conversation_id"`
+	Attempt        string      `json:"attempt"`
+	Version        int64       `json:"version"`
+	Text           *string     `json:"text,omitempty"`
+	Steps          []DraftStep `json:"steps,omitempty"`
+	Done           bool        `json:"done,omitempty"`
+}
+
+// Draft is conversation_draft, an ephemeral write: no idempotency key, and
+// nothing recorded. It returns the envelope as it came; it is best effort
+// (WithBestEffort), so no layer underneath sends it again or holds it for
+// the agent's rate limit, which Core does not count it against.
+func (c *Client) Draft(ctx context.Context, args DraftArgs) (*Envelope, error) {
+	raw, err := json.Marshal(args)
+	if err != nil {
+		return nil, fmt.Errorf("core: %s: %w", ToolDraft, err)
+	}
+	return c.c.Call(WithBestEffort(ctx), ToolDraft, raw)
+}
+
 // Send sends a write's exact bytes and returns the envelope as it came:
 // the bytes written ahead, sent again after a timeout (§2.2).
 func (c *Client) Send(ctx context.Context, tool string, args []byte) (*Envelope, error) {

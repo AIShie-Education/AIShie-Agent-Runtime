@@ -554,7 +554,7 @@ func TestBuiltinDenied(t *testing.T) {
 		"credential_set_password", "actor_get", "actor_register", "actor_invite_new", "actor_lookup_by_email", "me_get",
 		"me_memberships", "me_site_chat", "me_conversations", "member_add_delegate", "member_delegate_defaults",
 		"member_reset_password", "action_withdraw", "conversation_answer", "conversation_open", "conversation_retract",
-		"conversation_messages", "conversation_inbox", "conversation_mark_read", "preset_create", "course_create", "course_update",
+		"conversation_messages", "conversation_inbox", "conversation_mark_read", "conversation_draft", "preset_create", "course_create", "course_update",
 		"course_archive", "course_activate", "course_move", "course_seat_instructor", "course_list", "term_list", "department_list",
 		"department_list_tree", "department_add_admin", "department_move", "document_upload_url", "document_purge",
 		"course_join_link_create", "memory_search", "memory_list", "memory_get", "memory_write", "memory_update", "memory_forget",

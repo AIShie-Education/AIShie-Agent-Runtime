@@ -31,6 +31,18 @@ func newLimiter(perMinute, burst int, now func() time.Time) *limiter {
 	return &limiter{perSecond: float64(perMinute) / 60, burst: float64(max(burst, 1)), now: now, buckets: map[string]*bucket{}}
 }
 
+// refund gives key back the token a call took.
+func (l *limiter) refund(key string) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if b := l.buckets[key]; b != nil {
+		b.tokens = min(b.tokens+1, l.burst)
+	}
+}
+
 // allow reports whether key may call now and, if not, how long until it
 // may.
 func (l *limiter) allow(key string) (bool, time.Duration) {

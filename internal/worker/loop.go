@@ -58,6 +58,9 @@ type loop struct {
 	decls  []llm.Tool
 	// cap is the output tokens asked for on a turn.
 	cap int
+	// d is the conversation's drafter, which shows the asker what the
+	// loop does (draft.go); nil against a Core that takes no drafts.
+	d *drafter
 
 	stats     loopStats
 	exhausted string
@@ -101,7 +104,7 @@ func newLoop(c *claim, msg string, attempt int, access toolset.Access, guard too
 	m, fallback := c.models()
 	l := &loop{
 		c: c, msg: msg, b: c.eff.Budgets.PerAnswer, start: c.a.now(), system: system, history: history,
-		m: m, fallback: fallback, access: access, guard: guard,
+		m: m, fallback: fallback, access: access, guard: guard, d: c.d,
 	}
 	if access == toolset.ReadWrite {
 		conv := c.conv
@@ -152,6 +155,7 @@ func (l *loop) run(ctx context.Context) loopEnd {
 		if l.outLeft() <= 0 {
 			return l.spent(partial)
 		}
+		l.d.round()
 		resp, err := l.call(ctx, forced)
 		if err != nil {
 			switch kindOf(err) {
@@ -307,7 +311,10 @@ func (l *loop) call(ctx context.Context, forced bool) (*llm.Response, error) {
 }
 
 // callModel calls the loop's model, up to modelTries times while its
-// errors are retryable and the wall clock allows the backoff.
+// errors are retryable and the wall clock allows the backoff. Where the
+// conversation has a draft, the call is streamed, its text shown as it is
+// written (llm.Stream), and a try made again starts the draft's text
+// again: what a broken stream or a failed provider wrote is no answer.
 func (l *loop) callModel(ctx context.Context, forced bool) (*llm.Response, error) {
 	t := l.c.a.s.o.Timing
 	var last error
@@ -321,7 +328,8 @@ func (l *loop) callModel(ctx context.Context, forced bool) (*llm.Response, error
 		}
 		cctx, cancel := context.WithTimeout(ctx, timeout)
 		began := time.Now()
-		resp, err := l.m.ad.Call(cctx, l.request(forced))
+		l.d.again()
+		resp, err := llm.Stream(cctx, l.m.ad, l.request(forced), l.onText())
 		cancel()
 		l.account(resp, err, time.Since(began))
 		if err == nil && resp.Stop != llm.StopError {
@@ -354,6 +362,15 @@ func (l *loop) callModel(ctx context.Context, forced bool) (*llm.Response, error
 		}
 	}
 	return nil, last
+}
+
+// onText is what the model's text is told to as it is written: the
+// draft's, or nothing, and then the call is not streamed.
+func (l *loop) onText() llm.TextFunc {
+	if l.d == nil {
+		return nil
+	}
+	return l.d.text
 }
 
 // timeout is a model call's: min(60 s, the wall clock left). A last turn
@@ -454,10 +471,16 @@ func (l *loop) runTools(ctx context.Context, resp *llm.Response) error {
 	if fl, ok := l.m.ad.(llm.FileLimiter); ok {
 		pdf = fl.FileLimits()
 	}
-	parts, err := l.set.Run(ctx, toolset.Runner{
+	runner := toolset.Runner{
 		Client: l.c.a.client, Files: l.c.a.s.files, Texts: l.c.a.s.texts, OCR: l.c.a.s.o.OCR, MaxParallel: eff.Tools.MaxParallelTools,
 		FileInput: l.m.ad.Capabilities().FileInput, PDFLimits: pdf, Writes: l.writes, Guard: l.guard,
-	}, l.c.s.course, run)
+	}
+	if l.d != nil {
+		runner.Seen = l.d.seen
+	}
+	l.d.calls(run)
+	parts, err := l.set.Run(ctx, runner, l.c.s.course, run)
+	l.d.callsDone()
 	l.accountWrites()
 	if err != nil {
 		return err

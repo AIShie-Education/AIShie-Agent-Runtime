@@ -141,6 +141,11 @@ func (c *Core) restTool(t *toolDef, method, pattern string) http.HandlerFunc {
 		// Carried out; the answer is held as a slow network would hold it.
 		sleep(context.WithoutCancel(r.Context()), delayAfter)
 		if out.Status == "error" {
+			// A tool that bounds its own rate (conversation.draft) says
+			// when to try again, as the limit does.
+			if secs, ok := out.Error.Details["retry_after_seconds"].(int); ok && out.Error.Code == codeRateLimited {
+				w.Header().Set("Retry-After", strconv.Itoa(secs))
+			}
 			writeError(w, out.Error)
 			return
 		}

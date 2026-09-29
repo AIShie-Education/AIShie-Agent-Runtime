@@ -300,9 +300,12 @@ func (c *Core) invoke(caller *actor, t *toolDef, raw []byte, key, base string) o
 		return c.refuseUnimplemented(t, in)
 	}
 	var out outcome
-	if t.write {
+	switch {
+	case t.write:
 		out, err = c.invokeWrite(caller, t, in, raw, key)
-	} else {
+	case t.ephemeral:
+		out, err = c.invokeEphemeral(caller, t, in)
+	default:
 		out, err = c.invokeRead(caller, t, in, base)
 	}
 	if err != nil {
@@ -411,9 +414,9 @@ func (c *Core) authorize(t *toolDef, in any, act *actor, asMember *member) (auth
 	res.course = co
 	check := func(perms []string) decision {
 		if asMember != nil {
-			return evaluate(asMember.actor, co, asMember, perms, t.write, now)
+			return evaluate(asMember.actor, co, asMember, perms, t.write || t.ephemeral, now)
 		}
-		return evaluate(act, co, c.seatOf(act, co), perms, t.write, now)
+		return evaluate(act, co, c.seatOf(act, co), perms, t.write || t.ephemeral, now)
 	}
 	if im.gate.any {
 		for _, p := range im.gate.perms {
@@ -486,6 +489,31 @@ func (c *Core) invokeRead(caller *actor, t *toolDef, in any, base string) (outco
 	}
 	rc := &readCtx{now: c.now(), actor: caller, member: a.decision.member, course: a.course, base: base}
 	res, err := t.impl.query(c, rc, in)
+	if err != nil {
+		return outcome{}, err
+	}
+	body, err := json.Marshal(res)
+	if err != nil {
+		return outcome{}, fmt.Errorf("%s: result: %w", t.Name, err)
+	}
+	return outcome{Status: actExecuted, Result: body}, nil
+}
+
+// invokeEphemeral is Core's pipeline for an ephemeral write
+// (conversation.draft): authorized as a write is, and carried out at once,
+// at any level above denied, recording nothing. A denial is answered as a
+// read's is; the tool's refusal comes back as an error.
+func (c *Core) invokeEphemeral(caller *actor, t *toolDef, in any) (outcome, error) {
+	a, err := c.authorize(t, in, caller, nil)
+	if err != nil {
+		return outcome{}, err
+	}
+	if !a.decision.level.allowed() {
+		return outcome{Status: actDenied, Error: a.refusal()}, nil
+	}
+	now := c.now()
+	ec := &execCtx{now: now, actor: caller, member: a.decision.member, course: a.course, createdAt: now}
+	res, err := t.impl.execute(c, ec, in)
 	if err != nil {
 		return outcome{}, err
 	}

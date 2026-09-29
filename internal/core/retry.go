@@ -44,7 +44,8 @@ type RetryOptions struct {
 // caller makes again as its schedule says: it is sent again after a 429,
 // but not after a transient failure or an error internal, which come back
 // at once. A long poll cut short again and again, by a proxy that gives a
-// request less than its wait, is then the caller's to see.
+// request less than its wait, is then the caller's to see. A best-effort
+// call (WithBestEffort) is never sent again: what came back comes back.
 type Retrying struct {
 	next Caller
 	o    RetryOptions
@@ -70,6 +71,9 @@ func NewRetrying(next Caller, o RetryOptions) *Retrying {
 
 // Call makes the call, and makes it again as Retrying says.
 func (r *Retrying) Call(ctx context.Context, tool string, args json.RawMessage) (*Envelope, error) {
+	if BestEffort(ctx) {
+		return r.next.Call(ctx, tool, args)
+	}
 	failures := 0
 	var lastEnv *Envelope
 	var lastErr error

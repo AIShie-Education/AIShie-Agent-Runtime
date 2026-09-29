@@ -68,6 +68,10 @@ type claim struct {
 	// ownKey is set for a pass answered with the fallback on the owner's
 	// own key, the school's quota being spent (onOwnKey).
 	ownKey bool
+	// d is the conversation's drafter, taken when the claim first asks a
+	// model and handed back when it ends; nil against a Core that takes no
+	// drafts.
+	d *drafter
 }
 
 // then is what a pass leaves to the claim.
@@ -112,6 +116,7 @@ func (s *Seat) answer(ctx context.Context, row core.Conversation) {
 		return
 	}
 	defer c.release()
+	defer func() { c.d.close() }()
 	c.run(core.WithPriority(ctx, core.PriorityAnswer))
 }
 
@@ -263,12 +268,21 @@ func (c *claim) generate(ctx context.Context, r passResult, read *core.Messages,
 	if err != nil {
 		return c.failedHere(r, "the question is not in the conversation read", err)
 	}
+	if c.d == nil {
+		c.d = c.a.drafter(c.s.course, c.conv)
+	}
+	c.d.begin()
 	l, err := newLoop(c, r.msg, r.no, access, c.guard(read), sys, hist)
 	if err != nil {
+		c.d.end(false)
 		return c.failedHere(r, "the toolset could not be built", err)
 	}
 	end := l.run(ctx)
 	r.stats = l.stats
+	if end.fatal != nil || end.failed {
+		// Given up: the attempt's draft goes.
+		c.d.end(false)
+	}
 	switch {
 	case end.fatal != nil:
 		if isUnauthenticated(end.fatal) {
@@ -284,7 +298,11 @@ func (c *claim) generate(ctx context.Context, r passResult, read *core.Messages,
 		return c.providersDown(ctx, r)
 	}
 	c.s.providerRecovered(r.msg)
-	return c.post(ctx, r, end.body, end.kind)
+	r = c.post(ctx, r, end.body, end.kind)
+	// Posted or proposed, the answer took the draft's place; otherwise the
+	// attempt is over, and its draft goes.
+	c.d.end(r.posted)
+	return r
 }
 
 // models are the model this pass answers with, and the one it falls back
@@ -348,6 +366,9 @@ func (c *claim) system(ctx context.Context, read *core.Messages, shorter bool, s
 // post makes body safe (step 8) and posts it written ahead (step 9) under
 // r.key, then acts on what came back (step 10).
 func (c *claim) post(ctx context.Context, r passResult, body, kind string) passResult {
+	// The answer takes its draft's place: nothing more of the draft is
+	// sent, lest a write come after it.
+	c.d.hold()
 	safe, rep := safety.Body(body, c.eff.Answer.MaxBodyChars)
 	if rep.Empty {
 		safe, _ = safety.Body(c.eff.Prompt.OnBudgetText, c.eff.Answer.MaxBodyChars)

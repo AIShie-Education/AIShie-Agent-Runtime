@@ -202,6 +202,8 @@ func conversationAnswer() *impl {
 			if c.pendingAnswer(cv, m, in.InReplyToMessageID.String()) != nil {
 				return conflicts("an answer of yours to that message already waits for a decision").with("reason", "answer_pending")
 			}
+			// Proposed, the answer takes its draft's place.
+			cv.clearDraft()
 			return nil
 		},
 		execute: func(c *Core, ec *execCtx, in answerIn) (any, error) {
@@ -220,6 +222,8 @@ func conversationAnswer() *impl {
 			if err != nil {
 				return nil, err
 			}
+			// Posted, the answer takes its draft's place.
+			cv.clearDraft()
 			return map[string]string{"message_id": id}, nil
 		},
 	})
@@ -287,6 +291,7 @@ func (c *Core) closeConversation(ec *execCtx, cv *conversation, why *string) (an
 		return nil, conflicts("the conversation is closed already")
 	}
 	cv.status, cv.closedReason = "closed", reason
+	cv.clearDraft()
 	ec.emit(&event{typ: "conversation.closed", course: cv.course, subjectType: "conversation", subjectID: &cv.id,
 		payload: mustJSON(map[string]any{"conversation_id": cv.id, "reason": "closed", "by_member_id": ec.member.id})})
 	return map[string]bool{"ok": true}, nil
