@@ -99,7 +99,7 @@ func schoolPlanThroughTheAPI(t *testing.T, w *world) {
 	// Yuki connects her agent, and puts it on the school's plan.
 	tok := result[struct {
 		Token string `json:"token"`
-	}](t, w.api, w.yuki.token, "POST", "/v1/me/agents/"+w.own.id+"/tokens", map[string]any{"label": "AIShie runtime"}).Token
+	}](t, w.api, w.yuki.token, "POST", "/v1/me/agents/"+w.own.id+"/tokens", map[string]any{"label": "AIshie runtime"}).Token
 	w.addSecret("a token of Yuki's agent issued for the school plan's runtime", tok)
 	connect, _ := json.Marshal(map[string]string{"token": tok, "core_actor_id": w.own.id})
 	var agent api.HostedAgent

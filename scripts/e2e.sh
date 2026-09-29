@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The runtime against a real AIShiteru Core: the one pinned in
+# The runtime against a real AIshie Core: the one pinned in
 # .github/core-image (or CORE_BIN, a binary of Core), on a scratch database.
 # The Go tests in e2e/ seat agents through Core's REST API as root, run the
 # runtime with a scripted model, and watch the answers arrive in Core.

@@ -1,4 +1,4 @@
-// Package api serves the runtime's JSON API for AIShiteru-Frontend (the
+// Package api serves the runtime's JSON API for AIShie-Frontend (the
 // product owner's D1; its contract is docs/design.md §11.4 and the M2 API
 // contract it follows). It listens on a listener of its own, API_ADDR,
 // behind Caddy at /runtime/api/ on Core's origin with the Cookie header

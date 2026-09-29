@@ -623,7 +623,7 @@ func TestCredentialCalls(t *testing.T) {
 			switch name {
 			case "credential_list":
 				writeResult(w, id, toolResult(`{"status":"executed","result":{"credentials":[
-					{"id":"c2","kind":"api_token","token_prefix":"k7v2m4qhx3ab","label":"AIShie runtime","created_at":"2026-09-28T10:00:00Z",
+					{"id":"c2","kind":"api_token","token_prefix":"k7v2m4qhx3ab","label":"AIshie runtime","created_at":"2026-09-28T10:00:00Z",
 					 "last_used_at":"2026-09-28T10:05:00Z","issued_by_actor_id":"p1","issued_by_name":"Yuki"},
 					{"id":"c1","kind":"api_token","token_prefix":"aaaaaaaaaaaa","created_at":"2026-09-27T10:00:00Z",
 					 "revoked_at":"2026-09-28T09:00:00Z","expires_at":"2027-01-01T00:00:00Z"}]}}`))
@@ -639,7 +639,7 @@ func TestCredentialCalls(t *testing.T) {
 		t.Fatalf("%+v %v", creds, err)
 	}
 	now := time.Date(2026, 9, 28, 11, 0, 0, 0, time.UTC)
-	if c0 := creds[0]; c0.ID != "c2" || c0.Kind != CredentialAPIToken || c0.TokenPrefix != "k7v2m4qhx3ab" || c0.Label != "AIShie runtime" ||
+	if c0 := creds[0]; c0.ID != "c2" || c0.Kind != CredentialAPIToken || c0.TokenPrefix != "k7v2m4qhx3ab" || c0.Label != "AIshie runtime" ||
 		c0.LastUsedAt == nil || !c0.LastUsedAt.Equal(now.Add(-55*time.Minute)) || !c0.Live(now) {
 		t.Errorf("the first: %+v", c0)
 	}

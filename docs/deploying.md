@@ -1,8 +1,8 @@
-# Deploying the AIShie Agent Runtime
+# Deploying the AIshie Agent Runtime
 
 One server per environment, staging first, production when staging has
 earned it. Most likely it is the server Core already runs on, set up with
-Core's `deploy/setup-server.sh` (AIShiteru-Core's `docs/deploying.md`): the
+Core's `deploy/setup-server.sh` (AIShie-Core's `docs/deploying.md`): the
 runtime adds one container and one database there, and opens no port.
 
 The runtime is the `aishie-runtime` container, on the host's network. It
@@ -273,7 +273,7 @@ aishie-runtime-deploy "$(docker inspect -f '{{.Config.Image}}' aishie-runtime)"
 ## Hosted agents
 
 Besides the agents in `/etc/aishie-runtime/agents`, the runtime runs the
-agents people connect to it themselves, from AIShiteru-Frontend
+agents people connect to it themselves, from AIShie-Frontend
 (`docs/design.md` §11): the registry, kept in the runtime's database with
 their tokens and keys sealed. It is on whenever `DATABASE_URL` is set; the
 runtime puts a change to it in force at once, and `check` lists the hosted
@@ -342,7 +342,7 @@ administrators read today's use per owner at `GET
 
 ## The API for the front end
 
-AIShiteru-Frontend manages hosted agents through the runtime's JSON API
+AIShie-Frontend manages hosted agents through the runtime's JSON API
 (`docs/design.md` §11.4), served on `API_ADDR` under `/runtime/api/v1/`
 and nothing else. The front end reaches it on Core's own origin, through
 Caddy, which must strip the `Cookie` header: the API takes Core's
@@ -382,7 +382,7 @@ the runtime does with Core on their behalf is with the agent's own token:
 it asks Core what the token is, and revokes the token a new one replaces,
 and an agent's token when the agent is deleted, a new token given while it
 is being deleted among them. An agent suspended in Core cannot revoke its
-tokens; its owner then revokes them in AIShie, as the front end says. Every change, and every refusal, is in the audit
+tokens; its owner then revokes them in AIshie, as the front end says. Every change, and every refusal, is in the audit
 (`docs/design.md` §11.4), with hints of tokens and keys, never the values.
 
 A hosted agent's model is called only at the providers' own endpoints,

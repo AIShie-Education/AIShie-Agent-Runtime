@@ -257,7 +257,7 @@ func (s *Server) denied(sec *modelSection, at string) *Error {
 func keyMalformed(key, field string) *Error {
 	if strings.HasPrefix(key, "ais_") || strings.HasPrefix(key, "aisinv_") || config.HoldsCoreToken(key) {
 		return fieldError(CodeInvalidArgument, ReasonKeyMalformed, field,
-			"that is an AIShie token, a person's or an agent's, not a provider's API key: it is never sent to a provider")
+			"that is an AIshie token, a person's or an agent's, not a provider's API key: it is never sent to a provider")
 	}
 	bad := len(key) < 8 || len(key) > 4096
 	for i := 0; i < len(key) && !bad; i++ {

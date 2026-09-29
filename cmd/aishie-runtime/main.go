@@ -1,4 +1,4 @@
-// Command aishie-runtime hosts AI agents for AIShiteru Core: it connects in
+// Command aishie-runtime hosts AI agents for AIshie Core: it connects in
 // to Core as each agent, finds the questions put to it, and answers them
 // with the model its owner chose (Core's docs/agent-runtime.md; this
 // repository's docs/design.md §1).
@@ -33,7 +33,7 @@ const (
 	exitUsage   = 2
 )
 
-const usage = `aishie-runtime — hosts AI agents for AIShiteru Core
+const usage = `aishie-runtime — hosts AI agents for AIshie Core
 
 Usage:
   aishie-runtime run                          run the worker: every agent configured, and /healthz, /metrics, /status

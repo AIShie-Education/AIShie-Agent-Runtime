@@ -8,7 +8,7 @@
 // take it to whoever owns the URL. So every link and image whose URL carries
 // context is stripped, and one that carries nothing stays as written.
 //
-// Answers are shown by AIShiteru-Frontend (src/utils/markdown.ts):
+// Answers are shown by AIShie-Frontend (src/utils/markdown.ts):
 // markdown-it 15 with html off, linkify on (linkify-it 6.1.0 and its
 // defaults) and TeX through KaTeX with trust off. Body reads Markdown
 // exactly as that renderer does, with a port of its parsing rules

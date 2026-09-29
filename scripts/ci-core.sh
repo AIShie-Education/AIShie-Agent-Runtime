@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Starts an AIShiteru Core for the end-to-end tests, and stops it again. It is
+# Starts an AIshie Core for the end-to-end tests, and stops it again. It is
 # a throwaway: a database of its own, a root actor whose password is made up
 # for the run, files in a temporary directory, and the limits that would slow
 # the tests down turned off. Never point it at a database people use. (The

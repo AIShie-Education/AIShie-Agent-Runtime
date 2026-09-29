@@ -24,7 +24,7 @@ import (
 // §10.2): Yuki hosts her own agent on the school's runtime from the web UI,
 // as the front end does it. The runtime runs in-process, its state in
 // PostgreSQL, with its API; its calls to OpenAI's own endpoint go to the
-// scripted model. Yuki's session issues her agent a token labelled "AIShie
+// scripted model. Yuki's session issues her agent a token labelled "AIshie
 // runtime"; the API inspects and connects it (needs_model), tries her key,
 // and takes her model and key (If-Match); the worker runs it, and it
 // answers her. Paused, it calls Core no more; resumed, it runs again. A
@@ -112,7 +112,7 @@ func hostingThroughTheAPI(t *testing.T, w *world) {
 		out := result[struct {
 			Token        string `json:"token"`
 			CredentialID string `json:"credential_id"`
-		}](t, w.api, w.yuki.token, "POST", "/v1/me/agents/"+w.own.id+"/tokens", map[string]any{"label": "AIShie runtime"})
+		}](t, w.api, w.yuki.token, "POST", "/v1/me/agents/"+w.own.id+"/tokens", map[string]any{"label": "AIshie runtime"})
 		w.addSecret("a token of Yuki's agent issued for the runtime", out.Token)
 		return out.Token, out.CredentialID
 	}

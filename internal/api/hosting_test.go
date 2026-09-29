@@ -122,7 +122,7 @@ func (h *hostWorld) as(p fakecore.Actor) string {
 // token issues the agent another token, which nothing may repeat.
 func (h *hostWorld) token(agentID string) fakecore.Token {
 	h.t.Helper()
-	tok, err := h.fc.IssueLabelledToken(agentID, "AIShie runtime")
+	tok, err := h.fc.IssueLabelledToken(agentID, "AIshie runtime")
 	h.ok(err)
 	h.tokens = append(h.tokens, tok.Token)
 	return tok

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Deploys an image of the AIShie Agent Runtime to this server: the first
+# Deploys an image of the AIshie Agent Runtime to this server: the first
 # start, an upgrade and a rollback alike. Run as root, by hand or by the
 # Deploy workflow over SSH (docs/deploying.md):
 #

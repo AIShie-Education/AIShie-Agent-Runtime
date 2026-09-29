@@ -113,8 +113,8 @@ func TestEndpointKeepsAQueryString(t *testing.T) {
 }
 
 func TestHeadersKeepTheKeyOverConfiguredOnes(t *testing.T) {
-	h := authHeaders(llm.ProviderOpenAI, testKey, map[string]string{"authorization": "Bearer other", "x-title": "AIShie"})
-	if h["Authorization"] != "Bearer "+testKey || h["X-Title"] != "AIShie" || len(h) != 2 {
+	h := authHeaders(llm.ProviderOpenAI, testKey, map[string]string{"authorization": "Bearer other", "x-title": "AIshie"})
+	if h["Authorization"] != "Bearer "+testKey || h["X-Title"] != "AIshie" || len(h) != 2 {
 		t.Errorf("headers = %v", h)
 	}
 	h = authHeaders(llm.ProviderAzure, testKey, nil)
@@ -328,7 +328,7 @@ func TestHTTPEndToEnd(t *testing.T) {
 	ts, seen := server(t, http.StatusOK, nil, textReply("stop", "Hello."))
 	c := cfg(ts.URL+"/v1/", "gpt-4.1")
 	c.Provider = llm.ProviderOpenAI
-	c.Headers = map[string]string{"X-Title": "AIShie"}
+	c.Headers = map[string]string{"X-Title": "AIshie"}
 	a, err := New(c)
 	if err != nil {
 		t.Fatal(err)
@@ -343,7 +343,7 @@ func TestHTTPEndToEnd(t *testing.T) {
 	reqs, bodies := seen()
 	r := reqs[0]
 	if r.Method != http.MethodPost || r.URL.Path != "/v1/chat/completions" || r.Header.Get("Authorization") != "Bearer "+testKey ||
-		r.Header.Get("Content-Type") != "application/json" || r.Header.Get("X-Title") != "AIShie" {
+		r.Header.Get("Content-Type") != "application/json" || r.Header.Get("X-Title") != "AIshie" {
 		t.Errorf("request %s %s %v", r.Method, r.URL, r.Header)
 	}
 	var sent struct {
