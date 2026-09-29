@@ -17,14 +17,21 @@
 //     agent reads nothing but its own sealed secrets.
 //   - Every model section on the owner's key is given the owner's sealed
 //     key, or no key at all, never one it would inherit from the runtime's
-//     defaults. The school's key is not offered to hosted agents yet: that
-//     waits on the school's model offers and the owners' quotas.
+//     defaults.
+//   - A model section on the school's key is an offer of the school's plan
+//     (runtime.school), named by its id and nothing else: the registry
+//     writes the offer's settings, its key's reference among them, in the
+//     document it builds, which is never stored. The key stays a file on
+//     the runtime's host; the plan's quotas hold the agent (the worker's
+//     quota check). Only the agent's own model may be on the plan, not a
+//     course's.
 //   - Every model it calls has a key of its own: a model without one would
 //     be called with the runtime's own credentials (Bedrock's, from the
 //     host) or at a server that takes none.
-//   - A model's base_url is empty (the adapter's own) or an official
-//     provider's, over https, and it sends no extra headers (D9): no
-//     request goes to an address the owner chose.
+//   - A model on the owner's key has a base_url that is empty (the
+//     adapter's own) or an official provider's, over https, and sends no
+//     extra headers (D9): no request goes to an address the owner chose.
+//     An offer's endpoint is the operator's.
 //
 // And gives them one default YAML does not: a hosted agent's owner is
 // known, Core naming them, so its model is offered the writes its seats'
@@ -33,9 +40,11 @@
 // whoever its operator says, and it has writes only when its
 // configuration turns them on.
 //
-// The agent document's shape holds the key pool of the product owner's D8
-// as it stands: model is the school's offer and model.fallback the owner's
-// own-key model, whose key is hosted_agent.key_secret_id.
+// The agent document's shape is the key pool of the product owner's D8:
+// on the plan, model is the school's offer and model.fallback the owner's
+// own-key model, whose key is hosted_agent.key_secret_id, which the worker
+// answers with when the provider of the offer cannot be reached, or the
+// plan's quotas for the owner, the asker or the school are spent.
 package registry
 
 import (
@@ -47,6 +56,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
@@ -123,7 +133,7 @@ func Build(ctx context.Context, yaml *config.Config, r Reader, o Options) (*conf
 			reject(a.ID, store.ReasonRuntimeMisconfigured, coreErr)
 			continue
 		}
-		src, err := Document(a, courses[a.ID], o.CoreBaseURL, defaultKeySource(yaml))
+		src, err := Document(a, courses[a.ID], o.CoreBaseURL, defaultKeySource(yaml), yaml.Runtime.School)
 		if err != nil {
 			reject(a.ID, store.ReasonSettingsRejected, err)
 			continue
@@ -141,7 +151,7 @@ func Build(ctx context.Context, yaml *config.Config, r Reader, o Options) (*conf
 		if k := byID[a.ID].KeySecretID; k != "" {
 			key = secrets.SchemeSealed + k
 		}
-		if err := checkModels(a, key); err != nil {
+		if err := checkModels(a, key, yaml.Runtime.School); err != nil {
 			reject(a.ID, store.ReasonSettingsRejected, err)
 			continue
 		}
@@ -169,7 +179,7 @@ func Check(_ context.Context, yaml *config.Config, row store.HostedAgent, course
 	if err := checkCoreBaseURL(o); err != nil {
 		return err
 	}
-	src, err := Document(row, courses, o.CoreBaseURL, defaultKeySource(yaml))
+	src, err := Document(row, courses, o.CoreBaseURL, defaultKeySource(yaml), yaml.Runtime.School)
 	if err != nil {
 		return err
 	}
@@ -181,7 +191,7 @@ func Check(_ context.Context, yaml *config.Config, row store.HostedAgent, course
 	if row.KeySecretID != "" {
 		key = secrets.SchemeSealed + row.KeySecretID
 	}
-	return checkModels(agents[0], key)
+	return checkModels(agents[0], key, yaml.Runtime.School)
 }
 
 // checkCoreBaseURL refuses a CORE_BASE_URL no hosted agent can use: none.
@@ -211,13 +221,14 @@ var setByRegistry = []string{"id", "display_name", "tenant_id", "paused", "core"
 // Document is a hosted agent's document, as a YAML file would hold it but in
 // JSON: its settings and its courses', with what the registry sets itself
 // (the package's comment): its id, name, tenant and pause from its row;
-// Core at coreBaseURL, with its token as sealed://<token_secret_id>; and
-// the owner's key, sealed://<key_secret_id>, on each model section whose
-// key source, as written or as it inherits it from defaultKeySource (and
-// then written out), is own. Settings that set any of those themselves,
-// refer to a file or a secret, or put a model on the school's key, are
-// refused.
-func Document(a store.HostedAgent, courses []store.HostedCourse, coreBaseURL, defaultKeySource string) (config.Source, error) {
+// Core at coreBaseURL, with its token as sealed://<token_secret_id>; the
+// owner's key, sealed://<key_secret_id>, on each model section whose key
+// source, as written or as it inherits it from defaultKeySource (and then
+// written out), is own; and on the agent's model on the school's key, the
+// settings of school's offer it names. Settings that set any of those
+// themselves, refer to a file or a secret, put a course's model on the
+// school's key, or name an offer school does not have, are refused.
+func Document(a store.HostedAgent, courses []store.HostedCourse, coreBaseURL, defaultKeySource string, school config.School) (config.Source, error) {
 	src := config.Source{Name: SourceName(a.ID)}
 	settings, err := object(a.Settings, "its settings")
 	if err != nil {
@@ -244,8 +255,14 @@ func Document(a store.HostedAgent, courses []store.HostedCourse, coreBaseURL, de
 		settings["model"] = model
 	}
 	ks := keyed(model, defaultKeySource, key, "agent.model", &problems)
+	if ks == config.KeySchool {
+		onOffer(model, school, "agent.model", &problems)
+	}
 	if fb, ok := model["fallback"].(map[string]any); ok {
-		keyed(fb, ks, key, "agent.model.fallback", &problems)
+		keyed(fb, fallbackKeySource(ks), key, "agent.model.fallback", &problems)
+		if ks, _ := fb["key_source"].(string); ks == config.KeySchool {
+			problems = append(problems, "agent.model.fallback: a fallback is on the owner's key; the school's plan is the model")
+		}
 	} else {
 		// Not one the runtime's defaults would give it, with the
 		// operator's key.
@@ -267,8 +284,11 @@ func Document(a store.HostedAgent, courses []store.HostedCourse, coreBaseURL, de
 			problems = append(problems, refs(path, cset)...)
 			if m, ok := cset["model"].(map[string]any); ok {
 				cks := keyed(m, ks, key, path+".model", &problems)
+				if cks == config.KeySchool {
+					problems = append(problems, path+".model: a course's model is not on the school's plan; the plan is chosen for the whole agent")
+				}
 				if fb, ok := m["fallback"].(map[string]any); ok {
-					keyed(fb, cks, key, path+".model.fallback", &problems)
+					keyed(fb, fallbackKeySource(cks), key, path+".model.fallback", &problems)
 				}
 			}
 			cs[c.CourseID] = cset
@@ -351,13 +371,64 @@ func refs(path string, v any) []string {
 	return out
 }
 
+// fallbackKeySource is the key source a fallback inherits from the model
+// it stands behind: its own, but the owner's behind the school's plan.
+func fallbackKeySource(ks string) string {
+	if ks == config.KeySchool {
+		return config.KeyOwn
+	}
+	return ks
+}
+
+// offerKeys are what a model section on the school's plan holds as its
+// row keeps it: the key source, the offer's id, and the owner's fallback.
+var offerKeys = []string{"key_source", "offer", "fallback"}
+
+// onOffer writes the settings of the offer of school a model section on
+// the school's key names (config.SchoolOffer.Section) into it: one that
+// names none, or one school does not have, or sets anything the offer
+// does, is a problem.
+func onOffer(section map[string]any, school config.School, path string, problems *[]string) {
+	var extra []string
+	for k := range section {
+		if !slices.Contains(offerKeys, k) {
+			extra = append(extra, k)
+		}
+	}
+	sort.Strings(extra)
+	for _, k := range extra {
+		*problems = append(*problems, path+"."+k+": set by the school's offer, not by an agent's settings")
+	}
+	id, _ := section["offer"].(string)
+	o, ok := school.OfferOf(id)
+	switch {
+	case id == "":
+		*problems = append(*problems, path+": on the school's key, and names no offer of the school's plan")
+		return
+	case !ok:
+		*problems = append(*problems, path+".offer: the school does not offer "+strconv.Quote(clip(id, 64))+" (any more)")
+		return
+	}
+	for k, v := range o.Section() {
+		section[k] = v
+	}
+}
+
+// clip is s cut to at most n bytes, for a problem that quotes it.
+func clip(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
+}
+
 // keyed gives a model section the owner's key, when its key source, as
 // written or else inherited, is own; one on the owner's key when no key is
-// stored, or on the school's, is a problem. A section that does not name its
-// key source is given the one it inherits, written out: merged over the
-// runtime's defaults, it would take theirs first (a fallback, that of the
-// defaults' fallback), and be paid for otherwise than it is keyed. It
-// returns the section's key source.
+// stored is a problem. A section that does not name its key source is given
+// the one it inherits, written out: merged over the runtime's defaults, it
+// would take theirs first (a fallback, that of the defaults' fallback), and
+// be paid for otherwise than it is keyed. A section on the school's key is
+// left to onOffer. It returns the section's key source.
 func keyed(section map[string]any, inherited, key, path string, problems *[]string) string {
 	ks, _ := section["key_source"].(string)
 	if ks == "" {
@@ -372,8 +443,6 @@ func keyed(section map[string]any, inherited, key, path string, problems *[]stri
 		if key == "" {
 			*problems = append(*problems, path+": on the owner's key, and no key of the owner's is stored")
 		}
-	case config.KeySchool:
-		*problems = append(*problems, path+": the school's key is not offered to hosted agents yet; use the owner's own key")
 	}
 	return ks
 }
@@ -381,8 +450,9 @@ func keyed(section map[string]any, inherited, key, path string, problems *[]stri
 // checkModels holds every model an agent calls, in every course it has
 // settings for, as merged and decoded, to the rules of hosted agents: the
 // owner's key source and key, key, and no other, an official endpoint over
-// https, and no extra headers.
-func checkModels(a *config.Agent, key string) error {
+// https, and no extra headers; or, for the agent's own model alone, an
+// offer of school's, with the offer's key.
+func checkModels(a *config.Agent, key string, school config.School) error {
 	type section struct {
 		path string
 		m    config.Model
@@ -408,14 +478,28 @@ func checkModels(a *config.Agent, key string) error {
 	}
 	var problems []string
 	for _, v := range views {
-		msg := checkModel(v.m)
+		var msg string
+		if v.m.KeySource == config.KeySchool {
+			// Document writes out every key source it gives, and the
+			// offer's settings; this holds the model to them as merged
+			// and decoded, whatever the runtime's defaults would give.
+			o, ok := school.OfferOf(v.m.Offer)
+			switch {
+			case v.m.Offer == "" || v.m.Offer != a.Model.Offer || !ok:
+				msg = "is on the school's key, and not on the agent's offer of the school's plan"
+			case v.m.KeyRef != o.KeyRef:
+				msg = "has a key that is not its offer's"
+			}
+			if msg != "" {
+				problems = append(problems, v.path+": "+msg)
+			}
+			continue
+		}
+		msg = checkModel(v.m)
 		switch {
 		case msg != "":
 		case v.m.KeySource != config.KeyOwn:
-			// Document writes out every key source it gives; this holds
-			// the model to it as merged and decoded, whatever the
-			// runtime's defaults would give.
-			msg = "is on the school's key, which is not offered to hosted agents yet"
+			msg = "is on a key that is neither the owner's nor the school's"
 		case v.m.KeyRef != key:
 			msg = "has a key that is not the owner's"
 		}

@@ -238,7 +238,7 @@ func TestCheckReadsTheRegistry(t *testing.T) {
 	code, out, errs := runCmd(t, getenv, "check")
 	for _, want := range []string{
 		`agent agt_ok (hosted): "Hosted agt_ok"`,
-		"hosted agent agt_bad: NOT RUN: agent.model: the school's key is not offered to hosted agents yet",
+		"hosted agent agt_bad: NOT RUN: agent.model.adapter: set by the school's offer", "agent.model: on the school's key, and names no offer of the school's plan",
 		"the configuration passes: 1 agents, 1 of them hosted; 1 hosted agents not run",
 	} {
 		if !strings.Contains(out, want) {
