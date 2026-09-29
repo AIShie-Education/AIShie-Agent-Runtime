@@ -19,7 +19,7 @@ import (
 // built and tested against (internal/core/testdata/catalogue.json). An
 // agent whose Core serves another is still run, if the tools it relies on
 // are there (toolset.CheckCatalogue), and a warning says so.
-const SnapshotCatalogueHash = "50b5ee726a427622283fdc89359c8d5791e5b0cf1c0065471a59ec628bf3c1d2"
+const SnapshotCatalogueHash = "4a086f27445252b33a70b2d2d9f2193c41f49619ad30cd768ce05c998349dc55"
 
 // DefaultCaller is the connection to Core the worker makes for an agent
 // when Options.NewCaller is nil: MCP at the pinned revision, or REST, as
