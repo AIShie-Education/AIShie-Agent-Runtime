@@ -1,0 +1,39 @@
+{
+  "deltas": [
+    "讓我查一下。"
+  ],
+  "response": {
+    "model": "kimi-k2-0905-preview",
+    "parts": [
+      {
+        "text": "讓我查一下。",
+        "type": "text"
+      },
+      {
+        "args": {
+          "assignment_id": "hw3"
+        },
+        "id": "assignment_get:0",
+        "name": "assignment_get",
+        "type": "tool_call"
+      }
+    ],
+    "raw_stop": "tool_calls",
+    "request_id": "chatcmpl-68da1b2c3d4e5f",
+    "stop": "tool_calls",
+    "usage": {
+      "cache_read": 200,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 233,
+      "output": 19,
+      "raw": {
+        "cached_tokens": 200,
+        "completion_tokens": 19,
+        "prompt_tokens": 233,
+        "total_tokens": 252
+      },
+      "reasoning": 0
+    }
+  }
+}

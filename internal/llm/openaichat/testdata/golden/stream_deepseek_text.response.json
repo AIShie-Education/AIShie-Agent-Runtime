@@ -1,0 +1,37 @@
+{
+  "deltas": [
+    "HW3",
+    " 的截止日期是",
+    "週五 (Friday) < 23:59。\n\n- 遲交扣 10%"
+  ],
+  "response": {
+    "model": "deepseek-chat",
+    "parts": [
+      {
+        "text": "HW3 的截止日期是週五 (Friday) < 23:59。\n\n- 遲交扣 10%",
+        "type": "text"
+      }
+    ],
+    "raw_stop": "stop",
+    "request_id": "4f8e1c2a-9b1d-4e7a-a1f0-3c5d2e8b7a61",
+    "stop": "end",
+    "usage": {
+      "cache_read": 384,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 412,
+      "output": 21,
+      "raw": {
+        "completion_tokens": 21,
+        "prompt_cache_hit_tokens": 384,
+        "prompt_cache_miss_tokens": 28,
+        "prompt_tokens": 412,
+        "prompt_tokens_details": {
+          "cached_tokens": 384
+        },
+        "total_tokens": 433
+      },
+      "reasoning": 0
+    }
+  }
+}

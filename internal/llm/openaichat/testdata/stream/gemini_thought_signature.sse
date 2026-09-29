@@ -1,0 +1,4 @@
+data: {"choices":[{"delta":{"role":"assistant","tool_calls":[{"extra_content":{"google":{"thought_signature":"CiQB0e2Kb2Nx"}},"function":{"arguments":"{\"assignment_id\":\"hw3\"}","name":"assignment_get"},"id":"function-call-4471","type":"function","index":0}]},"finish_reason":"tool_calls","index":0}],"created":1759132807,"id":"x9vaaK_2Hb","model":"gemini-2.5-flash","object":"chat.completion.chunk","usage":{"completion_tokens":18,"prompt_tokens":190,"total_tokens":262}}
+
+data: [DONE]
+

@@ -1,0 +1,14 @@
+data: {"id":"b2d7a0e4-5c1f-4a8e-9d3b-7e6f1a2c4d58","object":"chat.completion.chunk","created":1759132801,"model":"deepseek-reasoner","system_fingerprint":"fp_7e0991cad4_prod0820_fp8_kvcache","choices":[{"index":0,"delta":{"role":"assistant","content":null,"reasoning_content":""},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"b2d7a0e4-5c1f-4a8e-9d3b-7e6f1a2c4d58","object":"chat.completion.chunk","created":1759132801,"model":"deepseek-reasoner","system_fingerprint":"fp_7e0991cad4_prod0820_fp8_kvcache","choices":[{"index":0,"delta":{"content":null,"reasoning_content":"The student asks about HW3."},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"b2d7a0e4-5c1f-4a8e-9d3b-7e6f1a2c4d58","object":"chat.completion.chunk","created":1759132801,"model":"deepseek-reasoner","system_fingerprint":"fp_7e0991cad4_prod0820_fp8_kvcache","choices":[{"index":0,"delta":{"content":null,"reasoning_content":" The grade was 7/10."},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"b2d7a0e4-5c1f-4a8e-9d3b-7e6f1a2c4d58","object":"chat.completion.chunk","created":1759132801,"model":"deepseek-reasoner","system_fingerprint":"fp_7e0991cad4_prod0820_fp8_kvcache","choices":[{"index":0,"delta":{"content":"You lost","reasoning_content":null},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"b2d7a0e4-5c1f-4a8e-9d3b-7e6f1a2c4d58","object":"chat.completion.chunk","created":1759132801,"model":"deepseek-reasoner","system_fingerprint":"fp_7e0991cad4_prod0820_fp8_kvcache","choices":[{"index":0,"delta":{"content":" 3 marks on question 2.","reasoning_content":null},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"b2d7a0e4-5c1f-4a8e-9d3b-7e6f1a2c4d58","object":"chat.completion.chunk","created":1759132801,"model":"deepseek-reasoner","system_fingerprint":"fp_7e0991cad4_prod0820_fp8_kvcache","choices":[{"index":0,"delta":{"content":"","reasoning_content":null},"logprobs":null,"finish_reason":"stop"}],"usage":{"prompt_tokens":120,"completion_tokens":35,"total_tokens":155,"prompt_tokens_details":{"cached_tokens":0},"completion_tokens_details":{"reasoning_tokens":14},"prompt_cache_hit_tokens":0,"prompt_cache_miss_tokens":120}}
+
+data: [DONE]
+

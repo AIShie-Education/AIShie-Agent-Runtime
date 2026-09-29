@@ -1,0 +1,13 @@
+{
+  "deltas": [
+    "The deadline is"
+  ],
+  "error": {
+    "code": "",
+    "kind": "network",
+    "message": "the stream ended before the answer did",
+    "retry_after": "0s",
+    "retryable": true,
+    "status": 200
+  }
+}

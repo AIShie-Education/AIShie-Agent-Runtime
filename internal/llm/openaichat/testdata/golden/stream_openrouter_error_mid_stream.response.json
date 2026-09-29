@@ -1,0 +1,14 @@
+{
+  "deltas": [
+    "Your HW3",
+    " grade is"
+  ],
+  "error": {
+    "code": "502",
+    "kind": "server",
+    "message": "Upstream provider disconnected",
+    "retry_after": "0s",
+    "retryable": true,
+    "status": 200
+  }
+}

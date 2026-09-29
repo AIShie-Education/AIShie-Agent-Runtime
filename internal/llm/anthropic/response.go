@@ -59,6 +59,14 @@ func (a *Adapter) decodeResponse(r *httpx.Response) (*llm.Response, error) {
 	if err := json.Unmarshal(r.Body, &w); err != nil {
 		return nil, httpx.DecodeError(err)
 	}
+	return a.translate(w, r)
+}
+
+// translate is a completed call's answer, w, in the internal format: w as
+// a 2xx's body held it, or as a stream's events built it up (stream.go).
+// r is the answer it came in, whose body is read again only for an error
+// in a 2xx.
+func (a *Adapter) translate(w wireResponse, r *httpx.Response) (*llm.Response, error) {
 	if w.Type == "error" || !isNull(w.Error) {
 		// A proxy (OpenRouter) may send an upstream refusal with a 2xx.
 		return nil, refine(httpx.Classify(r.Status, r.Header, r.Body))

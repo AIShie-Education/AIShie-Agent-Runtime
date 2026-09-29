@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/httpx"
@@ -30,8 +31,8 @@ import (
 const DefaultBaseURL = "https://api.openai.com/v1"
 
 // Adapter calls one Chat Completions endpoint with one model. It keeps no
-// state between calls, so one Adapter serves any number of concurrent
-// answers.
+// state between calls but whether its provider refused to stream, so one
+// Adapter serves any number of concurrent answers.
 type Adapter struct {
 	provider string
 	model    string
@@ -46,9 +47,15 @@ type Adapter struct {
 	// key is kept only to be removed from any error text a provider echoes
 	// it in; it is sent in headers alone.
 	key string
+	// noStream is set once the provider refused to stream (Stream): its
+	// calls are made whole from then on.
+	noStream atomic.Bool
 }
 
-var _ llm.Adapter = (*Adapter)(nil)
+var (
+	_ llm.Adapter  = (*Adapter)(nil)
+	_ llm.Streamer = (*Adapter)(nil)
+)
 
 // New builds the adapter for cfg. The provider is cfg.Provider, or the one
 // the base URL names; its defaults (llm.Defaults) give the capabilities and

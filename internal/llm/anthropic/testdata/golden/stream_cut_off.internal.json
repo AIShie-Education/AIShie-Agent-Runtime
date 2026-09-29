@@ -1,0 +1,12 @@
+{
+  "deltas": [
+    "You lost 2.5"
+  ],
+  "error": {
+    "code": "",
+    "kind": "network",
+    "message": "the stream ended before the answer did",
+    "retryable": true,
+    "status": 200
+  }
+}

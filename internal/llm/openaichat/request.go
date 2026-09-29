@@ -27,6 +27,13 @@ type chatRequest struct {
 	Reasoning           *reasoningParam `json:"reasoning,omitempty"`
 	Store               *bool           `json:"store,omitempty"`
 	Stream              bool            `json:"stream"`
+	// StreamOptions asks a streamed answer's last chunk to carry the
+	// call's usage (stream.go).
+	StreamOptions *streamOptions `json:"stream_options,omitempty"`
+}
+
+type streamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type reasoningParam struct {

@@ -1,0 +1,23 @@
+{
+  "deltas": null,
+  "response": {
+    "model": "gpt-4.1-mini-2025-04-14",
+    "parts": null,
+    "raw_stop": "stop",
+    "request_id": "chatcmpl-R3f",
+    "stop": "refusal",
+    "usage": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 90,
+      "output": 8,
+      "raw": {
+        "completion_tokens": 8,
+        "prompt_tokens": 90,
+        "total_tokens": 98
+      },
+      "reasoning": 0
+    }
+  }
+}

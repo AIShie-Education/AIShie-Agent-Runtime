@@ -1,0 +1,14 @@
+data: {"id":"4f8e1c2a-9b1d-4e7a-a1f0-3c5d2e8b7a61","object":"chat.completion.chunk","created":1759132800,"model":"deepseek-chat","system_fingerprint":"fp_ffc7281d48_prod0820_fp8_kvcache","choices":[{"index":0,"delta":{"role":"assistant","content":""},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"4f8e1c2a-9b1d-4e7a-a1f0-3c5d2e8b7a61","object":"chat.completion.chunk","created":1759132800,"model":"deepseek-chat","system_fingerprint":"fp_ffc7281d48_prod0820_fp8_kvcache","choices":[{"index":0,"delta":{"content":"HW3"},"logprobs":null,"finish_reason":null}]}
+
+: keep-alive
+
+data: {"id":"4f8e1c2a-9b1d-4e7a-a1f0-3c5d2e8b7a61","object":"chat.completion.chunk","created":1759132800,"model":"deepseek-chat","system_fingerprint":"fp_ffc7281d48_prod0820_fp8_kvcache","choices":[{"index":0,"delta":{"content":" 的截止日期是"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"4f8e1c2a-9b1d-4e7a-a1f0-3c5d2e8b7a61","object":"chat.completion.chunk","created":1759132800,"model":"deepseek-chat","system_fingerprint":"fp_ffc7281d48_prod0820_fp8_kvcache","choices":[{"index":0,"delta":{"content":"週五 (Friday) < 23:59。\n\n- 遲交扣 10%"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"4f8e1c2a-9b1d-4e7a-a1f0-3c5d2e8b7a61","object":"chat.completion.chunk","created":1759132800,"model":"deepseek-chat","system_fingerprint":"fp_ffc7281d48_prod0820_fp8_kvcache","choices":[{"index":0,"delta":{"content":""},"logprobs":null,"finish_reason":"stop"}],"usage":{"prompt_tokens":412,"completion_tokens":21,"total_tokens":433,"prompt_tokens_details":{"cached_tokens":384},"prompt_cache_hit_tokens":384,"prompt_cache_miss_tokens":28}}
+
+data: [DONE]
+

@@ -14,7 +14,7 @@ import (
 
 // TestLive calls the real providers whose keys are set, with LIVE=1 (make
 // live, and the nightly workflow): a cheap call, a tool call's round trip,
-// and, for OpenAI, one request declaring every tool of the pinned catalogue
+// an answer streamed, and, for OpenAI, one request declaring every tool of the pinned catalogue
 // at 16 output tokens, so that the provider itself checks the schemas.
 func TestLive(t *testing.T) {
 	if os.Getenv("LIVE") != "1" {
@@ -42,6 +42,7 @@ func TestLive(t *testing.T) {
 				t.Fatal(err)
 			}
 			liveRoundTrip(t, a)
+			liveStream(t, a)
 			if p.everyTool {
 				liveEveryTool(t, a)
 			}
@@ -88,6 +89,26 @@ func liveRoundTrip(t *testing.T, a *Adapter) {
 	final := liveCall(t, a, req)
 	if final.Stop != llm.StopEnd || !strings.Contains(final.Text(), "8.5") {
 		t.Errorf("final answer: stop %s, text %q", final.Stop, final.Text())
+	}
+}
+
+// liveStream streams an answer long enough to come in pieces: the pieces
+// are its text, and the provider reports its usage in the last chunk.
+func liveStream(t *testing.T, a *Adapter) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	var told []string
+	resp, err := a.Stream(ctx, &llm.Request{
+		Messages: []llm.Message{llm.UserText("Count from 1 to 30, with commas.")}, Limits: llm.Limits{MaxOutputTokens: 300},
+	}, func(d string) { told = append(told, d) })
+	if err != nil {
+		t.Fatalf("%s, streamed: %v", a.Model(), err)
+	}
+	if strings.Join(told, "") != resp.Text() || len(told) < 2 {
+		t.Errorf("streamed in %d pieces %q; the text is %q", len(told), told, resp.Text())
+	}
+	if resp.Usage.Estimated || resp.Usage.Input == 0 {
+		t.Errorf("a streamed call's usage was not reported: %+v", resp.Usage)
 	}
 }
 
