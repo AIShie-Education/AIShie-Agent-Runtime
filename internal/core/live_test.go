@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"reflect"
@@ -89,7 +90,68 @@ func (c *liveREST) send(method, path, token, key string, body []byte) (status in
 	return resp.StatusCode, raw, retryAfterHeader(resp.Header.Get("Retry-After"), time.Now())
 }
 
-// liveCore is the Core under test, or a skip when there is none.
+// person is registrar registering a person, with the fields more adds
+// (a platform role, say), who then signs in with a password as people do:
+// people hold no API tokens, only agents do. They are given an email of
+// this run's, invited to choose a password (actor.invite), choose one as
+// the front end's page for invitations does (POST /v1/auth/invite), and
+// sign in with it (POST /v1/auth/login). It returns their actor's id and
+// that session, which Core takes as a bearer token.
+func (c *liveREST) person(registrar, name string, more map[string]any) (id, session string) {
+	c.t.Helper()
+	c.n++
+	email := fmt.Sprintf("person-%s-%d@live.test", c.run, c.n)
+	body := map[string]any{"kind": "human", "display_name": name, "email": email}
+	maps.Copy(body, more)
+	id = str(c.t, c.call(200, "POST", "/v1/actors", registrar, body), "actor_id")
+	invite := str(c.t, c.call(200, "POST", "/v1/actors/"+id+"/invite", registrar, map[string]any{}), "token")
+	password := rand.Text()
+	c.session("/v1/auth/invite", map[string]string{"token": invite, "password": password})
+	return id, c.session("/v1/auth/login", map[string]string{"email": email, "password": password})
+}
+
+// session posts body to path, where Core signs someone in, and returns the
+// session Core sets as its cookie. A 429 is waited out.
+func (c *liveREST) session(path string, body map[string]string) string {
+	c.t.Helper()
+	b, err := json.Marshal(body)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	for range 20 {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+path, bytes.NewReader(b))
+		if err != nil {
+			cancel()
+			c.t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			cancel()
+			c.t.Fatalf("POST %s: %v", path, err)
+		}
+		raw, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		cancel()
+		if resp.StatusCode == http.StatusTooManyRequests {
+			time.Sleep(retryAfterHeader(resp.Header.Get("Retry-After"), time.Now()))
+			continue
+		}
+		for _, ck := range resp.Cookies() {
+			if ck.Name == "ais_session" && ck.Value != "" {
+				return ck.Value
+			}
+		}
+		c.t.Fatalf("POST %s: HTTP %d, and no session: %s", path, resp.StatusCode, raw)
+	}
+	c.t.Fatalf("POST %s: refused as too many sign-ins twenty times", path)
+	return ""
+}
+
+// liveCore is the Core under test, or a skip when there is none. root is
+// E2E_ROOT_TOKEN: the session root signed in with (scripts/ci-core.sh), not
+// an API token, since people hold none.
 func liveCore(t *testing.T) (base, root, run string) {
 	t.Helper()
 	base, root = strings.TrimRight(os.Getenv("E2E_CORE_URL"), "/"), os.Getenv("E2E_ROOT_TOKEN")
@@ -142,15 +204,11 @@ func TestLiveContract(t *testing.T) {
 	rest := &liveREST{t: t, base: base, run: "live-" + run}
 
 	// Root makes an admin; the admin registers Sato (an instructor) and Yuki
-	// (a student), and opens a course with Sato in it.
-	adminID := str(t, rest.call(200, "POST", "/v1/actors", root, map[string]any{"kind": "human", "display_name": "Admin " + run, "platform_role": "admin"}), "actor_id")
-	admin := str(t, rest.call(200, "POST", "/v1/actors/"+adminID+"/tokens", root, map[string]any{"label": "live"}), "token")
-	register := func(name string) (id, token string) {
-		id = str(t, rest.call(200, "POST", "/v1/actors", admin, map[string]any{"kind": "human", "display_name": name}), "actor_id")
-		return id, str(t, rest.call(200, "POST", "/v1/actors/"+id+"/tokens", admin, map[string]any{"label": "live"}), "token")
-	}
-	satoID, sato := register("Sato " + run)
-	yukiID, yuki := register("Yuki " + run)
+	// (a student), and opens a course with Sato in it. Each of them signs in
+	// with a password (person).
+	_, admin := rest.person(root, "Admin "+run, map[string]any{"platform_role": "admin"})
+	satoID, sato := rest.person(admin, "Sato "+run, nil)
+	yukiID, yuki := rest.person(admin, "Yuki "+run, nil)
 	term := str(t, rest.call(200, "POST", "/v1/terms", admin, map[string]any{"name": "Term " + run, "starts_on": "2026-09-01", "ends_on": "2026-12-20"}), "id")
 	dept := str(t, rest.call(200, "POST", "/v1/departments", admin, map[string]any{"name": "Computing " + run}), "id")
 	course := str(t, rest.call(200, "POST", "/v1/courses", admin, map[string]any{
@@ -406,8 +464,8 @@ func TestLiveRateLimited(t *testing.T) {
 	defer cancel()
 	rest := &liveREST{t: t, base: base, run: "limited-" + run}
 	// An actor of its own: nobody else spends its allowance, and it spends
-	// nobody else's.
-	id := str(t, rest.call(200, "POST", "/v1/actors", root, map[string]any{"kind": "human", "display_name": "Busy " + run}), "actor_id")
+	// nobody else's. An agent, since only agents are given API tokens.
+	id := str(t, rest.call(200, "POST", "/v1/actors", root, map[string]any{"kind": "agent", "display_name": "Busy " + run}), "actor_id")
 	token := str(t, rest.call(200, "POST", "/v1/actors/"+id+"/tokens", root, map[string]any{"label": "live"}), "token")
 	cat, err := FetchCatalogue(ctx, nil, base)
 	if err != nil {

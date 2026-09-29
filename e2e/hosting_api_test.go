@@ -30,9 +30,9 @@ import (
 // answers her. Paused, it calls Core no more; resumed, it runs again. A
 // second token replaces the first, which the new one revokes in Core; the
 // agent deleted, its token is revoked in Core with itself, the next GET is
-// 404, and the store holds nothing of it but its ledger. A person's token
-// and another's agent's are refused. No answer, log or row holds a token,
-// the key or an assertion.
+// 404, and the store holds nothing of it but its ledger. A person's
+// session and another's agent's token are refused. No answer, log or row
+// holds a token, the key or an assertion.
 func hostingThroughTheAPI(t *testing.T, w *world) {
 	audience := os.Getenv("E2E_RUNTIME_AUDIENCE")
 	if audience == "" {
@@ -122,9 +122,10 @@ func hostingThroughTheAPI(t *testing.T, w *world) {
 		return string(b)
 	}
 
-	// Refused: her own token, a person's; the tutor's, another's agent.
+	// Refused: her own session, a person's; the tutor's token, another's
+	// agent's.
 	if an := call("POST", "agents/inspect", tokenBody(w.yuki.token)); an.code != 422 || reason(an) != "token_not_agent" {
-		t.Errorf("a person's token: %d %s", an.code, an.body)
+		t.Errorf("a person's session: %d %s", an.code, an.body)
 	}
 	if an := call("POST", "agents/inspect", `{"token":"`+w.tutor.token+`"}`); an.code != 403 || reason(an) != "not_owner" {
 		t.Errorf("another's agent's token: %d %s", an.code, an.body)

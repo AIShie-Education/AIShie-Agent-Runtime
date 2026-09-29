@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"strconv"
@@ -20,9 +21,10 @@ import (
 )
 
 // coreAPI is Core's REST API as the tests' people use it: plain requests
-// with their own tokens, as Core's scripts/e2e.sh makes them with curl. It
-// is written here, apart from the runtime's own client, so that a fault in
-// the runtime cannot hide in how the tests build their worlds.
+// with the sessions they signed in with (agents' with their API tokens), as
+// Core's scripts/e2e.sh makes them with curl. It is written here, apart
+// from the runtime's own client, so that a fault in the runtime cannot hide
+// in how the tests build their worlds.
 type coreAPI struct {
 	base string
 	hc   *http.Client
@@ -36,8 +38,9 @@ type coreAPI struct {
 const requestTimeout = 30 * time.Second
 
 // liveCore is the Core under test, from E2E_CORE_URL and E2E_ROOT_TOKEN,
-// and root's token. Without them the tests skip, or fail when CI is true:
-// CI's end to end must never pass by testing nothing.
+// and root's token: the session root signed in with (scripts/ci-core.sh),
+// not an API token, since people hold none. Without them the tests skip, or
+// fail when CI is true: CI's end to end must never pass by testing nothing.
 func liveCore(t *testing.T) (*coreAPI, string) {
 	t.Helper()
 	base, root := strings.TrimRight(os.Getenv("E2E_CORE_URL"), "/"), os.Getenv("E2E_ROOT_TOKEN")
@@ -203,6 +206,85 @@ func decode[T any](t testing.TB, r reply) T {
 		t.Fatalf("the result is not what was expected: %v; %s", err, r)
 	}
 	return out
+}
+
+// newPerson is registrar registering a person (POST /v1/actors, with the
+// fields more adds, such as a platform role), who then signs in with a
+// password as people do: people hold no API tokens, only agents do. They
+// are given an email of this run's, invited to choose a password
+// (actor.invite), choose one as the front end's page for invitations does
+// (POST /v1/auth/invite), and sign in with it (POST /v1/auth/login). It
+// returns their actor's id and that session, which the tests send as a
+// bearer token, as Core takes it.
+func (c *coreAPI) newPerson(t testing.TB, registrar, name string, more map[string]any) (id, session string) {
+	t.Helper()
+	local := strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			return r
+		}
+		return -1
+	}, strings.ToLower(name))
+	email := fmt.Sprintf("%s-%s-%d@e2e.test", local, c.run, c.keys.Add(1))
+	body := map[string]any{"kind": "human", "display_name": name, "email": email}
+	maps.Copy(body, more)
+	id = result[struct {
+		ActorID string `json:"actor_id"`
+	}](t, c, registrar, "POST", "/v1/actors", body).ActorID
+	invite := result[struct {
+		Token string `json:"token"`
+	}](t, c, registrar, "POST", "/v1/actors/"+id+"/invite", nil).Token
+	password := randomHex(16)
+	c.session(t, "/v1/auth/invite", map[string]string{"token": invite, "password": password})
+	return id, c.session(t, "/v1/auth/login", map[string]string{"email": email, "password": password})
+}
+
+// session posts body to path, where Core signs someone in (POST
+// /v1/auth/login, or /v1/auth/invite), as the front end does, and returns
+// the session Core sets as its cookie. A 429 is waited out as its
+// Retry-After says. A session whose password must be changed first is no
+// use to the tests, and fails t.
+func (c *coreAPI) session(t testing.TB, path string, body map[string]string) string {
+	t.Helper()
+	payload, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 20 {
+		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+path, bytes.NewReader(payload))
+		if err != nil {
+			cancel()
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := c.hc.Do(req)
+		if err != nil {
+			cancel()
+			t.Fatalf("POST %s: %v", path, err)
+		}
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		_ = resp.Body.Close()
+		cancel()
+		if resp.StatusCode == http.StatusTooManyRequests {
+			wait := time.Second
+			if s, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && s > 0 {
+				wait = time.Duration(s) * time.Second
+			}
+			time.Sleep(wait)
+			continue
+		}
+		var out struct {
+			PasswordChangeRequired bool `json:"password_change_required"`
+		}
+		for _, ck := range resp.Cookies() {
+			if ck.Name == "ais_session" && ck.Value != "" && json.Unmarshal(raw, &out) == nil && !out.PasswordChangeRequired {
+				return ck.Value
+			}
+		}
+		t.Fatalf("POST %s: HTTP %d, and no session to use: %s", path, resp.StatusCode, redact.String(string(raw)))
+	}
+	t.Fatalf("POST %s: refused as too many sign-ins twenty times", path)
+	return ""
 }
 
 // eventually checks cond every tick until it holds, and fails t if it

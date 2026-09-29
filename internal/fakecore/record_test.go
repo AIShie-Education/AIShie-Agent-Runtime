@@ -3,9 +3,12 @@ package fakecore
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
+	"maps"
 	"net/http"
 	"os"
 	"strconv"
@@ -80,8 +83,7 @@ type person struct{ id, token string }
 
 func newLiveCore(t *testing.T, base, root string) *liveCore {
 	lc := &liveCore{t: t, base: strings.TrimSuffix(base, "/"), hc: &http.Client{Timeout: 30 * time.Second}}
-	admin := lc.result(root, "POST", "/v1/actors", map[string]any{"kind": "human", "display_name": "Admin", "platform_role": "admin"})
-	lc.admin = lc.result(root, "POST", "/v1/actors/"+str(admin, "actor_id")+"/tokens", map[string]any{"label": "record"})["token"].(string)
+	lc.admin = lc.person(root, "Admin", map[string]any{"platform_role": "admin"}).token
 	lc.dept = str(lc.result(lc.admin, "POST", "/v1/departments", map[string]any{"name": "Computing " + uuid.NewString()[:8]}), "id")
 	lc.mori, lc.yuki, lc.ken = lc.register("Mori"), lc.register("Yuki"), lc.register("Ken")
 	return lc
@@ -92,10 +94,58 @@ func str(m map[string]any, key string) string {
 	return s
 }
 
-func (lc *liveCore) register(name string) person {
-	id := str(lc.result(lc.admin, "POST", "/v1/actors", map[string]any{"kind": "human", "display_name": name}), "actor_id")
-	token := str(lc.result(lc.admin, "POST", "/v1/actors/"+id+"/tokens", map[string]any{"label": "record"}), "token")
-	return person{id, token}
+// register is the admin registering a person, who signs in with a
+// password (person).
+func (lc *liveCore) register(name string) person { return lc.person(lc.admin, name, nil) }
+
+// person is registrar registering a person, with the fields more adds (a
+// platform role, say), who then signs in with a password as people do:
+// people hold no API tokens, only agents do. They are given an email of
+// their own, invited to choose a password (actor.invite), choose one as the
+// front end's page for invitations does (POST /v1/auth/invite), and sign in
+// with it (POST /v1/auth/login). Their token is that session, which Core
+// takes as a bearer token. Nothing recorded shows a person's email.
+func (lc *liveCore) person(registrar, name string, more map[string]any) person {
+	lc.t.Helper()
+	email := strings.ToLower(name) + "-" + uuid.NewString() + "@record.test"
+	body := map[string]any{"kind": "human", "display_name": name, "email": email}
+	maps.Copy(body, more)
+	id := str(lc.result(registrar, "POST", "/v1/actors", body), "actor_id")
+	invite := str(lc.result(registrar, "POST", "/v1/actors/"+id+"/invite", map[string]any{}), "token")
+	password := rand.Text()
+	lc.session("/v1/auth/invite", map[string]string{"token": invite, "password": password})
+	return person{id, lc.session("/v1/auth/login", map[string]string{"email": email, "password": password})}
+}
+
+// session posts body to path, where Core signs someone in, and returns the
+// session Core sets as its cookie, waiting out a 429.
+func (lc *liveCore) session(path string, body map[string]string) string {
+	lc.t.Helper()
+	b, err := json.Marshal(body)
+	if err != nil {
+		lc.t.Fatal(err)
+	}
+	for range 20 {
+		resp, err := lc.hc.Post(lc.base+path, "application/json", bytes.NewReader(b))
+		if err != nil {
+			lc.t.Fatalf("POST %s: %v", path, err)
+		}
+		raw, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if resp.StatusCode == http.StatusTooManyRequests {
+			secs, _ := strconv.Atoi(resp.Header.Get("Retry-After"))
+			time.Sleep(time.Duration(max(secs, 1)) * time.Second)
+			continue
+		}
+		for _, ck := range resp.Cookies() {
+			if ck.Name == "ais_session" && ck.Value != "" {
+				return ck.Value
+			}
+		}
+		lc.t.Fatalf("POST %s: HTTP %d, and no session: %s", path, resp.StatusCode, raw)
+	}
+	lc.t.Fatalf("POST %s: still rate limited", path)
+	return ""
 }
 
 // checkCatalogue holds the Core being recorded to the catalogue the fake
@@ -390,7 +440,12 @@ func (w *liveWorld) registrar(perms map[string]string) (string, *mcpClient) {
 	return seat, c
 }
 
-func (w *liveWorld) newcomer(name string) string { return w.lc.register(name).id }
+// newcomer is a person the admin registers and nobody signs in as: only
+// their id is wanted.
+func (w *liveWorld) newcomer(name string) string {
+	w.t.Helper()
+	return str(w.lc.result(w.lc.admin, "POST", "/v1/actors", map[string]any{"kind": "human", "display_name": name}), "actor_id")
+}
 
 func (w *liveWorld) actorOf(who string) string {
 	w.t.Helper()
