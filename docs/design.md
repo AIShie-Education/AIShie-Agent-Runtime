@@ -778,9 +778,19 @@ For an inbox row (conversation X, question M, opener P):
    a scope that has spent nothing today is never refused on the p95 alone,
    or one dear answer would lock every asker out for good. Answers count
    against quotas when Core took them (executed or proposed); dollars count
-   every model call. Out of quota: the canned notice under the answer's key,
-   with no model call (`on_quota_exhausted: canned`), or skip until tomorrow
-   (`silent`).
+   every model call. On an offer of the school's plan (§11.2), the plan's
+   quotas stand in for the tenant's, after the agent's own: the asker's
+   (agent, course, P) and the owner's (the tenant, across their agents),
+   both on the school's key alone; and the plan's ceiling, when set, holds
+   every answer on the school's key. Days are UTC. One of the school's
+   spent, the model's fallback answers when it is on the owner's own key
+   (D8), and its calls and answer are the owner's, not the school's. Out of
+   quota: the canned notice under the answer's key, with no model call
+   (`on_quota_exhausted: canned`; the plan's own notice for its quotas,
+   `runtime.school.on_quota_text` or the built-in one, in the language
+   `answer_language` fixes, else in English and Traditional Chinese), or
+   skip until tomorrow (`silent`). An answer is on the key of the model
+   that wrote it.
 5. **Read** X: `conversation_messages` (the newest `history_messages`). If
    the opener's newest message is no longer M, answer that one instead.
 6. **Prompt**: the system prompt (§6 below), the seat's facts, X's memory,
@@ -1018,7 +1028,9 @@ then close; the canned notice when out of quota; 19,000 characters; the
 newest 30 messages; eight answers at once per agent, four per course; per
 answer 8 turns, 12 tool calls of which at most 10 writes (`max_writes`),
 150,000 input and 4,000 output tokens, 90 s; no daily
-quotas unless set (a school key requires per-agent and per-asker ones);
+quotas unless set (a school key requires per-agent and per-asker ones, but
+an offer of the school's plan, whose quotas are 100 answers a day per
+owner and 20 per asker unless `runtime.school` sets them);
 polling 2 s hot for 120 s, 10 s idle to 30 s, events 45 s, seats 300 s,
 ±25 %, 30 % of 600 a minute; memory on, purged 30 days after a seat goes;
 files of at most 10 MB, read within `doctext.DefaultLimits` and 20 s, their
@@ -1282,7 +1294,10 @@ document a YAML file would hold, and runs it beside the YAML agents:
   key source, as written or inherited from its parent, is `own`, with that
   key source written out (merged over `runtime.defaults`, a fallback that
   names none would take the defaults' fallback's first, and be paid for as
-  the school's); and `tools.writes` true when the settings do not set it,
+  the school's); on the agent's model on key source `school`, the settings
+  of the offer of the school's plan it names (`offer`, and nothing else:
+  §11.2's key pool), its key's reference among them, written in the
+  document and never in the row; and `tools.writes` true when the settings do not set it,
   since a hosted agent's owner is known (§4), whatever the runtime's
   defaults say. Each course's row is its
   `courses[course_id]`. Settings that set any of those themselves, or refer
@@ -1295,7 +1310,9 @@ document a YAML file would hold, and runs it beside the YAML agents:
   `CORE_BASE_URL_ALLOWLIST`, but each on its own: one that does not pass is
   rejected with every problem, where `Load` stops at the first file's.
 - **What a hosted agent may call.** Every model it calls, in every course,
-  is on the owner's key source and has the owner's key and no other, as
+  is on the owner's key source and has the owner's key and no other, or,
+  for the agent's own model alone, is the offer of the school's plan it
+  names, with the offer's key, as
   merged and decoded, never one it would inherit from the
   runtime's defaults (a fallback it does not set is none, not the
   defaults'); none is called with the runtime's own credentials (Bedrock
@@ -1304,9 +1321,9 @@ document a YAML file would hold, and runs it beside the YAML agents:
   endpoint (§3.9) over https, the provider's own host where it serves
   from a cloud's domain (DashScope's under `aliyuncs.com`, Bedrock's
   runtime under `amazonaws.com`, not a bucket or function anyone can
-  name there); and it sends no extra headers (D9). The
-  school's key is not offered to hosted agents yet: that waits on the
-  school's model offers and the owners' quotas (below).
+  name there); and it sends no extra headers (D9). An offer's endpoint
+  and settings are the operator's, and its calls go over the runtime's
+  own client, as a YAML agent's do.
 - **YAML ∪ registry.** `registry.Build` is the YAML configuration, then
   every hosted agent that passes; the rest are in `Config.Rejected`, which
   the supervisor shows in state `error`. A hosted agent whose id is a YAML
@@ -1333,14 +1350,28 @@ document a YAML file would hold, and runs it beside the YAML agents:
   replaced) is destroyed with it. Deleting it destroys its courses and its
   secrets in one transaction. `registry_rev` moves on with none of the
   people's or the secrets' writes.
-- **The key pool (D8).** The document's shape holds what the product owner
-  decided for a student's own agent: `model` is the school's offer and
-  `model.fallback` the owner's own-key model, whose key is the row's
-  `key_secret_id`; the worker already falls back when the school's model
-  cannot be reached. Switching when the owner's daily quota on the school's
-  key is spent, and holding the question when there is no own key, come
-  with the quotas; until the school's offers exist, a hosted agent on the
-  school's key is refused.
+- **The key pool (D8).** The school's AI plan is `runtime.school`: the
+  models the school offers (`offers`, each an id, a label people are
+  shown, and a model section whose key is a reference under
+  `secret://school/keys/`, a file on the runtime's host), checked against
+  `allowed_models` and `denied_models` as any model on the school's key;
+  and its quotas, in answers a UTC day, `per_owner_day` (100 unless set)
+  and `per_asker_day` (20 unless set), and, when set, `per_day`, a ceiling
+  on everything on the school's key. Each may also be in dollars, which
+  `run` and `check` refuse without a price table that prices every offer;
+  in answers alone, an offer needs no price, and its cost is unknown. One
+  plan for the school, with no budgets of a department's or a course's
+  yet: they would stand beside these quotas. A hosted agent's row on the
+  plan is `model: {key_source: school, offer: <id>, fallback: <the
+  owner's own model>}`: the registry writes the offer's settings over it
+  in the document (§11.2's first point), and refuses an offer the school
+  no longer has, settings of the offer's the row sets itself, a course's
+  model on the school's key and a fallback on it; `config` holds a section
+  that names an offer to calling what the offer does with its key, and to
+  a tenant, the owner's, whose quota is the plan's. The worker falls back
+  to the owner's model when the offer's provider cannot be reached, and,
+  when a quota of the school's is spent (§5.3 step 4), answers on the
+  owner's key; without an owner's model, the plan's notice is posted.
 - `check`, with `DATABASE_URL`, reads the registry as `run` does, lists
   the hosted agents it would run and those it would not, with why, and
   passes: they keep no other from running. A registry it cannot read (a
@@ -1404,8 +1435,12 @@ The API needs `CORE_BASE_URL`, `API_AUDIENCE`, `DATABASE_URL` and
   actor afresh when it made the assertion: the runtime holds no credential
   of the person's to ask Core with (D2), and needs none. A role taken away
   in Core reaches the runtime within the assertion's lifetime (five
-  minutes by default, fifteen at most). No v1 route grants an
-  administrator more than an owner; `GET /me` says whether they are one.
+  minutes by default, fifteen at most). `GET /me` says whether they are
+  one. Beside an owner's routes, an administrator reads `GET
+  /admin/school-plan/usage` alone: today's use of the school's key (the
+  store's `Reports.TenantUsage`), the plan's quotas, the total, and a row
+  per tenant, a hosted agent's owner's with their actor id and the name
+  the runtime last saw; anyone else is 403 `not_admin`.
 - **Every request**, in order: one log line and metrics
   (`aishie_api_requests_total{route,code}`,
   `aishie_api_request_seconds{route}`): method, route, status, reason,
@@ -1441,7 +1476,8 @@ The API needs `CORE_BASE_URL`, `API_AUDIENCE`, `DATABASE_URL` and
   `api: "aishie-runtime"`, `api_version: 1`, the version and commit, the
   audience to ask Core for, the issuer, and the features offered
   (connecting by token and the owner's own key when the API has a Core
-  and a vault, as `run` always gives it; never the school's key yet).
+  and a vault, as `run` always gives it; and the school's plan, when the
+  runtime's settings offer a model on it).
   `GET /me`: the person's actor id and name, whether they are an
   administrator, and how many agents they host; it records the person
   (`person`), at most every five minutes. The rest are a hosted agent's
@@ -1464,7 +1500,13 @@ The API needs `CORE_BASE_URL`, `API_AUDIENCE`, `DATABASE_URL` and
     has one brain at a time.
   - `GET /agents` and `GET /agents/{id}`: the agent as its owner reads
     it, with its `version` as a strong ETag, its seats, the proposals
-    waiting, today's answers and cost, its model and key hint, whether
+    waiting, today's answers and cost, its model and key hint (on the
+    school's plan, `model.school`: the offer's id, label, provider and
+    model, whether the school still offers it, and whether the owner's
+    model and key stand behind it; and `today.school`: the owner's
+    answers on the school's key today across their agents, `used` against
+    `limit` with `scope` `owner`, the cost against the quota's dollars
+    when it has any, and `per_asker_limit`), whether
     its model may act for its owner (`tools.writes`), and a
     `status` the API works out from the row and the worker's state: paused,
     then no model (`needs_model`), then `starting` until the worker has
@@ -1473,7 +1515,12 @@ The API needs `CORE_BASE_URL`, `API_AUDIENCE`, `DATABASE_URL` and
     `agent_suspended`, `owner_changed`, …).
   - `PATCH /agents/{id}`, by merge-patch and only with `If-Match` (428
     without, 412 at another version): the owner's model, from the
-    provider offers of `GET /models`, and their key, sealed; and
+    provider offers of `GET /models`, and their key, sealed; the offer of
+    the school's plan, `model.school: {offer: <id>}` from `GET /models`'
+    `school_key.offers` (`unknown_offer` for another, and
+    `school_key_not_offered` where the school offers none), or null to
+    take the agent off the plan, the owner's model then being its fallback
+    and optional, and an agent on the plan having a model; and
     `tools.writes`, whether the agent's model may act for them in the
     course where its seats allow (§4): `true`, `false`, or `null` for the
     default, which is `true`, audited as `tools.writes` changed; the view

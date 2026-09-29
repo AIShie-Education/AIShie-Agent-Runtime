@@ -1127,6 +1127,45 @@ func (s *Store) Usage(_ context.Context, agentID string, since, until time.Time)
 	return out, nil
 }
 
+// TenantUsage is the use on keySource in [since, until), a row per
+// tenant.
+func (s *Store) TenantUsage(_ context.Context, keySource string, since, until time.Time) ([]store.TenantUsage, error) {
+	if err := store.CheckKeySpan(keySource, since, until); err != nil {
+		return nil, err
+	}
+	since, until = keep(since), keep(until)
+	rows := map[string]*store.TenantUsage{}
+	row := func(tenant string) *store.TenantUsage {
+		if rows[tenant] == nil {
+			rows[tenant] = &store.TenantUsage{TenantID: tenant}
+		}
+		return rows[tenant]
+	}
+	s.mu.Lock()
+	for _, a := range s.answers {
+		if a.KeySource == keySource && inSpan(a.At, since, until) {
+			r := row(a.TenantID)
+			if a.Billable {
+				r.Answers++
+			}
+		}
+	}
+	for _, c := range s.calls {
+		if c.KeySource == keySource && inSpan(c.At, since, until) {
+			r := row(c.TenantID)
+			r.ModelCalls++
+			r.CostPUSD += c.CostPUSD
+		}
+	}
+	s.mu.Unlock()
+	out := make([]store.TenantUsage, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, *r)
+	}
+	slices.SortFunc(out, func(a, b store.TenantUsage) int { return strings.Compare(a.TenantID, b.TenantID) })
+	return out, nil
+}
+
 // AskerUsage is agentID's use in one course in [since, until), a row per
 // asker.
 func (s *Store) AskerUsage(_ context.Context, agentID, courseID string, since, until time.Time) ([]store.AskerUsage, error) {

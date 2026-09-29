@@ -167,6 +167,9 @@ func validateAgent(a *Agent, rt *Runtime, origins []origin, is *issues) {
 		if fb.Fallback != nil {
 			is.add("model.fallback.fallback", "a fallback has no fallback of its own")
 		}
+		if fb.Offer != "" {
+			is.add("model.fallback.offer", "a fallback is not an offer of the school's plan: the plan's offer is the model, the owner's own key its fallback")
+		}
 	}
 	checkSchoolKey(is, a)
 	checkPrompt(is, a)
@@ -244,6 +247,9 @@ func checkModel(is *issues, path string, m *Model) {
 	checkRef(is, path+".key_ref", m.KeyRef, "key", !keyless(m))
 	if m.KeySource != KeySchool && m.KeySource != KeyOwn {
 		is.add(path+".key_source", "%q is not school or own", redact.String(m.KeySource))
+	}
+	if m.Offer != "" && m.KeySource != KeySchool {
+		is.add(path+".offer", "an offer of the school's plan is on the school's key (key_source: school)")
 	}
 	if m.Params.MaxOutputTokens <= 0 {
 		is.add(path+".params.max_output_tokens", "must be one or more")
@@ -335,14 +341,20 @@ func checkRef(is *issues, path, v, what string, required bool) {
 }
 
 // checkSchoolKey holds a model on the school's key to §5.2: a tenant, and
-// daily quotas per agent and per asker, both.
+// daily quotas per agent and per asker, both. A model on an offer of the
+// school's plan (runtime.school) is held by the plan's quotas, per owner
+// (its tenant) and per asker, and needs its tenant alone.
 func checkSchoolKey(is *issues, a *Agent) {
-	school := a.Model.KeySource == KeySchool || a.Model.Fallback != nil && a.Model.Fallback.KeySource == KeySchool
-	if !school {
+	plan := a.Model.KeySource == KeySchool && a.Model.Offer != ""
+	other := a.Model.KeySource == KeySchool && a.Model.Offer == "" || a.Model.Fallback != nil && a.Model.Fallback.KeySource == KeySchool
+	if !plan && !other {
 		return
 	}
 	if a.TenantID == "" {
 		is.add("tenant_id", "required on the school's key: its quotas are the tenant's")
+	}
+	if !other {
+		return
 	}
 	if !a.Budgets.PerAgentDay.set() {
 		is.add("budgets.per_agent_day", "required on the school's key: answers, usd or both")
@@ -382,6 +394,11 @@ func validateRuntimeRules(a *Agent, rt *Runtime, is *issues) {
 				is.add(x.path, "%s is not in runtime.allowed_models, the models the school's key may use", triple)
 			}
 		}
+		if x.m.Offer != "" {
+			// The plan's quotas hold it, not its tenant's.
+			checkOfferSection(is, x.path, x.m, rt.School)
+			continue
+		}
 		if !tenantChecked && a.TenantID != "" {
 			tenantChecked = true
 			if t, ok := rt.Tenants[a.TenantID]; !ok {
@@ -390,6 +407,22 @@ func validateRuntimeRules(a *Agent, rt *Runtime, is *issues) {
 				is.add("tenant_id", "runtime.tenants.%s has no per_day quota, which the school's key needs", a.TenantID)
 			}
 		}
+	}
+}
+
+// checkOfferSection holds a model section that names an offer of the
+// school's plan to it: the offer is there, and the section calls what the
+// offer does, with its key, as the registry writes it.
+func checkOfferSection(is *issues, path string, m *Model, school School) {
+	o, ok := school.OfferOf(m.Offer)
+	if !ok {
+		is.add(path+".offer", "%q is not an offer of runtime.school: the school no longer offers it", redact.String(m.Offer))
+		return
+	}
+	om := o.AsModel()
+	if m.Adapter != om.Adapter || m.Model != om.Model || m.EffectiveProvider() != om.EffectiveProvider() || m.BaseURL != om.BaseURL ||
+		m.Region != om.Region || m.KeyRef != om.KeyRef {
+		is.add(path, "is not runtime.school's offer %s: a model on an offer calls what the offer does, with its key", o.ID)
 	}
 }
 
@@ -600,6 +633,11 @@ func (c *Config) validateRuntime() []error {
 			add("runtime.prices_ref", "%v", err)
 		}
 	}
+	is := &issues{}
+	checkSchool(is, rt)
+	for _, i := range is.list {
+		add(i.path, "%s", i.msg)
+	}
 	for _, l := range []struct {
 		path     string
 		patterns []string
@@ -611,6 +649,73 @@ func (c *Config) validateRuntime() []error {
 		}
 	}
 	return errs
+}
+
+// SchoolKeyPrefix begins the reference of every key of the school's
+// offers: the operator's secret store, never a sealed secret of an
+// owner's.
+const SchoolKeyPrefix = "secret://school/keys/"
+
+// MaxOfferLabel bounds an offer's label, in characters.
+const MaxOfferLabel = 80
+
+// MaxSchoolQuotaText bounds runtime.school.on_quota_text, in characters.
+const MaxSchoolQuotaText = 1000
+
+// checkSchool checks the school's plan: each offer a model section on the
+// school's key, whose key is under SchoolKeyPrefix, of a model the
+// runtime's lists allow, with an id and label of its own; and its quotas.
+func checkSchool(is *issues, rt *Runtime) {
+	sc := rt.School
+	ids := map[string]int{}
+	for i, o := range sc.Offers {
+		p := fmt.Sprintf("runtime.school.offers[%d]", i)
+		switch prev, dup := ids[o.ID]; {
+		case !idRe.MatchString(o.ID):
+			is.add(p+".id", "required: letters, digits, '_' and '-', at most 64")
+		case dup:
+			is.add(p+".id", "offers[%d] has this id too", prev)
+		default:
+			ids[o.ID] = i
+		}
+		switch n := utf8.RuneCountInString(o.Label); {
+		case strings.TrimSpace(o.Label) == "":
+			is.add(p+".label", "required: what people are shown")
+		case n > MaxOfferLabel || strings.ContainsAny(o.Label, "\r\n"):
+			is.add(p+".label", "one line of at most %d characters", MaxOfferLabel)
+		}
+		m := o.AsModel()
+		if m.Params.MaxOutputTokens == 0 {
+			m.Params.MaxOutputTokens = 1 // unset: the agent's defaults give it
+		}
+		checkModel(is, p, &m)
+		if o.KeyRef != "" && !strings.HasPrefix(o.KeyRef, SchoolKeyPrefix) && secrets.Check(o.KeyRef) == nil {
+			is.add(p+".key_ref", "the school's keys are kept under %s<name>", SchoolKeyPrefix)
+		}
+		if !slices.Contains(adapters, o.Adapter) {
+			continue
+		}
+		triple := o.Adapter + ":" + m.EffectiveProvider() + ":" + o.Model
+		if pat, ok := matchModel(rt.DeniedModels, triple); ok {
+			is.add(p, "%s is denied by runtime.denied_models (%s)", triple, pat)
+		}
+		if len(rt.AllowedModels) > 0 {
+			if _, ok := matchModel(rt.AllowedModels, triple); !ok {
+				is.add(p, "%s is not in runtime.allowed_models, the models the school's key may use", triple)
+			}
+		}
+	}
+	checkQuota(is, "runtime.school.per_owner_day", sc.PerOwnerDay)
+	checkQuota(is, "runtime.school.per_asker_day", sc.PerAskerDay)
+	checkQuota(is, "runtime.school.per_day", sc.PerDay)
+	if t := sc.OnQuotaText; t != "" {
+		switch n := utf8.RuneCountInString(t); {
+		case strings.TrimSpace(t) == "":
+			is.add("runtime.school.on_quota_text", "holds no text; leave it out for the built-in notice")
+		case n > MaxSchoolQuotaText:
+			is.add("runtime.school.on_quota_text", "is %d characters; at most %d", n, MaxSchoolQuotaText)
+		}
+	}
 }
 
 // checkModelPattern checks an "adapter:provider:model" pattern, where * is

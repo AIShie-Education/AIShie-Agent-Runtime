@@ -78,6 +78,9 @@ type loopStats struct {
 	Writes        store.WriteCounts
 	WritesRefused int
 	WritesGuarded int
+	// KeySource is the key of the model that made the loop's last call:
+	// whose key the answer is on, when a fallback took over.
+	KeySource string
 }
 
 // loopEnd is how a loop ended: a body to post and what wrote it; or every
@@ -95,9 +98,10 @@ type loopEnd struct {
 // number in this attempt (core.ToolKey), at most per_answer.max_writes,
 // and its member writes kept off the seats guard names.
 func newLoop(c *claim, msg string, attempt int, access toolset.Access, guard toolset.SeatGuard, system string, history []llm.Message) (*loop, error) {
+	m, fallback := c.models()
 	l := &loop{
 		c: c, msg: msg, b: c.eff.Budgets.PerAnswer, start: c.a.now(), system: system, history: history,
-		m: c.s.primary, fallback: c.s.fallback, access: access, guard: guard,
+		m: m, fallback: fallback, access: access, guard: guard,
 	}
 	if access == toolset.ReadWrite {
 		conv := c.conv
@@ -409,6 +413,7 @@ func (l *loop) account(resp *llm.Response, err error, took time.Duration) {
 		return
 	}
 	l.stats.Turns++
+	l.stats.KeySource = l.m.keySource
 	l.stats.In += resp.Usage.Input
 	l.stats.Out += resp.Usage.Output
 	l.stats.Cost += cost

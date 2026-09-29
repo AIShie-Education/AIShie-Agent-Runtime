@@ -223,6 +223,15 @@ func (s *Supervisor) tenant(id string) (config.Tenant, bool) {
 	return t, ok
 }
 
+// school is the school's plan in the configuration in force.
+func (s *Supervisor) school() config.School {
+	cfg := s.config()
+	if cfg == nil {
+		return config.School{}
+	}
+	return cfg.Runtime.School
+}
+
 // apply puts a pending configuration in force.
 func (s *Supervisor) apply(ctx context.Context) {
 	s.mu.Lock()

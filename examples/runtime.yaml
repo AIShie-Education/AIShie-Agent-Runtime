@@ -25,6 +25,39 @@ runtime:
   denied_models:
     - "*:*:*-preview"
 
+  # The school's AI plan: the models the school offers people who host
+  # their own agents on this runtime, paid for on the school's key. An
+  # owner picks an offer by its id; the key stays a file on this server
+  # (SECRETS_DIR/school/keys/<name>, or AISHIE_SECRET_SCHOOL_KEYS_<NAME>)
+  # and is never shown, stored in the database or sent to the browser.
+  # Quotas count answers since 00:00 UTC. Without offers, hosted agents
+  # run on their owners' own keys alone.
+  school:
+    offers:
+      - id: standard
+        label: "School AI (Claude Haiku)"
+        adapter: anthropic
+        model: claude-haiku-4-5
+        key_ref: secret://school/keys/anthropic-main
+        params: {max_output_tokens: 1500}
+      - id: deepseek
+        label: "School AI (DeepSeek)"
+        adapter: openai_chat
+        model: deepseek-chat
+        base_url: https://api.deepseek.com
+        key_ref: secret://school/keys/deepseek
+    # Per owner, across all of their agents on the plan (default 100); per
+    # asker, per agent and course (default 20); and, when set, a ceiling
+    # across everything on the school's key. Each may also take usd:, which
+    # needs a price table that prices every offer.
+    per_owner_day: {answers: 100}
+    per_asker_day: {answers: 20}
+    per_day: {answers: 5000}
+    # The notice posted when a quota of the plan's is spent and the owner
+    # has no key of their own behind it. Left out, it is the built-in one,
+    # in English and Chinese.
+    # on_quota_text: "今天的學校 AI 額度已用完，請明天再試。"
+
   # Settings every agent starts from, over the built-in defaults and under
   # the agent's own. Here, the school's own words for the quota notice.
   defaults:

@@ -13,6 +13,7 @@ model:
     base_url: ""
     key_ref: env://OPENAI_API_KEY
     key_source: own
+    offer: ""
     provider: ""
     region: ""
     params:

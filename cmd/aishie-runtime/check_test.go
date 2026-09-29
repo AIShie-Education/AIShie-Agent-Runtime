@@ -51,7 +51,7 @@ func TestCheckLiveGuardsHostedModels(t *testing.T) {
 	try := func(a *config.Agent, base string) bool {
 		m := config.Model{Adapter: "anthropic", Model: "claude-x", BaseURL: base, KeyRef: "env://KEY", KeySource: config.KeyOwn,
 			Params: config.ModelParams{MaxOutputTokens: 100}}
-		return tryModel(context.Background(), p, a, m, res, clients.model(a))
+		return tryModel(context.Background(), p, a, m, res, clients.model(a, m))
 	}
 	hosted := &config.Agent{ID: "agt_x", Hosted: &config.Hosted{CoreActorID: "x"}}
 	for _, base := range []string{model.URL, redirect.URL} {
@@ -67,9 +67,16 @@ func TestCheckLiveGuardsHostedModels(t *testing.T) {
 	if !try(&config.Agent{ID: "yaml-agent"}, model.URL) {
 		t.Errorf("a YAML agent's model at its operator's address:\n%s", out.String())
 	}
+	// An offer of the school's plan is the operator's, at the address
+	// the operator chose, whatever agent is on it.
+	offer := config.Model{Adapter: "anthropic", Model: "claude-x", BaseURL: model.URL, KeyRef: "env://KEY", KeySource: config.KeySchool,
+		Offer: "standard", Params: config.ModelParams{MaxOutputTokens: 100}}
+	if !tryModel(context.Background(), p, hosted, offer, res, clients.model(hosted, offer)) {
+		t.Errorf("the school's offer for a hosted agent:\n%s", out.String())
+	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(seen) != 1 || seen[0] != key {
-		t.Errorf("the YAML agent's model was called %d times", len(seen))
+	if len(seen) != 2 || seen[0] != key {
+		t.Errorf("the operator's models were called %d times", len(seen))
 	}
 }

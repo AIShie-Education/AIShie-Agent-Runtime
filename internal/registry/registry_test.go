@@ -37,7 +37,7 @@ const ownModel = `{"model": {"adapter": "openai_chat", "model": "gpt-4.1-mini", 
 // doc is the agent document Document makes, read back.
 func doc(t *testing.T, a store.HostedAgent, courses []store.HostedCourse, defaultKS string) map[string]any {
 	t.Helper()
-	src, err := Document(a, courses, core, defaultKS)
+	src, err := Document(a, courses, core, defaultKS, schoolPlan())
 	if err != nil {
 		t.Fatalf("Document(%s): %v", a.ID, err)
 	}
@@ -89,7 +89,7 @@ func TestDocument(t *testing.T) {
 
 	// No key stored: a section on the owner's key is refused.
 	a.KeySecretID = ""
-	if _, err := Document(a, nil, core, config.KeyOwn); err == nil || !strings.Contains(err.Error(), "no key of the owner's is stored") {
+	if _, err := Document(a, nil, core, config.KeyOwn, config.School{}); err == nil || !strings.Contains(err.Error(), "no key of the owner's is stored") {
 		t.Errorf("with no key stored: %v", err)
 	}
 	// No model section at all: one is made, to take the key.
@@ -105,7 +105,8 @@ func TestDocument(t *testing.T) {
 }
 
 // What the registry sets, settings may not; a hosted agent refers to no
-// file or secret; and the school's key is not offered to hosted agents yet.
+// file or secret; and a model on the school's key is an offer of the
+// school's plan, named and nothing else, for the agent, not a course.
 func TestDocumentRefuses(t *testing.T) {
 	for _, c := range []struct {
 		name     string
@@ -125,15 +126,23 @@ func TestDocumentRefuses(t *testing.T) {
 		{name: "a course's prompt file", settings: ownModel,
 			courses: []store.HostedCourse{{AgentID: "agt_1", CourseID: course1, Settings: json.RawMessage(`{"prompt_append_ref": "/etc/shadow"}`)}},
 			want:    []string{"courses." + course1 + ".prompt_append_ref: a hosted agent refers to no file"}},
-		{name: "the school's key", settings: `{"model": {"adapter": "anthropic", "model": "m", "key_source": "school"}}`,
-			want: []string{"agent.model: the school's key is not offered to hosted agents yet"}},
+		{name: "the school's key with no offer", settings: `{"model": {"adapter": "anthropic", "model": "m", "key_source": "school"}}`,
+			want: []string{"agent.model.adapter: set by the school's offer", "agent.model.model: set by the school's offer",
+				"agent.model: on the school's key, and names no offer"}},
 		{name: "the school's key by default", settings: `{"model": {"adapter": "anthropic", "model": "m"}}`, defKS: config.KeySchool,
-			want: []string{"agent.model: the school's key is not offered"}},
-		{name: "a fallback inheriting the school's key", settings: `{"model": {"adapter": "anthropic", "model": "m", "key_source": "school", "fallback": {"adapter": "anthropic", "model": "n"}}}`,
-			want: []string{"agent.model: the school's", "agent.model.fallback: the school's"}},
+			want: []string{"agent.model: on the school's key, and names no offer"}},
+		{name: "an offer the school does not have", settings: `{"model": {"key_source": "school", "offer": "premium"}}`,
+			want: []string{`agent.model.offer: the school does not offer "premium"`}},
+		{name: "an offer with settings of its own", settings: `{"model": {"key_source": "school", "offer": "standard", "base_url": "https://evil.example", "params": {"max_output_tokens": 9000}}}`,
+			want: []string{"agent.model.base_url: set by the school's offer", "agent.model.params: set by the school's offer"}},
+		{name: "a fallback on the school's key", settings: `{"model": {"key_source": "school", "offer": "standard", "fallback": {"adapter": "anthropic", "model": "n", "key_source": "school"}}}`,
+			want: []string{"agent.model.fallback: a fallback is on the owner's key"}},
 		{name: "a course on the school's key", settings: ownModel,
-			courses: []store.HostedCourse{{AgentID: "agt_1", CourseID: course1, Settings: json.RawMessage(`{"model": {"key_source": "school"}}`)}},
-			want:    []string{"courses." + course1 + ".model: the school's key"}},
+			courses: []store.HostedCourse{{AgentID: "agt_1", CourseID: course1, Settings: json.RawMessage(`{"model": {"key_source": "school", "offer": "standard"}}`)}},
+			want:    []string{"courses." + course1 + ".model: a course's model is not on the school's plan"}},
+		{name: "a course of an agent on the plan", settings: `{"model": {"key_source": "school", "offer": "standard"}}`,
+			courses: []store.HostedCourse{{AgentID: "agt_1", CourseID: course1, Settings: json.RawMessage(`{"model": {"reasoning": {"effort": "high"}}}`)}},
+			want:    []string{"courses." + course1 + ".model: a course's model is not on the school's plan"}},
 		{name: "settings that are no object", settings: `[1]`, want: []string{"its settings: not a JSON object"}},
 		{name: "a model that is no mapping", settings: `{"model": "gpt-4.1"}`, want: []string{"agent.model: must be a mapping"}},
 		{name: "a course's that are no object", settings: ownModel,
@@ -145,7 +154,7 @@ func TestDocumentRefuses(t *testing.T) {
 			if defKS == "" {
 				defKS = config.KeyOwn
 			}
-			_, err := Document(row("agt_1", c.settings), c.courses, core, defKS)
+			_, err := Document(row("agt_1", c.settings), c.courses, core, defKS, schoolPlan())
 			if err == nil {
 				t.Fatal("made")
 			}
@@ -390,7 +399,7 @@ func TestBuildTakesNoKeyFromTheDefaults(t *testing.T) {
 	if a.Model.KeyRef != "sealed://sec_k_agt_1" || a.Model.Fallback != nil {
 		t.Errorf("the hosted agent's model: key %q, fallback %+v", a.Model.KeyRef, a.Model.Fallback)
 	}
-	if err := checkModels(a, "sealed://sec_other"); err == nil || !strings.Contains(err.Error(), "has a key that is not the owner's") {
+	if err := checkModels(a, "sealed://sec_other", config.School{}); err == nil || !strings.Contains(err.Error(), "has a key that is not the owner's") {
 		t.Errorf("a model with another key: %v", err)
 	}
 }
@@ -433,7 +442,7 @@ func TestBuildTakesNoKeySourceFromTheDefaults(t *testing.T) {
 	fb := *a.Model.Fallback
 	fb.KeySource = config.KeySchool
 	a.Model.Fallback = &fb
-	if err := checkModels(&a, "sealed://sec_k_agt_empty"); err == nil || !strings.Contains(err.Error(), "agent.model.fallback: is on the school's key") {
+	if err := checkModels(&a, "sealed://sec_k_agt_empty", config.School{}); err == nil || !strings.Contains(err.Error(), "agent.model.fallback: is on the school's key") {
 		t.Errorf("a fallback on the school's key: %v", err)
 	}
 }
@@ -539,5 +548,101 @@ func TestOfficialEndpoints(t *testing.T) {
 		if got := checkModel(m) == ""; got != c.ok {
 			t.Errorf("%s at %s: allowed %v, want %v (%s)", c.adapter, c.url, got, c.ok, checkModel(m))
 		}
+	}
+}
+
+// schoolPlan is a school's plan of one offer, on the school's DeepSeek key.
+func schoolPlan() config.School {
+	return config.School{Offers: []config.SchoolOffer{{
+		ID: "standard", Label: "School AI", Adapter: "openai_chat", Model: "deepseek-chat", BaseURL: "https://api.deepseek.com",
+		KeyRef: "secret://school/keys/deepseek", Params: config.ModelParams{MaxOutputTokens: 1500},
+	}}}
+}
+
+// A hosted agent on the school's plan names the offer and nothing else: the
+// document takes the offer's settings, its key's reference among them, and
+// the owner's own model behind it on their key. The row keeps the offer's
+// id alone, never the key's reference.
+func TestDocumentOnTheSchoolPlan(t *testing.T) {
+	a := row("agt_1", `{"model": {"key_source": "school", "offer": "standard",
+		"fallback": {"adapter": "anthropic", "model": "claude-test", "key_source": "own"}}}`)
+	m := doc(t, a, nil, config.KeyOwn)
+	for path, want := range map[string]any{
+		"agent.model.adapter": "openai_chat", "agent.model.model": "deepseek-chat", "agent.model.base_url": "https://api.deepseek.com",
+		"agent.model.key_source": "school", "agent.model.key_ref": "secret://school/keys/deepseek", "agent.model.offer": "standard",
+		"agent.model.params.max_output_tokens": float64(1500),
+		"agent.model.fallback.key_ref":         "sealed://sec_k_agt_1", "agent.model.fallback.key_source": "own",
+		"agent.model.fallback.model": "claude-test",
+	} {
+		if got := at(m, path); got != want {
+			t.Errorf("%s = %v, want %v", path, got, want)
+		}
+	}
+	if strings.Contains(string(a.Settings), "secret://") {
+		t.Error("the row holds a key's reference")
+	}
+	// With no key of the owner's and no fallback: the plan alone.
+	b := row("agt_2", `{"model": {"key_source": "school", "offer": "standard"}}`)
+	b.KeySecretID = ""
+	m = doc(t, b, nil, config.KeyOwn)
+	if at(m, "agent.model.key_ref") != "secret://school/keys/deepseek" || at(m, "agent.model.fallback") != nil {
+		t.Errorf("the plan alone: %v", m["agent"])
+	}
+	// A fallback that names no key source is the owner's.
+	c := row("agt_3", `{"model": {"key_source": "school", "offer": "standard", "fallback": {"adapter": "anthropic", "model": "claude-test"}}}`)
+	if got := at(doc(t, c, nil, config.KeyOwn), "agent.model.fallback.key_source"); got != config.KeyOwn {
+		t.Errorf("the fallback's key source: %v", got)
+	}
+}
+
+// Build runs a hosted agent on an offer of the school's plan, with the
+// offer's key, where the offer says, whatever the runtime's defaults say
+// of a model; and not one on an offer the school has withdrawn; nor one
+// whose merged model is on the school's key otherwise than by its offer.
+func TestBuildOnTheSchoolPlan(t *testing.T) {
+	yaml := yamlConfig(t, "")
+	yaml.Runtime.School = schoolPlan()
+	yaml.Runtime.Defaults["model"] = map[string]any{"provider": "openrouter", "region": "us-east-1", "base_url": "https://openrouter.ai/api/v1"}
+	st := hostedStore(t, []store.HostedAgent{
+		row("agt_plan", `{"model": {"key_source": "school", "offer": "standard", "fallback": {"adapter": "anthropic", "model": "claude-test", "key_source": "own"}}}`),
+		row("agt_gone", `{"model": {"key_source": "school", "offer": "premium"}}`),
+		row("agt_alone", `{"model": {"key_source": "school", "offer": "standard"}}`),
+	})
+	cfg, _, err := Build(t.Context(), yaml, st, Options{CoreBaseURL: core})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := agentIDs(cfg); !slices.Equal(got, []string{"a1", "agt_alone", "agt_plan"}) {
+		t.Fatalf("agents %v, rejected %v", got, rejectedWhy(cfg))
+	}
+	if why := rejectedWhy(cfg)["agt_gone"]; !strings.Contains(why, `the school does not offer "premium"`) {
+		t.Errorf("an offer withdrawn: %q", why)
+	}
+	a := cfg.Agents[2]
+	if a.Model.KeySource != config.KeySchool || a.Model.Offer != "standard" || a.Model.KeyRef != "secret://school/keys/deepseek" ||
+		a.Model.Model != "deepseek-chat" || a.Model.Params.MaxOutputTokens != 1500 || a.TenantID != "ten_owner" ||
+		a.Model.BaseURL != "https://api.deepseek.com" || a.Model.Provider != "" || a.Model.Region != "" {
+		t.Errorf("the model on the plan: %+v", a.Model)
+	}
+	if fb := a.Model.Fallback; fb == nil || fb.KeySource != config.KeyOwn || fb.KeyRef != "sealed://sec_k_agt_plan" || fb.Offer != "" {
+		t.Errorf("the owner's fallback: %+v", fb)
+	}
+	// The same row with no plan in the runtime's settings is not run.
+	if err := Check(t.Context(), yamlConfig(t, ""), row("agt_plan", `{"model": {"key_source": "school", "offer": "standard"}}`), nil,
+		Options{CoreBaseURL: core}); err == nil || !strings.Contains(err.Error(), "the school does not offer") {
+		t.Errorf("with no plan: %v", err)
+	}
+	// A model on the school's key with another key, or no offer.
+	b := *a
+	bm := b.Model
+	bm.KeyRef = "secret://school/keys/other"
+	b.Model = bm
+	if err := checkModels(&b, "sealed://sec_k_agt_plan", yaml.Runtime.School); err == nil || !strings.Contains(err.Error(), "has a key that is not its offer's") {
+		t.Errorf("another key: %v", err)
+	}
+	bm.KeyRef, bm.Offer = "secret://school/keys/deepseek", ""
+	b.Model = bm
+	if err := checkModels(&b, "sealed://sec_k_agt_plan", yaml.Runtime.School); err == nil || !strings.Contains(err.Error(), "not on the agent's offer") {
+		t.Errorf("no offer: %v", err)
 	}
 }

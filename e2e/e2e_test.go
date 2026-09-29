@@ -31,6 +31,7 @@ var scenarios = []scenario{
 	{"hosted-agent-from-the-registry", hostedAgentAnswers},
 	{"api-takes-cores-assertion", apiTakesCoresAssertion},
 	{"hosting-through-the-api", hostingThroughTheAPI},
+	{"school-plan-through-the-api", schoolPlanThroughTheAPI},
 }
 
 // TestRuntimeAgainstCore runs every scenario against the Core under test.

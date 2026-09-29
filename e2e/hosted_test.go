@@ -340,7 +340,7 @@ func (w *world) startHosted(t *testing.T, m *fakellm.Server, st *pgstore.Store, 
 	}
 	rt.sup, err = worker.NewSupervisor(worker.Options{
 		Config: cfg, Store: st, Metrics: metrics.New(rt.reg), Log: logger, WorkerID: "hosted-w1",
-		Secrets:    secrets.Resolver{Sealed: vault.Opener{Vault: v, Store: st}},
+		Secrets:    secrets.Resolver{Dir: w.secretsDir, Sealed: vault.Opener{Vault: v, Store: st}},
 		HTTPClient: &http.Client{Transport: toModel{next: tr, target: target}},
 		// A hosted agent's model calls go through a client that follows no
 		// redirect; the scripted model is on loopback, which the dial guard

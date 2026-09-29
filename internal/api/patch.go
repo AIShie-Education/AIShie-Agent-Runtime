@@ -19,8 +19,9 @@ import (
 )
 
 // PATCH /agents/{id}: the owner's model and own key (the API contract,
-// §5.9), and whether its model may act for them (tools.writes, design §4),
-// by merge-patch: a member left out is kept as it is, and null clears it.
+// §5.9), the offer of the school's plan it is on (D8), and whether its
+// model may act for them (tools.writes, design §4), by merge-patch: a
+// member left out is kept as it is, and null clears it.
 // It is written only over the version If-Match names, and only once the
 // new row passes what the registry holds a row to.
 
@@ -45,6 +46,12 @@ type modelPatch struct {
 
 type ownKeyPatch struct {
 	Value *string `json:"value"`
+}
+
+// schoolPatch is PATCH's model.school: the offer of the school's plan, by
+// the id GET /models lists it with.
+type schoolPatch struct {
+	Offer *string `json:"offer"`
 }
 
 // maxProblems and maxProblem bound settings_rejected's problems.
@@ -96,6 +103,10 @@ type patchOf struct {
 	// the default.
 	setWrites bool
 	writes    *bool
+	// setSchool: the patch gives model.school, the offer of the school's
+	// plan by its id, or "" for null.
+	setSchool bool
+	offer     string
 }
 
 func (s *Server) readPatch(req patchRequest) (patchOf, *Error) {
@@ -153,9 +164,26 @@ func (s *Server) readPatch(req patchRequest) (patchOf, *Error) {
 			}
 		}
 	}
-	if mp.School != nil && !isNull(mp.School) {
-		return p, &Error{Code: CodeFailedPrecondition, Reason: ReasonSchoolKeyNotOffered, Message: "the school's key is not offered yet",
-			Details: map[string]any{"field": "/model/school"}}
+	if mp.School != nil {
+		p.setSchool = true
+		if !isNull(mp.School) {
+			var sp schoolPatch
+			if e := decodeMember(mp.School, &sp, "/model/school"); e != nil {
+				return p, e
+			}
+			if sp.Offer == nil || *sp.Offer == "" {
+				return p, fieldError(CodeInvalidArgument, ReasonMissingField, "/model/school/offer", "the school's plan needs the offer's id")
+			}
+			sc := s.yaml().Runtime.School
+			if !sc.Offered() {
+				return p, &Error{Code: CodeFailedPrecondition, Reason: ReasonSchoolKeyNotOffered, Message: "the school offers no model on its plan",
+					Details: map[string]any{"field": "/model/school"}}
+			}
+			if _, ok := sc.OfferOf(*sp.Offer); !ok {
+				return p, fieldError(CodeInvalidArgument, ReasonUnknownOffer, "/model/school/offer", "not an offer GET /models lists")
+			}
+			p.offer = *sp.Offer
+		}
 	}
 	if choice != nil {
 		sec, e := choice.section("/model/own")
@@ -198,14 +226,23 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, c *Caller, au *a
 	}
 	au.detail["agent_id"] = row.ID
 
-	// The row as it would be: the own model, and the key, merged.
+	// The row as it would be: the own model, the school's offer, and the
+	// key, merged.
 	next := *row
-	own, _ := modelSlots(row.Settings)
+	own, school := modelSlots(row.Settings)
+	wasOwn, offer := own, ""
+	if school != nil {
+		offer = school.Offer
+	}
+	wasOffer := offer
 	if p.setOwn {
 		own = p.own
 	}
+	if p.setSchool {
+		offer = p.offer
+	}
 	var changed []string
-	settings, err := putOwnModel(row.Settings, own)
+	settings, err := putModels(row.Settings, own, offer)
 	if err != nil {
 		s.o.Log.Error("a hosted agent's settings could not be read", "agent", row.ID, "err", err)
 		WriteError(w, Error{Code: CodeInternal, Reason: ReasonInternal, Message: "the agent's settings could not be read"})
@@ -213,7 +250,12 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, c *Caller, au *a
 	}
 	if !sameJSON(settings, row.Settings) {
 		next.Settings = settings
-		changed = append(changed, "model.own")
+		if offer != wasOffer {
+			changed = append(changed, "model.school")
+		}
+		if offer == wasOffer || !sameSection(wasOwn, own) {
+			changed = append(changed, "model.own")
+		}
 	}
 	if p.setWrites {
 		ws, err := putWrites(next.Settings, p.writes)
@@ -250,6 +292,9 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, c *Caller, au *a
 		s.writeAgent(ctx, w, http.StatusOK, row)
 		return
 	}
+	if offer != "" {
+		au.detail["offer"] = offer
+	}
 	if own != nil {
 		au.detail["provider"], au.detail["adapter"], au.detail["model"] = own.Provider, own.Adapter, own.Model
 		switch {
@@ -262,6 +307,8 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, c *Caller, au *a
 				Message: "the stored key is not for this provider: give a key for it", Details: map[string]any{"field": "/own_key"}})
 			return
 		}
+	}
+	if own != nil || offer != "" {
 		courses, err := s.o.Store.HostedCourses(ctx, row.ID)
 		if err != nil {
 			s.storeUnavailable(w, "a hosted agent's courses", err)
@@ -305,6 +352,16 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, c *Caller, au *a
 	}
 	au.detail["version"], au.detail["changed"] = updated.Version, changed
 	s.writeAgent(ctx, w, http.StatusOK, updated)
+}
+
+// sameSection reports whether two model sections say the same.
+func sameSection(x, y *modelSection) bool {
+	if x == nil || y == nil {
+		return x == y
+	}
+	a, errA := json.Marshal(x)
+	b, errB := json.Marshal(y)
+	return errA == nil && errB == nil && bytes.Equal(a, b)
 }
 
 // putWrites is settings with tools.writes set to writes, or taken out for

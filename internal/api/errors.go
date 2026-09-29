@@ -76,10 +76,13 @@ const (
 	ReasonUnknownEndpoint        = "unknown_endpoint"
 	ReasonKeyMalformed           = "key_malformed"
 	ReasonSchoolKeyNotOffered    = "school_key_not_offered"
+	ReasonUnknownOffer           = "unknown_offer"
 	ReasonOwnKeyRequired         = "own_key_required"
 	ReasonOwnKeyProviderMismatch = "own_key_provider_mismatch"
 	ReasonModelDenied            = "model_denied"
 	ReasonSettingsRejected       = "settings_rejected"
+	// An administrators' route asked by someone else.
+	ReasonNotAdmin = "not_admin"
 )
 
 // maxMessage bounds a message, in bytes, as Core's apperr.Clip does.

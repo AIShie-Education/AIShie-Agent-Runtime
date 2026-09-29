@@ -106,6 +106,7 @@ func cmdCheck(ctx context.Context, args []string, getenv func(string) string, st
 	default:
 		p("prices: none; the costs of model calls will be unknown")
 	}
+	describeSchool(p, cfg.Runtime.School)
 	if pg != nil {
 		p("the configuration passes: %d agents, %d of them hosted; %d hosted agents not run", len(cfg.Agents), hosted, len(cfg.Rejected))
 	} else {
@@ -201,6 +202,23 @@ func describe(p func(string, ...any), a *config.Agent) {
 	}
 }
 
+// describeSchool shows the school's plan: its offers, never their keys'
+// references, and its quotas.
+func describeSchool(p func(string, ...any), sc config.School) {
+	if !sc.Offered() {
+		p("school plan: no offers; hosted agents are on their owners' own keys")
+		if sc.PerDay.Answers != nil || sc.PerDay.USD != nil {
+			p("school plan: the school's key is held to %s across the school", quotaLine(sc.PerDay))
+		}
+		return
+	}
+	for _, o := range sc.Offers {
+		m := o.AsModel()
+		p("school plan: offer %s, %q: %s %s (%s)", o.ID, redact.String(o.Label), m.Adapter, m.Model, m.EffectiveProvider())
+	}
+	p("school plan: per owner %s; per asker %s; across the school %s (UTC days)", quotaLine(sc.OwnerQuota()), quotaLine(sc.AskerQuota()), quotaLine(sc.PerDay))
+}
+
 func modelSame(x, y config.Model) bool {
 	return modelLine(x) == modelLine(y)
 }
@@ -265,9 +283,11 @@ func newLiveClients(env config.Env) (liveClients, error) {
 	return liveClients{egress: egress, hosted: hosted}, nil
 }
 
-// model is the client agent a's model is called over.
-func (c liveClients) model(a *config.Agent) *http.Client {
-	if a.Hosted != nil {
+// model is the client model m of agent a is called over: a hosted
+// agent's over the hosted-model client, but for an offer of the school's
+// plan, whose endpoint is the operator's.
+func (c liveClients) model(a *config.Agent, m config.Model) *http.Client {
+	if a.Hosted != nil && m.Offer == "" {
 		return c.hosted
 	}
 	return c.egress
@@ -374,10 +394,10 @@ func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, res
 			p("    writes: none its seat allows")
 		}
 	}
-	if !tryModel(ctx, p, a, a.Model, res, clients.model(a)) {
+	if !tryModel(ctx, p, a, a.Model, res, clients.model(a, a.Model)) {
 		ok = false
 	}
-	if fb := a.Model.Fallback; fb != nil && !tryModel(ctx, p, a, *fb, res, clients.model(a)) {
+	if fb := a.Model.Fallback; fb != nil && !tryModel(ctx, p, a, *fb, res, clients.model(a, *fb)) {
 		ok = false
 	}
 	return ok

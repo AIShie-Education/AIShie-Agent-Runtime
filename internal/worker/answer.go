@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -64,6 +65,9 @@ type claim struct {
 	// asked is when the question was written, for the notice latency;
 	// zero when not known.
 	asked time.Time
+	// ownKey is set for a pass answered with the fallback on the owner's
+	// own key, the school's quota being spent (onOwnKey).
+	ownKey bool
 }
 
 // then is what a pass leaves to the claim.
@@ -195,13 +199,20 @@ func (c *claim) pass(ctx context.Context, msgID string, shorter bool) passResult
 			return c.exhausted(ctx, r)
 		}
 		r.no, r.key = n, core.AnswerKey(c.conv, msgID, n)
-		// 4. Quotas.
+		// 4. Quotas. One of the school's spent, the owner's own key
+		// answers, when the agent has one behind the school's.
 		q, err := c.quota(ctx)
 		if err != nil {
 			return c.failedHere(r, "the quotas could not be checked", err)
 		}
-		if q != "" {
-			return c.outOfQuota(ctx, r, q)
+		c.ownKey = false
+		if q != nil {
+			if !c.onOwnKey(q) {
+				return c.outOfQuota(ctx, r, q)
+			}
+			c.ownKey = true
+			c.a.s.o.Metrics.BudgetExhausted.WithLabelValues(q.name).Inc()
+			c.s.log.Info("the school's quota is spent: the owner's own key answers", "conversation", c.conv, "opener", c.opener, "quota", q.name)
 		}
 		// 5. The conversation.
 		read, err := c.a.client.Messages(ctx, c.s.course, c.conv, core.MessagesQuery{Limit: c.eff.Answer.HistoryMessages})
@@ -238,7 +249,8 @@ func nextAttempt(atts []store.Attempt) (n int, busy bool) {
 // and the post.
 func (c *claim) generate(ctx context.Context, r passResult, read *core.Messages, shorter bool) passResult {
 	access := c.access(read)
-	set, err := c.s.toolsFor(c.s.primary.ad.Dialect(), access)
+	m, _ := c.models()
+	set, err := c.s.toolsFor(m.ad.Dialect(), access)
 	if err != nil {
 		return c.failedHere(r, "the toolset could not be built", err)
 	}
@@ -273,6 +285,16 @@ func (c *claim) generate(ctx context.Context, r passResult, read *core.Messages,
 	}
 	c.s.providerRecovered(r.msg)
 	return c.post(ctx, r, end.body, end.kind)
+}
+
+// models are the model this pass answers with, and the one it falls back
+// to when that one's provider cannot be reached: the seat's, or, on the
+// owner's own key (ownKey), its fallback alone.
+func (c *claim) models() (m, fallback *model) {
+	if c.ownKey {
+		return c.s.fallback, nil
+	}
+	return c.s.primary, c.s.fallback
 }
 
 // openerOf is the conversation's opener: Core's, as the conversation was
@@ -682,7 +704,7 @@ func (c *claim) record(r passResult) {
 		ConversationID: c.conv, MessageID: r.msg, OpenerMemberID: c.opener, Key: r.key, Outcome: r.outcome,
 		Billable: r.kind == kindModel && r.posted, Turns: r.stats.Turns, ToolCalls: r.stats.ToolCalls,
 		Writes:      r.stats.Writes,
-		InputTokens: r.stats.In, OutputTokens: r.stats.Out, CostPUSD: r.stats.Cost, KeySource: c.eff.Model.KeySource,
+		InputTokens: r.stats.In, OutputTokens: r.stats.Out, CostPUSD: r.stats.Cost, KeySource: cmp.Or(r.stats.KeySource, c.eff.Model.KeySource),
 		PromptHash: r.hash, LatencyMS: now.Sub(c.claimedAt).Milliseconds(),
 	}
 	ctx, cancel := bookkeeping()

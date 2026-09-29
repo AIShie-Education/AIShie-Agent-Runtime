@@ -51,6 +51,9 @@ type world struct {
 	// keys are the secrets of the world's runtimes beside its tokens and
 	// key: the keys that seal what a runtime keeps in its database.
 	keys []secret
+	// secretsDir, when set, is the SECRETS_DIR of the hosted runtime the
+	// world starts (startHosted): where the school's keys are.
+	secretsDir string
 }
 
 // capture is one log the world's runtime or binary wrote.

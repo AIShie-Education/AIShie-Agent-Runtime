@@ -262,7 +262,9 @@ func (a *Agent) models(ctx context.Context, m config.Model) (*model, *model, err
 
 // buildModel resolves a model's key and builds its adapter: a hosted
 // agent's over the hosted-model client (Options.HostedHTTPClient), which
-// connects to public addresses alone and follows no redirect.
+// connects to public addresses alone and follows no redirect, but for an
+// offer of the school's plan, whose endpoint is the operator's, as a YAML
+// agent's is.
 func (a *Agent) buildModel(ctx context.Context, m config.Model) (*model, error) {
 	var key string
 	if m.KeyRef != "" {
@@ -272,7 +274,7 @@ func (a *Agent) buildModel(ctx context.Context, m config.Model) (*model, error) 
 		}
 	}
 	client := a.s.o.HTTPClient
-	if a.cfg.Hosted != nil {
+	if a.cfg.Hosted != nil && m.Offer == "" {
 		client = a.s.o.HostedHTTPClient
 	}
 	ad, err := a.s.o.NewAdapter(providers.Config(m, key, client))

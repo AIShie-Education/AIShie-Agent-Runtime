@@ -1008,8 +1008,19 @@ type AskerUsage struct {
 	CostPUSD     int64          `json:"cost_pusd"`
 }
 
+// TenantUsage is what one tenant (a hosted agent's owner, ten_<actor>)
+// had on one key source: counts, never what anyone wrote.
+type TenantUsage struct {
+	TenantID string `json:"tenant_id"`
+	// Answers are the billable answers; ModelCalls and CostPUSD every
+	// model call's.
+	Answers    int   `json:"answers"`
+	ModelCalls int   `json:"model_calls"`
+	CostPUSD   int64 `json:"cost_pusd"`
+}
+
 // Reports sum the ledger for people to read: an agent's use by day and
-// course, and a course's by asker.
+// course, a course's by asker, and a key's by tenant.
 type Reports interface {
 	// Usage is agentID's use in [since, until): a row per UTC day and
 	// course in which anything was recorded, by day, then course.
@@ -1017,6 +1028,22 @@ type Reports interface {
 	// AskerUsage is agentID's use in one course in [since, until): a row
 	// per asker, by member id.
 	AskerUsage(ctx context.Context, agentID, courseID string, since, until time.Time) ([]AskerUsage, error)
+	// TenantUsage is the use on keySource (the school's key, for the
+	// school's plan) in [since, until): a row per tenant that recorded
+	// anything on it, by tenant id.
+	TenantUsage(ctx context.Context, keySource string, since, until time.Time) ([]TenantUsage, error)
+}
+
+// CheckKeySpan refuses a report of a key's use whose span is empty or
+// backwards, or whose key source is not named.
+func CheckKeySpan(keySource string, since, until time.Time) error {
+	if keySource == "" {
+		return errors.New("store: a report of a key's use needs its key source")
+	}
+	if !until.After(since) {
+		return errors.New("store: a report's span must end after it begins")
+	}
+	return nil
 }
 
 // CheckSpan refuses a report's span that is empty or backwards, or an

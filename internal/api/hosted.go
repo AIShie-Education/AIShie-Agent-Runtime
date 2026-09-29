@@ -9,7 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/probe"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/registry"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
@@ -51,11 +53,12 @@ type TokenInfo struct {
 // tokenInfo is a token's, from its hint.
 func tokenInfo(hint string) TokenInfo { return TokenInfo{Hint: hint, Prefix: probe.HintPrefix(hint)} }
 
-// ModelSlots are the agent's models: its own key's, and the school's key's
-// (D8), which v1 never offers and always answers null.
+// ModelSlots are the agent's models: its own key's, and the offer of the
+// school's plan it is on (D8), each null for none. On the plan, the own
+// model is the fallback.
 type ModelSlots struct {
-	Own    *OwnModel `json:"own"`
-	School *struct{} `json:"school"`
+	Own    *OwnModel    `json:"own"`
+	School *SchoolModel `json:"school"`
 }
 
 // ToolsView is what the agent's model may do beside reading (design §4):
@@ -95,11 +98,29 @@ type Seat struct {
 
 // Today is what the agent used since the start of the UTC day: its
 // billable answers and the cost of its model calls, in dollars with six
-// places.
+// places; and, on the school's plan, its owner's use of the plan.
 type Today struct {
-	Since   time.Time `json:"since"`
-	Answers int       `json:"answers"`
-	CostUSD string    `json:"cost_usd"`
+	Since   time.Time  `json:"since"`
+	Answers int        `json:"answers"`
+	CostUSD string     `json:"cost_usd"`
+	School  *SchoolUse `json:"school"`
+}
+
+// SchoolUse is what an owner used of the school's plan since the start of
+// the UTC day, across all of their agents (scope "owner"): the answers on
+// the school's key, against per_owner_day, and the cost of its model
+// calls, against its dollars when it has any; and the most answers one
+// asker has of one agent in a course, per_asker_day. The worker checks
+// them before each answer: once one is spent, the owner's own key answers
+// when it stands behind the plan, and the plan's notice is posted when
+// not.
+type SchoolUse struct {
+	Scope         string  `json:"scope"`
+	Used          int     `json:"used"`
+	Limit         int     `json:"limit"`
+	UsedUSD       string  `json:"used_usd"`
+	LimitUSD      *string `json:"limit_usd"`
+	PerAskerLimit int     `json:"per_asker_limit"`
 }
 
 // seatOf is a seat as the store keeps it, worded as facts.
@@ -163,12 +184,13 @@ func (s *Server) view(ctx context.Context, row *store.HostedAgent) (*HostedAgent
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errStore, err)
 	}
-	own, _ := modelSlots(row.Settings)
-	status, problem := statusOf(row, own != nil, st)
+	own, school := modelSlots(row.Settings)
+	status, problem := statusOf(row, own != nil || school != nil, st)
 	v := &HostedAgent{
 		ID: row.ID, Version: row.Version, CoreActorID: row.CoreActorID, OwnerActorID: row.OwnerActorID,
 		DisplayName: row.DisplayName, Status: status, Problem: problem, Paused: row.Paused, Token: tokenInfo(row.TokenHint),
-		Model: ModelSlots{Own: s.ownModelView(own, now)}, Tools: ToolsView{Writes: registry.WritesOf(row.Settings)},
+		Model: ModelSlots{Own: s.ownModelView(own, now), School: s.schoolModelView(school, own != nil && row.KeySecretID != "")},
+		Tools: ToolsView{Writes: registry.WritesOf(row.Settings)},
 		Seats: []Seat{}, CreatedAt: row.CreatedAt.UTC(), UpdatedAt: row.UpdatedAt.UTC(),
 	}
 	if row.KeySecretID != "" {
@@ -202,5 +224,30 @@ func (s *Server) view(ctx context.Context, row *store.HostedAgent) (*HostedAgent
 		return nil, fmt.Errorf("%w: %w", errStore, err)
 	}
 	v.Today = Today{Since: since, Answers: spend.Answers, CostUSD: costUSD(spend.CostPUSD)}
+	if school != nil {
+		use, err := s.schoolUse(ctx, row.TenantID, since)
+		if err != nil {
+			return nil, err
+		}
+		v.Today.School = use
+	}
 	return v, nil
+}
+
+// schoolUse is the owner's use of the school's plan today, the owner being
+// the agent's tenant: every answer on the school's key of any of their
+// agents.
+func (s *Server) schoolUse(ctx context.Context, tenant string, since time.Time) (*SchoolUse, error) {
+	sc := s.yaml().Runtime.School
+	spend, err := s.o.Store.Spend(ctx, store.SpendScope{TenantID: tenant, KeySource: config.KeySchool}, since)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errStore, err)
+	}
+	owner, asker := sc.OwnerQuota(), sc.AskerQuota()
+	use := &SchoolUse{Scope: "owner", Used: spend.Answers, Limit: *owner.Answers, UsedUSD: costUSD(spend.CostPUSD), PerAskerLimit: *asker.Answers}
+	if owner.USD != nil {
+		limit := costUSD(pricing.PUSD(*owner.USD))
+		use.LimitUSD = &limit
+	}
+	return use, nil
 }

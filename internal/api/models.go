@@ -21,7 +21,7 @@ import (
 // never gives a URL: a model's endpoint is made from the provider's offer.
 
 // Models is GET /models' answer: the providers an owner may put their own
-// key to, and the school's offers (D8), which v1 does not make.
+// key to, and the offers of the school's plan (D8).
 type Models struct {
 	OwnKey    OwnKeyOffers    `json:"own_key"`
 	SchoolKey SchoolKeyOffers `json:"school_key"`
@@ -33,10 +33,46 @@ type OwnKeyOffers struct {
 	Providers []ProviderOffer `json:"providers"`
 }
 
-// SchoolKeyOffers are the school's key's offers: none in v1.
+// SchoolKeyOffers are the offers of the school's plan, in the order the
+// runtime's settings list them, and its daily quotas in answers; offered
+// is false when there are none.
 type SchoolKeyOffers struct {
-	Offered bool       `json:"offered"`
-	Offers  []struct{} `json:"offers"`
+	Offered bool          `json:"offered"`
+	Offers  []SchoolOffer `json:"offers"`
+	Limits  SchoolLimits  `json:"limits"`
+}
+
+// SchoolOffer is one offer of the school's plan: its id, which a PATCH
+// names, the label people are shown, the provider and the model, and
+// whether the price table prices it today. Of its key, nothing.
+type SchoolOffer struct {
+	ID       string `json:"id"`
+	Label    string `json:"label"`
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	Priced   bool   `json:"priced"`
+}
+
+// SchoolLimits are the plan's quotas in answers a UTC day: per owner,
+// across all of their agents, and per asker of one agent in a course.
+type SchoolLimits struct {
+	PerOwnerDay int `json:"per_owner_day"`
+	PerAskerDay int `json:"per_asker_day"`
+}
+
+// schoolOffers are the offers of the school's plan, as GET /models lists
+// them.
+func (s *Server) schoolOffers(now time.Time) SchoolKeyOffers {
+	sc := s.yaml().Runtime.School
+	owner, asker := sc.OwnerQuota(), sc.AskerQuota()
+	out := SchoolKeyOffers{Offered: sc.Offered(), Offers: []SchoolOffer{},
+		Limits: SchoolLimits{PerOwnerDay: *owner.Answers, PerAskerDay: *asker.Answers}}
+	for _, o := range sc.Offers {
+		m := o.AsModel()
+		_, priced := s.prices().Lookup(m.EffectiveProvider(), m.Model, now)
+		out.Offers = append(out.Offers, SchoolOffer{ID: o.ID, Label: o.Label, Provider: m.EffectiveProvider(), Model: o.Model, Priced: priced})
+	}
+	return out
 }
 
 // ProviderOffer is one provider: its APIs, the first the default; how its
@@ -80,7 +116,7 @@ type SuggestedModel struct {
 func (s *Server) models(w http.ResponseWriter, _ *http.Request, _ *Caller) {
 	now := s.o.Now()
 	prices, rt := s.prices(), s.yaml().Runtime
-	out := Models{OwnKey: OwnKeyOffers{Offered: true, Providers: []ProviderOffer{}}, SchoolKey: SchoolKeyOffers{Offers: []struct{}{}}}
+	out := Models{OwnKey: OwnKeyOffers{Offered: true, Providers: []ProviderOffer{}}, SchoolKey: s.schoolOffers(now)}
 	for _, o := range registry.Offers() {
 		p := ProviderOffer{Provider: o.Provider, Label: o.Label, Adapters: o.Adapters, SuggestedModels: []SuggestedModel{},
 			Endpoint: EndpointOffer{Kind: o.Endpoint.Kind, BaseURL: o.Endpoint.BaseURL, Pattern: o.Endpoint.Pattern,

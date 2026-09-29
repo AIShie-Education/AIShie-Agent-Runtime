@@ -28,19 +28,19 @@ type Info struct {
 // Features say what the API offers, as it is served: connecting an agent
 // by its token, and choosing its model on the owner's own key, each only
 // when the API was given a Core to ask and a vault to seal with, as run
-// always gives it.
+// always gives it; and the school's plan beside them.
 type Features struct {
 	ConnectByToken bool `json:"connect_by_token"`
 	OwnKey         bool `json:"own_key"`
-	// SchoolKey is the school's key for hosted agents (D8), not offered in
-	// v1.
+	// SchoolKey is the school's plan for hosted agents (D8): true when
+	// the runtime's settings offer at least one model on it.
 	SchoolKey bool `json:"school_key"`
 }
 
 // features are what this API can do.
 func (s *Server) features() Features {
 	hosts := s.o.Vault != nil && s.o.CoreBaseURL != ""
-	return Features{ConnectByToken: hosts, OwnKey: hosts}
+	return Features{ConnectByToken: hosts, OwnKey: hosts, SchoolKey: hosts && s.yaml().Runtime.School.Offered()}
 }
 
 func (s *Server) info(w http.ResponseWriter, _ *http.Request) {
