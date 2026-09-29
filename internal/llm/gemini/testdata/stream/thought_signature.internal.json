@@ -1,0 +1,36 @@
+{
+  "deltas": [
+    "You got 6.5 of 10:",
+    " the tests for edge cases",
+    " failed."
+  ],
+  "response": {
+    "model": "gemini-2.5-flash",
+    "parts": [
+      {
+        "maker": "gemini|https://generativelanguage.googleapis.com|gemini-2.5-flash",
+        "opaque": {
+          "thoughtSignature": "c2lnLWFuc3dlcg=="
+        },
+        "text": "You got 6.5 of 10: the tests for edge cases failed.",
+        "type": "text"
+      }
+    ],
+    "raw_stop": "STOP",
+    "request_id": "resp-sig",
+    "stop": "end",
+    "usage": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 120,
+      "output": 18,
+      "raw": {
+        "candidatesTokenCount": 18,
+        "promptTokenCount": 120,
+        "totalTokenCount": 138
+      },
+      "reasoning": 0
+    }
+  }
+}

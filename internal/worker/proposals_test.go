@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -320,6 +321,58 @@ func TestEventReadAgainAfterAStoreFailure(t *testing.T) {
 		t.Error("the store never failed: the test tested nothing")
 	}
 	w.waitAnswers(conv, 1)
+}
+
+// slowSettle is a store that is slow to record an attempt as proposed:
+// settling says the write has begun, and it ends when release is closed.
+type slowSettle struct {
+	store.Store
+	once              sync.Once
+	settling, release chan struct{}
+}
+
+func (s *slowSettle) FinishAttempt(ctx context.Context, agentID, key string, o store.Outcome) error {
+	if o.State == store.AttemptProposed {
+		s.once.Do(func() { close(s.settling) })
+		select {
+		case <-s.release:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return s.Store.FinishAttempt(ctx, agentID, key, o)
+}
+
+// TestDecisionBeforeTheSendIsSettled: a person rejects a proposal before
+// the store has recorded it, and events are read in between. The
+// rejection, read while the send is under way, is read again after it, and
+// settles the attempt; the next attempt follows.
+func TestDecisionBeforeTheSendIsSettled(t *testing.T) {
+	w := newWorld(t)
+	tu := w.tutor("cs101-tutor")
+	w.ok(w.fc.SetLevel(tu.seat.ID, "conversation_answer", "confirm_required"))
+	st := &slowSettle{Store: memstore.New(), settling: make(chan struct{}), release: make(chan struct{})}
+	model := scripted.New(scripted.Reply("Decided before it was stored."), scripted.Reply("The second try."))
+	wk := w.start(w.config(nil, w.agentDoc("cs101-tutor", "m1", nil, nil)), models{"m1": model}, workerOpts{store: st})
+	conv, msg := w.ask(0, tu, "Can a decision come first?")
+	key := core.AnswerKey(conv, msg, 1)
+	p := w.waitProposal(key)
+	select {
+	case <-st.settling:
+	case <-time.After(15 * time.Second):
+		t.Fatal("the proposal was never recorded")
+	}
+	w.ok(w.fc.Reject(p.ActionID, "Too soon."))
+	// Reads of events are one after another: the second to begin after
+	// the rejection read it, and the third began once it was acted on.
+	n := len(w.calls(tu.actor.ID, "event_list"))
+	eventually(t, "events read after the rejection", func() bool { return len(w.calls(tu.actor.ID, "event_list")) >= n+3 })
+	close(st.release)
+	at := wk.waitAttempt("cs101-tutor", key, store.AttemptRejected)
+	if at.Reason != "Too soon." {
+		t.Errorf("reason = %q", at.Reason)
+	}
+	w.waitProposal(core.AnswerKey(conv, msg, 2))
 }
 
 // TestAttemptsExhaustedSkip: with on_attempts_exhausted skip, a question

@@ -69,6 +69,14 @@ func (a *Adapter) response(resp *httpx.Response, req *llm.Request) (*llm.Respons
 		e.Status = resp.Status
 		return nil, e
 	}
+	return a.translate(w, resp, req)
+}
+
+// translate is a completed call's answer, w, in the internal format: w as
+// a 200's body held it, or as a stream's chunks built it up (stream.go).
+// resp is the answer it came in, whose body is read again only for an
+// error in a 200.
+func (a *Adapter) translate(w chatResponse, resp *httpx.Response, req *llm.Request) (*llm.Response, error) {
 	if len(w.Choices) == 0 {
 		if present(w.Error) {
 			return nil, errorIn200(resp)

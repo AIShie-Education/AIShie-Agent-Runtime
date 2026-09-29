@@ -1,0 +1,34 @@
+{
+  "deltas": [
+    "HW3",
+    " is due Friday."
+  ],
+  "response": {
+    "model": "glm-4.6",
+    "parts": [
+      {
+        "text": "HW3 is due Friday.",
+        "type": "text"
+      }
+    ],
+    "raw_stop": "stop",
+    "request_id": "20250929000000abcdef",
+    "stop": "end",
+    "usage": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 60,
+      "output": 7,
+      "raw": {
+        "completion_tokens": 7,
+        "prompt_tokens": 60,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "total_tokens": 67
+      },
+      "reasoning": 0
+    }
+  }
+}

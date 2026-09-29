@@ -1,8 +1,9 @@
 // Package metrics is what the runtime counts (Core's docs/agent-runtime.md
 // §8.1): polls, answers and their latency, model calls, tokens and cost,
-// Core calls, the models' writes, budgets spent, lease takeovers, each
-// agent's presence gap, and the OCR of documents. Labels hold ids, names and codes, never text: a
-// write's arguments are never a label.
+// Core calls, the models' writes, the drafts of answers being written,
+// budgets spent, lease takeovers, each agent's presence gap, and the OCR of
+// documents. Labels hold ids, names and codes, never text: a write's
+// arguments are never a label, nor a draft's text.
 package metrics
 
 import (
@@ -38,6 +39,12 @@ type Metrics struct {
 	// a request less than its wait), refused (Core refused wait_s).
 	LongPolls         *prometheus.GaugeVec
 	LongPollFallbacks *prometheus.CounterVec
+	// DraftWrites are the drafts of answers being written sent to Core
+	// (conversation_draft), by agent and what came of each: sent (Core
+	// took it), dropped (Core said too soon, or that the conversation no
+	// longer waits for the answer: no longer worth sending), failed (not
+	// made, after its one retry, or refused).
+	DraftWrites *prometheus.CounterVec
 	// OCR: what the runtime recognized of documents that have no text of
 	// their own (docs/design.md §4, Files).
 	OCRRequests    *prometheus.CounterVec
@@ -100,6 +107,11 @@ func New(reg prometheus.Registerer) *Metrics {
 			Help: "Seats sent back to their polling schedule for a while, by agent and why: early (Core did not wait), " +
 				"cut (the call did not come back), refused (Core refused wait_s).",
 		}, []string{"agent", "why"}),
+		DraftWrites: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "draft_writes_total",
+			Help: "Drafts of answers being written sent to Core, by agent and outcome: sent, dropped (too soon, or the " +
+				"conversation no longer waits for the answer), failed (not made after one retry, or refused).",
+		}, []string{"agent", "outcome"}),
 		OCRRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "ocr_requests_total",
 			Help: "Asks for the OCR of a file, by what they found: done (kept text), failed (a kept failure), started, " +
@@ -130,7 +142,7 @@ func New(reg prometheus.Registerer) *Metrics {
 	}
 	reg.MustRegister(m.InboxPolls, m.AnswerLatency, m.Answers, m.LLMCalls, m.LLMTokens, m.LLMCost,
 		m.CoreCalls, m.ToolWrites, m.BudgetExhausted, m.LeaseTakeovers, m.AgentStates, m.presence, m.LongPolls, m.LongPollFallbacks,
-		m.OCRRequests, m.OCRJobs, m.OCRPages, m.OCRJobSeconds, m.OCRPageSeconds, m.OCRRunning, m.OCRWaiting)
+		m.DraftWrites, m.OCRRequests, m.OCRJobs, m.OCRPages, m.OCRJobSeconds, m.OCRPageSeconds, m.OCRRunning, m.OCRWaiting)
 	return m
 }
 

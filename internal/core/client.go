@@ -93,6 +93,24 @@ func PriorityOf(ctx context.Context) Priority {
 	return PriorityBackground
 }
 
+type bestEffortKey struct{}
+
+// WithBestEffort marks ctx's calls as best effort, as the drafts of
+// answers in progress are (conversation_draft): Limited lets them through
+// without a token of the agent's bucket, since Core does not count them
+// against the actor's limit, and Retrying never sends one again, whatever
+// came back, so that its caller alone decides whether one is worth
+// another try.
+func WithBestEffort(ctx context.Context) context.Context {
+	return context.WithValue(ctx, bestEffortKey{}, true)
+}
+
+// BestEffort reports whether ctx's calls are best effort (WithBestEffort).
+func BestEffort(ctx context.Context) bool {
+	b, _ := ctx.Value(bestEffortKey{}).(bool)
+	return b
+}
+
 // MaxWait is the longest a call may wait for news (Core's wait_s, 0 to 25
 // seconds): a Core whose catalogue offers wait_s bounds it so.
 const MaxWait = 25 * time.Second

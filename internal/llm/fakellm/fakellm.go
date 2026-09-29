@@ -17,6 +17,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -31,11 +32,18 @@ type ChatRequest struct {
 	MaxCompletionTokens int             `json:"max_completion_tokens,omitempty"`
 	Temperature         *float64        `json:"temperature,omitempty"`
 	Stream              bool            `json:"stream,omitempty"`
+	StreamOptions       *StreamOptions  `json:"stream_options,omitempty"`
 
 	// Header is the HTTP request's headers, and Raw its body as it came,
 	// for what the fields above do not hold.
 	Header http.Header     `json:"-"`
 	Raw    json.RawMessage `json:"-"`
+}
+
+// StreamOptions are a streamed request's: include_usage asks for the usage
+// in a last chunk of its own.
+type StreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 // ChatMessage is one message, in a request or a response. Content is a
@@ -120,6 +128,9 @@ type ChatResponse struct {
 	Header http.Header `json:"-"`
 	// Delay holds the answer back, or until the caller gives up.
 	Delay time.Duration `json:"-"`
+	// Every is the pause between the pieces of a streamed answer; the
+	// server's StreamEvery when zero.
+	Every time.Duration `json:"-"`
 }
 
 // Choice is one completion.
@@ -149,6 +160,9 @@ type Responder func(req ChatRequest) ChatResponse
 // Server is the fake. It is safe for concurrent use.
 type Server struct {
 	responder Responder
+	// every is the pause between a streamed answer's pieces
+	// (StreamEvery).
+	every atomic.Int64
 
 	mu       sync.Mutex
 	script   []ChatResponse
@@ -201,6 +215,13 @@ func (s *Server) Requests() []ChatRequest {
 		out[i] = r
 	}
 	return out
+}
+
+// StreamEvery sets the pause between the pieces of a streamed answer
+// (stream: true), unless its response sets Every: none by default.
+func (s *Server) StreamEvery(d time.Duration) *Server {
+	s.every.Store(int64(d))
+	return s
 }
 
 // Start serves s on a loopback port until Close.
@@ -307,6 +328,10 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, resp.Status, e)
 		return
 	}
+	if req.Stream {
+		s.stream(w, r, req, resp)
+		return
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -353,18 +378,18 @@ func (s *Server) next(req ChatRequest) (ChatResponse, bool) {
 }
 
 // Validate is what the fake refuses, as OpenAI refuses it: a request with
-// no model or no messages, a stream, tool_choice or parallel_tool_calls
-// without tools, and a conversation whose tool messages do not answer, one
-// each, the calls of the assistant message just before them. It returns ""
-// for a request it takes.
+// no model or no messages, stream_options without a stream, tool_choice or
+// parallel_tool_calls without tools, and a conversation whose tool messages
+// do not answer, one each, the calls of the assistant message just before
+// them. It returns "" for a request it takes.
 func Validate(req ChatRequest) string {
 	switch {
 	case req.Model == "":
 		return "model is required"
 	case len(req.Messages) == 0:
 		return "messages must not be empty"
-	case req.Stream:
-		return "the fake does not stream"
+	case req.StreamOptions != nil && !req.Stream:
+		return "stream_options is only allowed when stream is true"
 	case len(req.ToolChoice) > 0 && string(req.ToolChoice) != "null" && len(req.Tools) == 0:
 		return "tool_choice is only allowed when tools are given"
 	case req.ParallelToolCalls != nil && len(req.Tools) == 0:

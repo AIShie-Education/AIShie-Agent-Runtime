@@ -1,0 +1,2 @@
+data: {"candidates": [{"content": {"parts": [{"functionCall": {"name": "assignment_list","args": {}},"thoughtSignature": "c2lnLXBhcmFsbGVsLTI="},{"functionCall": {"name": "course_get","args": {}}}],"role": "model"},"finishReason": "STOP","index": 0}],"usageMetadata": {"promptTokenCount": 120,"candidatesTokenCount": 18,"totalTokenCount": 138},"modelVersion": "gemini-2.5-flash","responseId": "resp-parallel"}
+

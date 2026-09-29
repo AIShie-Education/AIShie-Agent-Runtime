@@ -1,0 +1,10 @@
+data: {"candidates": [{"content": {"parts": [{"text": "**Reading the feedback**\n","thought": true}],"role": "model"},"index": 0}],"usageMetadata": {"promptTokenCount": 300,"totalTokenCount": 300,"thoughtsTokenCount": 40},"modelVersion": "gemini-2.5-flash","responseId": "resp-thought"}
+
+data: {"candidates": [{"content": {"parts": [{"text": "The grader noted failing edge-case tests.","thought": true,"thoughtSignature": "dGhvdWdodC0y"}],"role": "model"},"index": 0}],"usageMetadata": {"promptTokenCount": 300,"totalTokenCount": 396,"thoughtsTokenCount": 96},"modelVersion": "gemini-2.5-flash","responseId": "resp-thought"}
+
+data: {"candidates": [{"content": {"parts": [{"codeExecutionResult": {"outcome": "OUTCOME_OK","output": "0.65\n"},"thoughtSignature": "Y29kZS0x"}],"role": "model"},"index": 0}],"usageMetadata": {"promptTokenCount": 300,"totalTokenCount": 396,"thoughtsTokenCount": 96},"modelVersion": "gemini-2.5-flash","responseId": "resp-thought"}
+
+data: {"candidates": [{"content": {"parts": [{"text": "You lost 3.5 marks because"}],"role": "model"},"index": 0}],"usageMetadata": {"promptTokenCount": 300,"candidatesTokenCount": 6,"totalTokenCount": 402,"thoughtsTokenCount": 96},"modelVersion": "gemini-2.5-flash","responseId": "resp-thought"}
+
+data: {"candidates": [{"content": {"parts": [{"text": " the edge-case tests failed."}],"role": "model"},"finishReason": "STOP","index": 0}],"usageMetadata": {"promptTokenCount": 300,"candidatesTokenCount": 14,"totalTokenCount": 410,"thoughtsTokenCount": 96},"modelVersion": "gemini-2.5-flash","responseId": "resp-thought"}
+

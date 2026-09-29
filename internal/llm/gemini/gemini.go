@@ -1,6 +1,7 @@
 // Package gemini is the adapter for Gemini's generateContent API (Core's
 // docs/agent-runtime.md §3, the "Gemini gC" column): one POST to
-// {base}/v1beta/models/{model}:generateContent, the key in x-goog-api-key,
+// {base}/v1beta/models/{model}:generateContent, or, streamed,
+// :streamGenerateContent?alt=sse (stream.go), the key in x-goog-api-key,
 // and the translation of the internal format both ways.
 //
 // Three things set it apart from the other adapters. A thoughtSignature
@@ -23,6 +24,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync/atomic"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/httpx"
@@ -41,8 +43,9 @@ const apiVersion = "v1beta"
 // up in proxies' logs and in the text of network errors.
 const keyHeader = "x-goog-api-key"
 
-// Adapter is one model behind generateContent. It holds no state between
-// calls and is safe for concurrent use.
+// Adapter is one model behind generateContent (and streamGenerateContent,
+// stream.go). It holds no state between calls but whether its server
+// refused to stream, and is safe for concurrent use.
 type Adapter struct {
 	model    string
 	endpoint string
@@ -58,9 +61,15 @@ type Adapter struct {
 	// checksSignatures: the model refuses a step without a thought
 	// signature on its first call (checksSignatures).
 	checksSignatures bool
+	// noStream is set once the server refused to stream (Stream): its
+	// calls are made whole from then on.
+	noStream atomic.Bool
 }
 
-var _ llm.Adapter = (*Adapter)(nil)
+var (
+	_ llm.Adapter  = (*Adapter)(nil)
+	_ llm.Streamer = (*Adapter)(nil)
+)
 
 // New builds the adapter from one agent's model configuration. It refuses a
 // configuration it could only send broken requests with: no model, a model

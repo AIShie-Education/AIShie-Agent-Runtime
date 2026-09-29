@@ -1,0 +1,12 @@
+{
+  "deltas": [
+    "You lost"
+  ],
+  "error": {
+    "code": "overloaded_error",
+    "kind": "overloaded",
+    "message": "Overloaded",
+    "retryable": true,
+    "status": 200
+  }
+}

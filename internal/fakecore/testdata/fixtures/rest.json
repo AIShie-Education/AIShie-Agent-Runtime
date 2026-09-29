@@ -107,6 +107,7 @@
       "state": "awaiting_answer",
       "status": "open"
      },
+     "draft": null,
      "messages": [
       {
        "author_member_id": "<id:2>",

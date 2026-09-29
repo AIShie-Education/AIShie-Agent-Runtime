@@ -1,0 +1,47 @@
+{
+  "deltas": [
+    "You lost",
+    " 3 marks on question 2."
+  ],
+  "response": {
+    "model": "deepseek-reasoner",
+    "parts": [
+      {
+        "maker": "openai_chat|https://api.deepseek.com|deepseek-reasoner",
+        "opaque": {
+          "reasoning_content": "The student asks about HW3. The grade was 7/10."
+        },
+        "text": "The student asks about HW3. The grade was 7/10.",
+        "type": "reasoning"
+      },
+      {
+        "text": "You lost 3 marks on question 2.",
+        "type": "text"
+      }
+    ],
+    "raw_stop": "stop",
+    "request_id": "b2d7a0e4-5c1f-4a8e-9d3b-7e6f1a2c4d58",
+    "stop": "end",
+    "usage": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 120,
+      "output": 35,
+      "raw": {
+        "completion_tokens": 35,
+        "completion_tokens_details": {
+          "reasoning_tokens": 14
+        },
+        "prompt_cache_hit_tokens": 0,
+        "prompt_cache_miss_tokens": 120,
+        "prompt_tokens": 120,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "total_tokens": 155
+      },
+      "reasoning": 14
+    }
+  }
+}

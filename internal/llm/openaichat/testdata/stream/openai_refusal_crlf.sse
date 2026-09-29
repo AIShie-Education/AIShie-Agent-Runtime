@@ -1,0 +1,11 @@
+data: {"id":"chatcmpl-R3f","object":"chat.completion.chunk","created":1759132808,"model":"gpt-4.1-mini-2025-04-14","choices":[{"index":0,"delta":{"role":"assistant","content":null,"refusal":""},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-R3f","object":"chat.completion.chunk","created":1759132808,"model":"gpt-4.1-mini-2025-04-14","choices":[{"index":0,"delta":{"refusal":"I can't help"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-R3f","object":"chat.completion.chunk","created":1759132808,"model":"gpt-4.1-mini-2025-04-14","choices":[{"index":0,"delta":{"refusal":" with that."},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"chatcmpl-R3f","object":"chat.completion.chunk","created":1759132808,"model":"gpt-4.1-mini-2025-04-14","choices":[{"index":0,"delta":{},"logprobs":null,"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl-R3f","object":"chat.completion.chunk","created":1759132808,"model":"gpt-4.1-mini-2025-04-14","choices":[],"usage":{"prompt_tokens":90,"completion_tokens":8,"total_tokens":98}}
+
+data: [DONE]

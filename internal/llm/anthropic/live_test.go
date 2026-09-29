@@ -14,7 +14,7 @@ import (
 )
 
 // TestLive calls Anthropic's API when LIVE=1 and ANTHROPIC_API_KEY are
-// set (make live): a plain answer, then one request declaring every tool
+// set (make live): a plain answer, one streamed, then one request declaring every tool
 // of Core's catalogue at 16 output tokens, so that the API itself checks
 // their schemas (§8.2). ANTHROPIC_LIVE_MODEL picks the model.
 func TestLive(t *testing.T) {
@@ -46,6 +46,18 @@ func TestLive(t *testing.T) {
 	}
 	if resp.Usage.Input == 0 || resp.Usage.Output == 0 || len(resp.Usage.Raw) == 0 || resp.RequestID == "" {
 		t.Errorf("usage %+v, request id %q", resp.Usage, resp.RequestID)
+	}
+
+	var told strings.Builder
+	resp, err = a.Stream(ctx, &llm.Request{
+		Messages: []llm.Message{llm.UserText("Count from 1 to 30, with commas.")},
+		Limits:   llm.Limits{MaxOutputTokens: 200},
+	}, func(d string) { told.WriteString(d) })
+	if err != nil {
+		t.Fatalf("a streamed call: %v", err)
+	}
+	if told.String() != resp.Text() || resp.Usage.Input == 0 || resp.Usage.Output == 0 {
+		t.Errorf("streamed: told %q, text %q, usage %+v", told.String(), resp.Text(), resp.Usage)
 	}
 
 	resp, err = a.Call(ctx, &llm.Request{
@@ -102,8 +114,8 @@ func catalogueTools(t *testing.T) []llm.Tool {
 // a schema that is an object.
 func TestCatalogueCanBeDeclared(t *testing.T) {
 	tools := catalogueTools(t)
-	if len(tools) != 134 {
-		t.Fatalf("%d tools in the catalogue, want 134", len(tools))
+	if len(tools) != 135 {
+		t.Fatalf("%d tools in the catalogue, want 135", len(tools))
 	}
 	a := newAdapter(t, llm.Config{})
 	w, err := a.buildRequest(&llm.Request{Messages: []llm.Message{question}, Tools: tools, ToolMode: llm.ToolAuto})

@@ -422,6 +422,10 @@ func TestGoldenFilesAreUsed(t *testing.T) {
 		want[c.name+".request.json"] = true
 		want[c.name+".response.json"] = true
 	}
+	for _, c := range streamCases() {
+		want["stream_"+c.name+".request.json"] = true
+		want["stream_"+c.name+".response.json"] = true
+	}
 	files, err := filepath.Glob(filepath.Join("testdata", "golden", "*.json"))
 	if err != nil {
 		t.Fatal(err)

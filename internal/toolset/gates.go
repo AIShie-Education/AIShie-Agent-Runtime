@@ -198,7 +198,9 @@ var BuiltinDeny = []string{
 	// conversation it is answering (§6.1): a conversation tool would let
 	// the model read other people's conversations (a tutor's token reads
 	// every one addressed to it), or open, ask in, answer, close or
-	// retract one in someone else's name.
+	// retract one in someone else's name. conversation_draft among them:
+	// the runtime writes an answer's draft itself, and a model writing one
+	// would show the asker whatever it liked as the answer to come.
 	"conversation_*",
 	// The runtime follows the course's events itself (design §5.4), and
 	// action_list_mine returns the agent's own actions, among them the

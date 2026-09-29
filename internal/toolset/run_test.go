@@ -8,6 +8,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -883,5 +884,39 @@ func TestRunDecisions(t *testing.T) {
 				t.Errorf("sent %d, guarded %v", w.Sent(), w.Guarded)
 			}
 		})
+	}
+}
+
+// Seen is told of each call sent to Core, with Core's envelope as it
+// comes, nil when Core did not answer; not of a call refused before Core.
+func TestRunSeen(t *testing.T) {
+	f := &fakeCore{respond: func(_ context.Context, tool string, _ json.RawMessage) (*core.Envelope, error) {
+		if tool == "grade_list" {
+			return nil, &core.TransientError{Status: 502, Err: errors.New("bad gateway")}
+		}
+		return executed(`{"title":"Syllabus"}`), nil
+	}}
+	var mu sync.Mutex
+	seen := map[string]string{}
+	r := runner(f)
+	r.Seen = func(call llm.Part, env *core.Envelope) {
+		mu.Lock()
+		defer mu.Unlock()
+		if env == nil {
+			seen[call.ID] = "unanswered"
+			return
+		}
+		seen[call.ID] = string(env.Status) + " " + string(env.Result)
+	}
+	_, err := delegateSet(t).Run(context.Background(), r, courseID, []llm.Part{
+		call("c1", "document_get", `{"document_id":"`+docID+`"}`),
+		call("c2", "grade_list", `{}`),
+		call("c3", "no_such_tool", `{}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 2 || seen["c1"] != `executed {"title":"Syllabus"}` || seen["c2"] != "unanswered" {
+		t.Errorf("seen %v", seen)
 	}
 }

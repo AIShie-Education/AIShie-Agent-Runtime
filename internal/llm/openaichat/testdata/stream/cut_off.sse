@@ -1,0 +1,5 @@
+data: {"id":"4f8e1c2a-0000-4e7a-a1f0-3c5d2e8b7a61","object":"chat.completion.chunk","created":1759132804,"model":"deepseek-chat","choices":[{"index":0,"delta":{"role":"assistant","content":""},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"4f8e1c2a-0000-4e7a-a1f0-3c5d2e8b7a61","object":"chat.completion.chunk","created":1759132804,"model":"deepseek-chat","choices":[{"index":0,"delta":{"content":"The deadline is"},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"4f8e1c2a-0000-4e7a-a1f0-3c5d2e8b7a61","object":"chat.completion.chunk","created":1759132804,"model":"deepseek-chat","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_00_x","type":"function","function":{"name":"assignment_get","arguments":"{\"assignm"}}]},"logprobs":null,"finish_reason":null}]}

@@ -1,0 +1,5 @@
+data: {"id":"20250929000000abcdef","created":1759132809,"model":"glm-4.6","choices":[{"index":0,"delta":{"role":"assistant","content":"HW3"}}]}
+
+data: {"id":"20250929000000abcdef","created":1759132809,"model":"glm-4.6","choices":[{"index":0,"delta":{"role":"assistant","content":" is due Friday."}}]}
+
+data: {"id":"20250929000000abcdef","created":1759132809,"model":"glm-4.6","choices":[{"index":0,"finish_reason":"stop","delta":{"role":"assistant","content":""}}],"usage":{"prompt_tokens":60,"completion_tokens":7,"total_tokens":67,"prompt_tokens_details":{"cached_tokens":0}}}

@@ -587,6 +587,11 @@ machine's loopback, should `HTTP_ADDR` listen wider).
   schedule for a while: `early` when Core did not wait (its bound of calls
   waiting per agent or in all reached), `cut` when a long poll did not come
   back, `refused` when Core is older than its catalogue said.
+  `draft_writes_total{agent, outcome}` counts the drafts of answers being
+  written sent to a Core that takes them: `sent`, `dropped` (too soon, or
+  the answer had just gone in) and `failed` (after one retry, or refused);
+  a steady `failed` is Core refusing them, which `/status` also shows per
+  agent (`drafts`, `draft_writes`). They never hold an answer back.
   A hosted agent's model calls are counted under the model's name as the
   price table gives it, or `other` when the table does not price it: the
   model its owner typed is never a label.
@@ -601,7 +606,9 @@ machine's loopback, should `HTTP_ADDR` listen wider).
   long-polls its agents' inboxes where the catalogue it read at start
   offers `wait_s` (Core 2c1fe1b and later), and polls them on a schedule
   otherwise: restart it after upgrading Core for a question to be noticed
-  within milliseconds rather than seconds.
+  within milliseconds rather than seconds. The same goes for the drafts of
+  answers, which the runtime writes, streaming its models' answers, only
+  where the catalogue it read at start offers `conversation_draft`.
 - **Long polls and proxies:** a long poll holds its request open for up to
   `polling.long_poll_wait_s` (25 s) and is given 15 s more to answer.
   Anything between the runtime and Core, `EGRESS_PROXY` included, must let

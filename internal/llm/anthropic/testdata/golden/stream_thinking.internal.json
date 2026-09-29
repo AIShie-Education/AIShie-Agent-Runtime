@@ -1,0 +1,57 @@
+{
+  "deltas": [
+    "I'll check your grade."
+  ],
+  "response": {
+    "model": "claude-sonnet-4-5-20250929",
+    "parts": [
+      {
+        "maker": "anthropic|https://api.anthropic.com|claude-sonnet-4-5",
+        "opaque": {
+          "signature": "EqQBCkgIARABGAIiQLu8m1Xz/signature+bytes==",
+          "thinking": "The student asks about <HW3> & its marks. I should read the grade first.",
+          "type": "thinking"
+        },
+        "text": "The student asks about <HW3> & its marks. I should read the grade first.",
+        "type": "reasoning"
+      },
+      {
+        "maker": "anthropic|https://api.anthropic.com|claude-sonnet-4-5",
+        "opaque": {
+          "data": "EmwKAhgBEgy3va3pzix/LafPsn4aDFIT2Xlxh0L5L8rLVyIwxtE3rAFBa8cr3qpPkNRj2YfWXGmKDxH4mPnZ5sQ7vB5URj",
+          "type": "redacted_thinking"
+        },
+        "type": "reasoning"
+      },
+      {
+        "text": "I'll check your grade.",
+        "type": "text"
+      },
+      {
+        "args": {
+          "assignment_id": "0192f3c1-0000-7000-8000-000000000003"
+        },
+        "id": "toolu_01C27s72sy72ns735613ns7",
+        "name": "grade_list",
+        "type": "tool_call"
+      }
+    ],
+    "raw_stop": "tool_use",
+    "request_id": "req_011CSHoEeqs5C35K2UUqR7Fy",
+    "stop": "tool_calls",
+    "usage": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 1402,
+      "output": 377,
+      "raw": {
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "input_tokens": 1402,
+        "output_tokens": 377
+      },
+      "reasoning": 0
+    }
+  }
+}

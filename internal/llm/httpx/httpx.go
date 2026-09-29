@@ -1,7 +1,8 @@
 // Package httpx is the transport every adapter shares: one POST of JSON,
-// and a refusal classified into an *llm.Error. It keeps keys out of every
-// error it builds: messages come from response bodies only, never from the
-// request.
+// its answer read whole or, where the adapter streams, as server-sent
+// events (stream.go), and a refusal classified into an *llm.Error. It keeps
+// keys out of every error it builds: messages come from response bodies
+// only, never from the request.
 package httpx
 
 import (
@@ -41,6 +42,17 @@ func PostJSON(ctx context.Context, client *http.Client, url string, headers map[
 // Do is PostJSON for any method, with sign called on the request just
 // before it is sent (Bedrock's SigV4), when not nil.
 func Do(ctx context.Context, client *http.Client, method, url string, headers map[string]string, body []byte, sign func(*http.Request) error) (*Response, error) {
+	resp, err := send(ctx, client, method, url, "application/json", headers, body, sign)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	return readWhole(ctx, resp, headers)
+}
+
+// send sends one request, asking for accept, and returns the provider's
+// answer unread, whatever its status.
+func send(ctx context.Context, client *http.Client, method, url, accept string, headers map[string]string, body []byte, sign func(*http.Request) error) (*http.Response, error) {
 	if client == nil {
 		client = http.DefaultClient
 	}
@@ -49,7 +61,7 @@ func Do(ctx context.Context, client *http.Client, method, url string, headers ma
 		return nil, &llm.Error{Kind: llm.ErrBadRequest, Message: llm.Clip(err.Error())}
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept", accept)
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
@@ -62,7 +74,13 @@ func Do(ctx context.Context, client *http.Client, method, url string, headers ma
 	if err != nil {
 		return nil, networkError(ctx, err)
 	}
-	defer func() { _ = resp.Body.Close() }()
+	return resp, nil
+}
+
+// readWhole reads an answer whole: a 2xx is a Response, anything else an
+// *llm.Error classified by Classify, with the request's credentials taken
+// out of what it quotes.
+func readWhole(ctx context.Context, resp *http.Response, headers map[string]string) (*Response, error) {
 	data, err := io.ReadAll(io.LimitReader(resp.Body, MaxResponseBytes+1))
 	if err != nil {
 		return nil, networkError(ctx, err)

@@ -235,3 +235,23 @@ func TestConcurrentCallsTakeSuccessiveSteps(t *testing.T) {
 		t.Errorf("remaining %d, requests %d, err %v", a.Remaining(), len(a.Requests()), a.Err())
 	}
 }
+
+// A streamed call is told a Streamed step's pieces, which are its text; a
+// call made whole gets the same answer; StreamedThenFail tells its pieces
+// and fails.
+func TestStreamed(t *testing.T) {
+	cut := &llm.Error{Kind: llm.ErrNetwork, Message: "cut"}
+	a := New(Streamed(time.Millisecond, "On", " Friday."), Streamed(0, "Whole."), StreamedThenFail(0, cut, "Part"))
+	var told []string
+	resp, err := llm.Stream(context.Background(), a, &llm.Request{}, func(d string) { told = append(told, d) })
+	if err != nil || resp.Text() != "On Friday." || strings.Join(told, "|") != "On| Friday." {
+		t.Fatalf("%+v %q %v", resp, told, err)
+	}
+	if resp, err := a.Call(context.Background(), &llm.Request{}); err != nil || resp.Text() != "Whole." {
+		t.Fatalf("%+v %v", resp, err)
+	}
+	told = nil
+	if _, err := a.Stream(context.Background(), &llm.Request{}, func(d string) { told = append(told, d) }); !errors.Is(err, cut) || len(told) != 1 {
+		t.Fatalf("%v %q", err, told)
+	}
+}

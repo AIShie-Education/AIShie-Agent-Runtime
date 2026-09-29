@@ -1,0 +1,2 @@
+data: {"candidates": [{"content": {"parts": [{"text": "You got 6.5"}],"role": "model"},"index": 0}],"usageMetadata": {"promptTokenCount": 120,"candidatesTokenCount": 4,"totalTokenCount": 124},"modelVersion": "gemini-2.5-flash","responseId": "resp-cut"}
+

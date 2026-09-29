@@ -1,0 +1,34 @@
+{
+  "deltas": [
+    "You lost 2.5 marks",
+    " on question 2: the loop never",
+    " ends when the list is empty."
+  ],
+  "response": {
+    "model": "claude-sonnet-4-5-20250929",
+    "parts": [
+      {
+        "text": "You lost 2.5 marks on question 2: the loop never ends when the list is empty.",
+        "type": "text"
+      }
+    ],
+    "raw_stop": "end_turn",
+    "request_id": "req_011CSHoEeqs5C35K2UUqR7Fy",
+    "stop": "end",
+    "usage": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 812,
+      "output": 31,
+      "raw": {
+        "cache_creation_input_tokens": null,
+        "cache_read_input_tokens": null,
+        "input_tokens": 812,
+        "output_tokens": 31,
+        "service_tier": "standard"
+      },
+      "reasoning": 0
+    }
+  }
+}

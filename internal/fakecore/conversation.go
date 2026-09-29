@@ -1,6 +1,7 @@
 package fakecore
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"time"
@@ -202,6 +203,8 @@ func conversationAnswer() *impl {
 			if c.pendingAnswer(cv, m, in.InReplyToMessageID.String()) != nil {
 				return conflicts("an answer of yours to that message already waits for a decision").with("reason", "answer_pending")
 			}
+			// Proposed, the answer takes its draft's place.
+			cv.clearDraft()
 			return nil
 		},
 		execute: func(c *Core, ec *execCtx, in answerIn) (any, error) {
@@ -220,6 +223,8 @@ func conversationAnswer() *impl {
 			if err != nil {
 				return nil, err
 			}
+			// Posted, the answer takes its draft's place.
+			cv.clearDraft()
 			return map[string]string{"message_id": id}, nil
 		},
 	})
@@ -287,6 +292,7 @@ func (c *Core) closeConversation(ec *execCtx, cv *conversation, why *string) (an
 		return nil, conflicts("the conversation is closed already")
 	}
 	cv.status, cv.closedReason = "closed", reason
+	cv.clearDraft()
 	ec.emit(&event{typ: "conversation.closed", course: cv.course, subjectType: "conversation", subjectID: &cv.id,
 		payload: mustJSON(map[string]any{"conversation_id": cv.id, "reason": "closed", "by_member_id": ec.member.id})})
 	return map[string]bool{"ok": true}, nil
@@ -498,8 +504,9 @@ func conversationGet() *impl {
 			v.Unread = unread(cv, rc.member)
 			return struct {
 				conversationView
-				VisibleTo []string `json:"visible_to"`
-			}{v, visibleTo(v)}, nil
+				VisibleTo []string        `json:"visible_to"`
+				Draft     json.RawMessage `json:"draft,omitempty"`
+			}{v, visibleTo(v), c.draftFor(rc, cv)}, nil
 		},
 	})
 }
@@ -514,6 +521,9 @@ type messagesIn struct {
 	// conversation's standing (wait.go): not with before_seq.
 	canWait
 	SeenState *string `json:"seen_state,omitempty"`
+	// SeenDraftVersion, with wait_s: the draft's version as the caller
+	// last read it, 0 for none (draft.go).
+	SeenDraftVersion *int64 `json:"seen_draft_version,omitempty"`
 }
 
 type retractionView struct {
@@ -559,6 +569,9 @@ func conversationMessages() *impl {
 			if in.SeenState != nil && !slices.Contains(conversationStates, *in.SeenState) {
 				return nil, invalid("seen_state is one of %s", strings.Join(conversationStates, ", "))
 			}
+			if in.SeenDraftVersion != nil && *in.SeenDraftVersion < 0 {
+				return nil, invalid("seen_draft_version is 0 or more")
+			}
 			cv, err := c.readable(rc, in.ConversationID)
 			if err != nil {
 				return nil, err
@@ -586,11 +599,13 @@ func conversationMessages() *impl {
 				Conversation conversationView `json:"conversation"`
 				Messages     []messageView    `json:"messages"`
 				More         bool             `json:"more"`
+				Draft        json.RawMessage  `json:"draft,omitempty"`
 			}{Messages: make([]messageView, 0, len(rows)), More: len(rows) == limit}
 			for _, m := range rows {
 				out.Messages = append(out.Messages, viewMessage(m))
 			}
 			out.Conversation = c.view(cv)
+			out.Draft = c.draftFor(rc, cv)
 			return out, nil
 		},
 	})

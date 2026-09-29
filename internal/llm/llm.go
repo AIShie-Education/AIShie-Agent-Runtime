@@ -293,6 +293,34 @@ type Adapter interface {
 	Call(ctx context.Context, req *Request) (*Response, error)
 }
 
+// TextFunc is told an answer's text as the model writes it, a piece at a
+// time: the pieces, in order, are the response's Text(). It is called on
+// the goroutine making the call, and must return at once.
+type TextFunc func(delta string)
+
+// Streamer is an Adapter that can give a call's text as it is written.
+// Stream makes the call Call would, and returns what Call would: the same
+// parts, text byte for byte, stop, usage and tool calls, with onText told
+// each piece of text on the way. Reasoning and tool calls are never given
+// to onText. A stream cut off part way is an *Error that may be tried
+// again (ErrNetwork, ErrTimeout), as a request that failed is, and the
+// text onText was told is then no answer: the caller starts again from
+// nothing. An adapter may answer without streaming (its provider refused
+// the stream), and then tells onText the whole text at once, or nothing.
+type Streamer interface {
+	Stream(ctx context.Context, req *Request, onText TextFunc) (*Response, error)
+}
+
+// Stream is ad.Stream when ad streams and onText is set, and ad.Call
+// otherwise: an adapter that does not stream (Gemini's, Bedrock's,
+// OpenAI's Responses) tells onText nothing.
+func Stream(ctx context.Context, ad Adapter, req *Request, onText TextFunc) (*Response, error) {
+	if s, ok := ad.(Streamer); ok && onText != nil {
+		return s.Stream(ctx, req, onText)
+	}
+	return ad.Call(ctx, req)
+}
+
 // ErrorKind classifies a call that did not complete.
 type ErrorKind string
 

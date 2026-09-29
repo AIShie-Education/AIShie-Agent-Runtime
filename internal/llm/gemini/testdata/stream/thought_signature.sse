@@ -1,0 +1,6 @@
+data: {"candidates": [{"content": {"parts": [{"text": "You got 6.5 of 10:"}],"role": "model"},"index": 0}],"usageMetadata": {"promptTokenCount": 120,"candidatesTokenCount": 5,"totalTokenCount": 125},"modelVersion": "gemini-2.5-flash","responseId": "resp-sig"}
+
+data: {"candidates": [{"content": {"parts": [{"text": " the tests for edge cases"}],"role": "model"},"index": 0}],"usageMetadata": {"promptTokenCount": 120,"candidatesTokenCount": 12,"totalTokenCount": 132},"modelVersion": "gemini-2.5-flash","responseId": "resp-sig"}
+
+data: {"candidates": [{"content": {"parts": [{"text": " failed.","thoughtSignature": "c2lnLWFuc3dlcg=="}],"role": "model"},"finishReason": "STOP","index": 0}],"usageMetadata": {"promptTokenCount": 120,"candidatesTokenCount": 18,"totalTokenCount": 138},"modelVersion": "gemini-2.5-flash","responseId": "resp-sig"}
+

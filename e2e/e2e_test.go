@@ -33,6 +33,7 @@ var scenarios = []scenario{
 	{"hosting-through-the-api", hostingThroughTheAPI},
 	{"school-plan-through-the-api", schoolPlanThroughTheAPI},
 	{"long-poll-pickup", longPollPickup},
+	{"drafts-shown", draftsShown},
 }
 
 // TestRuntimeAgainstCore runs every scenario against the Core under test.

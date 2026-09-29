@@ -5,7 +5,9 @@
 // Studio's Messages endpoints.
 //
 // The adapter owns the translation both ways and nothing else: one POST of
-// JSON through httpx, with no streaming, since Core shows an answer whole.
+// JSON through httpx, its answer read whole (Call) or as the Messages
+// API's server-sent events (Stream, stream.go), which show the asker the
+// answer as it is written.
 package anthropic
 
 import (
@@ -18,6 +20,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync/atomic"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/httpx"
@@ -52,9 +55,15 @@ type Adapter struct {
 	params  llm.Params
 	effort  string
 	family  family
+	// noStream is set once the server refused to stream (Stream): its
+	// calls are made whole from then on.
+	noStream atomic.Bool
 }
 
-var _ llm.Adapter = (*Adapter)(nil)
+var (
+	_ llm.Adapter  = (*Adapter)(nil)
+	_ llm.Streamer = (*Adapter)(nil)
+)
 
 // New builds the adapter from one agent's model configuration. An empty
 // BaseURL is Anthropic's own API.
@@ -151,27 +160,62 @@ func (a *Adapter) Endpoint() string { return a.endpoint }
 // without that reasoning rather than not at all. With a thinking budget,
 // the rest of that turn then goes without thinking (turnThinks).
 func (a *Adapter) Call(ctx context.Context, req *llm.Request) (*llm.Response, error) {
-	body, err := a.encodeRequest(req)
+	return a.call(ctx, req, nil)
+}
+
+// call makes one model call, streamed when onText is set.
+func (a *Adapter) call(ctx context.Context, req *llm.Request, onText llm.TextFunc) (*llm.Response, error) {
+	body, err := a.encodeRequest(req, onText != nil)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := a.post(ctx, body)
+	out, err := a.exchange(ctx, body, onText)
 	var le *llm.Error
 	if errors.As(err, &le) && staleThinking(le) {
 		// Taking parts out cannot make a request that encoded fail to; a
 		// body that replayed no thinking block is not sent again.
-		if stripped, serr := a.encodeRequest(withoutReasoning(req)); serr == nil && !bytes.Equal(stripped, body) {
-			resp, err = a.post(ctx, stripped)
+		if stripped, serr := a.encodeRequest(withoutReasoning(req), onText != nil); serr == nil && !bytes.Equal(stripped, body) {
+			out, err = a.exchange(ctx, stripped, onText)
 		}
 	}
-	if err != nil {
-		return nil, err
-	}
-	out, err := a.decodeResponse(resp)
-	if errors.As(err, &le) {
-		return nil, scrub(le, a.key)
-	}
 	return out, err
+}
+
+// exchange sends one body and reads the answer: whole, or, when onText is
+// set, as a stream. Every error is an *llm.Error with the key scrubbed from
+// it.
+func (a *Adapter) exchange(ctx context.Context, body []byte, onText llm.TextFunc) (*llm.Response, error) {
+	var out *llm.Response
+	if onText == nil {
+		resp, err := a.post(ctx, body)
+		if err != nil {
+			return nil, err
+		}
+		out, err = a.decodeResponse(resp)
+		if err != nil {
+			return nil, scrubbed(err, a.key)
+		}
+		return out, nil
+	}
+	s, err := httpx.PostStream(ctx, a.client, a.endpoint, a.headers, body)
+	if err != nil {
+		return nil, a.refused(err)
+	}
+	defer func() { _ = s.Close() }()
+	out, err = a.readStream(s, onText)
+	if err != nil {
+		return nil, scrubbed(err, a.key)
+	}
+	return out, nil
+}
+
+// scrubbed is err with the key scrubbed from it, when it is an *llm.Error.
+func scrubbed(err error, key string) error {
+	var le *llm.Error
+	if errors.As(err, &le) {
+		return scrub(le, key)
+	}
+	return err
 }
 
 // post sends one body, and returns a refusal as an *llm.Error in
@@ -181,11 +225,17 @@ func (a *Adapter) post(ctx context.Context, body []byte) (*httpx.Response, error
 	if err == nil {
 		return resp, nil
 	}
+	return nil, a.refused(err)
+}
+
+// refused is a refusal of the call as an *llm.Error in Anthropic's terms,
+// with the key scrubbed from it.
+func (a *Adapter) refused(err error) *llm.Error {
 	var le *llm.Error
 	if !errors.As(err, &le) {
 		le = &llm.Error{Kind: llm.ErrNetwork, Message: llm.Clip(err.Error())}
 	}
-	return nil, scrub(refine(le), a.key)
+	return scrub(refine(le), a.key)
 }
 
 // staleThinking reports whether e is the API refusing a replayed thinking

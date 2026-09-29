@@ -263,6 +263,10 @@ type conversation struct {
 	messages     []*message
 	// answers are the conversation.answer actions aimed at it, in order.
 	answers []*action
+	// draft is its answer's draft, as conversation.draft last kept it, and
+	// draftTimes when it was written in the last second (draft.go).
+	draft      *draft
+	draftTimes []time.Time
 }
 
 type message struct {

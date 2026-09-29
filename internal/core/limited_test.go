@@ -109,3 +109,28 @@ func TestLimitedWithoutABucket(t *testing.T) {
 		t.Fatal("a nil bucket should leave the caller as it is")
 	}
 }
+
+// A best-effort call (a draft of an answer) takes no token, and waits for
+// none behind an empty bucket: Core does not count it against the actor's
+// limit.
+func TestLimitedLetsBestEffortThrough(t *testing.T) {
+	b := ratelimit.NewWithClock(60, 1, ratelimittest.New())
+	calls := make(recorder, 4)
+	c := Limited(calls, b)
+	bg := context.Background()
+	if _, err := c.Call(bg, "first", nil); err != nil {
+		t.Fatal(err)
+	}
+	<-calls
+	ctx, cancel := context.WithTimeout(WithBestEffort(bg), time.Second)
+	defer cancel()
+	for range 3 {
+		if _, err := c.Call(ctx, "conversation_draft", nil); err != nil {
+			t.Fatalf("a best-effort call waited: %v", err)
+		}
+		<-calls
+	}
+	if s := b.Stats(); s.Granted != 1 || s.Waiting != 0 {
+		t.Errorf("the bucket gave %d tokens and has %d waiting; want the first call's alone", s.Granted, s.Waiting)
+	}
+}

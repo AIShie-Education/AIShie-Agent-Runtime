@@ -1,0 +1,50 @@
+{
+  "deltas": null,
+  "response": {
+    "model": "gpt-4.1-mini-2025-04-14",
+    "parts": [
+      {
+        "args": {
+          "assignment_id": "hw3"
+        },
+        "id": "call_Gr4d3sLst",
+        "name": "grade_list",
+        "type": "tool_call"
+      },
+      {
+        "args": {
+          "assignment_id": "hw3"
+        },
+        "id": "call_As5gnGet",
+        "name": "assignment_get",
+        "type": "tool_call"
+      }
+    ],
+    "raw_stop": "tool_calls",
+    "request_id": "chatcmpl-CKq3mZ1",
+    "stop": "tool_calls",
+    "usage": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 301,
+      "output": 48,
+      "raw": {
+        "completion_tokens": 48,
+        "completion_tokens_details": {
+          "accepted_prediction_tokens": 0,
+          "audio_tokens": 0,
+          "reasoning_tokens": 0,
+          "rejected_prediction_tokens": 0
+        },
+        "prompt_tokens": 301,
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 349
+      },
+      "reasoning": 0
+    }
+  }
+}

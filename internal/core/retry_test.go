@@ -356,3 +356,26 @@ func TestRetryingResendsTheSameRequest(t *testing.T) {
 		}
 	})
 }
+
+// A best-effort call is never sent again, whatever came back, and a 429 of
+// its does not slow the agent's polling.
+func TestRetryingSendsBestEffortOnce(t *testing.T) {
+	for _, a := range []answer{
+		{err: transientErr},
+		{err: &RateLimitedError{RetryAfter: time.Second}},
+		{env: internalEnv},
+	} {
+		s := &scripted{answers: []answer{a, {env: executedEnv}}}
+		c := &clock{}
+		o := c.options()
+		slowed := false
+		o.OnRateLimited = func(time.Duration) { slowed = true }
+		env, err := NewRetrying(s, o).Call(WithBestEffort(context.Background()), "conversation_draft", json.RawMessage(`{}`))
+		if s.calls() != 1 || len(c.sleeps) != 0 || slowed {
+			t.Errorf("%v %v: %d calls, sleeps %v, slowed %v", a.env, a.err, s.calls(), c.sleeps, slowed)
+		}
+		if env != a.env || !errors.Is(err, a.err) {
+			t.Errorf("came back %v %v, want %v %v", env, err, a.env, a.err)
+		}
+	}
+}

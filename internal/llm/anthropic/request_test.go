@@ -246,7 +246,7 @@ func TestRequestGolden(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			a := newAdapter(t, c.cfg)
-			body, err := a.encodeRequest(&c.req)
+			body, err := a.encodeRequest(&c.req, false)
 			if err != nil {
 				t.Fatalf("encodeRequest: %v", err)
 			}
@@ -266,7 +266,7 @@ func TestThinkingBlocksAreSentVerbatim(t *testing.T) {
 		),
 		Tools: []llm.Tool{gradeList, assignmentGet},
 	}
-	body, err := a.encodeRequest(&req)
+	body, err := a.encodeRequest(&req, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -539,7 +539,7 @@ func TestRequestsThatCannotBeMade(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, err := a.encodeRequest(c.req)
+			_, err := a.encodeRequest(c.req, false)
 			var le *llm.Error
 			if !errors.As(err, &le) || le.Kind != llm.ErrBadRequest {
 				t.Fatalf("err = %v, want a bad_request *llm.Error", err)

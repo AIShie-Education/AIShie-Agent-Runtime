@@ -799,6 +799,7 @@ func (c *Core) RemoveSeat(memberID string) error {
 			continue
 		}
 		cv.status, cv.closedReason = "closed", ptr(seatRemoved)
+		cv.clearDraft()
 		evs = append(evs, &event{typ: "conversation.closed", course: cv.course, subjectType: "conversation", subjectID: &cv.id,
 			payload: mustJSON(map[string]any{"conversation_id": cv.id, "reason": seatRemoved})})
 	}

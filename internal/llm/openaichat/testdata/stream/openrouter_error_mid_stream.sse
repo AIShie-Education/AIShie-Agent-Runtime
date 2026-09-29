@@ -1,0 +1,10 @@
+: OPENROUTER PROCESSING
+
+data: {"id":"gen-1759132803-Xb7kq2","provider":"Chutes","model":"deepseek/deepseek-chat-v3.1","object":"chat.completion.chunk","created":1759132803,"choices":[{"index":0,"delta":{"role":"assistant","content":"Your HW3"},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-1759132803-Xb7kq2","provider":"Chutes","model":"deepseek/deepseek-chat-v3.1","object":"chat.completion.chunk","created":1759132803,"choices":[{"index":0,"delta":{"role":"assistant","content":" grade is"},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-1759132803-Xb7kq2","provider":"Chutes","model":"deepseek/deepseek-chat-v3.1","object":"chat.completion.chunk","created":1759132803,"error":{"code":502,"message":"Upstream provider disconnected"},"choices":[{"index":0,"delta":{"content":""},"finish_reason":"error","native_finish_reason":"error","logprobs":null}]}
+
+data: [DONE]
+

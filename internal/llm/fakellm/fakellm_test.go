@@ -253,7 +253,9 @@ func TestValidate(t *testing.T) {
 		{"fine", fakellm.ChatRequest{Model: "m", Messages: []fakellm.ChatMessage{user, call, result("c1"), result("c2"), user}}, true},
 		{"no model", fakellm.ChatRequest{Messages: []fakellm.ChatMessage{user}}, false},
 		{"no messages", fakellm.ChatRequest{Model: "m"}, false},
-		{"stream", fakellm.ChatRequest{Model: "m", Messages: []fakellm.ChatMessage{user}, Stream: true}, false},
+		{"stream", fakellm.ChatRequest{Model: "m", Messages: []fakellm.ChatMessage{user}, Stream: true}, true},
+		{"stream_options without a stream", fakellm.ChatRequest{Model: "m", Messages: []fakellm.ChatMessage{user},
+			StreamOptions: &fakellm.StreamOptions{IncludeUsage: true}}, false},
 		{"tool_choice without tools", fakellm.ChatRequest{Model: "m", Messages: []fakellm.ChatMessage{user}, ToolChoice: json.RawMessage(`"none"`)}, false},
 		{"parallel_tool_calls without tools", fakellm.ChatRequest{Model: "m", Messages: []fakellm.ChatMessage{user}, ParallelToolCalls: new(bool)}, false},
 		{"parallel_tool_calls with tools", fakellm.ChatRequest{Model: "m", Messages: []fakellm.ChatMessage{user}, ParallelToolCalls: new(bool), Tools: []fakellm.Tool{tool}}, true},
@@ -314,5 +316,49 @@ func TestConcurrentRequests(t *testing.T) {
 	wg.Wait()
 	if n := len(s.Requests()); n != 16 {
 		t.Errorf("%d requests", n)
+	}
+}
+
+// A streamed request is answered as OpenAI streams: the adapter builds the
+// same answer from the chunks as from the whole body, text told a few
+// words at a time, the call's arguments joined, the usage from the last
+// chunk; the pieces come StreamEvery apart.
+func TestStreamThroughTheAdapter(t *testing.T) {
+	s := fakellm.New(fakellm.DefaultResponder).StreamEvery(20 * time.Millisecond)
+	a := adapter(t, s)
+	ctx := context.Background()
+	req := &llm.Request{
+		Messages: []llm.Message{llm.UserText("When is the next assignment due?")},
+		Tools:    []llm.Tool{assignmentList}, ToolMode: llm.ToolAuto,
+	}
+	var told []string
+	first, err := a.Stream(ctx, req, func(d string) { told = append(told, d) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	whole, err := a.Call(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls := first.ToolCalls(); len(calls) != 1 || calls[0].ID != whole.ToolCalls()[0].ID || string(calls[0].Args) != "{}" ||
+		first.Usage.Input != whole.Usage.Input || first.Usage.Output != whole.Usage.Output || first.Usage.Estimated || len(told) != 0 {
+		t.Errorf("streamed %+v, told %q; whole %+v", first, told, whole)
+	}
+
+	req.Messages = []llm.Message{llm.UserText("Tell me about recursion, the base case and the step that makes the problem smaller.")}
+	began := time.Now()
+	resp, err := a.Stream(ctx, req, func(d string) { told = append(told, d) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(told, "") != resp.Text() || len(told) < 4 || resp.Usage.Estimated || resp.Usage.Input == 0 {
+		t.Errorf("told %q for %q, usage %+v", told, resp.Text(), resp.Usage)
+	}
+	if took := time.Since(began); took < time.Duration(len(told))*20*time.Millisecond {
+		t.Errorf("%d pieces came in %s", len(told), took)
+	}
+	sent := s.Requests()
+	if last := sent[len(sent)-1]; !last.Stream || last.StreamOptions == nil || !last.StreamOptions.IncludeUsage {
+		t.Errorf("the request %s", last.Raw)
 	}
 }

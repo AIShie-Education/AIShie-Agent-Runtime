@@ -16,10 +16,13 @@ import (
 	"time"
 )
 
-// Tool kinds in the catalogue.
+// Tool kinds in the catalogue. An ephemeral tool changes state that is no
+// action (an answer's draft): it takes no idempotency key, is recorded
+// nowhere and is never proposed.
 const (
-	KindRead  = "read"
-	KindWrite = "write"
+	KindRead      = "read"
+	KindWrite     = "write"
+	KindEphemeral = "ephemeral"
 )
 
 // CatalogueTool is one tool of GET /v1/tools.
@@ -216,6 +219,19 @@ func (c *Catalogue) MaxWait(mcpName string) time.Duration {
 		return 0
 	}
 	return min(time.Duration(*p.Maximum)*time.Second, MaxWait)
+}
+
+// Drafts reports whether this Core takes the drafts of answers being
+// written (ToolDraft): its catalogue offers conversation_draft, an
+// ephemeral write. A Core from before it has no such tool, and is sent no
+// draft. It is read from the catalogue Core serves, never from the
+// snapshot, as MaxWait is.
+func (c *Catalogue) Drafts() bool {
+	if c == nil {
+		return false
+	}
+	t, ok := c.Tool(ToolDraft)
+	return ok && t.Kind == KindEphemeral
 }
 
 // canonicalHash is the sha256 of raw's canonical JSON.

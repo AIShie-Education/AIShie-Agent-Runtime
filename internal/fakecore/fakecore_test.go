@@ -78,16 +78,19 @@ func TestCatalogueSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reads, writes := 0, 0
+	reads, writes, ephemeral := 0, 0, 0
 	for _, tl := range cat.tools {
-		if tl.write {
+		switch {
+		case tl.write:
 			writes++
-		} else {
+		case tl.ephemeral:
+			ephemeral++
+		default:
 			reads++
 		}
 	}
-	if len(cat.tools) != 134 || reads != 49 || writes != 85 {
-		t.Errorf("%d tools, %d reads, %d writes; the snapshot holds 134, 49, 85", len(cat.tools), reads, writes)
+	if len(cat.tools) != 135 || reads != 49 || writes != 85 || ephemeral != 1 {
+		t.Errorf("%d tools, %d reads, %d writes, %d ephemeral; the snapshot holds 135, 49, 85, 1", len(cat.tools), reads, writes, ephemeral)
 	}
 	older, err := catalogueOf(Options{WithoutSiteChat: true})
 	if err != nil {
@@ -97,6 +100,16 @@ func TestCatalogueSnapshot(t *testing.T) {
 		if cat.byName[name] == nil {
 			t.Errorf("the fake implements %s, which the catalogue does not have", name)
 		}
+	}
+	if d := cat.byName["conversation.draft"]; d == nil || !d.ephemeral || d.write {
+		t.Errorf("conversation.draft: %+v", d)
+	}
+	before, err := catalogueOf(Options{WithoutDraft: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before.tools) != len(cat.tools)-1 || before.byName["conversation.draft"] != nil {
+		t.Errorf("the catalogue without conversation.draft has %d tools", len(before.tools))
 	}
 	if len(older.tools) != len(cat.tools)-1 || older.byName["me.site_chat"] != nil {
 		t.Errorf("the catalogue without me.site_chat has %d tools", len(older.tools))
@@ -1477,7 +1490,7 @@ func TestOwners(t *testing.T) {
 					} `json:"tools"`
 				} `json:"result"`
 			}
-			if err != nil || json.Unmarshal(l.Body, &list) != nil || len(list.Result.Tools) != 134 {
+			if err != nil || json.Unmarshal(l.Body, &list) != nil || len(list.Result.Tools) != 135 {
 				t.Fatalf("tools/list: %v %d", err, l.Status)
 			}
 			for _, tl := range list.Result.Tools {

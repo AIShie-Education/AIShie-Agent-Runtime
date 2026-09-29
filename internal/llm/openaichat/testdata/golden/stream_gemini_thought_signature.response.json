@@ -1,0 +1,40 @@
+{
+  "deltas": null,
+  "response": {
+    "model": "gemini-2.5-flash",
+    "parts": [
+      {
+        "args": {
+          "assignment_id": "hw3"
+        },
+        "id": "function-call-4471",
+        "maker": "openai_chat|https://generativelanguage.googleapis.com/v1beta/openai|gemini-2.5-flash",
+        "name": "assignment_get",
+        "opaque": {
+          "extra_content": {
+            "google": {
+              "thought_signature": "CiQB0e2Kb2Nx"
+            }
+          }
+        },
+        "type": "tool_call"
+      }
+    ],
+    "raw_stop": "tool_calls",
+    "request_id": "x9vaaK_2Hb",
+    "stop": "tool_calls",
+    "usage": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 190,
+      "output": 72,
+      "raw": {
+        "completion_tokens": 18,
+        "prompt_tokens": 190,
+        "total_tokens": 262
+      },
+      "reasoning": 54
+    }
+  }
+}

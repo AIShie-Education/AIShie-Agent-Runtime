@@ -32,8 +32,22 @@ type AgentStatus struct {
 	Answering int `json:"answering"`
 	// LongPolls is how many of its calls wait for news now (wait_s), at
 	// most polling.long_poll_max.
-	LongPolls int          `json:"long_polls"`
-	Seats     []SeatStatus `json:"seats,omitempty"`
+	LongPolls int `json:"long_polls"`
+	// Drafts is whether Core takes the drafts of its answers being
+	// written (conversation_draft), and DraftWrites what came of those it
+	// sent since it started.
+	Drafts      bool         `json:"drafts"`
+	DraftWrites *DraftCounts `json:"draft_writes,omitempty"`
+	Seats       []SeatStatus `json:"seats,omitempty"`
+}
+
+// DraftCounts are an agent's draft writes by outcome: sent (Core took
+// them), dropped (too soon, or the conversation no longer waited for the
+// answer), failed (not made after one retry, or refused).
+type DraftCounts struct {
+	Sent    int64 `json:"sent"`
+	Dropped int64 `json:"dropped"`
+	Failed  int64 `json:"failed"`
 }
 
 // SeatStatus is one seat an agent answers in.
@@ -103,7 +117,7 @@ func (s *Supervisor) Status() []AgentStatus {
 // status fills in what the agent knows of itself.
 func (a *Agent) status(st *AgentStatus) {
 	a.mu.Lock()
-	sched, cat := a.sched, a.cat
+	sched, cat, drafts := a.sched, a.cat, a.drafts
 	if sched == nil {
 		a.mu.Unlock()
 		return
@@ -120,6 +134,9 @@ func (a *Agent) status(st *AgentStatus) {
 	a.mu.Unlock()
 	st.Answering = sched.busy()
 	st.LongPolls = a.longPollsNow()
+	if st.Drafts = drafts; drafts {
+		st.DraftWrites = &DraftCounts{Sent: a.draftCounts.sent.Load(), Dropped: a.draftCounts.dropped.Load(), Failed: a.draftCounts.failed.Load()}
+	}
 	for _, s := range seats {
 		st.Seats = append(st.Seats, s.status())
 	}

@@ -1,0 +1,1446 @@
+{
+ "scenario": "drafts",
+ "steps": [
+  {
+   "args": {
+    "attempt": "a1",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "steps": [
+     {
+      "kind": "thinking",
+      "state": "running"
+     }
+    ],
+    "version": 1
+   },
+   "envelope": {
+    "result": {
+     "stored": true,
+     "version": 1
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "first",
+   "text_is_envelope": true,
+   "tool": "conversation_draft"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "created_at": "<time>",
+     "draft": {
+      "attempt": "a1",
+      "steps": [
+       {
+        "kind": "thinking",
+        "state": "running"
+       }
+      ],
+      "updated_at": "<time>",
+      "version": 1
+     },
+     "id": "<id:1>",
+     "last_author_member_id": "<id:3>",
+     "last_message_at": "<time>",
+     "latest_opener_message_id": "<id:4>",
+     "opener": {
+      "display_name": "Yuki",
+      "kind": "human",
+      "member_id": "<id:3>"
+     },
+     "respondent": {
+      "answer_level": "autonomous",
+      "display_name": "CS101 Tutor",
+      "is_delegate_of_opener": false,
+      "kind": "agent",
+      "last_seen_at": "<time>",
+      "member_id": "<id:5>",
+      "owner_name": "Sato",
+      "role": "assistant",
+      "seat_status": "active"
+     },
+     "state": "awaiting_answer",
+     "status": "open",
+     "unread": false,
+     "visible_to": [
+      "participants",
+      "overseers",
+      "action_record",
+      "respondent_answers_others"
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "the_opener_reads_it",
+   "text_is_envelope": true,
+   "tool": "conversation_get"
+  },
+  {
+   "args": {
+    "attempt": "a1",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "steps": [
+     {
+      "kind": "thinking",
+      "state": "done"
+     },
+     {
+      "kind": "reading_document",
+      "state": "done",
+      "target": "  Syllabus "
+     },
+     {
+      "kind": "writing",
+      "state": "running"
+     }
+    ],
+    "text": "The lab report is due",
+    "version": 2
+   },
+   "envelope": {
+    "result": {
+     "stored": true,
+     "version": 2
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "text",
+   "text_is_envelope": true,
+   "tool": "conversation_draft"
+  },
+  {
+   "args": {
+    "attempt": "a1",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "text": "late",
+    "version": 1
+   },
+   "envelope": {
+    "result": {
+     "stored": false,
+     "version": 2
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "a_late_write_passed_over",
+   "text_is_envelope": true,
+   "tool": "conversation_draft"
+  },
+  {
+   "args": {
+    "attempt": "a1",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "text": "again",
+    "version": 2
+   },
+   "envelope": {
+    "result": {
+     "stored": false,
+     "version": 2
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "the_same_version_passed_over",
+   "text_is_envelope": true,
+   "tool": "conversation_draft"
+  },
+  {
+   "args": {
+    "attempt": "a1",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "text": "The lab report is due on Friday.",
+    "version": 3
+   },
+   "envelope": {
+    "result": {
+     "stored": true,
+     "version": 3
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "text_alone_keeps_the_steps",
+   "text_is_envelope": true,
+   "tool": "conversation_draft"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "conversation": {
+      "created_at": "<time>",
+      "id": "<id:1>",
+      "last_author_member_id": "<id:3>",
+      "last_message_at": "<time>",
+      "latest_opener_message_id": "<id:4>",
+      "opener": {
+       "display_name": "Yuki",
+       "kind": "human",
+       "member_id": "<id:3>"
+      },
+      "respondent": {
+       "answer_level": "autonomous",
+       "display_name": "CS101 Tutor",
+       "is_delegate_of_opener": false,
+       "kind": "agent",
+       "last_seen_at": "<time>",
+       "member_id": "<id:5>",
+       "owner_name": "Sato",
+       "role": "assistant",
+       "seat_status": "active"
+      },
+      "state": "awaiting_answer",
+      "status": "open"
+     },
+     "draft": {
+      "attempt": "a1",
+      "steps": [
+       {
+        "kind": "thinking",
+        "state": "done"
+       },
+       {
+        "kind": "reading_document",
+        "state": "done",
+        "target": "Syllabus"
+       },
+       {
+        "kind": "writing",
+        "state": "running"
+       }
+      ],
+      "text": "The lab report is due on Friday.",
+      "updated_at": "<time>",
+      "version": 3
+     },
+     "messages": [
+      {
+       "author_member_id": "<id:3>",
+       "body": "Q1: when is the lab report due?",
+       "created_at": "<time>",
+       "id": "<id:4>",
+       "seq": 1
+      }
+     ],
+     "more": false
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "the_opener_reads_the_text",
+   "text_is_envelope": true,
+   "tool": "conversation_messages"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "message": "no such conversation in this course"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "another_student_reads_nothing",
+   "text_is_envelope": true,
+   "tool": "conversation_get"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "created_at": "<time>",
+     "draft": {
+      "attempt": "a1",
+      "steps": [
+       {
+        "kind": "thinking",
+        "state": "done"
+       },
+       {
+        "kind": "reading_document",
+        "state": "done",
+        "target": "Syllabus"
+       },
+       {
+        "kind": "writing",
+        "state": "running"
+       }
+      ],
+      "text": "The lab report is due on Friday.",
+      "updated_at": "<time>",
+      "version": 3
+     },
+     "id": "<id:1>",
+     "last_author_member_id": "<id:3>",
+     "last_message_at": "<time>",
+     "latest_opener_message_id": "<id:4>",
+     "opener": {
+      "display_name": "Yuki",
+      "kind": "human",
+      "member_id": "<id:3>"
+     },
+     "respondent": {
+      "answer_level": "autonomous",
+      "display_name": "CS101 Tutor",
+      "is_delegate_of_opener": false,
+      "kind": "agent",
+      "last_seen_at": "<time>",
+      "member_id": "<id:5>",
+      "owner_name": "Sato",
+      "role": "assistant",
+      "seat_status": "active"
+     },
+     "state": "awaiting_answer",
+     "status": "open",
+     "unread": true,
+     "visible_to": [
+      "participants",
+      "overseers",
+      "action_record",
+      "respondent_answers_others"
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "the_respondent_reads_it",
+   "text_is_envelope": true,
+   "tool": "conversation_get"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "created_at": "<time>",
+     "draft": {
+      "attempt": "a1",
+      "steps": [
+       {
+        "kind": "thinking",
+        "state": "done"
+       },
+       {
+        "kind": "reading_document",
+        "state": "done",
+        "target": "Syllabus"
+       },
+       {
+        "kind": "writing",
+        "state": "running"
+       }
+      ],
+      "text_hidden": true,
+      "updated_at": "<time>",
+      "version": 3
+     },
+     "id": "<id:1>",
+     "last_author_member_id": "<id:3>",
+     "last_message_at": "<time>",
+     "latest_opener_message_id": "<id:4>",
+     "opener": {
+      "display_name": "Yuki",
+      "kind": "human",
+      "member_id": "<id:3>"
+     },
+     "respondent": {
+      "answer_level": "confirm_required",
+      "display_name": "CS101 Tutor",
+      "is_delegate_of_opener": false,
+      "kind": "agent",
+      "last_seen_at": "<time>",
+      "member_id": "<id:5>",
+      "owner_name": "Sato",
+      "role": "assistant",
+      "seat_status": "active"
+     },
+     "state": "awaiting_answer",
+     "status": "open",
+     "unread": false,
+     "visible_to": [
+      "participants",
+      "overseers",
+      "action_record",
+      "respondent_answers_others"
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "the_opener_sees_the_steps_alone",
+   "text_is_envelope": true,
+   "tool": "conversation_get"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "created_at": "<time>",
+     "draft": {
+      "attempt": "a1",
+      "steps": [
+       {
+        "kind": "thinking",
+        "state": "done"
+       },
+       {
+        "kind": "reading_document",
+        "state": "done",
+        "target": "Syllabus"
+       },
+       {
+        "kind": "writing",
+        "state": "running"
+       }
+      ],
+      "text": "The lab report is due on Friday.",
+      "updated_at": "<time>",
+      "version": 3
+     },
+     "id": "<id:1>",
+     "last_author_member_id": "<id:3>",
+     "last_message_at": "<time>",
+     "latest_opener_message_id": "<id:4>",
+     "opener": {
+      "display_name": "Yuki",
+      "kind": "human",
+      "member_id": "<id:3>"
+     },
+     "respondent": {
+      "answer_level": "confirm_required",
+      "display_name": "CS101 Tutor",
+      "is_delegate_of_opener": false,
+      "kind": "agent",
+      "last_seen_at": "<time>",
+      "member_id": "<id:5>",
+      "owner_name": "Sato",
+      "role": "assistant",
+      "seat_status": "active"
+     },
+     "state": "awaiting_answer",
+     "status": "open",
+     "visible_to": [
+      "participants",
+      "overseers",
+      "action_record",
+      "respondent_answers_others"
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "a_decider_reads_the_text",
+   "text_is_envelope": true,
+   "tool": "conversation_get"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "created_at": "<time>",
+     "draft": {
+      "attempt": "a1",
+      "steps": [
+       {
+        "kind": "thinking",
+        "state": "done"
+       },
+       {
+        "kind": "reading_document",
+        "state": "done",
+        "target": "Syllabus"
+       },
+       {
+        "kind": "writing",
+        "state": "running"
+       }
+      ],
+      "text": "The lab report is due on Friday.",
+      "updated_at": "<time>",
+      "version": 3
+     },
+     "id": "<id:1>",
+     "last_author_member_id": "<id:3>",
+     "last_message_at": "<time>",
+     "latest_opener_message_id": "<id:4>",
+     "opener": {
+      "display_name": "Yuki",
+      "kind": "human",
+      "member_id": "<id:3>"
+     },
+     "respondent": {
+      "answer_level": "confirm_required",
+      "display_name": "CS101 Tutor",
+      "is_delegate_of_opener": false,
+      "kind": "agent",
+      "last_seen_at": "<time>",
+      "member_id": "<id:5>",
+      "owner_name": "Sato",
+      "role": "assistant",
+      "seat_status": "active"
+     },
+     "state": "awaiting_answer",
+     "status": "open",
+     "visible_to": [
+      "participants",
+      "overseers",
+      "action_record",
+      "respondent_answers_others"
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "the_owner_reads_the_text",
+   "text_is_envelope": true,
+   "tool": "conversation_get"
+  },
+  {
+   "args": {
+    "attempt": "a1",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "text": "The lab report is due on Friday",
+    "version": 4
+   },
+   "envelope": {
+    "result": {
+     "stored": true,
+     "version": 4
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "written_at_confirm_required",
+   "text_is_envelope": true,
+   "tool": "conversation_draft"
+  },
+  {
+   "args": {
+    "attempt": "x",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "version": 1
+   },
+   "envelope": {
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "not_the_respondent"
+     },
+     "message": "only the member a conversation is addressed to writes its answer's draft"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "another_agent",
+   "text_is_envelope": true,
+   "tool": "conversation_draft"
+  },
+  {
+   "args": {
+    "attempt": "x",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "version": 1
+   },
+   "envelope": {
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "conversations_are_with_agents"
+     },
+     "message": "conversations are between a person and an agent: a person answers none, and is asked nothing here; people talk to people elsewhere"
+    },
+    "status": "denied"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "a_person",
+   "text_is_envelope": true,
+   "tool": "conversation_draft"
+  },
+  {
+   "args": {
+    "attempt": "a1",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "steps": [
+     {
+      "kind": "dreaming",
+      "state": "running"
+     }
+    ],
+    "version": 9
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "details": {
+      "field": "steps"
+     },
+     "message": "a step's kind is one of thinking, reading_document, listing_documents, reading_assignment, reading_submission, searching_memory, writing, tool"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "a_step_of_no_kind",
+   "text_is_envelope": true,
+   "tool": "conversation_draft"
+  },
+  {
+   "args": {
+    "attempt": "a1",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "steps": [
+     {
+      "kind": "thinking",
+      "state": "paused"
+     }
+    ],
+    "version": 9
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "details": {
+      "field": "steps"
+     },
+     "message": "a step's state is running or done"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "a_step_of_no_state",
+   "text_is_envelope": true,
+   "tool": "conversation_draft"
+  },
+  {
+   "args": {
+    "attempt": "a1",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "steps": [
+     {
+      "kind": "reading_document",
+      "state": "done",
+      "target": "HW1\nnotes"
+     }
+    ],
+    "version": 9
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "details": {
+      "field": "steps"
+     },
+     "message": "a step's target is plain text on one line, at most 120 characters"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "a_target_on_two_lines",
+   "text_is_envelope": true,
+   "tool": "conversation_draft"
+  },
+  {
+   "args": {
+    "attempt": "a1",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "version": 0
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "details": {
+      "field": "version"
+     },
+     "message": "version is 1 or more"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "version_zero",
+   "text_is_envelope": true,
+   "tool": "conversation_draft"
+  },
+  {
+   "args": {
+    "attempt": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "version": 1
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "details": {
+      "field": "attempt"
+     },
+     "message": "attempt is 1 to 64 characters of plain text"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "an_attempt_too_long",
+   "text_is_envelope": true,
+   "tool": "conversation_draft"
+  },
+  {
+   "args": {
+    "attempt": "a1",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "k",
+    "version": 9
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "arguments do not match the schema of conversation.draft: validating root: unexpected additional properties [\"idempotency_key\"]"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "an_idempotency_key",
+   "text_is_envelope": true,
+   "tool": "conversation_draft"
+  },
+  {
+   "args": {
+    "attempt": "a1",
+    "conversation_id": "<id:6>",
+    "course_id": "<id:2>",
+    "version": 9
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "message": "no such conversation in this course"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "no_such_conversation",
+   "text_is_envelope": true,
+   "tool": "conversation_draft"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "conversation": {
+      "created_at": "<time>",
+      "id": "<id:1>",
+      "last_author_member_id": "<id:3>",
+      "last_message_at": "<time>",
+      "latest_opener_message_id": "<id:4>",
+      "opener": {
+       "display_name": "Yuki",
+       "kind": "human",
+       "member_id": "<id:3>"
+      },
+      "respondent": {
+       "answer_level": "autonomous",
+       "display_name": "CS101 Tutor",
+       "is_delegate_of_opener": false,
+       "kind": "agent",
+       "last_seen_at": "<time>",
+       "member_id": "<id:5>",
+       "owner_name": "Sato",
+       "role": "assistant",
+       "seat_status": "active"
+      },
+      "state": "awaiting_answer",
+      "status": "open"
+     },
+     "draft": {
+      "attempt": "a1",
+      "steps": [
+       {
+        "kind": "thinking",
+        "state": "done"
+       },
+       {
+        "kind": "reading_document",
+        "state": "done",
+        "target": "Syllabus"
+       },
+       {
+        "kind": "writing",
+        "state": "running"
+       }
+      ],
+      "text": "The lab report is due on Friday",
+      "updated_at": "<time>",
+      "version": 4
+     },
+     "messages": [
+      {
+       "author_member_id": "<id:3>",
+       "body": "Q1: when is the lab report due?",
+       "created_at": "<time>",
+       "id": "<id:4>",
+       "seq": 1
+      }
+     ],
+     "more": false
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "messages",
+   "text_is_envelope": true,
+   "tool": "conversation_messages"
+  },
+  {
+   "answered": "on_news",
+   "args": {
+    "after_seq": 1,
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "seen_draft_version": 4,
+    "wait_s": 5
+   },
+   "envelope": {
+    "result": {
+     "conversation": {
+      "created_at": "<time>",
+      "id": "<id:1>",
+      "last_author_member_id": "<id:3>",
+      "last_message_at": "<time>",
+      "latest_opener_message_id": "<id:4>",
+      "opener": {
+       "display_name": "Yuki",
+       "kind": "human",
+       "member_id": "<id:3>"
+      },
+      "respondent": {
+       "answer_level": "autonomous",
+       "display_name": "CS101 Tutor",
+       "is_delegate_of_opener": false,
+       "kind": "agent",
+       "last_seen_at": "<time>",
+       "member_id": "<id:5>",
+       "owner_name": "Sato",
+       "role": "assistant",
+       "seat_status": "active"
+      },
+      "state": "awaiting_answer",
+      "status": "open"
+     },
+     "draft": {
+      "attempt": "a1",
+      "steps": [
+       {
+        "kind": "thinking",
+        "state": "done"
+       },
+       {
+        "kind": "reading_document",
+        "state": "done",
+        "target": "Syllabus"
+       },
+       {
+        "kind": "writing",
+        "state": "running"
+       }
+      ],
+      "text": "The lab report is due on Friday at noon.",
+      "updated_at": "<time>",
+      "version": 5
+     },
+     "messages": [],
+     "more": false
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "a_reader_waits_for_the_next_version",
+   "text_is_envelope": true,
+   "tool": "conversation_messages"
+  },
+  {
+   "answered": "at_once",
+   "args": {
+    "after_seq": 1,
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "seen_draft_version": 4,
+    "wait_s": 5
+   },
+   "envelope": {
+    "result": {
+     "conversation": {
+      "created_at": "<time>",
+      "id": "<id:1>",
+      "last_author_member_id": "<id:3>",
+      "last_message_at": "<time>",
+      "latest_opener_message_id": "<id:4>",
+      "opener": {
+       "display_name": "Yuki",
+       "kind": "human",
+       "member_id": "<id:3>"
+      },
+      "respondent": {
+       "answer_level": "autonomous",
+       "display_name": "CS101 Tutor",
+       "is_delegate_of_opener": false,
+       "kind": "agent",
+       "last_seen_at": "<time>",
+       "member_id": "<id:5>",
+       "owner_name": "Sato",
+       "role": "assistant",
+       "seat_status": "active"
+      },
+      "state": "awaiting_answer",
+      "status": "open"
+     },
+     "draft": {
+      "attempt": "a1",
+      "steps": [
+       {
+        "kind": "thinking",
+        "state": "done"
+       },
+       {
+        "kind": "reading_document",
+        "state": "done",
+        "target": "Syllabus"
+       },
+       {
+        "kind": "writing",
+        "state": "running"
+       }
+      ],
+      "text": "The lab report is due on Friday at noon.",
+      "updated_at": "<time>",
+      "version": 5
+     },
+     "messages": [],
+     "more": false
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "a_version_not_seen_answers_at_once",
+   "text_is_envelope": true,
+   "tool": "conversation_messages"
+  },
+  {
+   "answered": "when_its_time_was_up",
+   "args": {
+    "after_seq": 1,
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "wait_s": 2
+   },
+   "envelope": {
+    "result": {
+     "conversation": {
+      "created_at": "<time>",
+      "id": "<id:1>",
+      "last_author_member_id": "<id:3>",
+      "last_message_at": "<time>",
+      "latest_opener_message_id": "<id:4>",
+      "opener": {
+       "display_name": "Yuki",
+       "kind": "human",
+       "member_id": "<id:3>"
+      },
+      "respondent": {
+       "answer_level": "autonomous",
+       "display_name": "CS101 Tutor",
+       "is_delegate_of_opener": false,
+       "kind": "agent",
+       "last_seen_at": "<time>",
+       "member_id": "<id:5>",
+       "owner_name": "Sato",
+       "role": "assistant",
+       "seat_status": "active"
+      },
+      "state": "awaiting_answer",
+      "status": "open"
+     },
+     "draft": {
+      "attempt": "a1",
+      "steps": [
+       {
+        "kind": "thinking",
+        "state": "done"
+       },
+       {
+        "kind": "reading_document",
+        "state": "done",
+        "target": "Syllabus"
+       },
+       {
+        "kind": "writing",
+        "state": "running"
+       }
+      ],
+      "text": "The lab report is due on Friday at noon.",
+      "updated_at": "<time>",
+      "version": 6
+     },
+     "messages": [],
+     "more": false
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "without_seen_draft_version_a_draft_wakes_nothing",
+   "text_is_envelope": true,
+   "tool": "conversation_messages"
+  },
+  {
+   "args": {
+    "after_seq": 1,
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "seen_draft_version": -1,
+    "wait_s": 1
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "seen_draft_version is 0 or more"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "seen_draft_version_below_zero",
+   "text_is_envelope": true,
+   "tool": "conversation_messages"
+  },
+  {
+   "args": {
+    "attempt": "a0",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "done": true,
+    "version": 9
+   },
+   "envelope": {
+    "result": {
+     "stored": false,
+     "version": 6
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "the_end_of_another_attempt",
+   "text_is_envelope": true,
+   "tool": "conversation_draft"
+  },
+  {
+   "args": {
+    "attempt": "a1",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "done": true,
+    "text": "ignored",
+    "version": 6
+   },
+   "envelope": {
+    "result": {
+     "stored": true,
+     "version": 0
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "done",
+   "text_is_envelope": true,
+   "tool": "conversation_draft"
+  },
+  {
+   "args": {
+    "attempt": "a1",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "text": "late",
+    "version": 7
+   },
+   "envelope": {
+    "result": {
+     "stored": false,
+     "version": 0
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "a_write_after_its_end",
+   "text_is_envelope": true,
+   "tool": "conversation_draft"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "created_at": "<time>",
+     "draft": null,
+     "id": "<id:1>",
+     "last_author_member_id": "<id:3>",
+     "last_message_at": "<time>",
+     "latest_opener_message_id": "<id:4>",
+     "opener": {
+      "display_name": "Yuki",
+      "kind": "human",
+      "member_id": "<id:3>"
+     },
+     "respondent": {
+      "answer_level": "autonomous",
+      "display_name": "CS101 Tutor",
+      "is_delegate_of_opener": false,
+      "kind": "agent",
+      "last_seen_at": "<time>",
+      "member_id": "<id:5>",
+      "owner_name": "Sato",
+      "role": "assistant",
+      "seat_status": "active"
+     },
+     "state": "awaiting_answer",
+     "status": "open",
+     "unread": false,
+     "visible_to": [
+      "participants",
+      "overseers",
+      "action_record",
+      "respondent_answers_others"
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "no_draft_after_its_end",
+   "text_is_envelope": true,
+   "tool": "conversation_get"
+  },
+  {
+   "args": {
+    "attempt": "a2",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "steps": [
+     {
+      "kind": "thinking",
+      "state": "running"
+     }
+    ],
+    "version": 1
+   },
+   "envelope": {
+    "result": {
+     "stored": true,
+     "version": 1
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "a_new_attempt",
+   "text_is_envelope": true,
+   "tool": "conversation_draft"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "created_at": "<time>",
+     "draft": {
+      "attempt": "a2",
+      "steps": [
+       {
+        "kind": "thinking",
+        "state": "running"
+       }
+      ],
+      "updated_at": "<time>",
+      "version": 1
+     },
+     "id": "<id:1>",
+     "last_author_member_id": "<id:3>",
+     "last_message_at": "<time>",
+     "latest_opener_message_id": "<id:4>",
+     "opener": {
+      "display_name": "Yuki",
+      "kind": "human",
+      "member_id": "<id:3>"
+     },
+     "respondent": {
+      "answer_level": "autonomous",
+      "display_name": "CS101 Tutor",
+      "is_delegate_of_opener": false,
+      "kind": "agent",
+      "last_seen_at": "<time>",
+      "member_id": "<id:5>",
+      "owner_name": "Sato",
+      "role": "assistant",
+      "seat_status": "active"
+     },
+     "state": "awaiting_answer",
+     "status": "open",
+     "unread": false,
+     "visible_to": [
+      "participants",
+      "overseers",
+      "action_record",
+      "respondent_answers_others"
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "the_new_attempt",
+   "text_is_envelope": true,
+   "tool": "conversation_get"
+  },
+  {
+   "args": {
+    "body": "On Friday at noon.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:4>:1",
+    "in_reply_to_message_id": "<id:4>"
+   },
+   "envelope": {
+    "action_id": "<id:7>",
+    "result": {
+     "message_id": "<id:8>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "answer",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "conversation": {
+      "created_at": "<time>",
+      "id": "<id:1>",
+      "last_author_member_id": "<id:5>",
+      "last_message_at": "<time>",
+      "latest_opener_message_id": "<id:4>",
+      "opener": {
+       "display_name": "Yuki",
+       "kind": "human",
+       "member_id": "<id:3>"
+      },
+      "respondent": {
+       "answer_level": "autonomous",
+       "display_name": "CS101 Tutor",
+       "is_delegate_of_opener": false,
+       "kind": "agent",
+       "last_seen_at": "<time>",
+       "member_id": "<id:5>",
+       "owner_name": "Sato",
+       "role": "assistant",
+       "seat_status": "active"
+      },
+      "state": "answered",
+      "status": "open"
+     },
+     "draft": null,
+     "messages": [
+      {
+       "author_member_id": "<id:3>",
+       "body": "Q1: when is the lab report due?",
+       "created_at": "<time>",
+       "id": "<id:4>",
+       "seq": 1
+      },
+      {
+       "author_member_id": "<id:5>",
+       "body": "On Friday at noon.",
+       "created_at": "<time>",
+       "id": "<id:8>",
+       "in_reply_to_message_id": "<id:4>",
+       "seq": 2
+      }
+     ],
+     "more": false
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "the_answer_in_its_place",
+   "text_is_envelope": true,
+   "tool": "conversation_messages"
+  },
+  {
+   "args": {
+    "attempt": "a2",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "text": "On Friday",
+    "version": 2
+   },
+   "envelope": {
+    "error": {
+     "code": "conflict",
+     "details": {
+      "reason": "conversation_not_awaiting"
+     },
+     "message": "the conversation waits for no answer now: it is answered, an answer waits for approval, or it is closed; a draft is written only while it waits"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "after_the_answer",
+   "text_is_envelope": true,
+   "tool": "conversation_draft"
+  },
+  {
+   "body": {
+    "result": {
+     "stored": true,
+     "version": 1
+    },
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "POST",
+   "path": "/v1/courses/<id:2>/conversations/<id:9>/draft",
+   "request": {
+    "attempt": "r1",
+    "steps": [
+     {
+      "kind": "writing",
+      "state": "running"
+     }
+    ],
+    "text": "Yes",
+    "version": 1
+   },
+   "step": "rest"
+  },
+  {
+   "body": {
+    "result": {
+     "stored": false,
+     "version": 1
+    },
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "POST",
+   "path": "/v1/courses/<id:2>/conversations/<id:9>/draft",
+   "request": {
+    "attempt": "r1",
+    "text": "No",
+    "version": 1
+   },
+   "step": "rest_passed_over"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "conflict",
+     "details": {
+      "reason": "conversation_not_awaiting"
+     },
+     "message": "the conversation waits for no answer now: it is answered, an answer waits for approval, or it is closed; a draft is written only while it waits"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 409,
+   "method": "POST",
+   "path": "/v1/courses/<id:2>/conversations/<id:9>/draft",
+   "request": {
+    "attempt": "r1",
+    "text": "Yes, on Tuesday.",
+    "version": 2
+   },
+   "step": "rest_closed"
+  }
+ ]
+}

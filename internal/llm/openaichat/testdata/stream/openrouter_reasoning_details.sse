@@ -1,0 +1,18 @@
+: OPENROUTER PROCESSING
+
+: OPENROUTER PROCESSING
+
+data: {"id":"gen-1759132806-Rz9","provider":"Anthropic","model":"anthropic/claude-sonnet-4.5","object":"chat.completion.chunk","created":1759132806,"choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":"The student","reasoning_details":[{"type":"reasoning.text","text":"The student","format":"anthropic-claude-v1","index":0}]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-1759132806-Rz9","provider":"Anthropic","model":"anthropic/claude-sonnet-4.5","object":"chat.completion.chunk","created":1759132806,"choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":" wants HW3.","reasoning_details":[{"type":"reasoning.text","text":" wants HW3.","format":"anthropic-claude-v1","index":0}]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-1759132806-Rz9","provider":"Anthropic","model":"anthropic/claude-sonnet-4.5","object":"chat.completion.chunk","created":1759132806,"choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning":null,"reasoning_details":[{"type":"reasoning.text","signature":"EqQBCkgIBxABGAIiQL9sig==","format":"anthropic-claude-v1","index":0}]},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-1759132806-Rz9","provider":"Anthropic","model":"anthropic/claude-sonnet-4.5","object":"chat.completion.chunk","created":1759132806,"choices":[{"index":0,"delta":{"role":"assistant","content":"HW3 is due on Friday."},"finish_reason":null,"native_finish_reason":null,"logprobs":null}]}
+
+data: {"id":"gen-1759132806-Rz9","provider":"Anthropic","model":"anthropic/claude-sonnet-4.5","object":"chat.completion.chunk","created":1759132806,"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":"stop","native_finish_reason":"end_turn","logprobs":null}]}
+
+data: {"id":"gen-1759132806-Rz9","provider":"Anthropic","model":"anthropic/claude-sonnet-4.5","object":"chat.completion.chunk","created":1759132806,"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null,"native_finish_reason":null,"logprobs":null}],"usage":{"prompt_tokens":510,"completion_tokens":44,"total_tokens":554,"cost":0.00219,"is_byok":false,"prompt_tokens_details":{"cached_tokens":0,"audio_tokens":0},"completion_tokens_details":{"reasoning_tokens":12,"image_tokens":0}}}
+
+data: [DONE]
+

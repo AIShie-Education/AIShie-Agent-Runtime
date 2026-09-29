@@ -39,6 +39,9 @@ type toolDef struct {
 
 	mcpName string
 	write   bool
+	// ephemeral: a change that is no action (conversation.draft): no
+	// idempotency key, authorized as a write, carried out at once.
+	ephemeral bool
 	// schema is the tool's own input schema, resolved for validation: what
 	// a REST body, or MCP arguments without the key, are judged by.
 	schema *jsonschema.Resolved
@@ -128,8 +131,10 @@ func (t *toolDef) prepare() error {
 	case "read":
 	case "write":
 		t.write = true
+	case kindEphemeral:
+		t.ephemeral = true
 	default:
-		return fmt.Errorf("kind %q is neither read nor write", t.Kind)
+		return fmt.Errorf("kind %q is neither read, write nor ephemeral", t.Kind)
 	}
 	var s jsonschema.Schema
 	if err := json.Unmarshal(t.InputSchema, &s); err != nil {

@@ -119,7 +119,7 @@ func (c *Core) newServer() *mcp.Server {
 		closed := false
 		server.AddTool(&mcp.Tool{
 			Name: t.mcpName, Description: t.Description, InputSchema: t.mcpInput, OutputSchema: t.mcpOutput,
-			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: !t.write, IdempotentHint: true, OpenWorldHint: &closed},
+			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: !t.write && !t.ephemeral, IdempotentHint: !t.ephemeral, OpenWorldHint: &closed},
 		}, c.toolHandler(t))
 	}
 	return server
@@ -173,6 +173,11 @@ func (c *Core) serve(ctx context.Context, actorID, transport string, t *toolDef,
 		out = errorOutcome(newErr(codeUnauthenticated, "actor %s does not exist", actorID))
 	} else {
 		out = c.waitForNews(ctx, caller, t, args, base, c.invoke(caller, t, args, key, base))
+	}
+	if t.ephemeral && out.Status == actExecuted {
+		// Carried out, an ephemeral write is not what the limit counts: it
+		// bounds its own rate. One refused counts as any call does.
+		c.limiter.refund(actorID)
 	}
 	c.calls = append(c.calls, Call{ActorID: actorID, Transport: transport, Tool: t.mcpName, Args: append(json.RawMessage(nil), sent...),
 		IdempotencyKey: key, Status: out.Status, Code: codeOf(out), ActionID: out.ActionID, Replayed: out.Replayed,

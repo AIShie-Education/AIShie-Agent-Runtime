@@ -1,0 +1,56 @@
+{
+  "deltas": [
+    "HW3 is due on Friday."
+  ],
+  "response": {
+    "model": "anthropic/claude-sonnet-4.5",
+    "parts": [
+      {
+        "maker": "openai_chat|https://openrouter.ai/api/v1|anthropic/claude-sonnet-4.5",
+        "opaque": {
+          "reasoning_details": [
+            {
+              "format": "anthropic-claude-v1",
+              "index": 0,
+              "signature": "EqQBCkgIBxABGAIiQL9sig==",
+              "text": "The student wants HW3.",
+              "type": "reasoning.text"
+            }
+          ]
+        },
+        "text": "The student wants HW3.",
+        "type": "reasoning"
+      },
+      {
+        "text": "HW3 is due on Friday.",
+        "type": "text"
+      }
+    ],
+    "raw_stop": "stop/end_turn",
+    "request_id": "gen-1759132806-Rz9",
+    "stop": "end",
+    "usage": {
+      "cache_read": 0,
+      "cache_write": 0,
+      "estimated": false,
+      "input": 510,
+      "output": 44,
+      "raw": {
+        "completion_tokens": 44,
+        "completion_tokens_details": {
+          "image_tokens": 0,
+          "reasoning_tokens": 12
+        },
+        "cost": 0.00219,
+        "is_byok": false,
+        "prompt_tokens": 510,
+        "prompt_tokens_details": {
+          "audio_tokens": 0,
+          "cached_tokens": 0
+        },
+        "total_tokens": 554
+      },
+      "reasoning": 12
+    }
+  }
+}

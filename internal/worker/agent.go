@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
@@ -41,6 +42,16 @@ type Agent struct {
 	// it serves says (Catalogue.MaxWait): 0 against a Core from before
 	// wait_s, which is polled on the schedule alone (longpoll.go).
 	inboxMaxWait, eventsMaxWait time.Duration
+	// drafts is whether Core takes the drafts of answers being written,
+	// as the catalogue it serves says (Catalogue.Drafts): nothing is sent
+	// to a Core without conversation_draft.
+	drafts bool
+
+	// drafters are the conversations' drafters sending now (draft.go),
+	// and draftCounts what came of their writes.
+	draftMu     sync.Mutex
+	drafters    map[string]*drafter
+	draftCounts struct{ sent, dropped, failed atomic.Int64 }
 
 	fail          context.CancelCauseFunc
 	answerCtx     context.Context
@@ -186,10 +197,11 @@ func (a *Agent) start(ctx context.Context) error {
 	a.cat, a.client, a.me, a.primary = cat, client, me, primary
 	a.sched = newScheduler(a.cfg.Answer.MaxConcurrent)
 	a.inboxMaxWait, a.eventsMaxWait = cat.MaxWait("conversation_inbox"), cat.MaxWait("event_list")
+	a.drafts = cat.Drafts()
 	a.mu.Unlock()
 	a.log.Info("agent started", "actor", me.ID, "catalogue", cat.Hash(), "transport", a.cfg.Core.Transport,
 		"adapter", a.primary.ad.Name(), "provider", a.primary.ad.Provider(), "model", a.primary.ad.Model(),
-		"long_poll", longPollWait(a.cfg.Polling, a.inboxMaxWait) > 0 && a.cfg.Polling.LongPollMax > 0)
+		"long_poll", longPollWait(a.cfg.Polling, a.inboxMaxWait) > 0 && a.cfg.Polling.LongPollMax > 0, "drafts", a.drafts)
 	if a.wantsSiteChat() {
 		if err := a.declareSiteChat(ctx); err != nil {
 			a.s.releaseActor(a.cfg.Core.BaseURL, me.ID, a.id)

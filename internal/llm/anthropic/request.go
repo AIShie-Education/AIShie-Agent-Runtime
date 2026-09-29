@@ -30,6 +30,8 @@ type wireRequest struct {
 	OutputConfig *outputConfig `json:"output_config,omitempty"`
 	Temperature  *float64      `json:"temperature,omitempty"`
 	TopP         *float64      `json:"top_p,omitempty"`
+	// Stream asks for the answer as server-sent events (stream.go).
+	Stream bool `json:"stream,omitempty"`
 }
 
 type wireMessage struct {
@@ -148,11 +150,12 @@ var imageTypes = map[string]bool{
 }
 
 // encodeRequest is the request's body.
-func (a *Adapter) encodeRequest(req *llm.Request) ([]byte, error) {
+func (a *Adapter) encodeRequest(req *llm.Request, stream bool) ([]byte, error) {
 	w, err := a.buildRequest(req)
 	if err != nil {
 		return nil, err
 	}
+	w.Stream = stream
 	body, err := marshal(w)
 	if err != nil {
 		return nil, badRequest("the request does not encode: %v", err)
