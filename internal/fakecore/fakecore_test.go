@@ -467,10 +467,12 @@ func TestProposals(t *testing.T) {
 			}
 			return out.ActionID
 		}
+		// No person answers: an owner decides their agent's answer as far as
+		// they decide actions.
 		if out, err := fc.Approve(propose("A")); err != nil || out != "executed" {
-			t.Errorf("its owner, who answers at autonomous, approved: %s %v", out, err)
+			t.Errorf("its owner, who decides actions at autonomous, approved: %s %v", out, err)
 		}
-		if err := fc.SetLevel(satoM.ID, permConversationAnswer, "confirm_required"); err != nil {
+		if err := fc.SetLevel(satoM.ID, permActionDecide, "confirm_required"); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := fc.Approve(propose("B")); err == nil || !strings.Contains(err.Error(), "nobody in the course may judge") {
@@ -1022,8 +1024,8 @@ func TestControlsFollowCoresRules(t *testing.T) {
 	if !errors.As(err, &refused) || refused.Reason != "closed" || refused.Tool != "conversation_ask" {
 		t.Errorf("a follow-up in a closed conversation: %v", err)
 	}
-	if _, _, err := w.fc.Ask(w.co.ID, w.seats[0].ID, w.mori.ID, "Q"); !errors.As(err, &refused) || refused.Reason != "not_addressable" {
-		t.Errorf("a student asking an instructor, who sees what they cannot: %v", err)
+	if _, _, err := w.fc.Ask(w.co.ID, w.seats[0].ID, w.mori.ID, "Q"); !errors.As(err, &refused) || refused.Reason != "conversations_are_with_agents" {
+		t.Errorf("a student asking an instructor, a person: %v", err)
 	}
 	if _, _, err := w.fc.Ask(w.co.ID, w.seats[1].ID, w.ownSeat(), "Q"); !errors.As(err, &refused) || refused.Reason != "not_addressable" {
 		t.Errorf("Ken asking Yuki's own agent: %v", err)
@@ -1066,6 +1068,30 @@ func TestControlsFollowCoresRules(t *testing.T) {
 		if c.err == nil {
 			t.Errorf("%s: no error", c.name)
 		}
+	}
+}
+
+// TestAnswersGivenAsFarAsDecided: no person holds conversation_answer, and
+// an instructor, who decides actions, still seats an agent that answers
+// (Core's grantable); a seat that neither answers nor decides actions gives
+// no answers.
+func TestAnswersGivenAsFarAsDecided(t *testing.T) {
+	w := newFakeWorld(t, Options{})
+	add := func(c *mcpClient, key string) toolAnswer {
+		t.Helper()
+		helper := w.fc.AddUnownedAgent("Helper " + key)
+		return mustCall(t, c, "member_add", inCourseArgs(w, "idempotency_key", key, "actor_id", helper.ID, "preset", "course_tutor"))
+	}
+	sato := w.as("sato")
+	made := add(sato, "add:1")
+	wantEnvelope(t, made, "executed", "", "")
+	got := mustCall(t, sato, "member_get", inCourseArgs(w, "member_id", made.str("result", "member_id")))
+	if level := got.str("result", "perms", permConversationAnswer); level != "autonomous" {
+		t.Errorf("the agent Sato seated answers at %q", level)
+	}
+	_, registrar := w.registrar(map[string]string{permMemberManage: "autonomous"})
+	if refused := add(registrar, "add:2"); refused.status() != "failed" || refused.str("error", "details", "permission") != permConversationAnswer {
+		t.Errorf("a seat that decides nothing gave answers: %s", refused.Text)
 	}
 }
 

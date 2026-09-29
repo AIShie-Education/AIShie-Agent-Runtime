@@ -58,6 +58,7 @@
      },
      "state": "closed",
      "status": "closed",
+     "unread": true,
      "visible_to": [
       "participants",
       "overseers",

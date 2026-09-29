@@ -124,6 +124,14 @@ type gate struct {
 	// target of their own agent's however little perms give them (Core's
 	// Gate.OwnAgents): the level it returns, when higher, is theirs.
 	ownAgents func(c *Core, caller *actor, seat *member, tgt target) level
+	// refusal, when it gives one, is what a caller whose seat perms deny
+	// is told instead of permission_denied (Core's Gate.Refusal): its
+	// details.reason is the denial's.
+	refusal func(caller *actor, seat *member) *apiError
+	// ownerJudgedBy, for a write gated by a permission no person holds, is
+	// what an agent's owner is measured by instead, deciding a proposal of
+	// their agent's (Core's Spec.OwnerJudgedBy; ownerJudges).
+	ownerJudgedBy []string
 }
 
 // target is what a call acts on, as its tool resolves it.
@@ -337,6 +345,31 @@ type authorized struct {
 	decision decision
 	target   target
 	course   *course
+	// refused is what a denied call is told where its gate knows more
+	// than the permission that denied it (gate.refusal); nil for the plain
+	// denial of decision.reason.
+	refused *apiError
+}
+
+// refusal is what a denied call is told.
+func (a authorized) refusal() *apiError {
+	if a.refused != nil {
+		return a.refused
+	}
+	return denial(a.decision.reason)
+}
+
+// explain asks a gate that knows why a seat its perms deny is refused
+// (gate.refusal), and records what it says: the refusal, and its reason in
+// place of permission_denied (Core's authorized.explain).
+func (a *authorized) explain(g gate, caller *actor) {
+	if g.refusal == nil || a.decision.reason != reasonPermDenied || a.decision.member == nil {
+		return
+	}
+	if e := g.refusal(caller, a.decision.member); e != nil {
+		a.refused = e
+		a.decision.reason, _ = e.Details["reason"].(string)
+	}
 }
 
 // noun is the part of a tool name before the dot: the target type of a call
@@ -397,6 +430,7 @@ func (c *Core) authorize(t *toolDef, in any, act *actor, asMember *member) (auth
 	owner := im.gate.ownAgents != nil && res.decision.member != nil && res.decision.level < autonomous &&
 		(res.decision.level.allowed() || res.decision.reason == reasonPermDenied)
 	if !res.decision.level.allowed() && !owner {
+		res.explain(im.gate, act)
 		return res, nil
 	}
 	tgt, err := im.resolve(c, co, in)
@@ -448,7 +482,7 @@ func (c *Core) invokeRead(caller *actor, t *toolDef, in any, base string) (outco
 		return outcome{}, err
 	}
 	if !a.decision.level.allowed() {
-		return outcome{Status: actDenied, Error: denial(a.decision.reason)}, nil
+		return outcome{Status: actDenied, Error: a.refusal()}, nil
 	}
 	rc := &readCtx{now: c.now(), actor: caller, member: a.decision.member, course: a.course, base: base}
 	res, err := t.impl.query(c, rc, in)
@@ -513,7 +547,7 @@ func (c *Core) invokeWrite(caller *actor, t *toolDef, in any, raw []byte, key st
 	status := initialStatus(lvl)
 	var failure *apiError
 	if !lvl.allowed() {
-		failure = denial(a.decision.reason)
+		failure = a.refusal()
 	}
 	// A proposal is kept as its tool pins it: the arguments as the tool
 	// read them, not as they were written (an id in upper case comes back

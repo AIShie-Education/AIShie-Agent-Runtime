@@ -99,12 +99,12 @@ func ladder(s string) [17]level {
 }
 
 // presets are Core's built-ins, level for level: member_invite, the last,
-// an instructor's alone.
+// an instructor's alone; conversation_answer, the one before, no person's.
 var presets = map[string]preset{
 	"student":      {"student", scopeListed, scopeAll, ladder("addddaaadddddcadd")},
 	"observer":     {"observer", scopeAll, scopeAll, ladder("adddddddddadddddd")},
 	"ta":           {"ta", scopeAll, scopeAll, ladder("aadadadaadaddcadd")},
-	"instructor":   {"instructor", scopeAll, scopeAll, ladder("aaaaaaaaaaaaaaaaa")},
+	"instructor":   {"instructor", scopeAll, scopeAll, ladder("aaaaaaaaaaaaaaada")},
 	"tutor":        {"assistant", scopeListed, scopeAll, ladder("addddadadddddddad")},
 	"grader":       {"assistant", scopeAll, scopeListed, ladder("addadaddcdddddddd")},
 	"delegate":     {"assistant", scopeListed, scopeAll, ladder("addddadadddddddad")},

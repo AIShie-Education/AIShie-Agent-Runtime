@@ -93,6 +93,7 @@
      },
      "state": "awaiting_answer",
      "status": "open",
+     "unread": true,
      "visible_to": [
       "participants",
       "overseers",
@@ -186,6 +187,7 @@
      },
      "state": "reply_pending_approval",
      "status": "open",
+     "unread": true,
      "visible_to": [
       "participants",
       "overseers",

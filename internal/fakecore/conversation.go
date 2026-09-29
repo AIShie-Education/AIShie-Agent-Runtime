@@ -30,9 +30,23 @@ const (
 )
 
 var (
-	gateAnswers   = gate{perms: []string{permConversationAnswer}}
+	gateAnswers   = gate{perms: []string{permConversationAnswer}, refusal: personAnswersNothing}
 	gateConverses = gate{perms: []string{permDocumentRead}}
 )
+
+// errWithAgents is Core's refusal of a person as a conversation's
+// respondent, and of a person answering: conversations are between a person
+// and an agent.
+var errWithAgents = forbid("conversations are between a person and an agent: a person answers none, and is asked "+
+	"nothing here; people talk to people elsewhere").with("reason", ceilingConversationsAreWithAgents)
+
+// personAnswersNothing is gateAnswers' refusal of a person (Core's).
+func personAnswersNothing(caller *actor, _ *member) *apiError {
+	if caller.kind == "agent" {
+		return nil
+	}
+	return errWithAgents
+}
 
 // Refusals Core words the same everywhere.
 var (
@@ -163,8 +177,12 @@ func (c *Core) checkAnswer(m *member, cv *conversation, in answerIn) error {
 }
 
 func conversationAnswer() *impl {
+	answers := gateAnswers
+	// No person holds conversation_answer: an agent's owner decides its
+	// answer as far as they decide actions.
+	answers.ownerJudgedBy = []string{permActionDecide}
 	return define(spec[answerIn]{
-		gate: gateAnswers,
+		gate: answers,
 		resolve: func(c *Core, co *course, in answerIn) (target, error) {
 			return conversationTarget(c, co, in.ConversationID)
 		},
@@ -350,6 +368,8 @@ type conversationView struct {
 	LastAuthorMemberID    *string        `json:"last_author_member_id,omitempty"`
 	LatestOpenerMessageID *string        `json:"latest_opener_message_id,omitempty"`
 	LastRetractedAt       *time.Time     `json:"last_retracted_at,omitempty"`
+	// Unread is conversation_get's, for the caller who takes part (unread).
+	Unread *bool `json:"unread,omitempty"`
 }
 
 func partyOf(m *member) party {
@@ -424,6 +444,18 @@ func (c *Core) view(cv *conversation) conversationView {
 	return v
 }
 
+// unread says, when m takes part in cv, whether the other has written, and
+// not retracted, anything since m last marked it read; nil when m does not
+// take part (Core's withUnread). Nothing marks a conversation read in the
+// fake, which has no conversation_mark_read: m has read nothing.
+func unread(cv *conversation, m *member) *bool {
+	if m != cv.opener && m != cv.respondent {
+		return nil
+	}
+	u := slices.ContainsFunc(cv.messages, func(msg *message) bool { return msg.author != m && msg.retraction == nil })
+	return &u
+}
+
 // Who can read what is written in a conversation, as codes.
 func visibleTo(v conversationView) []string {
 	out := []string{"participants", "overseers", "action_record"}
@@ -463,6 +495,7 @@ func conversationGet() *impl {
 				return nil, err
 			}
 			v := c.view(cv)
+			v.Unread = unread(cv, rc.member)
 			return struct {
 				conversationView
 				VisibleTo []string `json:"visible_to"`

@@ -22,8 +22,8 @@ type openIn struct {
 }
 
 // checkOpen is conversation_open's rule: a title and a body that fit, a
-// respondent the caller may address, and then, of an agent, that it takes
-// conversations in the site.
+// respondent that is an agent (errWithAgents) the caller may address, and
+// then that it takes conversations in the site.
 func (c *Core) checkOpen(m, respondent *member, in openIn) error {
 	if _, err := optionalText("title", in.Title, 200); err != nil {
 		return err
@@ -32,6 +32,9 @@ func (c *Core) checkOpen(m, respondent *member, in openIn) error {
 		if err := checkBody(*in.Body); err != nil {
 			return err
 		}
+	}
+	if respondent.actor.kind != "agent" {
+		return errWithAgents
 	}
 	if why := refusal(m, respondent, c.now()); why != "" {
 		return notAddressable("you may not address that member", why)
@@ -89,8 +92,8 @@ type askIn struct {
 var errNotOpener = forbid("only whoever opened a conversation asks in it; the member it is addressed to answers, with conversation.answer")
 
 // checkAsk is conversation_ask's rule: the caller opened it, it is open, the
-// body fits, the caller may still address its respondent, and the
-// respondent, if an agent, still takes conversations in the site.
+// body fits, its respondent is an agent (errWithAgents) the caller may still
+// address, and it still takes conversations in the site.
 func (c *Core) checkAsk(m *member, cv *conversation, body string) error {
 	if cv.opener != m {
 		return errNotOpener
@@ -100,6 +103,9 @@ func (c *Core) checkAsk(m *member, cv *conversation, body string) error {
 	}
 	if err := checkBody(body); err != nil {
 		return err
+	}
+	if cv.respondent.actor.kind != "agent" {
+		return errWithAgents
 	}
 	if why := refusal(m, cv.respondent, c.now()); why != "" {
 		return notAddressable("the respondent is no longer available to you; start a new conversation with someone who is", why)
@@ -192,7 +198,8 @@ func ownAgentsJudge(c *Core, caller *actor, seat *member, tgt target) level {
 // ownerJudges says whether caller, from seat, is the owner of the agent
 // that did a (owner), and whether they could have done a themselves just
 // now without anyone's confirmation (may): their own level for it
-// autonomous, its target within their reach (Core's pipeline.ownerJudges).
+// autonomous (for an answer, their action_decide: gate.ownerJudgedBy), its
+// target within their reach (Core's pipeline.ownerJudges).
 func (c *Core) ownerJudges(caller *actor, seat *member, a *action) (owner, may bool) {
 	if a.member == nil || a.member == seat || a.actor == caller || a.actor.owner != caller {
 		return false, false
@@ -200,6 +207,14 @@ func (c *Core) ownerJudges(caller *actor, seat *member, a *action) (owner, may b
 	t := c.cat.byName[a.actionType]
 	if t == nil || t.impl == nil {
 		return true, false
+	}
+	if by := t.impl.gate.ownerJudgedBy; len(by) > 0 {
+		// A permission no person holds, conversation_answer: the owner is
+		// measured by what judging it is instead.
+		im, def := *t.impl, *t
+		im.gate.perms, im.gate.any, im.gate.ownAgents = by, false, nil
+		def.impl = &im
+		t = &def
 	}
 	args, err := t.decodeArgs(a.payload)
 	if err != nil {

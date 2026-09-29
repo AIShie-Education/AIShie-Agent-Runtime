@@ -291,12 +291,18 @@ func uuidStrings(ids []uuid.UUID) []string {
 }
 
 // withinGranter refuses to hand out more than the granter g holds: no level
-// above g's own, no reach outside g's listed scope, as Core's does.
+// above g's own (grantable), no reach outside g's listed scope, as Core's
+// does.
 func withinGranter(g *member, perms map[string]level, listsItself bool, studentScope string, students []string, assignmentScope string, assignments []string) error {
 	for _, p := range allPerms {
-		if perms[p] > g.perm(p) {
-			return forbid("you hold %s at %s and cannot grant it at %s", p, g.perm(p), perms[p]).with("permission", p)
+		if perms[p] <= grantable(g, p) {
+			continue
 		}
+		if p == permConversationAnswer {
+			return forbid("%s is given as far as the giver decides actions, or answers itself: you may give it at %s "+
+				"at most, not %s", p, grantable(g, p), perms[p]).with("permission", p)
+		}
+		return forbid("you hold %s at %s and cannot grant it at %s", p, g.perm(p), perms[p]).with("permission", p)
 	}
 	if g.studentScope == scopeListed {
 		switch {
@@ -317,6 +323,17 @@ func withinGranter(g *member, perms map[string]level, listsItself bool, studentS
 		}
 	}
 	return nil
+}
+
+// grantable is the most of p the granter g may hand out: what it holds,
+// but conversation_answer, which no person holds, as far as g decides
+// actions or answers itself, whichever is more (Core's grantable): an
+// agent's answers are judged by whoever decides actions.
+func grantable(g *member, p string) level {
+	if p == permConversationAnswer {
+		return max(g.perm(p), g.perm(permActionDecide))
+	}
+	return g.perm(p)
 }
 
 // memberAdd seats an actor with a preset's role, levels and scope, any of

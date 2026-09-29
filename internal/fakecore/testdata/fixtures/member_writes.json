@@ -503,11 +503,14 @@
      "listed_students": [
       "<id:12>"
      ],
+     "perm_ceiling_reasons": {
+      "conversation_answer": "conversations_are_with_agents"
+     },
      "perm_ceilings": {
       "action_decide": "autonomous",
       "agent_delegate": "autonomous",
       "assignment_write": "autonomous",
-      "conversation_answer": "autonomous",
+      "conversation_answer": "denied",
       "conversation_ask": "autonomous",
       "document_read": "autonomous",
       "document_read_draft": "autonomous",
@@ -730,11 +733,14 @@
        "display_name": "Yuki",
        "id": "<id:4>",
        "kind": "human",
+       "perm_ceiling_reasons": {
+        "conversation_answer": "conversations_are_with_agents"
+       },
        "perm_ceilings": {
         "action_decide": "autonomous",
         "agent_delegate": "autonomous",
         "assignment_write": "autonomous",
-        "conversation_answer": "autonomous",
+        "conversation_answer": "denied",
         "conversation_ask": "autonomous",
         "document_read": "autonomous",
         "document_read_draft": "autonomous",
@@ -781,11 +787,14 @@
        "display_name": "Ken",
        "id": "<id:32>",
        "kind": "human",
+       "perm_ceiling_reasons": {
+        "conversation_answer": "conversations_are_with_agents"
+       },
        "perm_ceilings": {
         "action_decide": "autonomous",
         "agent_delegate": "autonomous",
         "assignment_write": "autonomous",
-        "conversation_answer": "autonomous",
+        "conversation_answer": "denied",
         "conversation_ask": "autonomous",
         "document_read": "autonomous",
         "document_read_draft": "autonomous",
@@ -832,11 +841,14 @@
        "display_name": "Ren",
        "id": "<id:12>",
        "kind": "human",
+       "perm_ceiling_reasons": {
+        "conversation_answer": "conversations_are_with_agents"
+       },
        "perm_ceilings": {
         "action_decide": "autonomous",
         "agent_delegate": "autonomous",
         "assignment_write": "autonomous",
-        "conversation_answer": "autonomous",
+        "conversation_answer": "denied",
         "conversation_ask": "autonomous",
         "document_read": "autonomous",
         "document_read_draft": "autonomous",
@@ -901,11 +913,14 @@
        "display_name": "Sato",
        "id": "<id:30>",
        "kind": "human",
+       "perm_ceiling_reasons": {
+        "conversation_answer": "conversations_are_with_agents"
+       },
        "perm_ceilings": {
         "action_decide": "autonomous",
         "agent_delegate": "autonomous",
         "assignment_write": "autonomous",
-        "conversation_answer": "autonomous",
+        "conversation_answer": "denied",
         "conversation_ask": "autonomous",
         "document_read": "autonomous",
         "document_read_draft": "autonomous",
@@ -924,7 +939,7 @@
         "action_decide": "autonomous",
         "agent_delegate": "autonomous",
         "assignment_write": "autonomous",
-        "conversation_answer": "autonomous",
+        "conversation_answer": "denied",
         "conversation_ask": "autonomous",
         "document_read": "autonomous",
         "document_read_draft": "autonomous",
@@ -952,11 +967,14 @@
        "display_name": "Mori",
        "id": "<id:35>",
        "kind": "human",
+       "perm_ceiling_reasons": {
+        "conversation_answer": "conversations_are_with_agents"
+       },
        "perm_ceilings": {
         "action_decide": "autonomous",
         "agent_delegate": "autonomous",
         "assignment_write": "autonomous",
-        "conversation_answer": "autonomous",
+        "conversation_answer": "denied",
         "conversation_ask": "autonomous",
         "document_read": "autonomous",
         "document_read_draft": "autonomous",
@@ -975,7 +993,7 @@
         "action_decide": "autonomous",
         "agent_delegate": "autonomous",
         "assignment_write": "autonomous",
-        "conversation_answer": "autonomous",
+        "conversation_answer": "denied",
         "conversation_ask": "autonomous",
         "document_read": "autonomous",
         "document_read_draft": "autonomous",
