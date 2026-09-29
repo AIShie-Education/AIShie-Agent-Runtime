@@ -125,8 +125,10 @@ the runtime's own settings, such as the tenants and the price table
 (`examples/` in this repository, and in each release's archive). Files
 ending in `.yaml` or `.yml` are read, in name order; subdirectories are not.
 A relative path in a `*_ref`, such as `system_ref: prompts/tutor.md` or
-`prices_ref: prices.yaml`, is relative to the file's own directory, so a
-prompt or the price table can sit beside the agents.
+`prices_ref: prices/prices.yaml`, is relative to the file's own directory, so a
+prompt or the price table can sit beside the agents, in a subdirectory: a
+price table named `.yaml` in the agents' directory itself would be read as
+configuration, and refused.
 
 Secrets are never written in the YAML (`check` refuses what looks like a
 token). A reference says where each one is:
@@ -300,7 +302,7 @@ in the database, shown, audited or sent to a browser:
 
 ```yaml
 runtime:
-  prices_ref: prices.yaml            # optional; needed only for usd: quotas
+  prices_ref: prices/prices.yaml     # optional; needed only for usd: quotas
   school:
     offers:
       - id: standard
