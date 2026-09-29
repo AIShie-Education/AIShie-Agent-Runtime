@@ -206,12 +206,17 @@ which is what the text is for; otherwise `llm.Stream` calls `Call`.
   `thinking_delta`, `signature_delta`; `redacted_thinking` whole), the stop
   reason from `message_delta`, and its usage laid over `message_start`'s.
   Its retry without stale thinking blocks holds for a stream too.
-- `gemini`, `bedrock_converse` and `openai_responses` answer whole: a draft
-  of theirs shows its steps and no text.
+- `gemini` streams `streamGenerateContent?alt=sse`, whose chunks are each a
+  response holding the parts that came since the last: the pieces of one
+  text, or of one thought, are joined into one part with the signature
+  that came on any of them, a `functionCall` comes whole, and the
+  `finishReason` and the usage are the last chunk's.
+- `bedrock_converse` and `openai_responses` answer whole: a draft of theirs
+  shows its steps and no text.
 
 The whole call has the call's timeout, as before. A stream cut off before its
 end (`[DONE]`, or at least a finish reason; `message_stop`, or at least a stop
-reason) is `ErrNetwork`, one out of time `ErrTimeout`, and an error chunk or
+reason; a `finishReason`) is `ErrNetwork`, one out of time `ErrTimeout`, and an error chunk or
 event part way (an upstream failing behind OpenRouter, an `overloaded_error`)
 is classified as the provider's refusals are: each is retried, then the
 fallback, exactly as a failed request is, and the draft's text starts again
@@ -1250,8 +1255,8 @@ question waiting 5 s for it.
 - Adapters: golden translations both ways in `testdata/`, every stop reason
   and usage field; `LIVE=1` runs them against the real providers whose keys
   are set, with one request declaring every tool at 16 output tokens, and
-  one answer streamed. `openai_chat` and `anthropic` have goldens of
-  streams written in their providers' SSE format (`testdata/stream`): text
+  one answer streamed. `openai_chat`, `anthropic` and `gemini` have goldens
+  of streams written in their providers' SSE format (`testdata/stream`): text
   in pieces with keep-alives, reasoning streamed before the answer,
   parallel calls whose arguments are split and interleaved across chunks,
   the usage alone in the last chunk and in its choice, a refusal with CRLF

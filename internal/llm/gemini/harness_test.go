@@ -82,10 +82,10 @@ func (f *fakeGemini) serve(w http.ResponseWriter, r *http.Request) {
 	if respond != nil {
 		a = respond(body)
 	}
+	w.Header().Set("Content-Type", "application/json")
 	for k, v := range a.header {
 		w.Header().Set(k, v)
 	}
-	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(a.status)
 	_, _ = io.WriteString(w, a.body)
 }

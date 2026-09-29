@@ -1,0 +1,12 @@
+{
+  "deltas": [
+    "You got"
+  ],
+  "error": {
+    "code": "UNAVAILABLE",
+    "kind": "overloaded",
+    "message": "The model is overloaded. Please try again later.",
+    "retryable": true,
+    "status": 200
+  }
+}
