@@ -337,9 +337,11 @@ func TestStopCancelsLongPolls(t *testing.T) {
 	// stops.
 	w.ok(w.fc.SetLevel(own.seat.ID, "conversation_answer", "denied"))
 	within(t, 3*time.Second, "the seat's long poll to end", func() bool { return w.fc.WaitingOf(own.actor.ID) == 0 })
-	if got := counter(t, wk.reg, "long_polls", map[string]string{"agent": "yuki-helper"}); got != 0 {
-		t.Errorf("long_polls = %v after the seat stopped", got)
-	}
+	// Core lets go of the call when the seat cancels it; the seat gives
+	// its place back once the call has returned to it, a moment later.
+	within(t, time.Second, "long_polls to be 0 after the seat stopped", func() bool {
+		return counter(t, wk.reg, "long_polls", map[string]string{"agent": "yuki-helper"}) == 0
+	})
 
 	w.ok(w.fc.SetLevel(own.seat.ID, "conversation_answer", "autonomous"))
 	eventually(t, "the seat waiting again", func() bool { return w.fc.WaitingOf(own.actor.ID) == 1 })
