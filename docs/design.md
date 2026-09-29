@@ -110,6 +110,12 @@ sends it again after a 429 but not after a transient failure or an
 says, and sees a long poll cut short again and again (a proxy that gives a
 request less than its wait) for what it is.
 
+A draft of an answer (`conversation_draft`, §5.3) is marked best effort
+(`core.WithBestEffort`): the limiter lets it through without a token, and
+`Retrying` never sends it again, nor tells the limiter of its 429, which is
+the draft's own limit and no reason to slow polling. The drafter decides
+alone whether one is worth another try.
+
 ### 2.2 The rate limit
 
 One bucket per agent, at 90 % of Core's allowance (540 a minute, burst 90 at
@@ -122,6 +128,17 @@ long it waits, and the next begins no sooner after it began than that
 floor: idle, a seat that long-polls spends one call per `wait_s`, 2.4 a
 minute at 25 s, where the schedule spends 2 to 6 idle and 30 hot.
 
+Drafts are kept off the bucket rather than given one of their own. Core
+does not count a draft it carried out against the actor's limit (it gives
+the token back), only against its own of 10 a second per conversation;
+the drafter writes one conversation's draft at most every 300 ms, one
+write at a time, so the per-conversation limit is the one that matters,
+and a per-agent bucket would have the wrong shape. What Core counts until
+it gives the tokens back is at most one draft per answer in progress,
+`answer.max_concurrent`, within the 10 % the agent's bucket leaves below
+Core's limit. Taking the agent's tokens would only slow its answers and
+polls for writes Core does not count.
+
 ### 2.3 The catalogue
 
 `GET /v1/tools` (no token) is fetched at start and its hash kept: the sha256
@@ -133,9 +150,13 @@ Core's catalogue with `internal/core/testdata/catalogue.json`. Whether Core's
 reads wait for news is read from the catalogue it serves, never from the
 snapshot: `Catalogue.MaxWait` is `wait_s`'s maximum in a tool's input
 schema, or none on a Core from before 2c1fe1b, whose schemas refuse any
-argument they do not name. The catalogue is fetched once per Core and
-worker: after upgrading Core, restart or reload the runtime for it to
-long-poll.
+argument they do not name. Whether it takes the drafts of answers is read
+the same way: `Catalogue.Drafts` is whether it offers `conversation_draft`,
+of kind `ephemeral` (a change that is no action: no key, recorded nowhere,
+never proposed); a Core without it is sent no draft, and no model call is
+streamed for one. The catalogue is fetched once per Core and worker: after
+upgrading Core, restart or reload the runtime for it to long-poll and to
+write drafts.
 
 ## 3. Models
 
@@ -160,6 +181,44 @@ tools (`ToolsWithHistory`, Bedrock) flattens that history into text first.
 
 Provider errors are `*llm.Error` with a kind; `Retryable()` kinds are retried
 with backoff inside the wall clock, then the fallback model if there is one.
+
+**Streaming.** An adapter may also be an `llm.Streamer`: `Stream` makes the
+call `Call` would, with `stream` on, tells an `llm.TextFunc` each piece of
+the answer's text as it arrives, and returns the same `llm.Response` Call
+would have: it builds the stream's pieces up into the body the provider
+would have sent whole and reads that as `Call` does, so the parts, the text
+byte for byte, the stop, the tool calls and the usage are the same, and so
+is everything the loop and the ledger do with them. Reasoning and tool calls
+are never told as text. The loop streams only where Core takes drafts (§5.3),
+which is what the text is for; otherwise `llm.Stream` calls `Call`.
+
+- `openai_chat` streams Chat Completions' SSE, with
+  `stream_options.include_usage`: content, refusal, `reasoning_content`
+  (DeepSeek, Kimi, GLM), `reasoning` and `reasoning_details` (OpenRouter,
+  joined by type and index), tool calls by index with their arguments
+  joined across chunks (or whole, where a server sends each call in one
+  chunk), Gemini's `extra_content`, the finish reasons, and the usage from
+  the last chunk, or from its choice as Kimi sends it. That is OpenAI,
+  Azure, DeepSeek, Qwen, Kimi, GLM, OpenRouter, Gemini's compatible
+  endpoint and the local servers.
+- `anthropic` streams the Messages API's events: each content block built up
+  from its start and its deltas (`text_delta`, `input_json_delta`,
+  `thinking_delta`, `signature_delta`; `redacted_thinking` whole), the stop
+  reason from `message_delta`, and its usage laid over `message_start`'s.
+  Its retry without stale thinking blocks holds for a stream too.
+- `gemini`, `bedrock_converse` and `openai_responses` answer whole: a draft
+  of theirs shows its steps and no text.
+
+The whole call has the call's timeout, as before. A stream cut off before its
+end (`[DONE]`, or at least a finish reason; `message_stop`, or at least a stop
+reason) is `ErrNetwork`, one out of time `ErrTimeout`, and an error chunk or
+event part way (an upstream failing behind OpenRouter, an `overloaded_error`)
+is classified as the provider's refusals are: each is retried, then the
+fallback, exactly as a failed request is, and the draft's text starts again
+from nothing. A provider that refuses to stream with a 400 that names the
+stream (an Azure API version that knows no `stream_options`) is called again
+whole, and that adapter streams no more; a server that ignores `stream` and
+answers whole is read as `Call` reads it.
 
 ## 4. Tools
 
@@ -311,7 +370,10 @@ by `Run`; each entry has its reason beside it in the code:
 - `conversation_*`: the runtime reads and answers conversations itself,
   from the one it is answering; a conversation tool would let the model read
   other people's (a tutor's token reads every one addressed to it), or open,
-  answer, close or retract one in someone else's name.
+  answer, close or retract one in someone else's name. `conversation_draft`
+  among them: the runtime writes the answer's draft itself (§5.3), and a
+  model writing one would show the asker whatever it liked as the answer to
+  come.
 - `event_list` and `action_list_mine`: the runtime reads them itself, and
   `action_list_mine` returns the agent's own actions, the answers it wrote in
   other people's conversations among them.
@@ -915,6 +977,60 @@ For an inbox row (conversation X, question M, opener P):
 Every claimed message ends answered, proposed, closed, or with a recorded
 outcome.
 
+**Drafts.** Where the catalogue offers `conversation_draft` (§2.3), the asker
+watches the answer come, as in Claude Code: while the loop of step 7 works,
+the runtime keeps the attempt's draft (`worker/draft.go`) and writes it to
+Core, which shows it to whoever reads the conversation until the answer
+takes its place.
+
+- The draft of an attempt has an id of its own (`attempt`, a fresh UUID
+  for each attempt, so for each pass of step 7) and a `version` that rises
+  with each write of it. Its steps: each model call starts a `thinking`
+  step, the steps before it done; the first piece of text the call streams
+  ends it and starts `writing`; each tool call is a step of its kind,
+  `running` until Core answers it (`toolset.Runner.Seen`) and then `done`:
+  `document_get` `reading_document`, `document_list` `listing_documents`,
+  `assignment_get` `reading_assignment`, `submission_get`
+  `reading_submission`, `memory_search` `searching_memory`, any other
+  `tool`. A step's `target` is the title of what it read only where every
+  member of the course may read it: published course material, a published
+  assignment; a rubric's, a submission's, an unpublished document's title
+  would tell the asker of what they may not see. The latest 20 steps are
+  kept. Its text is the current model call's text so far (streamed, §3),
+  replaced whole with each write, at most 20,000 characters; the next call
+  starts it from nothing, and so does a try made again after a stream cut
+  off or a provider's failure, or by the fallback. An adapter that does not
+  stream shows steps alone.
+- It is written through one drafter per conversation (so one write in
+  flight per conversation, across the attempts and claims of it): the loop
+  only changes the draft's state under a lock and wakes it, and its
+  goroutine sends the state as it stands at most every 300 ms
+  (`Timing.DraftEvery`), the first at once; a state that changes again
+  before it is sent is sent once, the latest winning. Nothing the loop does
+  waits on it.
+- Best effort: a write Core refuses as too soon (its 429, `draft_rate`) is
+  dropped, not sent again; one refused because the conversation no longer
+  waits for an answer (the answer just went in) is dropped too, and the
+  attempt writes no more; one that failed on the way (a 5xx, a timeout of
+  its own 5 s) is sent once more, with the state as it stands then, and
+  then given up; any other refusal stops the attempt's drafts. None of it
+  fails, holds back or slows the answer, or slows the agent's polling.
+- Its end: when the answer is to be posted (step 9), nothing more of the
+  draft is sent, and Core clears it as it posts or proposes the answer. An
+  attempt that ends otherwise (the providers failed, the claim's time ran
+  out, the post did not go in, the opener moved on) is ended with `done`,
+  which deletes the draft, when any of it was sent.
+- A draft carries the model's own text, before step 8's safety pass: Core
+  shows it to the asker only where the answer would post without anyone's
+  confirmation (`conversation_answer` autonomous), and otherwise to those
+  who could approve it (`text_hidden` for the asker, who sees the steps);
+  the posted answer, made safe, replaces it. Nothing else goes into a
+  draft: never a tool result's content, the system prompt, a key, or
+  anything of the memory; steps are a kind and, at most, a title.
+- `draft_writes_total{agent, outcome}` counts them, `sent`, `dropped` or
+  `failed`, and `/status` gives each agent's `drafts` (whether its Core
+  takes them) and `draft_writes`.
+
 ### 5.4 Following proposals
 
 The events poller reads `event_list` from the seat's cursor:
@@ -1103,7 +1219,9 @@ owner and 20 per asker unless `runtime.school` sets them);
 polling 2 s hot for 120 s, 10 s idle to 30 s, events 45 s, seats 300 s,
 ±25 %, 30 % of 600 a minute, and where Core offers `wait_s` each inbox
 long-polled for 25 s (`long_poll_wait_s`), at most 12 calls of an agent's
-waiting at once (`long_poll_max`); memory on, purged 30 days after a seat goes;
+waiting at once (`long_poll_max`); where Core takes drafts, each answer's
+draft written at most every 300 ms, one write in flight per conversation, a
+write given 5 s and one retry; memory on, purged 30 days after a seat goes;
 files of at most 10 MB, read within `doctext.DefaultLimits` and 20 s, their
 text given in parts of 24 KB within results of 32 KB, what was read kept
 per worker up to 32 MiB; OCR on where its programs are, in
@@ -1131,7 +1249,30 @@ question waiting 5 s for it.
   client is tested live against the real one.
 - Adapters: golden translations both ways in `testdata/`, every stop reason
   and usage field; `LIVE=1` runs them against the real providers whose keys
-  are set, with one request declaring every tool at 16 output tokens.
+  are set, with one request declaring every tool at 16 output tokens, and
+  one answer streamed. `openai_chat` and `anthropic` have goldens of
+  streams written in their providers' SSE format (`testdata/stream`): text
+  in pieces with keep-alives, reasoning streamed before the answer,
+  parallel calls whose arguments are split and interleaved across chunks,
+  the usage alone in the last chunk and in its choice, a refusal with CRLF
+  endings, a stream ending at its finish reason without `[DONE]`, an error
+  part way and one cut off; for each answer also written whole, `Stream`
+  must make exactly what `Call` makes of it.
+- Drafts: the drafter coalesces (fewer writes than changes, each the whole
+  state, versions rising, one in flight, spaced), keeps its steps, ends an
+  attempt with `done` unless its answer went in, drops a 429 and sends
+  nothing twice for it, sends a write that failed on the way once more, and
+  stops an attempt Core refuses. Against the fake Core as a Core with
+  `conversation_draft` (`fakecore.Options.Drafts`, Core's rules for it:
+  the respondent alone, while the conversation waits, newer writes only,
+  done, cleared by the answer posted or proposed and by closing, 10 a
+  second, no rate charged), a streamed answer's drafts show thinking, the
+  syllabus read by its title and the text growing, and the answer takes
+  their place; a Core without it gets none, and no call is streamed; a
+  stream cut off starts the text again; drafts that take seconds, or are
+  refused as too soon, or fail, never hold the answer back. The end to end
+  (`drafts-shown`, against a Core that has the tool) watches them as the
+  site does, by long polls with `seen_draft_version`.
 - `toolschema`: every tool of the pinned catalogue through every dialect and
   back through Core's schema.
 - `doctext`: decks, documents, workbooks and PDFs made byte by byte
