@@ -12,8 +12,9 @@ import (
 	"time"
 )
 
-// person is someone in a world: an actor, their own token, and their seat
-// in the course.
+// person is someone in a world: an actor, their token, and their seat in
+// the course. The token is the session they signed in with, with a
+// password (coreAPI.newPerson): people hold no API tokens, only agents do.
 type person struct {
 	name, id, token, member string
 }
@@ -66,10 +67,8 @@ func newWorld(t *testing.T, api *coreAPI, root, slug string) *world {
 	w := &world{api: api, root: root}
 	env := strings.ToUpper(strings.ReplaceAll(slug, "-", "_"))
 
-	adminID := result[struct {
-		ActorID string `json:"actor_id"`
-	}](t, api, root, "POST", "/v1/actors", map[string]any{"kind": "human", "display_name": "Admin", "platform_role": "admin"}).ActorID
-	w.admin = person{name: "Admin", id: adminID, token: w.issueToken(t, root, "/v1/actors/"+adminID+"/tokens")}
+	adminID, admin := api.newPerson(t, root, "Admin", map[string]any{"platform_role": "admin"})
+	w.admin = person{name: "Admin", id: adminID, token: admin}
 
 	today := time.Now().UTC()
 	term := result[struct {
@@ -133,8 +132,8 @@ func newWorld(t *testing.T, api *coreAPI, root, slug string) *world {
 	return w
 }
 
-// issueToken is a new token from path (an actor's or an agent's tokens),
-// issued as token.
+// issueToken is a new API token from path (an agent's tokens), issued as
+// token. Only agents are given API tokens; people sign in.
 func (w *world) issueToken(t testing.TB, token, path string) string {
 	t.Helper()
 	tok := result[struct {
@@ -146,13 +145,12 @@ func (w *world) issueToken(t testing.TB, token, path string) string {
 	return tok
 }
 
-// register is the admin registering a person, with a token of their own.
+// register is the admin registering a person, who signs in with a password
+// of their own (coreAPI.newPerson).
 func (w *world) register(t testing.TB, name string) person {
 	t.Helper()
-	id := result[struct {
-		ActorID string `json:"actor_id"`
-	}](t, w.api, w.admin.token, "POST", "/v1/actors", map[string]any{"kind": "human", "display_name": name}).ActorID
-	return person{name: name, id: id, token: w.issueToken(t, w.admin.token, "/v1/actors/"+id+"/tokens")}
+	id, session := w.api.newPerson(t, w.admin.token, name, nil)
+	return person{name: name, id: id, token: session}
 }
 
 // newAgent is owner making an agent of their own (My agents) and a token
@@ -189,8 +187,8 @@ func (w *world) secrets() []secret {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return append([]secret{
-		{"root's token", w.root}, {"the admin's token", w.admin.token},
-		{"Sato's token", w.sato.token}, {"Mori's token", w.mori.token}, {"Yuki's token", w.yuki.token}, {"Ken's token", w.ken.token},
+		{"root's session", w.root}, {"the admin's session", w.admin.token},
+		{"Sato's session", w.sato.token}, {"Mori's session", w.mori.token}, {"Yuki's session", w.yuki.token}, {"Ken's session", w.ken.token},
 		{"the token of Yuki's agent", w.own.token}, {"the tutor's token", w.tutor.token}, {"the model key", w.modelKey},
 	}, w.keys...)
 }

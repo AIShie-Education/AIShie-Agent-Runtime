@@ -8,7 +8,9 @@
 #   CORE_BIN=../AIShiteru-Core/bin/aishiterud DATABASE_URL=postgres:///aishie_e2e scripts/e2e.sh
 #
 # When E2E_CORE_URL and E2E_ROOT_TOKEN are already set, that Core is used
-# and nothing is started: it must be a throwaway.
+# and nothing is started: it must be a throwaway. E2E_ROOT_TOKEN is root's
+# signed-in session, as scripts/ci-core.sh start writes it, not an API
+# token: people hold none. The tests' people sign in with passwords too.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

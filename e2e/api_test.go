@@ -25,11 +25,11 @@ import (
 // apiTakesCoresAssertion is R4 against the real Core: the runtime's API,
 // on a listener of its own with its store in PostgreSQL, takes the
 // assertion Core mints for a person, checked against the key Core
-// publishes. Yuki asks Core with her token, and root signs in with a
-// password and asks with the session's cookie; GET /me names each, root as
-// an administrator. An assertion Core made for another runtime, one past
-// its time, and one tampered with are refused, and /status is not there.
-// No answer and no log holds an assertion.
+// publishes. Yuki asks Core with her session as a bearer token, and root
+// signs in again with its password and asks with that session's cookie;
+// GET /me names each, root as an administrator. An assertion Core made for
+// another runtime, one past its time, and one tampered with are refused,
+// and /status is not there. No answer and no log holds an assertion.
 func apiTakesCoresAssertion(t *testing.T, w *world) {
 	audience, other := os.Getenv("E2E_RUNTIME_AUDIENCE"), os.Getenv("E2E_OTHER_AUDIENCE")
 	if audience == "" || other == "" {
@@ -48,7 +48,7 @@ func apiTakesCoresAssertion(t *testing.T, w *world) {
 		t.Errorf("GET /info: %+v", info)
 	}
 
-	// Yuki, with her token; one agent of hers hosted.
+	// Yuki, with her session as a bearer token; one agent of hers hosted.
 	yukis := w.assertion(t, w.yuki.token, "", audience)
 	tok := store.Secret{ID: "sec_e2e_" + w.yuki.id[:8], TenantID: "ten_" + w.yuki.id, Kind: store.SecretCoreToken, KEKID: "local:v1",
 		WrappedDEK: []byte{1}, Nonce: []byte{2}, Ciphertext: []byte{3}}
@@ -65,7 +65,8 @@ func apiTakesCoresAssertion(t *testing.T, w *world) {
 		t.Errorf("Yuki is not recorded as a person who used the API: %+v %v", p, err)
 	}
 
-	// Root, signed in with a password, asking with the session's cookie.
+	// Root, signed in again with its password, asking with the session's
+	// cookie, as a browser does.
 	if password := os.Getenv("E2E_PASSWORD"); password != "" {
 		roots := w.assertion(t, "", w.signIn(t, "root@e2e.test", password), audience)
 		rt.getJSON(t, "/runtime/api/v1/me", roots, http.StatusOK, &me)
@@ -150,24 +151,9 @@ func (w *world) assertion(t *testing.T, token, cookie, audience string) string {
 // header sends it back.
 func (w *world) signIn(t *testing.T, email, password string) string {
 	t.Helper()
-	body, err := json.Marshal(map[string]string{"email": email, "password": password})
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp, err := w.api.hc.Post(w.api.base+"/v1/auth/login", "application/json", strings.NewReader(string(body)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, _ = io.Copy(io.Discard, resp.Body)
-	_ = resp.Body.Close()
-	for _, c := range resp.Cookies() {
-		if c.Name == "ais_session" && c.Value != "" {
-			w.addSecret("root's session", c.Value)
-			return c.Name + "=" + c.Value
-		}
-	}
-	t.Fatalf("POST /v1/auth/login: HTTP %d and no session", resp.StatusCode)
-	return ""
+	session := w.api.session(t, "/v1/auth/login", map[string]string{"email": email, "password": password})
+	w.addSecret("root's session in a cookie", session)
+	return "ais_session=" + session
 }
 
 // apiInstance is the runtime's API, served as run serves it.

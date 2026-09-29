@@ -3,9 +3,11 @@ package toolset
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -21,11 +23,12 @@ import (
 )
 
 // TestLiveCore runs a student's own agent's toolset against a real Core
-// (scripts/ci-core.sh start, then E2E_CORE_URL and E2E_ROOT_TOKEN): the live
-// catalogue passes Check, a delegate's seat is offered the eleven reads, and
-// what the model would write, strict nulls and a wrong course included,
-// reaches Core and is executed. A document's files come back from Core's
-// own file store as text and as a file part, and no URL reaches the model.
+// (scripts/ci-core.sh start, then E2E_CORE_URL and E2E_ROOT_TOKEN, root's
+// signed-in session): the live catalogue passes Check, a delegate's seat is
+// offered the eleven reads, and what the model would write, strict nulls
+// and a wrong course included, reaches Core and is executed. A document's
+// files come back from Core's own file store as text and as a file part,
+// and no URL reaches the model.
 func TestLiveCore(t *testing.T) {
 	base, root := os.Getenv("E2E_CORE_URL"), os.Getenv("E2E_ROOT_TOKEN")
 	if base == "" || root == "" {
@@ -36,17 +39,12 @@ func TestLiveCore(t *testing.T) {
 	c := &liveREST{t: t, base: strings.TrimRight(base, "/")}
 	run := fmt.Sprint(time.Now().UnixNano())
 
-	// An admin, an instructor and a student, a course, and in it a
-	// published assignment and three documents: Markdown text, a Markdown
-	// file and a PDF file.
-	adminID := c.result(root, "POST", "/v1/actors", map[string]any{"kind": "human", "display_name": "Admin " + run, "platform_role": "admin"})["actor_id"].(string)
-	admin := c.result(root, "POST", "/v1/actors/"+adminID+"/tokens", map[string]any{"label": "t"})["token"].(string)
-	actor := func(name string) (string, string) {
-		id := c.result(admin, "POST", "/v1/actors", map[string]any{"kind": "human", "display_name": name})["actor_id"].(string)
-		return id, c.result(admin, "POST", "/v1/actors/"+id+"/tokens", map[string]any{"label": "t"})["token"].(string)
-	}
-	satoID, sato := actor("Sato")
-	yukiID, yuki := actor("Yuki")
+	// An admin, an instructor and a student, each signed in with a password
+	// (person), a course, and in it a published assignment and three
+	// documents: Markdown text, a Markdown file and a PDF file.
+	_, admin := c.person(root, run, "Admin", map[string]any{"platform_role": "admin"})
+	satoID, sato := c.person(admin, run, "Sato", nil)
+	yukiID, yuki := c.person(admin, run, "Yuki", nil)
 	term := c.result(admin, "POST", "/v1/terms", map[string]any{"name": "T" + run, "starts_on": "2026-09-01", "ends_on": "2026-12-20"})["id"].(string)
 	dept := c.result(admin, "POST", "/v1/departments", map[string]any{"name": "D" + run})["id"].(string)
 	course := c.result(admin, "POST", "/v1/courses", map[string]any{"dept_id": dept, "term_id": term, "code": "CS" + run[len(run)-4:], "section": "A", "title": "Intro"})
@@ -246,6 +244,46 @@ func (c *liveREST) result(token, method, path string, body map[string]any) map[s
 		}
 	}
 	return m
+}
+
+// person is registrar registering a person, with the fields more adds (a
+// platform role, say), who then signs in with a password as people do:
+// people hold no API tokens, only agents do. They are given an email of
+// the run's, invited to choose a password (actor.invite), choose one as the
+// front end's page for invitations does (POST /v1/auth/invite), and sign in
+// with it (POST /v1/auth/login). It returns their actor's id and that
+// session, which Core takes as a bearer token.
+func (c *liveREST) person(registrar, run, name string, more map[string]any) (id, session string) {
+	c.t.Helper()
+	c.n++
+	email := fmt.Sprintf("person-%s-%d@live.test", run, c.n)
+	body := map[string]any{"kind": "human", "display_name": name, "email": email}
+	maps.Copy(body, more)
+	id = c.result(registrar, "POST", "/v1/actors", body)["actor_id"].(string)
+	invite := c.result(registrar, "POST", "/v1/actors/"+id+"/invite", nil)["token"].(string)
+	password := rand.Text()
+	c.session("/v1/auth/invite", map[string]string{"token": invite, "password": password})
+	return id, c.session("/v1/auth/login", map[string]string{"email": email, "password": password})
+}
+
+// session posts body to path, where Core signs someone in, and returns the
+// session Core sets as its cookie.
+func (c *liveREST) session(path string, body map[string]string) string {
+	c.t.Helper()
+	b, _ := json.Marshal(body)
+	resp, err := http.Post(c.base+path, "application/json", bytes.NewReader(b))
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	for _, ck := range resp.Cookies() {
+		if ck.Name == "ais_session" && ck.Value != "" {
+			return ck.Value
+		}
+	}
+	c.t.Fatalf("POST %s: HTTP %d, and no session: %s", path, resp.StatusCode, raw)
+	return ""
 }
 
 // catalogue reads GET /v1/tools as the toolset does.

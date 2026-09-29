@@ -146,8 +146,8 @@ func memberWrites(t *testing.T, w *world) {
 		t.Fatal(err)
 	}
 	aoi, ren := w.register(t, "Aoi"), w.register(t, "Ren")
-	w.addSecret("Aoi's token", aoi.token)
-	w.addSecret("Ren's token", ren.token)
+	w.addSecret("Aoi's session", aoi.token)
+	w.addSecret("Ren's session", ren.token)
 
 	m := newModel(t, membersResponder)
 	rt := w.startRuntime(t, m, runtimeConf{agents: []agentConf{{id: "registrar", seat: registrar,
