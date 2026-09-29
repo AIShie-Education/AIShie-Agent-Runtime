@@ -89,7 +89,27 @@ func (c *Core) mcpHandler() http.Handler {
 		return &sdkauth.TokenInfo{UserID: a.id}, nil
 	}
 	authed := sdkauth.RequireBearerToken(verify, &sdkauth.RequireBearerTokenOptions{AllowMissingExpiration: true})
-	return c.refusedLogged("mcp", authed(c.peeked("mcp", c.injected(c.limited(screened(bounded(c.based(sdk))))))))
+	return c.refusedLogged("mcp", authed(c.peeked("mcp", c.injected(c.limited(screened(bounded(c.based(requested(sdk)))))))))
+}
+
+// requestKey carries the context of the HTTP request a tool call came in,
+// as Core's mcpapi does: the SDK does not end a call when its request ends.
+type requestKey struct{}
+
+// requested lets a tool call see its request's context (requestOf).
+func requested(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), requestKey{}, r.Context())))
+	})
+}
+
+// requestOf is the context of the HTTP request a tool call with ctx came
+// in, which ends when its client goes; ctx itself when it has none.
+func requestOf(ctx context.Context) context.Context {
+	if r, ok := ctx.Value(requestKey{}).(context.Context); ok {
+		return r
+	}
+	return ctx
 }
 
 func (c *Core) newServer() *mcp.Server {
@@ -112,7 +132,7 @@ type envelope struct {
 }
 
 func (c *Core) toolHandler(t *toolDef) mcp.ToolHandler {
-	return func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		// A protocol error is for what the model cannot act on; everything
 		// else comes back as a result it can read and correct itself from.
 		if req.Extra == nil || req.Extra.TokenInfo == nil {
@@ -125,7 +145,7 @@ func (c *Core) toolHandler(t *toolDef) mcp.ToolHandler {
 			out = errorOutcome(invalid("%v", err))
 			c.logCall(Call{ActorID: req.Extra.TokenInfo.UserID, Transport: "mcp", Tool: t.mcpName, Args: raw, IdempotencyKey: key}, out, http.StatusOK)
 		} else {
-			out = c.serve(req.Extra.TokenInfo.UserID, "mcp", t, raw, args, key, req.Extra.Header.Get(baseHeader))
+			out = c.serve(requestOf(ctx), req.Extra.TokenInfo.UserID, "mcp", t, raw, args, key, req.Extra.Header.Get(baseHeader))
 		}
 		env := envelope{outcome: out}
 		if out.Status == actProposed {
@@ -136,8 +156,9 @@ func (c *Core) toolHandler(t *toolDef) mcp.ToolHandler {
 }
 
 // serve runs one call that reached a tool, from either door: the hook
-// first, outside the lock, then the pipeline, then the log.
-func (c *Core) serve(actorID, transport string, t *toolDef, sent, args []byte, key, base string) outcome {
+// first, outside the lock, then the pipeline, then the log. ctx is the HTTP
+// request's: a call that waits for news stops waiting when it ends.
+func (c *Core) serve(ctx context.Context, actorID, transport string, t *toolDef, sent, args []byte, key, base string) outcome {
 	c.hooks.RLock()
 	hook := c.onCall
 	c.hooks.RUnlock()
@@ -151,7 +172,7 @@ func (c *Core) serve(actorID, transport string, t *toolDef, sent, args []byte, k
 	if caller == nil {
 		out = errorOutcome(newErr(codeUnauthenticated, "actor %s does not exist", actorID))
 	} else {
-		out = c.invoke(caller, t, args, key, base)
+		out = c.waitForNews(ctx, caller, t, args, base, c.invoke(caller, t, args, key, base))
 	}
 	c.calls = append(c.calls, Call{ActorID: actorID, Transport: transport, Tool: t.mcpName, Args: append(json.RawMessage(nil), sent...),
 		IdempotencyKey: key, Status: out.Status, Code: codeOf(out), ActionID: out.ActionID, Replayed: out.Replayed,

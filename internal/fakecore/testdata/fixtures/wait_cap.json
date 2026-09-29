@@ -1,0 +1,72 @@
+{
+ "scenario": "wait_cap",
+ "steps": [
+  {
+   "answered": "at_once",
+   "args": {
+    "course_id": "<id:1>",
+    "wait_s": 5
+   },
+   "envelope": {
+    "result": {
+     "conversations": []
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "past_the_cap",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  },
+  {
+   "answered": [
+    {
+     "answered": "on_news",
+     "calls": 16
+    }
+   ],
+   "args": {
+    "course_id": "<id:1>",
+    "wait_s": 5
+   },
+   "envelope": {
+    "result": {
+     "conversations": [
+      {
+       "created_at": "<time>",
+       "id": "<id:2>",
+       "last_author_member_id": "<id:3>",
+       "last_message_at": "<time>",
+       "latest_opener_message_id": "<id:4>",
+       "opener": {
+        "display_name": "Yuki",
+        "kind": "human",
+        "member_id": "<id:3>"
+       },
+       "respondent": {
+        "answer_level": "autonomous",
+        "display_name": "CS101 Tutor",
+        "is_delegate_of_opener": false,
+        "kind": "agent",
+        "last_seen_at": "<time>",
+        "member_id": "<id:5>",
+        "owner_name": "Sato",
+        "role": "assistant",
+        "seat_status": "active"
+       },
+       "state": "awaiting_answer",
+       "status": "open"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "those_waiting",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  }
+ ]
+}

@@ -224,6 +224,9 @@ func TestValidate(t *testing.T) {
 		{name: "rate share", agent: map[string]any{"polling.max_rate_share": 0}, want: []problem{{agent: "a1", path: "agent.polling.max_rate_share"}}},
 		{name: "rate share over one", agent: map[string]any{"polling.max_rate_share": 1.1}, want: []problem{{agent: "a1", path: "agent.polling.max_rate_share"}}},
 		{name: "rates", agent: map[string]any{"polling.assumed_core_rate_per_min": 0, "polling.assumed_core_burst": 0, "polling.hot_window_s": -1}, want: []problem{{agent: "a1", path: "agent.polling.assumed_core_rate_per_min"}, {agent: "a1", path: "agent.polling.assumed_core_burst"}, {agent: "a1", path: "agent.polling.hot_window_s"}}},
+		{name: "long polls", agent: map[string]any{"polling.long_poll_wait_s": 26, "polling.long_poll_max": -1}, want: []problem{{agent: "a1", path: "agent.polling.long_poll_wait_s"}, {agent: "a1", path: "agent.polling.long_poll_max"}}},
+		{name: "long polls negative", agent: map[string]any{"polling.long_poll_wait_s": -1}, want: []problem{{agent: "a1", path: "agent.polling.long_poll_wait_s", msg: "from 0 to 25"}}},
+		{name: "no long polls", agent: map[string]any{"polling.long_poll_wait_s": 0, "polling.long_poll_max": 0}},
 		{name: "retention", agent: map[string]any{"memory.retention_days_after_removal": -1}, want: []problem{{agent: "a1", path: "agent.memory.retention_days_after_removal"}}},
 		{name: "retention zero", agent: map[string]any{"memory.retention_days_after_removal": 0}},
 

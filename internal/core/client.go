@@ -92,3 +92,38 @@ func PriorityOf(ctx context.Context) Priority {
 	}
 	return PriorityBackground
 }
+
+// MaxWait is the longest a call may wait for news (Core's wait_s, 0 to 25
+// seconds): a Core whose catalogue offers wait_s bounds it so.
+const MaxWait = 25 * time.Second
+
+// WaitMargin is how much longer than its wait a call that waits for news
+// is given to answer: Core holds its end open for the wait, then answers
+// as any call does (Core's docs/agent-runtime.md §7.2 asks for wait_s plus
+// 15 s or so).
+const WaitMargin = 15 * time.Second
+
+type waitKey struct{}
+
+// WithWait marks ctx's calls as waiting for news up to d (wait_s): the
+// transports give each d plus WaitMargin to answer, where the HTTP client's
+// own timeout is shorter, and Retrying does not send one again after a
+// transient failure. A call that is not marked keeps the client's timeout.
+func WithWait(ctx context.Context, d time.Duration) context.Context {
+	return context.WithValue(ctx, waitKey{}, d)
+}
+
+// WaitOf is how long ctx's calls wait for news; 0 when unmarked.
+func WaitOf(ctx context.Context) time.Duration {
+	d, _ := ctx.Value(waitKey{}).(time.Duration)
+	return max(d, 0)
+}
+
+// waitSeconds is d as wait_s: whole seconds, rounded up, at most MaxWait;
+// 0 for no wait.
+func waitSeconds(d time.Duration) int {
+	if d <= 0 {
+		return 0
+	}
+	return int((min(d, MaxWait) + time.Second - 1) / time.Second)
+}

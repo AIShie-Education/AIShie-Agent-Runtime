@@ -137,7 +137,7 @@ func (c *Core) restTool(t *toolDef, method, pattern string) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		out := c.serve(actorID, "rest", t, args, args, key, c.baseURL(r))
+		out := c.serve(r.Context(), actorID, "rest", t, args, args, key, c.baseURL(r))
 		// Carried out; the answer is held as a slow network would hold it.
 		sleep(context.WithoutCancel(r.Context()), delayAfter)
 		if out.Status == "error" {

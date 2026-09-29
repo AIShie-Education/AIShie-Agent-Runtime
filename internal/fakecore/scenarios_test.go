@@ -994,6 +994,8 @@ var scenarios = []scenario{
 	modelWrites,
 	memberWrites,
 	rosterReads,
+	waitForNews,
+	waitCap,
 }
 
 // modelWrites is a write a model makes through its seat's perms (the

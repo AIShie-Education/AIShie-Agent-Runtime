@@ -8,10 +8,14 @@ import (
 )
 
 // Polling spends a share of Core's rate limit (Core's docs/agent-runtime.md
-// §7.2, §7.3). Core has no long poll, no push and no inbox across courses,
-// so every seat's inbox is asked on its own: often while a student is
-// likely to follow up, less often as it stays quiet, and never so often
-// that the agent's seats together pass their share.
+// §7.2, §7.3). Core pushes nothing and has no inbox across courses, so
+// every seat's inbox is asked on its own. Where Core's reads wait for news
+// (wait_s), a seat's inbox call waits for a question and is made again at
+// once (longpoll.go); against an older Core, and while it does not wait, a
+// seat polls on the schedule here: often while a student is likely to
+// follow up, less often as it stays quiet, and never so often that the
+// agent's seats together pass their share. A call that waits is one call
+// to the share, however long it waits.
 
 // Slowdown is how long intervals stay doubled after Core says 429.
 const Slowdown = 5 * time.Minute
@@ -73,6 +77,18 @@ func InboxInterval(p config.Polling, hot bool, emptyPolls int, floor time.Durati
 		d *= 2
 	}
 	return Jitter(d, p.Jitter, r)
+}
+
+// LongPollNext is when a seat that long-polls asks its inbox again, after
+// a call that began at start and found nothing, or on a wake-up: at once,
+// but no sooner after start than floor, the rate share's floor, allows; and
+// while the agent is slowed after a 429 (slow), no sooner than slowed, its
+// schedule's interval, doubled as InboxInterval doubles it.
+func LongPollNext(start time.Time, floor, slowed time.Duration, slow bool) time.Time {
+	if slow {
+		return start.Add(max(floor, slowed))
+	}
+	return start.Add(floor)
 }
 
 // Jitter spreads d by ±frac, with r in [0, 1): r = 0.5 leaves it as it is.

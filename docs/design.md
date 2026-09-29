@@ -98,6 +98,18 @@ for as long as the context allows; on a 429 it sleeps `Retry-After` plus
 jitter and tells the agent's limiter, which halves polling for five minutes.
 The rate limiter (`ratelimit`) sits under it: every call waits for a token.
 
+A call that waits for news (`wait_s`, §5.2) is marked so (`core.WithWait`),
+and differs in three ways. Its HTTP timeout is its wait plus 15 s
+(`core.WaitMargin`), over MCP and REST alike: a copy of the client, sharing
+its transport, where the client's own timeout is shorter; every other call
+keeps the client's (`core.DefaultTimeout`, 30 s, unless the operator's
+client has its own). It takes one token, like any call, and holds none
+while it waits: the token is spent before the call is made. And `Retrying`
+sends it again after a 429 but not after a transient failure or an
+`internal`: a read has no key, and the seat makes it again as its schedule
+says, and sees a long poll cut short again and again (a proxy that gives a
+request less than its wait) for what it is.
+
 ### 2.2 The rate limit
 
 One bucket per agent, at 90 % of Core's allowance (540 a minute, burst 90 at
@@ -105,7 +117,10 @@ the defaults). Waiting calls are served by priority: answers, then polling,
 then events and seats (`core.PriorityOf`). Polling also has a share of its
 own (`max_rate_share`, 30 %): each seat's inbox interval is at least
 `courses × 60 / (share × rate − event and seat calls a minute)` seconds
-(§7.3).
+(§7.3). A long poll is one call to the bucket and to the share, however
+long it waits, and the next begins no sooner after it began than that
+floor: idle, a seat that long-polls spends one call per `wait_s`, 2.4 a
+minute at 25 s, where the schedule spends 2 to 6 idle and 30 hot.
 
 ### 2.3 The catalogue
 
@@ -114,7 +129,13 @@ of its canonical JSON. `core.Catalogue` holds each tool's MCP name, kind and
 input schema. The permission gates of §4 are kept by hand in `toolset`,
 checked at start against the catalogue: a gated tool missing, or no longer
 of its gate's kind (a read, or a write), is refused. CI compares the pinned
-Core's catalogue with `internal/core/testdata/catalogue.json`.
+Core's catalogue with `internal/core/testdata/catalogue.json`. Whether Core's
+reads wait for news is read from the catalogue it serves, never from the
+snapshot: `Catalogue.MaxWait` is `wait_s`'s maximum in a tool's input
+schema, or none on a Core from before 2c1fe1b, whose schemas refuse any
+argument they do not name. The catalogue is fetched once per Core and
+worker: after upgrading Core, restart or reload the runtime for it to
+long-poll.
 
 ## 3. Models
 
@@ -740,19 +761,67 @@ agent makes no calls at all.
 
 Per seat (§7.2):
 
-- **Inbox**: every `inbox_hot_s` for `hot_window_s` after activity (an
-  answer posted, an event of the opener writing), else `inbox_idle_s`,
-  growing ×1.5 per empty poll to `inbox_max_s`; every interval jittered by
-  `±jitter`, and never below the rate share's floor; the first poll of each
-  seat spread over the idle interval. After a 429, the inbox, events and
-  seats intervals all double for five minutes. A poll counts as empty only
-  when it finds nothing new: rows waiting for a slot do not slow the next.
+- **Inbox, long-polled** (`worker/longpoll.go`, `seat.go` `pollInboxOnce`,
+  `nextInbox`): where the catalogue Core serves offers `wait_s` on
+  `conversation_inbox` (2c1fe1b and later), each call asks Core to wait
+  `long_poll_wait_s` (25 s, whole seconds, at most what Core offers) for a
+  question, and Core answers as soon as one is committed: against 2c1fe1b
+  the question is claimed some 20 ms after it is written. A call that comes back empty is made again at once, no
+  sooner after the last began than the rate share's floor, and while the
+  agent is slowed after a 429 no sooner than its doubled schedule
+  (`LongPollNext`). Core answers at once while questions wait, whether or
+  not they are being answered, so a call that found rows is followed by a
+  poll on the schedule below, and a wake-up (an answer posted, the opener
+  writing, a proposal settled, a hold lifted) brings the next call forward
+  to now. Stopping the worker, or a seat, cancels its call at once.
+- **How many wait**: an agent's calls waiting for news, inboxes and events
+  together, are at most `long_poll_max` (12; Core lets one actor have 16,
+  `LONG_POLL_WAITERS_PER_ACTOR`, and answers any past that at once).
+  `Agent.takeLongPoll` gives the places to the seats most recently active
+  (a question found, an answer posted, the opener writing), ties by member
+  id; the rest poll on the schedule, and a seat that has lost its rank
+  gives its place back when its call returns, within `wait_s`. An agent in
+  more courses than that long-polls the busiest and polls the others.
+- **Falling back** (`Seat.fallBack`): a call that comes back empty in under
+  half its wait, not for the seat stopping, is Core not waiting (its bound
+  per actor or in all reached, or Core stopping); one that did not come back
+  is cut short (a proxy that gives a request less than `wait_s` plus 15 s);
+  one Core refused with `invalid_argument` naming `wait_s` (an older Core
+  behind the URL than its catalogue said, over MCP an envelope, over REST
+  a 400) is made again at once without it, and counted as no error. After
+  any of the three the seat polls on the schedule for a minute
+  (`Timing.LongPollFallback`, jittered), then tries again;
+  `long_poll_fallbacks_total{why=early|cut|refused}` counts them, and
+  `/status` shows a seat's `scheduled_until`.
+- **Inbox, on the schedule**, against a Core without `wait_s`, with
+  `long_poll_wait_s` or `long_poll_max` 0, and for the seats above: every
+  `inbox_hot_s` for `hot_window_s` after activity (an answer posted, an
+  event of the opener writing), else `inbox_idle_s`, growing ×1.5 per empty
+  poll to `inbox_max_s`; every interval jittered by `±jitter`, and never
+  below the rate share's floor; the first poll of each seat spread over the
+  idle interval. After a 429, the inbox, events and seats intervals all
+  double for five minutes. A poll counts as empty only when it finds
+  nothing new: rows waiting for a slot do not slow the next. After polls
+  that failed, the schedule and a backoff of 1, 2, 4 … 60 s.
+- **What is no news** to a waiting call, a seat's perms changed or a token
+  revoked, is seen when it reads again at the end of its wait, within
+  `wait_s`; me_memberships, every `memberships_s`, may see it first, and
+  stop the seat.
 - **Events**: every `events_s`, and after a `proposed` answer at once, then
-  after 5, 15 and 45 s. The cursor (`next_seq`) is kept in the store per
-  seat, and moves past a page only when every event on it was recorded; a
-  store that fails on one has the page read again. The real Core does not
-  move `next_seq` over events the actor cannot see, so a page with no
-  events ends the round.
+  after 5, 15 and 45 s. Where `event_list` takes `wait_s` and a place is
+  left over by the inboxes, the follow-ups' 45 s are long-polled instead
+  (`pollEventsOnce`): each read waits for news until the window closes, and
+  the next begins at once but no sooner than `inbox_hot_s` after the last,
+  so that a busy feed is not read without pause; a decision made in the
+  window is settled within milliseconds. The background read every
+  `events_s` stays at 45 s: the inbox's long poll sees the decisions that
+  put a question back (rejected, cancelled, failed), but only the feed
+  tells a proposal approved and posted after the window, and a message
+  retracted, whose memory is to be forgotten promptly (§6.3). The cursor
+  (`next_seq`) is kept in the store per seat, and moves past a page only
+  when every event on it was recorded; a store that fails on one has the
+  page read again. The real Core does not move `next_seq` over events the
+  actor cannot see, so a page with no events ends the round.
 - **Seats**: every `memberships_s`; an agent with no seat to poll reads them
   every `inbox_max_s` instead, so that Core still shows it present and a
   restored seat is noticed soon.
@@ -827,7 +896,7 @@ For an inbox row (conversation X, question M, opener P):
 | Envelope | Done |
 |---|---|
 | `executed` (any review state) | record; course hot; memory note `answered` |
-| `proposed` | keep the action id (state `proposed`); events polled now, +5, +15, +45 s |
+| `proposed` | keep the action id (state `proposed`); events polled now, +5, +15, +45 s, or long-polled for those 45 s (§5.2) |
 | `denied` | hold the seat until `me_memberships` changes; agent detail says so |
 | `failed conflict moved_on` | back to 5 for `details.latest_opener_message_id` (at most 3 times per claim) |
 | `failed conflict already_answered`, `answer_pending` | leave it |
@@ -1032,7 +1101,9 @@ quotas unless set (a school key requires per-agent and per-asker ones, but
 an offer of the school's plan, whose quotas are 100 answers a day per
 owner and 20 per asker unless `runtime.school` sets them);
 polling 2 s hot for 120 s, 10 s idle to 30 s, events 45 s, seats 300 s,
-±25 %, 30 % of 600 a minute; memory on, purged 30 days after a seat goes;
+±25 %, 30 % of 600 a minute, and where Core offers `wait_s` each inbox
+long-polled for 25 s (`long_poll_wait_s`), at most 12 calls of an agent's
+waiting at once (`long_poll_max`); memory on, purged 30 days after a seat goes;
 files of at most 10 MB, read within `doctext.DefaultLimits` and 20 s, their
 text given in parts of 24 KB within results of 32 KB, what was read kept
 per worker up to 32 MiB; OCR on where its programs are, in
@@ -1045,7 +1116,10 @@ question waiting 5 s for it.
 - `fakecore`: the MCP surface and envelope of Core, scriptable: questions,
   follow-ups written during generation, levels changed, seats paused or
   removed, proposals approved, rejected or expired, retractions, 429s and
-  401s; each seat's ceilings, as Core works them out; an agent's owner
+  401s; reads that wait for news (`wait_s`), woken by the news Core's
+  filters let through, within Core's bounds on calls waiting, and a Core
+  from before them (`WithoutWait`); each seat's ceilings, as Core works
+  them out; an agent's owner
   deciding and reviewing what it did where they could do it themselves;
   and no question to an agent that has not declared it answers in the site
   (the worker's tests wait for the runtime's declaration, or, asking
@@ -1172,7 +1246,16 @@ question waiting 5 s for it.
   table of its database, or in its status.
 - `worker`: the fake Core and the scripted model: every row of §5.3's table,
   moved on, duplicates across two workers, denied, 401, 429, quotas,
-  budgets, proposals followed, retractions; no token in any log line; the
+  budgets, proposals followed, retractions; long polls (§5.2): a question
+  claimed at once by an inbox waiting 20 s, an older Core polled on the
+  schedule, one behind a newer catalogue refusing `wait_s` over MCP and
+  REST, Core not waiting and a long poll cut short sending the seat to its
+  schedule and back, four seats with `long_poll_max` 2 never waiting more
+  than two at once and the seat that just answered among them, a seat
+  stopping and a worker stopping ending their waits at once, a 429's
+  slowdown spacing long polls, a long poll outlasting the client's own
+  timeout, and a decision on a proposal settled at once; and the load test
+  on the schedule and long-polling; no token in any log line; the
   safety evaluations (injected instructions to call other tools, to answer
   about other students, to post links carrying data); an owner's write
   proposed then executed, counted, logged without its arguments and
@@ -1200,7 +1283,9 @@ question waiting 5 s for it.
 - `e2e`: the pinned Core (`scripts/ci-core.sh`), agents seated over REST, the
   runtime with the scripted OpenAI Chat server behind the real `openai_chat`
   adapter: a student's own agent answers within the latency target and a
-  course tutor keeps askers apart; moved on and duplicates across two
+  course tutor keeps askers apart; an idle tutor long-polling its inbox
+  claims each question within a second of its being written (against
+  2c1fe1b, some 20 ms), with a schedule that would take 10 s; moved on and duplicates across two
   workers are safe (an agent asked before the runtime starts is one an
   earlier run declared; every other is asked once the runtime has declared
   that it answers in the site, which Core requires); a seat set to

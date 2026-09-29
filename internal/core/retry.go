@@ -39,6 +39,12 @@ type RetryOptions struct {
 // envelope come back at once. When the context ends, the last answer comes
 // back: the last envelope as it was, or the last error joined with the
 // context's, so that errors.As still finds it.
+//
+// A call that waits for news (WithWait) is a read, with no key, that its
+// caller makes again as its schedule says: it is sent again after a 429,
+// but not after a transient failure or an error internal, which come back
+// at once. A long poll cut short again and again, by a proxy that gives a
+// request less than its wait, is then the caller's to see.
 type Retrying struct {
 	next Caller
 	o    RetryOptions
@@ -76,6 +82,8 @@ func (r *Retrying) Call(ctx context.Context, tool string, args json.RawMessage) 
 			// The context ended during the call (or while it waited for a
 			// token): what Core said last is the answer.
 			return r.last(ctx, lastEnv, lastErr)
+		case WaitOf(ctx) > 0 && (isTransient(err) || err == nil && env != nil && env.Status == StatusError && env.Code() == CodeInternal):
+			return env, err
 		case err == nil && env != nil && env.Status == StatusError && env.Code() == CodeInternal:
 			lastEnv, lastErr = env, nil
 			wait = r.backoff(failures)

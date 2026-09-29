@@ -76,7 +76,7 @@ func TestNoSecretOrTextInTheLogs(t *testing.T) {
 // inbox_max_s (and its jitter) apart, whether or not it has a seat to poll,
 // so that Core shows it present (§2.5); a paused one makes none at all.
 func TestPresence(t *testing.T) {
-	polling := map[string]any{"polling": map[string]any{"inbox_idle_s": 0.04, "inbox_max_s": 0.08, "memberships_s": 5, "events_s": 5}}
+	polling := map[string]any{"polling": onSchedule(map[string]any{"inbox_idle_s": 0.04, "inbox_max_s": 0.08, "memberships_s": 5, "events_s": 5})}
 	bound := time.Duration(0.08*1.25*float64(time.Second)) + 60*time.Millisecond
 	gaps := func(w *world, actor string, since time.Time) time.Duration {
 		var at []time.Time
@@ -104,6 +104,19 @@ func TestPresence(t *testing.T) {
 		time.Sleep(time.Second + 200*time.Millisecond)
 		if most := gaps(w, own.actor.ID, since); most > bound {
 			t.Errorf("calls %s apart, more than %s", most, bound)
+		}
+	})
+	t.Run("long-polling a seat", func(t *testing.T) {
+		// Each call waits a second for news, and the next is made at once.
+		w := newWorld(t)
+		own := w.ownAgent("yuki-helper", 0)
+		long := map[string]any{"polling": map[string]any{"inbox_idle_s": 0.04, "inbox_max_s": 0.08, "memberships_s": 5, "events_s": 0.5}}
+		wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", long, nil)), models{"m1": scripted.New()}, workerOpts{})
+		wk.waitState("yuki-helper", store.AgentRunning)
+		since := time.Now().Add(200 * time.Millisecond)
+		time.Sleep(3*time.Second + 200*time.Millisecond)
+		if most := gaps(w, own.actor.ID, since); most > time.Second+bound {
+			t.Errorf("calls %s apart, more than a second's wait and %s", most, bound)
 		}
 	})
 	t.Run("with no seat to poll", func(t *testing.T) {

@@ -54,6 +54,8 @@ agent:
     jitter: 0.25
     max_rate_share: 0.3            # of Core's allowance, for polling
     assumed_core_rate_per_min: 600
+    long_poll_wait_s: 25           # where Core offers wait_s; 0 polls on the schedule above alone
+    long_poll_max: 12              # calls waiting at once, all seats together; below Core's 16
   memory:
     enabled: true
     retention_days_after_removal: 30

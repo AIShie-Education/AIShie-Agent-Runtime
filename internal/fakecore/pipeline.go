@@ -682,8 +682,10 @@ func (c *Core) forgetAction(a *action) {
 	}
 }
 
-// flush gives events their place in the feed, in the order emitted.
+// flush gives events their place in the feed, in the order emitted, and
+// wakes the calls waiting for news (wait.go).
 func (c *Core) flush(evs []*event) {
+	defer c.newsFlushed(evs)
 	now := c.now()
 	for _, e := range evs {
 		c.seq++

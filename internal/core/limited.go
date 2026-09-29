@@ -15,7 +15,9 @@ import (
 // context's error. A nil b limits nothing.
 //
 // Under Retrying, each attempt waits for its own token: Core counts every
-// request.
+// request. A call that waits for news (WithWait) takes one token, as Core
+// counts it one call however long it waits, and holds none while it waits:
+// the token is spent before the call is made.
 func Limited(next Caller, b *ratelimit.Bucket) Caller {
 	if b == nil {
 		return next

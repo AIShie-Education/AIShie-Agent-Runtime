@@ -64,6 +64,9 @@ type world struct {
 	// noSiteChat: the fake answers as a Core from before me_site_chat,
 	// which asks no agent for it.
 	noSiteChat bool
+	// tools, when set, is served as GET /v1/tools instead of the fake's
+	// own catalogue: a Core behind the URL other than the catalogue says.
+	tools atomic.Pointer[[]byte]
 
 	logs *logBuffer
 }
@@ -80,10 +83,18 @@ func newWorldWith(t *testing.T, o fakecore.Options) *world {
 	w.srv = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/tools" {
 			w.catalogueFetches.Add(1)
+			if tools := w.tools.Load(); tools != nil {
+				rw.Header().Set("Content-Type", "application/json")
+				_, _ = rw.Write(*tools)
+				return
+			}
 		}
 		fc.Handler().ServeHTTP(rw, r)
 	}))
 	t.Cleanup(w.srv.Close)
+	// Before the server closes, which waits for every call in progress:
+	// those waiting for news answer at once.
+	t.Cleanup(fc.Shutdown)
 	w.co = fc.AddCourse("CS101")
 	w.sato = fc.AddPerson("Sato")
 	w.satoSeat = w.must(fc.Seat(w.sato.ID, w.co.ID, fakecore.SeatOptions{Preset: "instructor"}))
@@ -181,13 +192,24 @@ func (w *world) ask(i int, ag agent, body string) (string, string) {
 }
 
 // fastPolling are polling settings for tests: milliseconds, and an
-// allowance so large that the rate share's floor never binds.
+// allowance so large that the rate share's floor never binds. Inboxes
+// long-poll, as against the pinned Core, for the least Core takes, a
+// second: a change that is no news to Core (a seat's perms, a token
+// revoked) is seen when the call comes back.
 func fastPolling() map[string]any {
 	return map[string]any{
 		"inbox_hot_s": 0.01, "hot_window_s": 1, "inbox_idle_s": 0.02, "inbox_max_s": 0.05,
 		"events_s": 0.03, "memberships_s": 0.3, "jitter": 0.25, "max_rate_share": 0.3,
-		"assumed_core_rate_per_min": 600000, "assumed_core_burst": 10000,
+		"assumed_core_rate_per_min": 600000, "assumed_core_burst": 10000, "long_poll_wait_s": 1,
 	}
+}
+
+// onSchedule are polling settings over fastPolling's that poll on the
+// schedule alone, as against a Core from before wait_s.
+func onSchedule(more map[string]any) map[string]any {
+	p := map[string]any{"long_poll_wait_s": 0}
+	maps.Copy(p, more)
+	return p
 }
 
 // agentDoc is an agent's YAML document for a test: model names the

@@ -67,7 +67,9 @@ const DefaultMCPProtocol = "2025-11-25"
 // daily quotas (a school key must set
 // them); polling 2 s hot for 120 s, 10 s idle growing to 30 s, events every
 // 45 s, seats every 300 s, ±25 %, 30 % of Core's 600 calls a minute (burst
-// 100); memory on, purged 30 days after a seat goes.
+// 100), and where Core offers wait_s each inbox waiting 25 s for a
+// question, twelve calls at most waiting at once; memory on, purged 30
+// days after a seat goes.
 //
 // Each call returns a new map, as generic YAML: maps, lists and scalars.
 func Defaults() map[string]any {
@@ -122,6 +124,8 @@ func Defaults() map[string]any {
 			"max_rate_share":            0.3,
 			"assumed_core_rate_per_min": 600,
 			"assumed_core_burst":        100,
+			"long_poll_wait_s":          25,
+			"long_poll_max":             12,
 		},
 		"memory": map[string]any{
 			"enabled":                      true,

@@ -134,6 +134,7 @@ type eventListIn struct {
 	inCourse
 	SinceSeq int64 `json:"since_seq,omitempty"`
 	Limit    int   `json:"limit,omitempty"`
+	canWait
 }
 
 type eventView struct {

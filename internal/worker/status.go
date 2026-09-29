@@ -29,7 +29,10 @@ type AgentStatus struct {
 	// SlowUntil is when polling stops being halved after a 429.
 	SlowUntil *time.Time `json:"slow_until,omitempty"`
 	// Answering is how many answers are in progress.
-	Answering int          `json:"answering"`
+	Answering int `json:"answering"`
+	// LongPolls is how many of its calls wait for news now (wait_s), at
+	// most polling.long_poll_max.
+	LongPolls int          `json:"long_polls"`
 	Seats     []SeatStatus `json:"seats,omitempty"`
 }
 
@@ -55,6 +58,11 @@ type SeatStatus struct {
 	OwnerWrites []string   `json:"owner_writes,omitempty"`
 	LastPoll    *time.Time `json:"last_poll,omitempty"`
 	LastEvents  *time.Time `json:"last_events,omitempty"`
+	// LongPolling is whether its inbox call waits for news now.
+	// ScheduledUntil is when it may long-poll again, while it polls on
+	// its schedule because Core did not wait.
+	LongPolling    bool       `json:"long_polling"`
+	ScheduledUntil *time.Time `json:"scheduled_until,omitempty"`
 }
 
 // Status is every configured agent as this worker knows it, by id.
@@ -111,6 +119,7 @@ func (a *Agent) status(st *AgentStatus) {
 	}
 	a.mu.Unlock()
 	st.Answering = sched.busy()
+	st.LongPolls = a.longPollsNow()
 	for _, s := range seats {
 		st.Seats = append(st.Seats, s.status())
 	}
@@ -143,6 +152,11 @@ func (s *Seat) status() SeatStatus {
 	if !s.lastEvents.IsZero() {
 		t := s.lastEvents
 		st.LastEvents = &t
+	}
+	st.LongPolling = s.longPolling
+	if now.Before(s.fallbackUntil) {
+		t := s.fallbackUntil
+		st.ScheduledUntil = &t
 	}
 	return st
 }

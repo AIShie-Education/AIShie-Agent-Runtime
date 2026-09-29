@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Tool kinds in the catalogue.
@@ -178,6 +180,42 @@ func (c *Catalogue) MeGetNamesOwners() bool {
 	}
 	_, ok = schema.Properties["owner_actor_id"]
 	return ok
+}
+
+// MaxWait is the longest a call of the tool Core offers as mcpName may wait
+// for news, as its input schema says: wait_s's maximum, at most MaxWait (a
+// wait_s without one is taken to be Core's, 0 to 25); 0 when the tool takes
+// no wait_s, as on a Core from before 2c1fe1b, where a call with it is
+// refused. It is read from the catalogue Core serves, never from the
+// snapshot: a runtime is run against older Cores too.
+func (c *Catalogue) MaxWait(mcpName string) time.Duration {
+	if c == nil {
+		return 0
+	}
+	t, ok := c.Tool(mcpName)
+	if !ok {
+		return 0
+	}
+	var schema struct {
+		Properties map[string]*struct {
+			Type    json.RawMessage `json:"type"`
+			Maximum *float64        `json:"maximum"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(t.InputSchema, &schema); err != nil {
+		return 0
+	}
+	p := schema.Properties["wait_s"]
+	if p == nil || !slices.Contains((&propSchema{Type: p.Type}).types(), "integer") {
+		return 0
+	}
+	if p.Maximum == nil {
+		return MaxWait
+	}
+	if *p.Maximum < 1 {
+		return 0
+	}
+	return min(time.Duration(*p.Maximum)*time.Second, MaxWait)
 }
 
 // canonicalHash is the sha256 of raw's canonical JSON.

@@ -36,6 +36,11 @@ type Agent struct {
 	me      *core.Actor
 	primary *model
 	sched   *scheduler
+	// inboxMaxWait and eventsMaxWait are how long Core lets a call of
+	// conversation_inbox and of event_list wait for news, as the catalogue
+	// it serves says (Catalogue.MaxWait): 0 against a Core from before
+	// wait_s, which is polled on the schedule alone (longpoll.go).
+	inboxMaxWait, eventsMaxWait time.Duration
 
 	fail          context.CancelCauseFunc
 	answerCtx     context.Context
@@ -55,6 +60,10 @@ type Agent struct {
 	pairs     []modelPair
 	lastRead  time.Time
 	notice    string
+	// longPolls and eventLongPolls are the agent's inbox and event calls
+	// waiting for news now, at most polling.long_poll_max together
+	// (takeLongPoll).
+	longPolls, eventLongPolls int
 }
 
 // model is an adapter and what the loop needs to know beside it.
@@ -176,9 +185,11 @@ func (a *Agent) start(ctx context.Context) error {
 	a.mu.Lock()
 	a.cat, a.client, a.me, a.primary = cat, client, me, primary
 	a.sched = newScheduler(a.cfg.Answer.MaxConcurrent)
+	a.inboxMaxWait, a.eventsMaxWait = cat.MaxWait("conversation_inbox"), cat.MaxWait("event_list")
 	a.mu.Unlock()
 	a.log.Info("agent started", "actor", me.ID, "catalogue", cat.Hash(), "transport", a.cfg.Core.Transport,
-		"adapter", a.primary.ad.Name(), "provider", a.primary.ad.Provider(), "model", a.primary.ad.Model())
+		"adapter", a.primary.ad.Name(), "provider", a.primary.ad.Provider(), "model", a.primary.ad.Model(),
+		"long_poll", longPollWait(a.cfg.Polling, a.inboxMaxWait) > 0 && a.cfg.Polling.LongPollMax > 0)
 	if a.wantsSiteChat() {
 		if err := a.declareSiteChat(ctx); err != nil {
 			a.s.releaseActor(a.cfg.Core.BaseURL, me.ID, a.id)

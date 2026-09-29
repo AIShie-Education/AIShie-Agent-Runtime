@@ -25,7 +25,8 @@ const DefaultMaxResponseBytes int64 = 32 << 20
 
 // DefaultTimeout bounds one request to Core when the caller gives no
 // http.Client of its own. A call that times out is a *TransientError, sent
-// again unchanged: its idempotency key makes that safe (§2.2).
+// again unchanged: its idempotency key makes that safe (§2.2). A call that
+// waits for news (WithWait) is given longer (forCall).
 const DefaultTimeout = 30 * time.Second
 
 // DefaultRetryAfter is how long a 429 that names no time asks for.
@@ -59,6 +60,20 @@ func withoutRedirects(c *http.Client) *http.Client {
 }
 
 func stopAtRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+
+// forCall is c for one call made with ctx: for a call that waits for news
+// (WithWait), a copy, sharing c's transport, whose timeout is the wait plus
+// WaitMargin where c's own is shorter; c itself for any other call, and for
+// a client with no timeout, which the context alone bounds.
+func forCall(ctx context.Context, c *http.Client) *http.Client {
+	w := WaitOf(ctx)
+	if w <= 0 || c.Timeout <= 0 || c.Timeout >= w+WaitMargin {
+		return c
+	}
+	cp := *c
+	cp.Timeout = w + WaitMargin
+	return &cp
+}
 
 // redirected reports whether the answer is a redirect, or came from
 // somewhere other than where the request went (a client that follows

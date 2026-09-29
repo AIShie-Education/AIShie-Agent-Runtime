@@ -19,8 +19,10 @@
 // each seat's ceilings (the most it may hold of each permission, as Core's
 // domain.Ceiling works them out, and as its views show them), idempotency,
 // proposals and their decisions (an agent's owner's among them, where they
-// could have done it themselves), the inbox, events and who sees them, and
-// no question to an agent that has not declared it answers in the site; so
+// could have done it themselves), the inbox, events and who sees them, the
+// reads that wait for news (wait_s, wait.go) within Core's bounds on calls
+// waiting, and no question to an agent that has not declared it answers in
+// the site; so
 // are the writes people make that the test controls go through
 // (conversation_open, conversation_ask, action_decide, action_review), and
 // document_create and member_add, writes a model makes through its seat's
@@ -69,12 +71,26 @@ type Options struct {
 	// runtime was pinned to before 61b7494 (sitechat.go): its catalogue
 	// has no such tool, and the fake knows none.
 	WithoutSiteChat bool
+	// WithoutWait answers as a Core from before its reads waited for news,
+	// as the runtime was pinned to before 2c1fe1b (wait.go): its catalogue
+	// offers no wait_s and no seen_state, and a call that gives either is
+	// refused as the schema refuses any argument it does not name.
+	WithoutWait bool
+	// LongPollWaiters bounds the calls that wait for news at once, every
+	// actor's together (Core's LONG_POLL_WAITERS); LongPollWaitersPerActor,
+	// one actor's (LONG_POLL_WAITERS_PER_ACTOR). 0 is Core's default, 1000
+	// and 16; below 0 lets none wait. A call past either answers at once
+	// with what it read, as Core's does.
+	LongPollWaiters, LongPollWaitersPerActor int
 }
 
 // Core's defaults.
 const (
 	defaultBurst       = 100
 	defaultProposalTTL = 14 * 24 * time.Hour
+	// Core's wake.DefaultMaxWaiters and wake.DefaultMaxPerActor.
+	defaultLongPollWaiters         = 1000
+	defaultLongPollWaitersPerActor = 16
 )
 
 // Core is a fake AIShiteru Core. Its methods are safe for concurrent use.
@@ -105,6 +121,12 @@ type Core struct {
 	siteChat map[string]bool
 	// presetIDs are the built-in presets' ids, by name.
 	presetIDs map[string]string
+
+	// waiters are the calls waiting for news now (wait.go), which the
+	// events flushed wake; shutdown is closed by Shutdown.
+	waiters  map[*waiter]struct{}
+	shutdown chan struct{}
+	shut     bool
 
 	hooks  sync.RWMutex
 	inject func(InjectedCall) *Injection
@@ -169,19 +191,23 @@ var catalogueBeforeOwners = sync.OnceValues(func() (*catalogue, error) {
 	return withImpls(raw)
 })
 
-// catalogueWithoutSiteChat is the catalogue as a Core from before
-// me.site_chat serves it (Options.WithoutSiteChat), before C1 or not.
-func catalogueWithoutSiteChat(beforeOwners bool) (*catalogue, error) {
+// catalogueOf is the catalogue as the older Core o names serves it: from
+// before C1 (Options.BeforeOwners), before me.site_chat
+// (Options.WithoutSiteChat), before wait_s (Options.WithoutWait), or any
+// of them.
+func catalogueOf(o Options) (*catalogue, error) {
 	raw := catalogueJSON
-	if beforeOwners {
+	for _, older := range []struct {
+		is   bool
+		edit func([]byte) ([]byte, error)
+	}{{o.BeforeOwners, withoutOwners}, {o.WithoutSiteChat, withoutSiteChat}, {o.WithoutWait, withoutWait}} {
+		if !older.is {
+			continue
+		}
 		var err error
-		if raw, err = withoutOwners(raw); err != nil {
+		if raw, err = older.edit(raw); err != nil {
 			return nil, err
 		}
-	}
-	raw, err := withoutSiteChat(raw)
-	if err != nil {
-		return nil, err
 	}
 	return withImpls(raw)
 }
@@ -207,8 +233,8 @@ func New(o Options) *Core {
 	if o.BeforeOwners {
 		load = catalogueBeforeOwners
 	}
-	if o.WithoutSiteChat {
-		load = func() (*catalogue, error) { return catalogueWithoutSiteChat(o.BeforeOwners) }
+	if o.WithoutSiteChat || o.WithoutWait {
+		load = func() (*catalogue, error) { return catalogueOf(o) }
 	}
 	cat, err := load()
 	if err != nil {
@@ -220,12 +246,19 @@ func New(o Options) *Core {
 	if o.ProposalTTL <= 0 {
 		o.ProposalTTL = defaultProposalTTL
 	}
+	if o.LongPollWaiters == 0 {
+		o.LongPollWaiters = defaultLongPollWaiters
+	}
+	if o.LongPollWaitersPerActor == 0 {
+		o.LongPollWaitersPerActor = defaultLongPollWaitersPerActor
+	}
 	c := &Core{
 		opts: o, cat: cat,
 		actors: map[string]*actor{}, tokens: map[string]*credential{}, courses: map[string]*course{},
 		members: map[string]*member{}, conversations: map[string]*conversation{}, messages: map[string]*message{},
 		actions: map[string]*action{}, keys: map[actorKey]*action{}, blobs: map[string]*document{},
 		siteChat: map[string]bool{}, presetIDs: map[string]string{},
+		waiters: map[*waiter]struct{}{}, shutdown: make(chan struct{}),
 	}
 	c.system = &actor{id: newID(), kind: "system", name: "system", status: statusActive}
 	c.limiter = newLimiter(o.RatePerMinute, o.RateBurst, c.now)
