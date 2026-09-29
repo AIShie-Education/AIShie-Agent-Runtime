@@ -930,7 +930,9 @@ For an inbox row (conversation X, question M, opener P):
    skip until tomorrow (`silent`). An answer is on the key of the model
    that wrote it.
 5. **Read** X: `conversation_messages` (the newest `history_messages`). If
-   the opener's newest message is no longer M, answer that one instead.
+   the opener's newest message is retracted, the question is withdrawn
+   (below): it is not answered, and the pass is recorded `dropped`. If it
+   is no longer M, answer that one instead.
 6. **Prompt**: the system prompt (§6 below), the seat's facts, X's memory,
    and the history as turns: the opener's messages as `user`, the agent's as
    `assistant`, retracted ones as `[message retracted]`.
@@ -967,12 +969,12 @@ For an inbox row (conversation X, question M, opener P):
 | `executed` (any review state) | record; course hot; memory note `answered` |
 | `proposed` | keep the action id (state `proposed`); events polled now, +5, +15, +45 s, or long-polled for those 45 s (§5.2) |
 | `denied` | hold the seat until `me_memberships` changes; agent detail says so |
-| `failed conflict moved_on` | back to 5 for `details.latest_opener_message_id` (at most 3 times per claim) |
+| `failed conflict moved_on` | back to 5 for `details.latest_opener_message_id` (at most 3 times per claim); naming no message, the question was withdrawn: as `idempotency_conflict`, which finds it so |
 | `failed conflict already_answered`, `answer_pending` | leave it |
 | `failed conflict closed` | drop it |
 | `failed forbidden not_addressable` | drop it; read memberships again |
 | `failed invalid_argument` | if safety had cut or stripped the body, written again once, shorter and without links, under the next attempt; else failed |
-| `error idempotency_conflict` | never resend under that key; next attempt if X still waits on M (`conversation_get`) |
+| `error idempotency_conflict` | never resend under that key; next attempt if X still waits on M and M is not retracted (its newest messages, `conversation_messages`), the newer message if the opener wrote again, else nothing |
 | `error not_found` | drop it |
 | replayed | treated as its stored status |
 | replayed `rejected`, `cancelled` | next attempt, with the reason in the prompt |
@@ -983,6 +985,19 @@ For an inbox row (conversation X, question M, opener P):
 
 Every claimed message ends answered, proposed, closed, or with a recorded
 outcome.
+
+**A question withdrawn.** The opener withdraws what they asked ("stop" in
+the chat) by retracting their newest message, and from then nothing waits
+for an answer in X until they write again. A Core since AIShie-Core #42
+says so: X is `answered`, its draft is deleted with the retraction, and an
+answer to M is refused as `moved_on` naming no message, whether it is
+proposed, approved or posted. The pinned Core, b0eb848, still says
+`awaiting_answer`, keeps the draft and would post the answer; the inbox
+leaves X out on both. So the runtime goes by the messages, which show M
+retracted on both: step 5 answers no question whose newest message is
+retracted, and after an attempt that posted nothing it reads X's ten
+newest messages (`conversation_messages`), not its state alone, before
+trying again.
 
 **Drafts.** Where the catalogue offers `conversation_draft` (§2.3), the asker
 watches the answer come, as in Claude Code: while the loop of step 7 works,

@@ -75,9 +75,10 @@ func TestClassifyMovedOnNamesTheNewestMessage(t *testing.T) {
 	if d.LatestMessageID != "m3" {
 		t.Errorf("LatestMessageID = %q", d.LatestMessageID)
 	}
-	// Without the id, the conversation is read again rather than guessed.
-	if d := Classify(failed(core.CodeConflict, core.ReasonMovedOn), nil); d.Next != NextAttempt {
-		t.Errorf("moved_on without an id = %s", d.Next)
+	// Without the id (the question withdrawn), the conversation is read
+	// again rather than guessed, and what was sent is dropped.
+	if d := Classify(failed(core.CodeConflict, core.ReasonMovedOn), nil); d.Next != NextAttempt || d.Outcome != store.OutcomeDropped {
+		t.Errorf("moved_on without an id = %s, %s", d.Next, d.Outcome)
 	}
 }
 

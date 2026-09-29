@@ -131,8 +131,10 @@ func classifyFailed(env *core.Envelope, d *Decision) {
 		d.Next, d.Outcome = NextMovedOn, store.OutcomeDropped
 		d.LatestMessageID = env.Detail("latest_opener_message_id")
 		if d.LatestMessageID == "" {
-			// Moved on to a message Core did not name: read the
-			// conversation again and answer what is newest then.
+			// Core names no message when the opener withdrew what they
+			// asked last, and nothing waits for an answer: the
+			// conversation is read again (stillWaiting), and what waits
+			// then, if anything, answered.
 			d.Next = NextAttempt
 		}
 	case d.Code == core.CodeConflict && (d.Reason == core.ReasonAlreadyAnswered || d.Reason == core.ReasonAnswerPending):
