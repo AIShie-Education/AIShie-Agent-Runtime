@@ -1359,7 +1359,11 @@ question waiting 5 s for it.
   agent's answer retracted stops nothing; with the events unreadable, a
   draft refused has the conversation read and the answer stopped, and one
   refused for a conversation closed stops nothing; and on the pinned Core
-  an answer already being sent is posted.
+  an answer already being sent is posted. The end to end
+  (`stop-cancels-the-answer`, against the pinned Core and #42's) has Yuki
+  withdraw her question while her agent's model has stalled part way
+  through its streamed answer, and sees the model's request cancelled
+  within seconds and no answer ever posted.
 - `toolschema`: every tool of the pinned catalogue through every dialect and
   back through Core's schema.
 - `doctext`: decks, documents, workbooks and PDFs made byte by byte

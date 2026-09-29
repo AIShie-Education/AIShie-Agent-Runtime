@@ -223,6 +223,63 @@ func TestADelayedAnswerMeetsTheCallersTimeout(t *testing.T) {
 	}
 }
 
+// A stream that stalls after its first piece of text holds the rest back
+// until its caller gives up, which GaveUp tells, as it tells one who gives
+// up on an answer held back whole; an answer delivered whole is no answer
+// given up on.
+func TestStallUntilTheCallerGivesUp(t *testing.T) {
+	stall := fakellm.Reply("Recursion is a function calling itself on a smaller input.")
+	stall.Stall = time.Minute
+	s := fakellm.NewScript(fakellm.Reply("On Friday."), stall, stall)
+	a := adapter(t, s)
+	req := &llm.Request{Messages: []llm.Message{llm.UserText("q")}}
+	if _, err := a.Call(context.Background(), req); err != nil || len(s.GaveUp()) != 0 {
+		t.Fatalf("an answer delivered: %v, given up on %d", err, len(s.GaveUp()))
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var told []string
+	began := make(chan struct{})
+	go func() {
+		<-began
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+	_, err := a.Stream(ctx, req, func(d string) {
+		if len(told) == 0 {
+			close(began)
+		}
+		told = append(told, d)
+	})
+	cancelled := time.Now()
+	if err == nil || len(told) != 1 || told[0] != "Recursion is a " {
+		t.Errorf("told %q, then %v", told, err)
+	}
+	var gaveUp []time.Time
+	for range 100 {
+		if gaveUp = s.GaveUp(); len(gaveUp) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(gaveUp) != 1 || gaveUp[0].Sub(cancelled) > time.Second {
+		t.Errorf("given up on at %v, cancelled at %v", gaveUp, cancelled)
+	}
+
+	ctx, cancel = context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := a.Call(ctx, req); err == nil {
+		t.Error("an answer stalled whole came")
+	}
+	for range 100 {
+		if len(s.GaveUp()) == 2 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Errorf("given up on %d times", len(s.GaveUp()))
+}
+
 func TestMalformedConversationsAreRefused(t *testing.T) {
 	s := fakellm.New(fakellm.DefaultResponder)
 	a := adapter(t, s)

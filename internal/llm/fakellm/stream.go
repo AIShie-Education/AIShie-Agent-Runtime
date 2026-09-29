@@ -13,8 +13,8 @@ import (
 // and name and then its arguments in two pieces, a chunk with the finish
 // reason, and, where stream_options.include_usage asks, a last chunk with
 // the usage alone; then [DONE]. The pieces go the response's Every apart
-// (the server's StreamEvery when it sets none), or until the caller gives
-// up.
+// (the server's StreamEvery when it sets none), and its Stall after the
+// first piece of text, or until the caller gives up.
 func (s *Server) stream(w http.ResponseWriter, r *http.Request, req ChatRequest, resp ChatResponse) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -26,14 +26,8 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, req ChatRequest,
 	}
 	first := true
 	send := func(choices []any, usage *Usage) bool {
-		if !first && every > 0 {
-			t := time.NewTimer(every)
-			select {
-			case <-t.C:
-			case <-r.Context().Done():
-				t.Stop()
-				return false
-			}
+		if !first && every > 0 && !s.wait(r, every) {
+			return false
 		}
 		first = false
 		chunk := map[string]any{"id": resp.ID, "object": "chat.completion.chunk", "created": resp.Created, "model": resp.Model,
@@ -63,8 +57,11 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, req ChatRequest,
 	if !send(delta(map[string]any{"role": "assistant", "content": ""}, nil), nil) {
 		return
 	}
-	for _, piece := range pieces(c.Message.Text()) {
+	for i, piece := range pieces(c.Message.Text()) {
 		if !send(delta(map[string]any{"content": piece}, nil), nil) {
+			return
+		}
+		if i == 0 && resp.Stall > 0 && !s.wait(r, resp.Stall) {
 			return
 		}
 	}
