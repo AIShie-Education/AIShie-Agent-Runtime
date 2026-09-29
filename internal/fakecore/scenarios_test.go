@@ -812,7 +812,7 @@ var scenarios = []scenario{
 		call(t, w, s, "replay", "conversation_answer", args)
 		call(t, w, s, "events", "event_list", inCourseArgs(w, "since_seq", 0))
 	}},
-	{name: "staff_retract", about: "a message retracted by staff who oversee the opener: the question and the agent's answer; an answer to a retracted question; refusals to others", run: func(t *testing.T, w world, s *steps) {
+	{name: "staff_retract", about: "a message retracted by staff who oversee the opener: the question and the agent's answer; an answer to a retracted question, refused; refusals to others", run: func(t *testing.T, w world, s *steps) {
 		conv, m1 := w.ask(0, "Is HW1 marked on style?")
 		a := call(t, w, s, "answer", "conversation_answer", answer(w, conv, m1, "Partly.", 1))
 		wantStatus(t, a, "executed")
@@ -832,7 +832,7 @@ var scenarios = []scenario{
 		callAs(t, ken, s, "another_student_reads", "conversation_get", inCourseArgs(w, "conversation_id", conv))
 		callAs(t, mori, s, "staff_reads", "conversation_messages", inCourseArgs(w, "conversation_id", conv))
 	}},
-	{name: "retracted_pending", about: "the question an answer waits on is retracted: the inbox leaves it out, the view still waits, and approval posts the answer", run: func(t *testing.T, w world, s *steps) {
+	{name: "retracted_pending", about: "the question an answer waits on is retracted: the inbox leaves it out, the view waits for nothing and shows no answer waiting, and approving the answer fails, moved_on", run: func(t *testing.T, w world, s *steps) {
 		w.setTutorLevel("confirm_required")
 		conv, m1 := w.ask(0, "Can I bring notes to the exam?")
 		args := answer(w, conv, m1, "One sheet of notes.", 1)
@@ -997,6 +997,7 @@ var scenarios = []scenario{
 	waitForNews,
 	waitCap,
 	drafts,
+	withdrawn,
 }
 
 // modelWrites is a write a model makes through its seat's perms (the

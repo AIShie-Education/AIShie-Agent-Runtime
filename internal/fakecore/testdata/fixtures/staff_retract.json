@@ -111,7 +111,7 @@
        "role": "assistant",
        "seat_status": "active"
       },
-      "state": "awaiting_answer",
+      "state": "answered",
       "status": "open"
      },
      "draft": null,
@@ -187,7 +187,7 @@
       "role": "assistant",
       "seat_status": "active"
      },
-     "state": "awaiting_answer",
+     "state": "answered",
      "status": "open",
      "unread": true,
      "visible_to": [
@@ -337,14 +337,18 @@
    },
    "envelope": {
     "action_id": "<id:16>",
-    "result": {
-     "message_id": "<id:17>"
+    "error": {
+     "code": "conflict",
+     "details": {
+      "reason": "moved_on"
+     },
+     "message": "the question was withdrawn: nothing waits for an answer now"
     },
     "review_state": "none",
-    "status": "executed"
+    "status": "failed"
    },
    "http_status": 200,
-   "is_error": false,
+   "is_error": true,
    "step": "answer_the_retracted_question",
    "text_is_envelope": true,
    "tool": "conversation_answer"
@@ -356,7 +360,7 @@
     "message_id": "<id:3>"
    },
    "envelope": {
-    "action_id": "<id:18>",
+    "action_id": "<id:17>",
     "error": {
      "code": "forbidden",
      "message": "only its author, or someone who decides actions for the conversation's opener, retracts a message"
@@ -398,7 +402,7 @@
      "conversation": {
       "created_at": "<time>",
       "id": "<id:1>",
-      "last_author_member_id": "<id:10>",
+      "last_author_member_id": "<id:9>",
       "last_message_at": "<time>",
       "last_retracted_at": "<time>",
       "latest_opener_message_id": "<id:6>",
@@ -452,14 +456,6 @@
         "reason": "Posted in the wrong course"
        },
        "seq": 3
-      },
-      {
-       "author_member_id": "<id:10>",
-       "body": "Comments count too.",
-       "created_at": "<time>",
-       "id": "<id:17>",
-       "in_reply_to_message_id": "<id:6>",
-       "seq": 4
       }
      ],
      "more": false

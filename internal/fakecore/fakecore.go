@@ -81,6 +81,14 @@ type Options struct {
 	// no such tool, the conversation's views show no draft, and
 	// conversation_messages takes no seen_draft_version.
 	WithoutDraft bool
+	// WithdrawnWaits answers as a Core from before a question its opener
+	// withdrew waited for no answer, as b0eb848, the runtime's pin, does
+	// (conversation.go): with the opener's latest message retracted, the
+	// views still say awaiting_answer, or reply_pending_approval with the
+	// answer that waits; a draft of the answer is still written, and kept;
+	// and an answer to that message is posted, proposed and approved as to
+	// any other. The inbox leaves such a conversation out either way.
+	WithdrawnWaits bool
 	// LongPollWaiters bounds the calls that wait for news at once, every
 	// actor's together (Core's LONG_POLL_WAITERS); LongPollWaitersPerActor,
 	// one actor's (LONG_POLL_WAITERS_PER_ACTOR). 0 is Core's default, 1000

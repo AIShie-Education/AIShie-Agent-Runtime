@@ -163,3 +163,59 @@ func numberOf(v any) float64 {
 	}
 	return -1
 }
+
+// TestWithdrawn: a question its opener withdraws, retracting their latest
+// message, waits for no answer: its draft goes, the view says answered, a
+// draft is refused, and so is an answer proposed or posted to it, as
+// moved_on naming no message. With Options.WithdrawnWaits, as the pinned
+// Core, it waits as before: the draft is kept and written, the view says
+// awaiting_answer, and the answer is proposed, and posted once approved.
+func TestWithdrawn(t *testing.T) {
+	for _, waits := range []bool{false, true} {
+		w := newFakeWorld(t, Options{WithdrawnWaits: waits})
+		w.ok(w.fc.SetLevel(w.tutorM.ID, "conversation_answer", "confirm_required"))
+		conv, msg := w.ask(0, "When is HW1 due?")
+		draft := func(version int) toolAnswer {
+			return mustCall(t, w.agentC, "conversation_draft", map[string]any{"course_id": w.co.ID, "conversation_id": conv,
+				"attempt": "a1", "version": version, "text": "Friday"})
+		}
+		get := func() toolAnswer {
+			return mustCall(t, w.agentC, "conversation_get", map[string]any{"course_id": w.co.ID, "conversation_id": conv})
+		}
+		answer := func(key string) toolAnswer {
+			return mustCall(t, w.agentC, "conversation_answer", map[string]any{"course_id": w.co.ID, "conversation_id": conv,
+				"in_reply_to_message_id": msg, "body": "Friday.", "idempotency_key": key})
+		}
+		draft(1)
+		w.retract(msg, "never mind")
+		_, kept := w.fc.Draft(conv)
+		state := get().str("result", "state")
+		again := draft(2)
+		proposed := answer("k1")
+		if !waits {
+			if kept || state != "answered" {
+				t.Errorf("withdrawn: draft kept %v, state %s", kept, state)
+			}
+			wantEnvelope(t, again, "error", "conflict", "conversation_not_awaiting")
+			wantEnvelope(t, proposed, "failed", "conflict", "moved_on")
+			if id := proposed.str("error", "details", "latest_opener_message_id"); id != "" {
+				t.Errorf("the refusal names a message to answer: %s", id)
+			}
+			w.ok(w.fc.SetLevel(w.tutorM.ID, "conversation_answer", "autonomous"))
+			wantEnvelope(t, answer("k2"), "failed", "conflict", "moved_on")
+			continue
+		}
+		if !kept || state != "awaiting_answer" || again.status() != "executed" {
+			t.Errorf("WithdrawnWaits: draft kept %v, state %s, a draft after: %s", kept, state, again.Text)
+		}
+		if proposed.status() != "proposed" {
+			t.Fatalf("WithdrawnWaits: the answer %s", proposed.Text)
+		}
+		if g := get(); g.str("result", "state") != "reply_pending_approval" || g.str("result", "pending_reply_action_id") != proposed.str("action_id") {
+			t.Errorf("WithdrawnWaits: the answer waiting: %s", g.Text)
+		}
+		if out, err := w.fc.Approve(proposed.str("action_id")); err != nil || out != "executed" {
+			t.Errorf("WithdrawnWaits: approved, %s %v", out, err)
+		}
+	}
+}

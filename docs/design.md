@@ -1254,8 +1254,13 @@ question waiting 5 s for it.
   filters let through, within Core's bounds on calls waiting, and a Core
   from before them (`WithoutWait`); the drafts of answers
   (`conversation_draft`, an ephemeral write) and the views that show them,
-  and a Core from before them (`WithoutDraft`); each seat's ceilings, as Core works
-  them out; an agent's owner
+  and a Core from before them (`WithoutDraft`); a question its opener
+  withdraws, retracting their latest message, which waits for no answer:
+  the views say `answered`, its draft goes, and a draft or an answer to it
+  is refused (`conversation_not_awaiting`, `moved_on` naming no message),
+  as AIShie-Core #42 has it, and the pinned Core, whose withdrawn question
+  still waits and takes an answer (`WithdrawnWaits`); each seat's
+  ceilings, as Core works them out; an agent's owner
   deciding and reviewing what it did where they could do it themselves;
   and no question to an agent that has not declared it answers in the site
   (the worker's tests wait for the runtime's declaration, or, asking
@@ -1264,7 +1269,9 @@ question waiting 5 s for it.
   pinned Core for every row of §2.4 and more (`make record-fixtures`
   against a live Core, whose recorder declares each agent's site chat with
   its token); a conformance test holds the fake to them, and Core's own
-  client is tested live against the real one.
+  client is tested live against the real one. Four, `drafts`,
+  `staff_retract`, `retracted_pending` and `withdrawn`, are recorded from
+  #42's Core, ahead of the pin, until the pin moves to it.
 - Adapters: golden translations both ways in `testdata/`, every stop reason
   and usage field; `LIVE=1` runs them against the real providers whose keys
   are set, with one request declaring every tool at 16 output tokens, and

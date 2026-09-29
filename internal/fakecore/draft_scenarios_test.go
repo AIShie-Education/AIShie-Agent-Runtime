@@ -122,3 +122,37 @@ var drafts = scenario{name: "drafts", about: "conversation_draft: the respondent
 		}
 		s.rest("rest_closed", http.MethodPost, path, body, a)
 	}}
+
+// withdrawn is a question its opener withdraws ("stop"), retracting it
+// while the answer to it is being written (conversation.go): the answer's
+// draft goes with it, the conversation waits for no answer, and a draft or
+// an answer to it is refused, until the opener asks again. An older message
+// retracted leaves the draft and the question as they are.
+var withdrawn = scenario{name: "withdrawn", about: "the opener withdrawing the question an answer is being written to: an older message " +
+	"retracted leaves the draft and the question; the latest retracted, the draft goes, the conversation is answered, and a draft " +
+	"and an answer to it are refused, as not awaiting and as moved_on naming no message; asked again, it waits for an answer",
+	run: func(t *testing.T, w world, s *steps) {
+		conv, q1 := w.ask(0, "Q1: is the lab open on Sunday?")
+		q2 := w.followUp(conv, "Q2: and on public holidays?")
+		d := func(more ...any) map[string]any {
+			return inCourseArgs(w, append([]any{"conversation_id", conv}, more...)...)
+		}
+		get := inCourseArgs(w, "conversation_id", conv)
+		yuki := w.as("yuki")
+
+		wantStatus(t, call(t, w, s, "draft", "conversation_draft", d("attempt", "a1", "version", 1, "text", "The lab is",
+			"steps", []any{map[string]any{"kind": "writing", "state": "running"}})), "executed")
+		w.retract(q1, "")
+		callAs(t, yuki, s, "an_older_message_withdrawn", "conversation_get", get)
+		w.retract(q2, "Never mind")
+		callAs(t, yuki, s, "the_question_withdrawn", "conversation_get", get)
+		call(t, w, s, "the_respondent_reads_it", "conversation_messages", get)
+		call(t, w, s, "a_draft_after", "conversation_draft", d("attempt", "a1", "version", 2, "text", "The lab is open"))
+		call(t, w, s, "an_answer_to_it", "conversation_answer", answer(w, conv, q2, "It is closed on holidays.", 1))
+		call(t, w, s, "inbox", "conversation_inbox", inCourseArgs(w))
+
+		q3 := w.followUp(conv, "Q3: sorry, I meant: is it open on Saturday?")
+		call(t, w, s, "asked_again", "conversation_get", get)
+		wantStatus(t, call(t, w, s, "a_draft_again", "conversation_draft", d("attempt", "a2", "version", 1)), "executed")
+		wantStatus(t, call(t, w, s, "the_answer", "conversation_answer", answer(w, conv, q3, "Yes, from nine.", 1)), "executed")
+	}}
