@@ -114,8 +114,8 @@ var denyPreviews = config.Runtime{DeniedModels: []string{"*:*:*-preview"}}
 
 // GET /models lists every provider offered, each endpoint an official one
 // for each of its adapters, with the models the price table prices by
-// name today and the school does not deny; the school's key is not
-// offered.
+// name today and the school does not deny; the school's plan, which offers
+// nothing here, is not offered.
 func TestModels(t *testing.T) {
 	h, _, _ := newModelWorld(t, denyPreviews)
 	a := h.call("GET", "models", h.yuki, "")
@@ -125,7 +125,7 @@ func TestModels(t *testing.T) {
 	if a.code != 200 || !m.OwnKey.Offered || m.SchoolKey.Offered || m.SchoolKey.Offers == nil || len(m.OwnKey.Providers) != len(registry.Offers()) {
 		t.Fatalf("%d %s", a.code, a.body)
 	}
-	if !strings.Contains(a.body, `"school_key":{"offered":false,"offers":[]}`) {
+	if !strings.Contains(a.body, `"school_key":{"offered":false,"offers":[],"limits":{"per_owner_day":100,"per_asker_day":20}}`) {
 		t.Errorf("the school's key: %s", a.body)
 	}
 	for _, p := range m.OwnKey.Providers {
@@ -560,7 +560,8 @@ func TestPatchWrites(t *testing.T) {
 }
 
 // PATCH refuses, each with its reason: If-Match missing, *, of another
-// version, or not a strong tag; the school's key; a model with no key; a
+// version, or not a strong tag; the school's plan where the school offers
+// nothing on it; a model with no key; a
 // model the school denies; settings the runtime's defaults break; a Core
 // token as the key; a member it does not take, at its pointer.
 func TestPatchRefuses(t *testing.T) {
@@ -578,7 +579,8 @@ func TestPatchRefuses(t *testing.T) {
 		{"a weak tag", `W/"1"`, ownOpenAI, 400, CodeInvalidArgument, ReasonBadIfMatch, ""},
 		{"not a tag", `1`, ownOpenAI, 400, CodeInvalidArgument, ReasonBadIfMatch, ""},
 		{"another version", `"9"`, ownOpenAI, 412, CodeVersionMismatch, ReasonVersionMismatch, ""},
-		{"the school's key", `"1"`, `{"model":{"school":{"offer_id":"x"}}}`, 422, CodeFailedPrecondition, ReasonSchoolKeyNotOffered, "/model/school"},
+		{"the school's plan, which offers nothing", `"1"`, `{"model":{"school":{"offer":"x"}}}`, 422, CodeFailedPrecondition, ReasonSchoolKeyNotOffered, "/model/school"},
+		{"a member of the school's it does not take", `"1"`, `{"model":{"school":{"offer_id":"x"}}}`, 400, CodeInvalidArgument, ReasonUnknownField, "/model/school/offer_id"},
 		{"no key", `"1"`, `{"model":{"own":{"provider":"openai","model":"gpt-4.1-mini"}}}`, 422, CodeFailedPrecondition, ReasonOwnKeyRequired, "/own_key"},
 		{"a denied model", `"1"`, `{"model":{"own":{"provider":"openai","model":"gpt-5-preview"}},"own_key":{"value":"` + ownKey + `"}}`, 422,
 			CodeFailedPrecondition, ReasonModelDenied, "/model/own/model"},
