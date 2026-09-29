@@ -316,6 +316,7 @@
       "state": "awaiting_answer",
       "status": "open"
      },
+     "draft": null,
      "messages": [
       {
        "author_member_id": "<id:3>",
@@ -385,6 +386,7 @@
       "state": "awaiting_answer",
       "status": "open"
      },
+     "draft": null,
      "messages": [
       {
        "author_member_id": "<id:3>",
@@ -436,6 +438,7 @@
       "state": "awaiting_answer",
       "status": "open"
      },
+     "draft": null,
      "messages": [
       {
        "author_member_id": "<id:3>",
@@ -513,6 +516,7 @@
       "state": "awaiting_answer",
       "status": "open"
      },
+     "draft": null,
      "messages": [],
      "more": false
     },
@@ -560,6 +564,7 @@
       "state": "awaiting_answer",
       "status": "open"
      },
+     "draft": null,
      "messages": [],
      "more": false
     },
@@ -697,6 +702,7 @@
       "state": "awaiting_answer",
       "status": "open"
      },
+     "draft": null,
      "messages": [
       {
        "author_member_id": "<id:3>",
@@ -872,6 +878,7 @@
       "state": "answered",
       "status": "open"
      },
+     "draft": null,
      "messages": [
       {
        "author_member_id": "<id:3>",
@@ -957,6 +964,7 @@
       "state": "closed",
       "status": "closed"
      },
+     "draft": null,
      "messages": [],
      "more": false
     },

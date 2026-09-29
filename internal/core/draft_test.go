@@ -10,10 +10,17 @@ import (
 )
 
 // TestCatalogueDrafts: a Core takes drafts when its catalogue offers
-// conversation_draft as an ephemeral write; the pinned one's does not.
+// conversation_draft as an ephemeral write, as the pinned one does, at its
+// REST route; a Core from before, or one that lists it otherwise, not.
 func TestCatalogueDrafts(t *testing.T) {
-	if testCatalogue(t).Drafts() || (*Catalogue)(nil).Drafts() {
-		t.Error("the snapshot, or no catalogue, takes drafts")
+	snap := testCatalogue(t)
+	d, _ := snap.Tool(ToolDraft)
+	if !snap.Drafts() || d.Kind != KindEphemeral || d.Read() || d.Method != http.MethodPost ||
+		d.Path != "/v1/courses/{course_id}/conversations/{conversation_id}/draft" {
+		t.Errorf("the snapshot's conversation_draft: %+v", d)
+	}
+	if (*Catalogue)(nil).Drafts() {
+		t.Error("no catalogue takes drafts")
 	}
 	for kind, want := range map[string]bool{KindEphemeral: true, KindWrite: false, KindRead: false} {
 		raw := `{"tools":[{"name":"conversation.draft","kind":"` + kind + `","method":"POST","path":"/v1/courses/{course_id}/conversations/{conversation_id}/draft","input_schema":{},"output_schema":{}}]}`

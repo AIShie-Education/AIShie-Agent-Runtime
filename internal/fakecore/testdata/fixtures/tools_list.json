@@ -2,7 +2,7 @@
  "scenario": "tools_list",
  "steps": [
   {
-   "count": 134,
+   "count": 135,
    "http_status": 200,
    "step": "tools_list",
    "tools": [
@@ -481,14 +481,25 @@
     },
     {
      "annotations": {
+      "idempotentHint": false,
+      "openWorldHint": false,
+      "readOnlyHint": false
+     },
+     "description_sha256": "e2b43f914be5554eebfaacbb7977d9e724fb677322c1833d364a789ab21f1c20",
+     "input_schema_sha256": "0f74ad75b4ac083f460cd4d3b04d33151093a47f23693209a465249fdd31e1a8",
+     "name": "conversation_draft",
+     "output_schema_sha256": "45e94df39b5350698a8769df22a48c530d3807e7273a801aece56461e866a08f"
+    },
+    {
+     "annotations": {
       "idempotentHint": true,
       "openWorldHint": false,
       "readOnlyHint": true
      },
-     "description_sha256": "3dd62c3891314d4bce2d15fb3a0043b662d5a0f24ec0d5f9e6032653c79e3070",
+     "description_sha256": "3bc16427ed382fdac0efde73e6f9f96e7c5dcf6a8fe1403b231c4c7e9f220d11",
      "input_schema_sha256": "d83cb5adbde31f38b216dd02b0f718de698d5b84d27285ba3d66037931a7f7a9",
      "name": "conversation_get",
-     "output_schema_sha256": "9faca9e3cbd4f80ad50c8090f99e48fadb962450eeaa8fe02d79f404e65dcd0a"
+     "output_schema_sha256": "e99dca52d5b003edd17bb464093ba4720fbc9daf735e164d88bc10da814398ba"
     },
     {
      "annotations": {
@@ -529,10 +540,10 @@
       "openWorldHint": false,
       "readOnlyHint": true
      },
-     "description_sha256": "daad074b23fef117babe746de236894084245ecf26b026ff5a5e3ad111da4c6e",
-     "input_schema_sha256": "5e8cb9d0ff3a446ac5e4fe0dd9583ffd190dc8ebcbb744e09dc1e6d5ebe0a6ea",
+     "description_sha256": "0fbe30cfe8207244c2c596c35e18640fe4051bc3a09d11a45c8ca482f5353fdd",
+     "input_schema_sha256": "4d9b9f1c7ee513d4c1d50c3d9efe3f955d476830596cea4fb208913c3e04e802",
      "name": "conversation_messages",
-     "output_schema_sha256": "e34e516b9f978f88be507a2b7f0c9dd89487ea82853e570ee29442b0d287e2af"
+     "output_schema_sha256": "a674408242a5761bf7efd7e24f9e8501de1ba5a2bf1946b673c3a6a6e5071c59"
     },
     {
      "annotations": {

@@ -16,13 +16,13 @@ import (
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
 )
 
-// The drafts of answers, against the fake Core as a Core with
-// conversation.draft: what the asker sees while the tutor works.
+// The drafts of answers, against the fake Core as the pinned one, which
+// takes them: what the asker sees while the tutor works.
 
-// newDraftWorld is a world whose Core takes drafts.
+// newDraftWorld is a world whose Core takes drafts, as the pinned one does.
 func newDraftWorld(t *testing.T) *world {
 	t.Helper()
-	return newWorldWith(t, fakecore.Options{Drafts: true})
+	return newWorld(t)
 }
 
 // draftsEvery writes drafts every d, for tests.
@@ -142,10 +142,10 @@ func agentStatus(t *testing.T, wk *worker, id string) AgentStatus {
 }
 
 // TestNoDraftsWithoutTheTool: against a Core whose catalogue has no
-// conversation_draft (the pinned one), not one draft is written, and the
-// model's call is not streamed.
+// conversation_draft (one from before drafts), not one draft is written,
+// and the model's call is not streamed.
 func TestNoDraftsWithoutTheTool(t *testing.T) {
-	w := newWorld(t)
+	w := newWorldWith(t, fakecore.Options{WithoutDraft: true})
 	own := w.ownAgent("yuki-helper", 0)
 	told := false
 	model := scripted.New(func(ctx context.Context, req *llm.Request) (*llm.Response, error) {

@@ -36,6 +36,7 @@
     "result": {
      "closed_reason": "Found it myself",
      "created_at": "<time>",
+     "draft": null,
      "id": "<id:1>",
      "last_author_member_id": "<id:5>",
      "last_message_at": "<time>",

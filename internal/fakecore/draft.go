@@ -29,9 +29,8 @@ import (
 // the answer, closing the conversation, and done clear it; one not written
 // for 120 seconds is none.
 //
-// Options.Drafts serves the tool as the contract the runtime was built to
-// describes it (draftToolJSON): the pinned Core's catalogue has no such
-// tool yet.
+// Options.WithoutDraft answers as a Core from before it, as 2c1fe1b, the
+// runtime's pin before drafts, was.
 
 const (
 	draftTTL             = 120 * time.Second
@@ -224,6 +223,11 @@ func (c *Core) putDraft(cv *conversation, in draftIn, steps []DraftStep, now tim
 		(d.attempt != in.Attempt && !in.Done) ||
 		(d.attempt == in.Attempt && !d.done && (d.version < in.Version || (in.Done && d.version <= in.Version)))
 	if !newer {
+		// The version a reader finds: none for a draft gone stale, or an
+		// attempt that is over.
+		if !fresh || d.done {
+			return draftOut{}
+		}
 		return draftOut{Version: d.version}
 	}
 	next := &draft{attempt: in.Attempt, version: in.Version, done: in.Done, updatedAt: now, text: in.Text, steps: steps}
@@ -239,6 +243,9 @@ func (c *Core) putDraft(cv *conversation, in draftIn, steps []DraftStep, now tim
 		}
 	}
 	cv.draft = next
+	if in.Done {
+		return draftOut{Stored: true} // the attempt is over: no draft to see
+	}
 	return draftOut{Stored: true, Version: in.Version}
 }
 
@@ -256,10 +263,87 @@ func (c *Core) draftOf(cv *conversation) *draft {
 // conversation, does to its draft.
 func (cv *conversation) clearDraft() { cv.draft = nil }
 
-// draftNews wakes those reading cv who watch its draft. Nothing waits on
-// a draft in the fake yet: the reads that show it come with Core's
-// catalogue.
-func (c *Core) draftNews(*conversation) {}
+// kindDraftNews is the news of a draft written (Core's wake.KindDraft),
+// which wakes only a reader that watches the draft.
+const kindDraftNews = "conversation.draft"
+
+// draftNews wakes those reading cv who watch its draft
+// (seen_draft_version). The lock is held.
+func (c *Core) draftNews(cv *conversation) {
+	c.wake(note{course: cv.course.id, kind: kindDraftNews, conversation: cv.id, respondent: cv.respondent.id})
+}
+
+// draftView is a draft as conversation.get and conversation.messages show
+// it: its text to whom it would show the answer (seesDraftText), else
+// text_hidden.
+type draftView struct {
+	Attempt    string      `json:"attempt"`
+	Version    int64       `json:"version"`
+	UpdatedAt  time.Time   `json:"updated_at"`
+	Steps      []DraftStep `json:"steps"`
+	Text       *string     `json:"text,omitempty"`
+	TextHidden bool        `json:"text_hidden,omitempty"`
+}
+
+// draftFor is cv's draft as rc's caller reads it, as JSON: null for none,
+// and nil, for the view to leave the field out, from a Core without drafts
+// (Options.WithoutDraft).
+func (c *Core) draftFor(rc *readCtx, cv *conversation) json.RawMessage {
+	if c.opts.WithoutDraft {
+		return nil
+	}
+	d := c.draftOf(cv)
+	if d == nil {
+		return json.RawMessage("null")
+	}
+	v := draftView{Attempt: d.attempt, Version: d.version, UpdatedAt: d.updatedAt, Steps: slices.Clone(d.steps)}
+	if v.Steps == nil {
+		v.Steps = []DraftStep{}
+	}
+	if c.seesDraftText(rc, cv) {
+		v.Text = d.text
+	} else {
+		v.TextHidden = true
+	}
+	return mustJSON(v)
+}
+
+// seesDraftText says whether rc's caller sees the text of the answer being
+// written in cv (Core's seesDraftText): everyone who may read it while the
+// respondent's answers post as they are written (conversation_answer
+// autonomous); otherwise the respondent, and whoever could decide the
+// answer once proposed: anyone who decides actions here who is not of the
+// respondent's party, and, of it, the respondent's owner where they decide
+// actions without anyone's confirmation.
+func (c *Core) seesDraftText(rc *readCtx, cv *conversation) bool {
+	r := cv.respondent
+	if r.effectivePerms(rc.now)[permConversationAnswer] == autonomous.String() || rc.member == r {
+		return true
+	}
+	level := rc.member.perm(permActionDecide)
+	if !level.allowed() {
+		return false
+	}
+	if !sameParty(rc.actor, r.actor) {
+		return true
+	}
+	return level == autonomous && r.actor.owner == rc.actor
+}
+
+// draftVersionOf is what seen_draft_version names of a result's draft: its
+// version, 0 for none; and its attempt.
+func draftVersionOf(result json.RawMessage) (int64, string) {
+	var r struct {
+		Draft *struct {
+			Attempt string `json:"attempt"`
+			Version int64  `json:"version"`
+		} `json:"draft"`
+	}
+	if json.Unmarshal(result, &r) != nil || r.Draft == nil {
+		return 0, ""
+	}
+	return r.Draft.Version, r.Draft.Attempt
+}
 
 // DraftWrites are the conversation_draft calls the fake carried out in
 // conv, stored or not, in order.
@@ -291,61 +375,39 @@ func (c *Core) Draft(conv string) (Draft, bool) {
 	return Draft{Attempt: d.attempt, Version: d.version, Text: d.text, Steps: slices.Clone(d.steps), UpdatedAt: d.updatedAt}, true
 }
 
-// draftToolJSON is conversation.draft as the contract between Core, the
-// runtime and the site describes it, in the shape of Core's catalogue: what
-// Options.Drafts serves until the runtime is pinned to a Core that has it.
-const draftToolJSON = `{
- "description": "For an agent runtime, never for a model: say what you are doing towards an answer in a conversation addressed to you, and the answer's text so far, for whoever reads the conversation to watch it come.",
- "input_schema": {
-  "additionalProperties": false,
-  "properties": {
-   "attempt": {"type": "string"},
-   "conversation_id": {"format": "uuid", "type": "string"},
-   "course_id": {"description": "the course this call is about", "format": "uuid", "type": "string"},
-   "done": {"type": "boolean"},
-   "steps": {
-    "items": {
-     "additionalProperties": false,
-     "properties": {"kind": {"type": "string"}, "state": {"type": "string"}, "target": {"type": "string"}},
-     "required": ["kind", "state"],
-     "type": "object"
-    },
-    "type": ["null", "array"]
-   },
-   "text": {"type": ["null", "string"]},
-   "version": {"type": "integer"}
-  },
-  "required": ["course_id", "conversation_id", "attempt", "version"],
-  "type": "object"
- },
- "kind": "ephemeral",
- "method": "POST",
- "name": "conversation.draft",
- "output_schema": {
-  "additionalProperties": false,
-  "properties": {"stored": {"type": "boolean"}, "version": {"type": "integer"}},
-  "required": ["stored", "version"],
-  "type": "object"
- },
- "path": "/v1/courses/{course_id}/conversations/{conversation_id}/draft"
-}`
-
-// withDraft is the catalogue raw with conversation.draft (draftToolJSON).
-func withDraft(raw []byte) ([]byte, error) {
+// withoutDraft is the catalogue raw as a Core from before drafts served
+// it: no conversation.draft, no draft in conversation.get's and
+// conversation.messages' results, and no seen_draft_version.
+func withoutDraft(raw []byte) ([]byte, error) {
 	var doc map[string]any
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return nil, fmt.Errorf("fakecore: the catalogue: %w", err)
 	}
 	tools, _ := doc["tools"].([]any)
+	kept := tools[:0]
+	found := 0
 	for _, t := range tools {
-		if tool, _ := t.(map[string]any); tool != nil && tool["name"] == "conversation.draft" {
-			return nil, errors.New("fakecore: the catalogue has conversation.draft already")
+		tool, _ := t.(map[string]any)
+		switch name, _ := tool["name"].(string); name {
+		case "conversation.draft":
+			found++
+			continue
+		case "conversation.get", "conversation.messages":
+			out, _ := tool["output_schema"].(map[string]any)
+			props, _ := out["properties"].(map[string]any)
+			if _, ok := props["draft"]; ok {
+				delete(props, "draft")
+				found++
+			}
+			in, _ := tool["input_schema"].(map[string]any)
+			inProps, _ := in["properties"].(map[string]any)
+			delete(inProps, "seen_draft_version")
 		}
+		kept = append(kept, t)
 	}
-	var tool map[string]any
-	if err := json.Unmarshal([]byte(draftToolJSON), &tool); err != nil {
-		return nil, err
+	if found != 3 {
+		return nil, errors.New("fakecore: the catalogue has no conversation.draft, or no draft in the conversation's views, to take out")
 	}
-	doc["tools"] = append(tools, tool)
+	doc["tools"] = kept
 	return json.Marshal(doc)
 }

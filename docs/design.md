@@ -130,7 +130,9 @@ minute at 25 s, where the schedule spends 2 to 6 idle and 30 hot.
 
 Drafts are kept off the bucket rather than given one of their own. Core
 does not count a draft it carried out against the actor's limit (it gives
-the token back), only against its own of 10 a second per conversation;
+the token back), only against its own of 10 a second per conversation (a
+draft it refuses counts as any call does, and an actor over its limit is
+refused drafts too: a 429, which the drafter drops);
 the drafter writes one conversation's draft at most every 300 ms, one
 write at a time, so the per-conversation limit is the one that matters,
 and a per-agent bucket would have the wrong shape. What Core counts until
@@ -1241,7 +1243,9 @@ question waiting 5 s for it.
   removed, proposals approved, rejected or expired, retractions, 429s and
   401s; reads that wait for news (`wait_s`), woken by the news Core's
   filters let through, within Core's bounds on calls waiting, and a Core
-  from before them (`WithoutWait`); each seat's ceilings, as Core works
+  from before them (`WithoutWait`); the drafts of answers
+  (`conversation_draft`, an ephemeral write) and the views that show them,
+  and a Core from before them (`WithoutDraft`); each seat's ceilings, as Core works
   them out; an agent's owner
   deciding and reviewing what it did where they could do it themselves;
   and no question to an agent that has not declared it answers in the site
@@ -1267,17 +1271,21 @@ question waiting 5 s for it.
   state, versions rising, one in flight, spaced), keeps its steps, ends an
   attempt with `done` unless its answer went in, drops a 429 and sends
   nothing twice for it, sends a write that failed on the way once more, and
-  stops an attempt Core refuses. Against the fake Core as a Core with
-  `conversation_draft` (`fakecore.Options.Drafts`, Core's rules for it:
-  the respondent alone, while the conversation waits, newer writes only,
-  done, cleared by the answer posted or proposed and by closing, 10 a
-  second, no rate charged), a streamed answer's drafts show thinking, the
-  syllabus read by its title and the text growing, and the answer takes
-  their place; a Core without it gets none, and no call is streamed; a
-  stream cut off starts the text again; drafts that take seconds, or are
-  refused as too soon, or fail, never hold the answer back. The end to end
-  (`drafts-shown`, against a Core that has the tool) watches them as the
-  site does, by long polls with `seen_draft_version`.
+  stops an attempt Core refuses. The fake Core carries `conversation_draft`
+  out with Core's rules (the respondent alone, while the conversation
+  waits and its opener may address it, newer writes only, done, cleared by
+  the answer posted or proposed and by closing, 10 a second, no rate
+  charged), shows the draft in the conversation's views with its text to
+  whom Core shows it, and wakes a reader waiting with `seen_draft_version`;
+  the `drafts` fixture, recorded from Core, holds it to that, and
+  `WithoutDraft` is a Core from before. Against it, a streamed answer's
+  drafts show thinking, the syllabus read by its title and the text
+  growing, and the answer takes their place; a Core without the tool gets
+  none, and no call is streamed; a stream cut off starts the text again;
+  drafts that take seconds, or are refused as too soon, or fail, never
+  hold the answer back. The end to end (`drafts-shown`, skipped against a
+  Core without the tool) watches them as the site does, by long polls with
+  `seen_draft_version`.
 - `toolschema`: every tool of the pinned catalogue through every dialect and
   back through Core's schema.
 - `doctext`: decks, documents, workbooks and PDFs made byte by byte

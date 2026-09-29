@@ -95,6 +95,7 @@
    "envelope": {
     "result": {
      "created_at": "<time>",
+     "draft": null,
      "id": "<id:1>",
      "last_author_member_id": "<id:6>",
      "last_message_at": "<time>",
@@ -251,6 +252,7 @@
       "state": "answered",
       "status": "open"
      },
+     "draft": null,
      "messages": [
       {
        "author_member_id": "<id:6>",

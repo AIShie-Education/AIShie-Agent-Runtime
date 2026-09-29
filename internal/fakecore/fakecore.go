@@ -76,10 +76,11 @@ type Options struct {
 	// offers no wait_s and no seen_state, and a call that gives either is
 	// refused as the schema refuses any argument it does not name.
 	WithoutWait bool
-	// Drafts answers as a Core with conversation.draft (draft.go), as the
-	// contract the runtime was built to describes it: its catalogue offers
-	// the tool, and the fake carries it out.
-	Drafts bool
+	// WithoutDraft answers as a Core from before conversation.draft, as
+	// the runtime was pinned to before drafts (draft.go): its catalogue has
+	// no such tool, the conversation's views show no draft, and
+	// conversation_messages takes no seen_draft_version.
+	WithoutDraft bool
 	// LongPollWaiters bounds the calls that wait for news at once, every
 	// actor's together (Core's LONG_POLL_WAITERS); LongPollWaitersPerActor,
 	// one actor's (LONG_POLL_WAITERS_PER_ACTOR). 0 is Core's default, 1000
@@ -200,14 +201,14 @@ var catalogueBeforeOwners = sync.OnceValues(func() (*catalogue, error) {
 
 // catalogueOf is the catalogue as the older Core o names serves it: from
 // before C1 (Options.BeforeOwners), before me.site_chat
-// (Options.WithoutSiteChat), before wait_s (Options.WithoutWait), or any
-// of them; or with conversation.draft (Options.Drafts).
+// (Options.WithoutSiteChat), before wait_s (Options.WithoutWait), before
+// conversation.draft (Options.WithoutDraft), or any of them.
 func catalogueOf(o Options) (*catalogue, error) {
 	raw := catalogueJSON
 	for _, older := range []struct {
 		is   bool
 		edit func([]byte) ([]byte, error)
-	}{{o.BeforeOwners, withoutOwners}, {o.WithoutSiteChat, withoutSiteChat}, {o.WithoutWait, withoutWait}, {o.Drafts, withDraft}} {
+	}{{o.BeforeOwners, withoutOwners}, {o.WithoutSiteChat, withoutSiteChat}, {o.WithoutWait, withoutWait}, {o.WithoutDraft, withoutDraft}} {
 		if !older.is {
 			continue
 		}
@@ -240,7 +241,7 @@ func New(o Options) *Core {
 	if o.BeforeOwners {
 		load = catalogueBeforeOwners
 	}
-	if o.WithoutSiteChat || o.WithoutWait || o.Drafts {
+	if o.WithoutSiteChat || o.WithoutWait || o.WithoutDraft {
 		load = func() (*catalogue, error) { return catalogueOf(o) }
 	}
 	cat, err := load()

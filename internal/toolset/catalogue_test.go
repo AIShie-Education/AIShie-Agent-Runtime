@@ -1,6 +1,7 @@
 package toolset
 
 import (
+	"context"
 	"encoding/json"
 	"maps"
 	"slices"
@@ -8,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolschema"
 )
 
@@ -573,5 +576,51 @@ func TestBuiltinDenied(t *testing.T) {
 		if BuiltinDenied(name) {
 			t.Errorf("%s is denied", name)
 		}
+	}
+}
+
+// TestEphemeralNeverOffered: Core's ephemeral writes (conversation_draft,
+// the runtime's own) pass Check, which knows only its gates; are offered
+// to no model, even allowed by name to a seat holding every permission in
+// its owner's conversation; and a model calling one anyway reaches nobody.
+// A gated tool that became ephemeral fails Check, as one that changed kind
+// does.
+func TestEphemeralNeverOffered(t *testing.T) {
+	cat := snapshot(t)
+	if tool := cat.Tools["conversation_draft"]; tool.Kind != core.KindEphemeral {
+		t.Fatalf("the snapshot's conversation_draft is %+v", tool)
+	}
+	if err := cat.Check(); err != nil {
+		t.Fatalf("the snapshot fails: %v", err)
+	}
+	all := map[string]string{}
+	for _, p := range []string{"document_read", "conversation_answer", "action_decide", "member_manage"} {
+		all[p] = "autonomous"
+	}
+	for _, name := range []string{"conversation_draft", "note_draft"} {
+		c := snapshot(t)
+		if name != "conversation_draft" {
+			// One the deny list does not name: not gated, never offered.
+			c.Tools[name] = CatalogueTool{Name: name, Kind: core.KindEphemeral, InputSchema: json.RawMessage(`{"type":"object"}`)}
+		}
+		s, err := c.Build(all, config.Tools{Writes: true, Allow: []string{name, "course_get"}}, ReadWrite, toolschema.OpenAI, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if s.Has(name) || !s.Has("course_get") {
+			t.Errorf("offered %v", s.Names())
+		}
+		parts, err := s.Run(context.Background(), Runner{Client: core.NewClient(&fakeCore{})}, courseID,
+			[]llm.Part{{Type: llm.PartToolCall, ID: "c1", Name: name, Args: json.RawMessage(`{}`)}})
+		if err != nil || len(parts) != 1 || !parts[0].IsError {
+			t.Errorf("a call of %s: %+v %v", name, parts, err)
+		}
+	}
+	gated := snapshot(t)
+	ct := gated.Tools["course_get"]
+	ct.Kind = core.KindEphemeral
+	gated.Tools["course_get"] = ct
+	if err := gated.Check(); err == nil || !strings.Contains(err.Error(), "course_get is no longer a read") {
+		t.Errorf("a gated tool become ephemeral: %v", err)
 	}
 }

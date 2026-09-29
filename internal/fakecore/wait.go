@@ -75,11 +75,13 @@ var waitingTools = map[string]waits{
 	},
 	// A conversation waits while no message comes after after_seq, it
 	// stands as it did when the call first read it, and in the state the
-	// caller last saw (seen_state), for any news of it.
+	// caller last saw (seen_state), for any news of it; and, for a reader
+	// that watches its draft (seen_draft_version), while the draft is the
+	// version it last saw and the one it first read.
 	"conversation.messages": {
 		For: func(_ *Core, _ *actor, in any) filter {
 			mi := in.(messagesIn)
-			return filter{course: mi.CourseID.String(), conversation: mi.ConversationID.String()}
+			return filter{course: mi.CourseID.String(), conversation: mi.ConversationID.String(), drafts: mi.SeenDraftVersion != nil}
 		},
 		Nothing: func(in any, first, now json.RawMessage) bool {
 			if !emptyList(now, "messages") {
@@ -91,8 +93,16 @@ var waitingTools = map[string]waits{
 			if json.Unmarshal(first, &a) != nil || json.Unmarshal(now, &b) != nil {
 				return false
 			}
-			if mi, ok := in.(messagesIn); ok && mi.SeenState != nil && *mi.SeenState != b.Conversation.State {
+			mi, _ := in.(messagesIn)
+			if mi.SeenState != nil && *mi.SeenState != b.Conversation.State {
 				return false
+			}
+			if mi.SeenDraftVersion != nil {
+				v1, a1 := draftVersionOf(first)
+				v2, a2 := draftVersionOf(now)
+				if v2 != *mi.SeenDraftVersion || v1 != v2 || a1 != a2 {
+					return false
+				}
 			}
 			return reflect.DeepEqual(a.Conversation, b.Conversation)
 		},
@@ -105,6 +115,8 @@ var waitingTools = map[string]waits{
 type filter struct {
 	course, conversation, respondent string
 	kinds                            []string
+	// drafts: news of a draft wakes it (a reader that watches the draft).
+	drafts bool
 }
 
 // note is one piece of news (Core's wake.Note): an event's course and
@@ -117,6 +129,8 @@ type note struct {
 func (f filter) matches(n note) bool {
 	switch {
 	case n.course != f.course:
+		return false
+	case n.kind == kindDraftNews && !f.drafts:
 		return false
 	case f.conversation != "" && n.conversation != f.conversation:
 		return false
@@ -264,12 +278,17 @@ func (c *Core) newsFlushed(evs []*event) {
 		if cv := c.conversations[n.conversation]; cv != nil {
 			n.respondent = cv.respondent.id
 		}
-		for w := range c.waiters {
-			if w.f.matches(n) {
-				select {
-				case w.woken <- struct{}{}:
-				default:
-				}
+		c.wake(n)
+	}
+}
+
+// wake wakes the calls waiting for news n is. The lock is held.
+func (c *Core) wake(n note) {
+	for w := range c.waiters {
+		if w.f.matches(n) {
+			select {
+			case w.woken <- struct{}{}:
+			default:
 			}
 		}
 	}

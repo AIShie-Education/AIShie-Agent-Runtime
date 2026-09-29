@@ -9,14 +9,14 @@ import (
 	"time"
 )
 
-// TestDraft: conversation.draft as Core carries it out (Options.Drafts):
+// TestDraft: conversation.draft as Core carries it out:
 // the respondent writes, a write newer than the draft kept replaces it,
 // text and steps left out keep the attempt's, done ends it, a new attempt
 // replaces another, and posting the answer clears it; nobody else writes
 // one, nor anyone once the conversation no longer waits for its answer.
 func TestDraft(t *testing.T) {
 	clk := newClock()
-	w := newFakeWorld(t, Options{Drafts: true, Now: clk.now})
+	w := newFakeWorld(t, Options{Now: clk.now})
 	conv, msg := w.ask(0, "When is HW1 due?")
 	draft := func(args map[string]any) toolAnswer {
 		t.Helper()
@@ -52,11 +52,12 @@ func TestDraft(t *testing.T) {
 		t.Errorf("a new attempt kept another's text or steps: %+v", d)
 	}
 	stored(draft(map[string]any{"attempt": "a1", "version": 9, "done": true}), false, 1)
-	stored(draft(map[string]any{"attempt": "a2", "version": 1, "done": true}), true, 1)
+	// The version a reader finds after the end: none.
+	stored(draft(map[string]any{"attempt": "a2", "version": 1, "done": true}), true, 0)
 	if _, ok := w.fc.Draft(conv); ok {
 		t.Error("a draft ended with done is still there")
 	}
-	stored(draft(map[string]any{"attempt": "a2", "version": 5, "text": "after the end"}), false, 1)
+	stored(draft(map[string]any{"attempt": "a2", "version": 5, "text": "after the end"}), false, 0)
 
 	// Refused: a bad step, an agent that is not the respondent.
 	wantEnvelope(t, draft(map[string]any{"attempt": "a3", "version": 1, "steps": []any{map[string]any{"kind": "dreaming", "state": "running"}}}),
@@ -103,7 +104,7 @@ func TestDraft(t *testing.T) {
 // TestDraftClearedByProposalAndClose: an answer proposed for approval, and
 // the conversation closed, each take the draft away.
 func TestDraftClearedByProposalAndClose(t *testing.T) {
-	w := newFakeWorld(t, Options{Drafts: true})
+	w := newFakeWorld(t, Options{})
 	w.ok(w.fc.SetLevel(w.tutorM.ID, "conversation_answer", "confirm_required"))
 	conv, msg := w.ask(0, "When is HW1 due?")
 	args := map[string]any{"course_id": w.co.ID, "conversation_id": conv, "attempt": "a1", "version": 1, "text": "Friday"}
@@ -133,7 +134,7 @@ func TestDraftClearedByProposalAndClose(t *testing.T) {
 // rate limit; a refused one counts as any call does.
 func TestDraftCostsNoRate(t *testing.T) {
 	clk := newClock()
-	w := newFakeWorld(t, Options{Drafts: true, Now: clk.now, RatePerMinute: 1, RateBurst: 5})
+	w := newFakeWorld(t, Options{Now: clk.now, RatePerMinute: 1, RateBurst: 5})
 	conv, _ := w.ask(0, "When is HW1 due?")
 	for i := range 8 {
 		clk.add(150 * time.Millisecond)
