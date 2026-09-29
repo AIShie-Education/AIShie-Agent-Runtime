@@ -325,7 +325,7 @@ func (c *MCPCaller) post(ctx context.Context, body []byte) (*http.Response, erro
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	req.Header.Set("MCP-Protocol-Version", c.protocol)
 	req.Header.Set("User-Agent", userAgent(c.name, c.version))
-	resp, err := c.client.Do(req)
+	resp, err := forCall(ctx, c.client).Do(req)
 	if err != nil {
 		return nil, sendError(ctx, err, c.token)
 	}

@@ -103,7 +103,7 @@ func (s *Seat) readEvents(ctx context.Context) {
 	acts := &actionLookup{s: s}
 	defer acts.save(ctx)
 	for page := 0; page < maxEventPages; page++ {
-		evs, err := s.a.client.Events(ctx, s.course, since, eventsPage)
+		evs, err := s.a.client.Events(ctx, s.course, since, eventsPage, 0)
 		s.markEventsRead()
 		if err != nil {
 			s.readFailed(ctx, "event_list", err)

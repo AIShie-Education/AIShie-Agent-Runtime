@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 // Client is the typed face of a Caller: the calls the runtime makes itself
@@ -35,14 +36,29 @@ func (c *Client) Memberships(ctx context.Context) ([]Membership, error) {
 }
 
 // Inbox is conversation_inbox for one course, longest waiting first. limit
-// 0 is Core's default (20); at most 100.
-func (c *Client) Inbox(ctx context.Context, courseID string, limit int) ([]Conversation, error) {
+// 0 is Core's default (20); at most 100. wait above zero is wait_s, in
+// whole seconds up to MaxWait, which only a Core whose catalogue offers it
+// takes (Catalogue.MaxWait): a call that finds no question waits up to that
+// long for one, and answers as soon as one comes.
+func (c *Client) Inbox(ctx context.Context, courseID string, limit int, wait time.Duration) ([]Conversation, error) {
 	var r Inbox
+	ctx, secs := waiting(ctx, wait)
 	err := c.read(ctx, "conversation_inbox", struct {
 		CourseID string `json:"course_id"`
 		Limit    int    `json:"limit,omitempty"`
-	}{courseID, limit}, &r)
+		WaitS    int    `json:"wait_s,omitempty"`
+	}{courseID, limit, secs}, &r)
 	return r.Conversations, err
+}
+
+// waiting is ctx marked for a call that waits up to wait (WithWait), and
+// wait as wait_s; ctx as it is and 0 for no wait.
+func waiting(ctx context.Context, wait time.Duration) (context.Context, int) {
+	secs := waitSeconds(wait)
+	if secs == 0 {
+		return ctx, 0
+	}
+	return WithWait(ctx, time.Duration(secs)*time.Second), secs
 }
 
 // MessagesQuery pages conversation_messages. With neither AfterSeq nor
@@ -78,14 +94,17 @@ func (c *Client) Conversation(ctx context.Context, courseID, conversationID stri
 }
 
 // Events is event_list from sinceSeq (0 for the start). limit 0 is Core's
-// default (100); at most 500.
-func (c *Client) Events(ctx context.Context, courseID string, sinceSeq int64, limit int) (*Events, error) {
+// default (100); at most 500. wait above zero is wait_s, as for Inbox: a
+// call that finds no event waits up to that long for one.
+func (c *Client) Events(ctx context.Context, courseID string, sinceSeq int64, limit int, wait time.Duration) (*Events, error) {
 	var r Events
+	ctx, secs := waiting(ctx, wait)
 	err := c.read(ctx, "event_list", struct {
 		CourseID string `json:"course_id"`
 		SinceSeq int64  `json:"since_seq"`
 		Limit    int    `json:"limit,omitempty"`
-	}{courseID, sinceSeq, limit}, &r)
+		WaitS    int    `json:"wait_s,omitempty"`
+	}{courseID, sinceSeq, limit, secs}, &r)
 	return &r, err
 }
 

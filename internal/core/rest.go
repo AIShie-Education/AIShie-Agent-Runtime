@@ -383,7 +383,7 @@ func (c *RESTCaller) send(ctx context.Context, r restRequest) (*Envelope, error)
 	if r.key != "" {
 		req.Header.Set("Idempotency-Key", r.key)
 	}
-	resp, err := c.client.Do(req)
+	resp, err := forCall(ctx, c.client).Do(req)
 	if err != nil {
 		return nil, sendError(ctx, err, c.token)
 	}

@@ -463,7 +463,7 @@ func (s *Seat) pollInboxOnce(ctx context.Context) {
 	if s.holdingBack(now) {
 		limit = inboxLimitHeld
 	}
-	rows, err := s.a.client.Inbox(core.WithPriority(ctx, core.PriorityPoll), s.course, limit)
+	rows, err := s.a.client.Inbox(core.WithPriority(ctx, core.PriorityPoll), s.course, limit, 0)
 	now = s.a.now()
 	s.mu.Lock()
 	s.lastPoll = now
