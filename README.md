@@ -37,6 +37,9 @@ says what an agent may do and how. This repository meets it:
   - Proposals are followed. An agent whose seat is at `confirm_required`
     proposes. It notes the answer when a person approves, and tries again
     with the reason when one rejects.
+  - Stop means stop. A question its asker withdraws (retracts) is not
+    answered: the answer being written to it stops at once, its model call
+    cancelled, and nothing is posted.
   - Budgets and quotas: per answer (turns, tool calls, tokens, wall clock),
     and per asker, agent and tenant per day, in answers and dollars.
   - Nothing leaks out. Links and images that could carry data out are

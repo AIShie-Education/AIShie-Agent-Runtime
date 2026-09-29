@@ -390,11 +390,13 @@ func actionErrorReason(act core.Action) string {
 	return r
 }
 
-// retracted forgets what memory holds about a retracted message; when it
-// was the agent's own answer, memory notes not to repeat it, and the owner
-// is told (§6.3). A retraction read again, its note written already, is
-// left as it is. Its error is the store failing.
+// retracted stops the answer being written to a retracted message, the
+// opener's question, withdrawn (withdraw.go), and forgets what memory holds
+// about it; when it was the agent's own answer, memory notes not to repeat
+// it, and the owner is told (§6.3). A retraction read again, its note
+// written already, is left as it is. Its error is the store failing.
 func (s *Seat) retracted(ctx context.Context, conv, msg string) error {
+	s.a.withdraw(conv, msg)
 	st := s.a.store()
 	notes, err := st.Notes(ctx, s.a.id, s.id, conv, memoryNotes)
 	if err != nil {

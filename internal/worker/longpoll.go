@@ -29,8 +29,10 @@ import (
 // for the follow-ups' window (ProposalFollowUps), where a place is left
 // over by the inboxes: a decision made meanwhile is seen at once instead
 // of at the next of the 0, 5, 15 and 45 s reads, which stand where no
-// place is free. The background read every events_s stays: only the feed
-// tells a proposal approved later, or a message retracted.
+// place is free. So they are while one of the seat's answers is being
+// written, for a retraction of its question, which stops it (withdraw.go).
+// The background read every events_s stays: only the feed tells a proposal
+// approved later, or a message retracted.
 
 // Why a seat went back to its schedule, as long_poll_fallbacks_total says.
 const (
@@ -65,15 +67,21 @@ func (s *Seat) inboxWait(now time.Time) time.Duration {
 }
 
 // eventsWait is how long the seat's next read of events may wait for news
-// at now: while the follow-ups' window after a proposal is open, until it
-// closes and at most its course's long_poll_wait_s and what Core offers; 0
+// at now: while one of its answers is being written, its course's
+// long_poll_wait_s, at most what Core offers; while the follow-ups' window
+// after a proposal is open, that, and no longer than until it closes; 0
 // otherwise, while it falls back, and while the agent is slowed after a
 // 429.
 func (s *Seat) eventsWait(now time.Time) time.Duration {
 	s.mu.Lock()
-	left, fallback, p := s.followUntil.Sub(now), now.Before(s.eventsFallbackUntil), s.eff.Polling
+	left, fallback, p, writing := s.followUntil.Sub(now), now.Before(s.eventsFallbackUntil), s.eff.Polling, s.writing > 0
 	s.mu.Unlock()
-	if left < time.Second || fallback || s.a.slow() {
+	switch {
+	case fallback || s.a.slow():
+		return 0
+	case writing:
+		return longPollWait(p, s.a.eventsMaxWait)
+	case left < time.Second:
 		return 0
 	}
 	return min(longPollWait(p, s.a.eventsMaxWait), left.Truncate(time.Second))

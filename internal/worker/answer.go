@@ -287,8 +287,19 @@ func (c *claim) generate(ctx context.Context, r passResult, read *core.Messages,
 		c.d.end(false)
 		return c.failedHere(r, "the toolset could not be built", err)
 	}
-	end := l.run(ctx)
+	// Written under a context the question's withdrawal cancels, while the
+	// seat watches its events for it (withdraw.go).
+	u, wctx := c.a.writing(ctx, c.s.course, c.conv, r.msg, c.d)
+	over := c.s.writingBegins()
+	end := l.run(wctx)
+	over()
+	withdrawn, seen := c.a.written(u)
 	r.stats = l.stats
+	if withdrawn {
+		// Its draft went with the question: nothing more is sent.
+		c.d.end(false)
+		return c.withdrawn(r, "the answer being written to it stops, and nothing is posted", "seen", seen)
+	}
 	if end.fatal != nil || end.failed {
 		// Given up: the attempt's draft goes.
 		c.d.end(false)
@@ -309,6 +320,11 @@ func (c *claim) generate(ctx context.Context, r passResult, read *core.Messages,
 	}
 	c.s.providerRecovered(r.msg)
 	r = c.post(ctx, r, end.body, end.kind)
+	if r.withdrawn {
+		// Refused, its question withdrawn as it was sent: its draft went
+		// with the question.
+		c.d.withdraw()
+	}
 	// Posted or proposed, the answer took the draft's place; otherwise the
 	// attempt is over, and its draft goes.
 	c.d.end(r.posted)
@@ -580,9 +596,10 @@ func questionWithdrawn(read *core.Messages) bool {
 }
 
 // withdrawn ends a pass at a question its opener withdrew: nothing is
-// posted, and nothing more is tried at it.
-func (c *claim) withdrawn(r passResult, what string) passResult {
-	c.s.log.Info("the question was withdrawn: "+what, "conversation", c.conv, "message", r.msg)
+// posted, and nothing more is tried at it. Its log line says what, and
+// attrs.
+func (c *claim) withdrawn(r passResult, what string, attrs ...any) passResult {
+	c.s.log.Info("the question was withdrawn: "+what, append([]any{"conversation", c.conv, "message", r.msg}, attrs...)...)
 	r.outcome, r.next, r.withdrawn = store.OutcomeDropped, thenStop, true
 	return r
 }
