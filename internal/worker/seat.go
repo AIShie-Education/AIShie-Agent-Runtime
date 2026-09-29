@@ -52,6 +52,27 @@ type Seat struct {
 	emptyPolls int
 	lastPoll   time.Time
 	lastEvents time.Time
+	// The last inbox call: when it began (lastPoll is when it came back),
+	// the wait it asked for (0 for none), whether Core listed anything,
+	// and how many calls in a row have failed.
+	lastPollStart time.Time
+	lastWaited    time.Duration
+	lastRows      bool
+	pollErrors    int
+	// longPolling is set while an inbox call waits for news.
+	longPolling bool
+	// lastActive is when the seat last found a question, posted an
+	// answer or saw its opener write: the most recently active seats
+	// long-poll first (takeLongPoll).
+	lastActive time.Time
+	// fallbackUntil and eventsFallbackUntil are when the inbox, and the
+	// reads of events, may long-poll again after Core did not wait
+	// (fallBack).
+	fallbackUntil, eventsFallbackUntil time.Time
+	// followUntil is when the follow-ups' window after a proposal closes,
+	// during which events are long-polled where they can be;
+	// lastEventsStart is when the last read of events began.
+	followUntil, lastEventsStart time.Time
 	// hold stops inbox polling after Core denied the seat an answer, until
 	// me_memberships shows the seat changed.
 	hold *seatHold
@@ -274,11 +295,14 @@ func accessFor(a *config.Agent, tools config.Tools, m core.Membership, opener st
 }
 
 // markHot makes the seat's inbox polled at inbox_hot_s for hot_window_s:
-// after an answer is posted, and after the opener writes (§7.2).
+// after an answer is posted, and after the opener writes (§7.2). A seat
+// that long-polls asks again at once.
 func (s *Seat) markHot() {
 	p := s.config().Polling
+	now := s.a.now()
 	s.mu.Lock()
-	s.hotUntil = s.a.now().Add(config.Seconds(p.HotWindowS))
+	s.hotUntil = now.Add(config.Seconds(p.HotWindowS))
+	s.lastActive = now
 	s.emptyPolls = 0
 	s.mu.Unlock()
 	poke(s.wakeInbox)
@@ -371,12 +395,16 @@ func (s *Seat) providerRecovered(msg string) {
 }
 
 // followUp reads events at once after a proposal, then 5, 15 and 45
-// seconds later (§7.2).
+// seconds later (§7.2); where they can, the reads wait for news until
+// then instead (eventsWait).
 func (s *Seat) followUp() {
 	now := s.a.now()
 	s.mu.Lock()
 	for _, d := range ProposalFollowUps {
 		s.followUps = append(s.followUps, now.Add(d))
+	}
+	if until := now.Add(ProposalFollowUps[len(ProposalFollowUps)-1]); until.After(s.followUntil) {
+		s.followUntil = until
 	}
 	sort.Slice(s.followUps, func(i, j int) bool { return s.followUps[i].Before(s.followUps[j]) })
 	s.mu.Unlock()
@@ -387,9 +415,9 @@ func (s *Seat) followUp() {
 func (s *Seat) polling() config.Polling { return s.config().Polling }
 
 // pollInbox asks conversation_inbox for questions waiting, until ctx is
-// done: first after a spread of the idle interval, then as InboxInterval
-// says (design §5.2). A wake-up (the seat turned hot, a hold lifted)
-// reckons the next poll again from the last one.
+// done: first after a spread of the idle interval, then as nextInbox says
+// (design §5.2). A wake-up (the seat turned hot, a hold lifted, a proposal
+// settled) reckons the next poll again from the last one.
 func (s *Seat) pollInbox(ctx context.Context) {
 	due := s.a.now().Add(FirstPoll(s.polling(), s.a.rand()))
 	r := s.a.rand()
@@ -416,7 +444,7 @@ func (s *Seat) pollInbox(ctx context.Context) {
 			case <-s.wakeInbox:
 				t.Stop()
 				if last := s.lastInboxPoll(); !last.IsZero() {
-					due = s.nextInbox(last, r)
+					due = s.nextInbox(r, true)
 				}
 			}
 		}
@@ -425,7 +453,7 @@ func (s *Seat) pollInbox(ctx context.Context) {
 			return
 		}
 		r = s.a.rand()
-		due = s.nextInbox(s.lastInboxPoll(), r)
+		due = s.nextInbox(r, false)
 	}
 }
 
@@ -435,15 +463,34 @@ func (s *Seat) lastInboxPoll() time.Time {
 	return s.lastPoll
 }
 
-// nextInbox is when the inbox is polled next, after a poll at last.
-func (s *Seat) nextInbox(last time.Time, r float64) time.Time {
+// nextInbox is when the inbox is polled next, after its last poll, and on
+// a wake-up when woken. A seat that long-polls asks again at once after a
+// call that waited and found nothing, and on a wake-up; but no sooner after
+// the last call began than the rate share's floor allows, nor, while the
+// agent is slowed after a 429, than its schedule (LongPollNext). After
+// calls that failed, the schedule, and a backoff as they go on. Otherwise,
+// and for a seat on its schedule, as InboxInterval says: a long poll that
+// found questions is followed by a poll on the schedule, since Core
+// answers at once while they wait, being answered or not.
+func (s *Seat) nextInbox(r float64, woken bool) time.Time {
 	p := s.polling()
+	now := s.a.now()
 	s.mu.Lock()
-	hot := s.a.now().Before(s.hotUntil)
-	empty := s.emptyPolls
+	hot := now.Before(s.hotUntil)
+	empty, errs := s.emptyPolls, s.pollErrors
+	last, start, waited, rows := s.lastPoll, s.lastPollStart, s.lastWaited, s.lastRows
+	longPolls := s.inboxWaitLocked(now) > 0
 	s.mu.Unlock()
 	floor := RateFloor(p, s.a.answering())
-	return last.Add(InboxInterval(p, hot, empty, floor, s.a.slow(), r))
+	slow := s.a.slow()
+	interval := InboxInterval(p, hot, empty, floor, slow, r)
+	switch {
+	case errs > 0:
+		return last.Add(max(interval, Backoff(errs-1, time.Second, time.Minute, r)))
+	case longPolls && (woken || waited > 0 && !rows):
+		return LongPollNext(start, floor, interval, slow)
+	}
+	return last.Add(interval)
 }
 
 // inboxLimit is how many rows a poll asks for; more while conversations
@@ -457,24 +504,59 @@ const (
 // back and not being answered to the scheduler. A poll that found a row
 // to answer, or one left waiting for a slot, is not an empty poll: only
 // empty polls put the next one off (§7.2).
+//
+// Where it may (inboxWait) and the agent has a place for it
+// (takeLongPoll), the call waits for a question. One that comes back empty
+// in under half its wait, not for the seat stopping, is Core not waiting,
+// and one that did not come back a long poll that cannot be made just now:
+// the seat polls on its schedule for a while (fallBack). So it does after
+// one Core refused for wait_s, an older Core than its catalogue said, which
+// is made again at once without it, and is no error.
 func (s *Seat) pollInboxOnce(ctx context.Context) {
 	now := s.a.now()
 	limit := inboxLimit
 	if s.holdingBack(now) {
 		limit = inboxLimitHeld
 	}
-	rows, err := s.a.client.Inbox(core.WithPriority(ctx, core.PriorityPoll), s.course, limit, 0)
-	now = s.a.now()
+	wait := s.inboxWait(now)
+	if wait > 0 && !s.a.takeLongPoll(s, false) {
+		wait = 0
+	}
 	s.mu.Lock()
-	s.lastPoll = now
+	s.longPolling = wait > 0
+	s.mu.Unlock()
+	rows, err := s.a.client.Inbox(core.WithPriority(ctx, core.PriorityPoll), s.course, limit, wait)
+	if wait > 0 {
+		s.a.giveLongPoll(false)
+		if err != nil && ctx.Err() == nil && refusesWait(err) {
+			s.fallBack(false, fallbackRefused)
+			wait = 0
+			rows, err = s.a.client.Inbox(core.WithPriority(ctx, core.PriorityPoll), s.course, limit, 0)
+		}
+	}
+	end := s.a.now()
+	s.mu.Lock()
+	s.lastPollStart, s.lastPoll, s.lastWaited, s.lastRows, s.longPolling = now, end, wait, len(rows) > 0, false
+	if err != nil {
+		s.pollErrors++
+	} else {
+		s.pollErrors = 0
+	}
 	s.mu.Unlock()
 	if err != nil {
 		if ctx.Err() == nil {
 			s.a.s.o.Metrics.InboxPolls.WithLabelValues(s.a.id, "error").Inc()
+			if wait > 0 && longPollCut(err) {
+				s.fallBack(false, fallbackCut)
+			}
 		}
 		s.readFailed(ctx, "conversation_inbox", err)
 		return
 	}
+	if wait > 0 && len(rows) == 0 && end.Sub(now) < wait/2 && ctx.Err() == nil {
+		s.fallBack(false, fallbackEarly)
+	}
+	now = end
 	perCourse := s.config().Answer.MaxConcurrentPerCourse
 	started, waiting := 0, 0
 	for _, row := range rows {
@@ -501,6 +583,9 @@ func (s *Seat) pollInboxOnce(ctx context.Context) {
 		s.emptyPolls++
 	} else {
 		s.emptyPolls = 0
+	}
+	if started > 0 {
+		s.lastActive = now
 	}
 	s.mu.Unlock()
 	result := "empty"

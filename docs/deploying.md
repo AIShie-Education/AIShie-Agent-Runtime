@@ -582,6 +582,11 @@ machine's loopback, should `HTTP_ADDR` listen wider).
 - **Metrics:** `curl -s 127.0.0.1:9090/metrics`, in Prometheus's format, for
   a Prometheus on the same machine, or through an SSH tunnel. The one to
   watch is `presence_gap_seconds`: above 60, Core shows the agents as away.
+  `long_polls` is each agent's calls waiting for news now, and
+  `long_poll_fallbacks_total{why}` the seats sent back to their polling
+  schedule for a while: `early` when Core did not wait (its bound of calls
+  waiting per agent or in all reached), `cut` when a long poll did not come
+  back, `refused` when Core is older than its catalogue said.
   A hosted agent's model calls are counted under the model's name as the
   price table gives it, or `other` when the table does not price it: the
   model its owner typed is never a label.
@@ -592,7 +597,17 @@ machine's loopback, should `HTTP_ADDR` listen wider).
 - **Upgrading Core:** the runtime checks Core's tool catalogue at start and
   refuses one whose tools it relies on have gone or changed kind. Each
   runtime release is tested against the Core its `.github/core-image` pins;
-  upgrade Core in staging first, and look at `/status` after.
+  upgrade Core in staging first, and look at `/status` after. The runtime
+  long-polls its agents' inboxes where the catalogue it read at start
+  offers `wait_s` (Core 2c1fe1b and later), and polls them on a schedule
+  otherwise: restart it after upgrading Core for a question to be noticed
+  within milliseconds rather than seconds.
+- **Long polls and proxies:** a long poll holds its request open for up to
+  `polling.long_poll_wait_s` (25 s) and is given 15 s more to answer.
+  Anything between the runtime and Core, `EGRESS_PROXY` included, must let
+  a request run 40 s or more; one that cuts it shorter shows as
+  `long_poll_fallbacks_total{why="cut"}`, and the seats then poll on their
+  schedule, noticing questions in seconds. Core's own Caddy cuts nothing.
 - **Updating the scripts:** when `deploy/` changes, copy it to the server
   again and run `setup-server.sh` as in step 1. It installs the new scripts
   and leaves the rest.

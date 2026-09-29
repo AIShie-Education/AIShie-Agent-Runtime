@@ -224,6 +224,18 @@ type Polling struct {
 	AssumedCoreRatePerMin int     `yaml:"assumed_core_rate_per_min"`
 	// AssumedCoreBurst is Core's RATE_LIMIT_BURST.
 	AssumedCoreBurst int `yaml:"assumed_core_burst"`
+	// LongPollWaitS is how long a seat's inbox call waits for a question
+	// where Core offers it (wait_s, Core 2c1fe1b and later), rounded up to
+	// whole seconds, at most 25; 0 polls on the schedule alone. The
+	// schedule above stands against an older Core, and while Core does
+	// not wait.
+	LongPollWaitS float64 `yaml:"long_poll_wait_s"`
+	// LongPollMax bounds how many of the agent's calls wait for news at
+	// once, all its seats' together, below Core's bound per actor
+	// (LONG_POLL_WAITERS_PER_ACTOR, 16 by default); seats past it poll on
+	// the schedule, the most recently active long-polling first. The
+	// agent's own, not a course's; 0 long-polls nothing.
+	LongPollMax int `yaml:"long_poll_max"`
 }
 
 // Memory is what the agent remembers.

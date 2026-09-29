@@ -38,15 +38,16 @@ const (
 
 // pollEvents follows the seat's events (design §5.4) until ctx is done:
 // every events_s, and at once and 5, 15 and 45 s after an answer is
-// proposed. First it sends again what a crash left sending, and settles
-// what was decided while the runtime was down.
+// proposed, or, where Core's reads wait for news, waiting for news until
+// then (longpoll.go). First it sends again what a crash left sending, and
+// settles what was decided while the runtime was down.
 func (s *Seat) pollEvents(ctx context.Context) {
 	s.recover(ctx)
 	for ctx.Err() == nil {
-		s.readEvents(ctx)
+		waited := s.pollEventsOnce(ctx)
 		r := s.a.rand()
 		for {
-			d := s.nextEvents(r).Sub(s.a.now())
+			d := s.nextEvents(r, waited).Sub(s.a.now())
 			if d <= 0 {
 				break
 			}
@@ -63,11 +64,60 @@ func (s *Seat) pollEvents(ctx context.Context) {
 	}
 }
 
+// pollEventsOnce reads the seat's events once, from its cursor. While the
+// follow-ups' window after a proposal is open, the read waits for news
+// where it may (eventsWait) and the agent has a place for it
+// (takeLongPoll): it reports whether it did, and came back as a long poll
+// should. One that comes back empty in under half its wait, and one that
+// did not come back, have the seat read its events on the schedule for a
+// while (fallBack), as follow-ups at 0, 5, 15 and 45 s; so does one Core
+// refused for wait_s, which is read again at once without it.
+func (s *Seat) pollEventsOnce(ctx context.Context) bool {
+	now := s.a.now()
+	wait := s.eventsWait(now)
+	if wait > 0 && !s.a.takeLongPoll(s, true) {
+		wait = 0
+	}
+	s.mu.Lock()
+	s.lastEventsStart = now
+	s.mu.Unlock()
+	found, err := s.readEvents(ctx, wait)
+	if wait <= 0 {
+		return false
+	}
+	s.a.giveLongPoll(true)
+	switch {
+	case ctx.Err() != nil:
+		return false
+	case err != nil && refusesWait(err):
+		s.fallBack(true, fallbackRefused)
+		_, _ = s.readEvents(ctx, 0)
+		return false
+	case err != nil && longPollCut(err):
+		s.fallBack(true, fallbackCut)
+		return false
+	case err == nil && !found && s.a.now().Sub(now) < wait/2:
+		s.fallBack(true, fallbackEarly)
+		return false
+	}
+	return err == nil
+}
+
 // nextEvents is when events are read next: events_s after the last read
 // (jittered, and doubled while the agent is slowed), or the next follow-up
-// of a proposal, whichever comes first.
-func (s *Seat) nextEvents(r float64) time.Time {
+// of a proposal, whichever comes first. After a read that waited for news
+// (waited), while the follow-ups' window is open: again at once, but no
+// sooner after that read began than inbox_hot_s, so that a course whose
+// feed is busy, where every read finds something at once, is not read
+// without pause.
+func (s *Seat) nextEvents(r float64, waited bool) time.Time {
 	p := s.polling()
+	if waited && s.eventsWait(s.a.now()) > 0 {
+		s.mu.Lock()
+		start := s.lastEventsStart
+		s.mu.Unlock()
+		return start.Add(config.Seconds(p.InboxHotS))
+	}
 	d := config.Seconds(p.EventsS)
 	if s.a.slow() {
 		d *= 2
@@ -87,8 +137,10 @@ func (s *Seat) nextEvents(r float64) time.Time {
 // readEvents reads event_list from the seat's cursor until caught up,
 // acting on each event, and saves the cursor after each page. Core's
 // next_seq may stay where it was when the page held nothing the agent may
-// see: that is caught up, not an error.
-func (s *Seat) readEvents(ctx context.Context) {
+// see: that is caught up, not an error. The first page waits up to wait
+// for news, when it is above zero. It reports whether the first page held
+// any event, and the error of the read that failed, if one did.
+func (s *Seat) readEvents(ctx context.Context, wait time.Duration) (bool, error) {
 	ctx = core.WithPriority(ctx, core.PriorityBackground)
 	st := s.a.store()
 	raw, err := st.Cursor(ctx, s.a.id, s.id, store.CursorEvents)
@@ -97,17 +149,25 @@ func (s *Seat) readEvents(ctx context.Context) {
 			s.log.Warn("the events cursor could not be read", "err", err)
 		}
 		s.markEventsRead()
-		return
+		return false, err
 	}
 	since, _ := strconv.ParseInt(raw, 10, 64)
 	acts := &actionLookup{s: s}
 	defer acts.save(ctx)
+	found := false
 	for page := 0; page < maxEventPages; page++ {
-		evs, err := s.a.client.Events(ctx, s.course, since, eventsPage, 0)
+		asked := wait
+		evs, err := s.a.client.Events(ctx, s.course, since, eventsPage, wait)
+		wait = 0
 		s.markEventsRead()
 		if err != nil {
-			s.readFailed(ctx, "event_list", err)
-			return
+			if asked <= 0 || !refusesWait(err) { // which pollEventsOnce answers
+				s.readFailed(ctx, "event_list", err)
+			}
+			return found, err
+		}
+		if page == 0 {
+			found = len(evs.Events) > 0
 		}
 		for _, ev := range evs.Events {
 			if err := s.onEvent(ctx, ev, acts); err != nil {
@@ -117,20 +177,21 @@ func (s *Seat) readEvents(ctx context.Context) {
 				if ctx.Err() == nil {
 					s.log.Warn("an event could not be acted on; it is read again next time", "type", ev.Type, "seq", ev.Seq, "err", err)
 				}
-				return
+				return found, nil
 			}
 		}
 		if evs.NextSeq <= since {
-			return
+			return found, nil
 		}
 		since = evs.NextSeq
 		if err := st.SetCursor(ctx, s.a.id, s.id, store.CursorEvents, strconv.FormatInt(since, 10)); err != nil && ctx.Err() == nil {
 			s.log.Warn("the events cursor could not be saved", "err", err)
 		}
 		if !evs.More {
-			return
+			return found, nil
 		}
 	}
+	return found, nil
 }
 
 func (s *Seat) markEventsRead() {

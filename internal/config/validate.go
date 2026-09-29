@@ -603,7 +603,16 @@ func checkPolling(is *issues, p Polling) {
 	if p.AssumedCoreBurst < 1 {
 		is.add("polling.assumed_core_burst", "must be one or more")
 	}
+	if !finite(p.LongPollWaitS) || p.LongPollWaitS < 0 || p.LongPollWaitS > MaxLongPollWaitS {
+		is.add("polling.long_poll_wait_s", "must be from 0 to 25")
+	}
+	if p.LongPollMax < 0 {
+		is.add("polling.long_poll_max", "must be zero or more")
+	}
 }
+
+// MaxLongPollWaitS is the longest Core lets a call wait for news (wait_s).
+const MaxLongPollWaitS = 25
 
 // validateRuntime checks the runtime's own settings.
 func (c *Config) validateRuntime() []error {

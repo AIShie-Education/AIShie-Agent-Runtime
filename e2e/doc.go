@@ -1,7 +1,8 @@
 // Package e2e is the runtime's end-to-end tests against a real AIShiteru
 // Core (Core's docs/agent-runtime.md §8.2 item 3, and M1's "done when"): a
 // student's own agent and a course tutor answer, the moved-on, duplicate and
-// denied paths hold, proposals are followed, and no token reaches a log.
+// denied paths hold, proposals are followed, an idle agent long-polling its
+// inbox notices a question within a second, and no token reaches a log.
 //
 // Each test seats its own people and agents through Core's REST API, as
 // root and then as those people, each signed in with a password of their

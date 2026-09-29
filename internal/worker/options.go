@@ -122,6 +122,10 @@ type Timing struct {
 	// RetryLater is how long a conversation is held back when Core could
 	// not be reached for its answer: 10 s.
 	RetryLater time.Duration
+	// LongPollFallback is how long a seat polls on its schedule after a
+	// long poll Core did not wait on, refused, or that did not come back
+	// (longpoll.go), jittered as its polling is: 1 min.
+	LongPollFallback time.Duration
 }
 
 // Defaults of Timing.
@@ -136,6 +140,8 @@ const (
 	DefaultHoldBack        = time.Minute
 	DefaultHoldBackMax     = 10 * time.Minute
 	DefaultRetryLater      = 10 * time.Second
+	// DefaultLongPollFallback is LongPollFallback's default.
+	DefaultLongPollFallback = time.Minute
 )
 
 func (t Timing) withDefaults() Timing {
@@ -154,6 +160,7 @@ func (t Timing) withDefaults() Timing {
 	set(&t.HoldBack, DefaultHoldBack)
 	set(&t.HoldBackMax, DefaultHoldBackMax)
 	set(&t.RetryLater, DefaultRetryLater)
+	set(&t.LongPollFallback, DefaultLongPollFallback)
 	return t
 }
 

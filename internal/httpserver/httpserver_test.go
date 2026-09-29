@@ -64,7 +64,7 @@ func newFixture(t *testing.T, st store.Store) *fixture {
   display_name: "Yuki's helper"
   core: {base_url: %q, token_ref: env://TOKEN}
   model: {adapter: openai_chat, model: m1, key_ref: env://KEY}
-  polling: {inbox_hot_s: 0.01, inbox_idle_s: 0.02, inbox_max_s: 0.05, events_s: 0.03, memberships_s: 0.3, assumed_core_rate_per_min: 600000}
+  polling: {inbox_hot_s: 0.01, inbox_idle_s: 0.02, inbox_max_s: 0.05, events_s: 0.03, memberships_s: 0.3, assumed_core_rate_per_min: 600000, long_poll_wait_s: 1}
 `, srv.URL)
 	path := filepath.Join(t.TempDir(), "agent.yaml")
 	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {

@@ -40,12 +40,15 @@ func wrapCaller(wrap func(next core.Caller) core.Caller) func(*Options) {
 
 // TestDeniedStopsPolling: the seat's level set to denied; Core denies its
 // inbox, the seat is held and its seats read again, and it polls its inbox
-// no more until its level is back; then it answers.
+// no more until its level is back; then it answers. On the schedule: a
+// long poll waiting when the level changes, which is no news to it, would
+// be cancelled by the seat stopping, me_memberships having shown it
+// denied, before Core denied it.
 func TestDeniedStopsPolling(t *testing.T) {
 	w := newWorld(t)
 	own := w.ownAgent("yuki-helper", 0)
 	model := scripted.New(scripted.Reply("Back again."))
-	w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": model}, workerOpts{})
+	w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", map[string]any{"polling": onSchedule(nil)}, nil)), models{"m1": model}, workerOpts{})
 	eventually(t, "the inbox polled", func() bool { return len(w.calls(own.actor.ID, "conversation_inbox")) > 0 })
 
 	w.ok(w.fc.SetLevel(own.seat.ID, "conversation_answer", "denied"))

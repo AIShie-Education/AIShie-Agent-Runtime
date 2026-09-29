@@ -77,6 +77,8 @@ polling:
     max_rate_share: 0.3
     assumed_core_rate_per_min: 600
     assumed_core_burst: 100
+    long_poll_wait_s: 25
+    long_poll_max: 12
 memory:
     enabled: true
     retention_days_after_removal: 30

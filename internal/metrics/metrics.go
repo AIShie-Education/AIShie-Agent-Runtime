@@ -31,6 +31,13 @@ type Metrics struct {
 	BudgetExhausted *prometheus.CounterVec
 	LeaseTakeovers  prometheus.Counter
 	AgentStates     *prometheus.GaugeVec
+	// LongPolls are each agent's calls waiting for news now (wait_s), and
+	// LongPollFallbacks the times a seat went back to its schedule for a
+	// while, by why: early (Core answered empty before half the wait, so
+	// did not wait), cut (the call did not come back: a proxy that gives
+	// a request less than its wait), refused (Core refused wait_s).
+	LongPolls         *prometheus.GaugeVec
+	LongPollFallbacks *prometheus.CounterVec
 	// OCR: what the runtime recognized of documents that have no text of
 	// their own (docs/design.md §4, Files).
 	OCRRequests    *prometheus.CounterVec
@@ -85,6 +92,14 @@ func New(reg prometheus.Registerer) *Metrics {
 		AgentStates: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "agents", Help: "Agents this worker runs, by state.",
 		}, []string{"state"}),
+		LongPolls: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "long_polls", Help: "Calls to Core waiting for news now (wait_s), by agent.",
+		}, []string{"agent"}),
+		LongPollFallbacks: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "long_poll_fallbacks_total",
+			Help: "Seats sent back to their polling schedule for a while, by agent and why: early (Core did not wait), " +
+				"cut (the call did not come back), refused (Core refused wait_s).",
+		}, []string{"agent", "why"}),
 		OCRRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "ocr_requests_total",
 			Help: "Asks for the OCR of a file, by what they found: done (kept text), failed (a kept failure), started, " +
@@ -114,7 +129,7 @@ func New(reg prometheus.Registerer) *Metrics {
 		presence: &presence{last: map[string]time.Time{}},
 	}
 	reg.MustRegister(m.InboxPolls, m.AnswerLatency, m.Answers, m.LLMCalls, m.LLMTokens, m.LLMCost,
-		m.CoreCalls, m.ToolWrites, m.BudgetExhausted, m.LeaseTakeovers, m.AgentStates, m.presence,
+		m.CoreCalls, m.ToolWrites, m.BudgetExhausted, m.LeaseTakeovers, m.AgentStates, m.presence, m.LongPolls, m.LongPollFallbacks,
 		m.OCRRequests, m.OCRJobs, m.OCRPages, m.OCRJobSeconds, m.OCRPageSeconds, m.OCRRunning, m.OCRWaiting)
 	return m
 }

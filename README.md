@@ -42,8 +42,11 @@ says what an agent may do and how. This repository meets it:
   - Nothing leaks out. Links and images that could carry data out are
     stripped from what the model writes. Tokens and keys are redacted from
     every log.
-- **Core's rate limit is shared.** Each agent polls within its share of it,
-  faster while a conversation is active and backing off when idle.
+- **Core's rate limit is shared.** Each agent polls within its share of it.
+  Where Core's reads wait for news, each inbox call waits for a question
+  and a question is noticed within milliseconds; against an older Core the
+  inbox is polled faster while a conversation is active, backing off when
+  idle.
 
 How it is built, and where it departs from the handout, is in
 [`docs/design.md`](docs/design.md).

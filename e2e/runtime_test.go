@@ -48,11 +48,15 @@ func newModel(t *testing.T, r fakellm.Responder) *fakellm.Server {
 // polling are the tests' polling settings: a question is noticed within a
 // second or so, and each agent stays well inside Core's default limit of
 // 600 calls a minute (§7.3: inbox at most twice a second, events and seats
-// every 2 s, 180 calls a minute in all).
+// every 2 s, 180 calls a minute in all). Where Core offers wait_s, each
+// inbox call waits a second for a question, the least Core takes, not the
+// default 25: what is no news to Core (a seat's level changed, say) is seen
+// within a second, and settle's inbox polls take a second each.
+// longPollPickup waits the default.
 func polling() map[string]any {
 	return map[string]any{
 		"inbox_hot_s": 0.5, "hot_window_s": 10, "inbox_idle_s": 0.5, "inbox_max_s": 1,
-		"events_s": 2, "memberships_s": 2, "jitter": 0.25,
+		"events_s": 2, "memberships_s": 2, "jitter": 0.25, "long_poll_wait_s": 1,
 	}
 }
 
@@ -269,11 +273,47 @@ func (rt *instance) coreCalls(tool string) float64 {
 	return rt.metric("core_calls_total", map[string]string{"tool": tool})
 }
 
-// waitPolling waits until the agent's seat has polled its inbox: the
-// runtime has connected, read its seats and started.
+// waitPolling waits until the agent's seat has polled its inbox, or has a
+// call waiting for news: the runtime has connected, read its seats and
+// started.
 func (rt *instance) waitPolling(agent string) {
 	rt.t.Helper()
-	eventually(rt.t, 60*time.Second, "the first inbox poll of "+agent, func() bool { return rt.inboxPolls(agent) > 0 })
+	eventually(rt.t, 60*time.Second, "the first inbox poll of "+agent, func() bool {
+		return rt.inboxPolls(agent) > 0 || rt.longPolls(agent) > 0
+	})
+}
+
+// longPolls is how many of the agent's calls wait for news now.
+func (rt *instance) longPolls(agent string) float64 {
+	return rt.metric("long_polls", map[string]string{"agent": agent})
+}
+
+// histogramSum is the sum of the histogram name's samples, over the series
+// whose labels include labels.
+func (rt *instance) histogramSum(name string, labels map[string]string) float64 {
+	rt.t.Helper()
+	mfs, err := rt.reg.Gather()
+	if err != nil {
+		rt.t.Fatal(err)
+	}
+	var sum float64
+	for _, mf := range mfs {
+		if mf.GetName() != name {
+			continue
+		}
+	series:
+		for _, m := range mf.GetMetric() {
+			for _, lp := range m.GetLabel() {
+				if v, ok := labels[lp.GetName()]; ok && v != lp.GetValue() {
+					continue series
+				}
+			}
+			if m.Histogram != nil {
+				sum += m.GetHistogram().GetSampleSum()
+			}
+		}
+	}
+	return sum
 }
 
 // seat is the agent's seat in course as the supervisor shows it, and
