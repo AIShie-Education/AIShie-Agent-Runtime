@@ -69,6 +69,7 @@
      },
      "state": "reply_pending_approval",
      "status": "open",
+     "unread": false,
      "visible_to": [
       "participants",
       "overseers",

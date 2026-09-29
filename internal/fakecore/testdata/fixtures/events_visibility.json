@@ -380,9 +380,9 @@
     "error": {
      "code": "forbidden",
      "details": {
-      "reason": "permission_denied"
+      "reason": "conversations_are_with_agents"
      },
-     "message": "not permitted"
+     "message": "conversations are between a person and an agent: a person answers none, and is asked nothing here; people talk to people elsewhere"
     },
     "status": "denied"
    },

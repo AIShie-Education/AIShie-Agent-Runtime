@@ -369,6 +369,7 @@
      },
      "state": "answered",
      "status": "open",
+     "unread": true,
      "visible_to": [
       "participants",
       "overseers",

@@ -43,6 +43,10 @@ const (
 	ceilingAgentDecidesByProposal = "agent_decides_by_proposal"
 	ceilingStudentAgentByProposal = "student_agent_by_proposal"
 	ceilingPrincipalLevel         = "principal_level"
+	// A person answers no conversation: conversations are between a person
+	// and an agent. It is also why a person is refused as a respondent,
+	// and refused answering (errWithAgents).
+	ceilingConversationsAreWithAgents = "conversations_are_with_agents"
 )
 
 // delegatePresetLevels is what the built-in delegate preset gives, every
@@ -53,13 +57,14 @@ var delegatePresetLevels = map[string]level{
 
 // ceiling is the most a seat may hold of p at all, whoever grants it, and
 // why when that is below autonomous (Core's domain.Ceiling, the one rule):
-// an agent decides and reviews only by proposal; a delegate never brings
-// agents of its own, holds no more than its principal (conversation_answer
-// no more than the principal's conversation_ask), and, for a principal who
-// does not manage the course's members, does only by proposal what the
-// delegate preset does not give, member_manage and member_invite left to
-// the principal's own level. principal is a delegate's principal's seat;
-// a delegate is always an agent.
+// a person answers no conversation; an agent decides and reviews only by
+// proposal; a delegate never brings agents of its own, holds no more than
+// its principal (conversation_answer no more than the principal's
+// conversation_ask), and, for a principal who does not manage the course's
+// members, does only by proposal what the delegate preset does not give,
+// member_manage and member_invite left to the principal's own level.
+// principal is a delegate's principal's seat; a delegate is always an
+// agent.
 func ceiling(agent bool, principal *member, p string) (level, string) {
 	lvl, why := autonomous, ""
 	lower := func(l level, r string) {
@@ -75,6 +80,9 @@ func ceiling(agent bool, principal *member, p string) (level, string) {
 	}
 	if agent && p == permActionDecide {
 		lower(confirmRequired, ceilingAgentDecidesByProposal)
+	}
+	if !agent && p == permConversationAnswer {
+		lower(denied, ceilingConversationsAreWithAgents)
 	}
 	if principal == nil {
 		return lvl, why
@@ -121,6 +129,9 @@ func errAboveCeiling(p string, asked, limit level, why string) *apiError {
 		msg = fmt.Sprintf("a delegate never holds %s: it brings no agents of its own", p)
 	case ceilingAgentDecidesByProposal:
 		msg = fmt.Sprintf("an agent holds %s at %s at most: it decides and reviews only by proposal, which a person confirms", p, limit)
+	case ceilingConversationsAreWithAgents:
+		msg = fmt.Sprintf("a person holds %s at %s: conversations are between a person and an agent, and a person answers "+
+			"none; people talk to people elsewhere", p, limit)
 	case ceilingStudentAgentByProposal:
 		msg = fmt.Sprintf("the agent of someone who does not manage the course's members holds %s at %s at most: "+
 			"beyond what the delegate preset gives, it acts only by proposal", p, limit)
