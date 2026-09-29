@@ -288,6 +288,56 @@ model may act for them in the conversations they open, as far as its seats'
 permissions allow, unless they turn that off (`tools.writes`, through the
 API).
 
+### The school's AI plan
+
+The school may offer the people who host agents here a model on its own
+key, so that they need no key of their own: the `school:` section of the
+`runtime:` document. Without it, hosted agents run on their owners' keys
+alone. Each offer is a model section, as an agent's `model:` is, with an
+id owners choose it by and a label they are shown; its key is a reference
+under `secret://school/keys/`, a file on this server that is never stored
+in the database, shown, audited or sent to a browser:
+
+```yaml
+runtime:
+  prices_ref: prices.yaml            # optional; needed only for usd: quotas
+  school:
+    offers:
+      - id: standard
+        label: "School AI (Claude Haiku)"
+        adapter: anthropic
+        model: claude-haiku-4-5
+        key_ref: secret://school/keys/anthropic-main
+        params: {max_output_tokens: 1500}
+    per_owner_day: {answers: 100}     # per person, across all of their agents
+    per_asker_day: {answers: 20}      # per asker, per agent and course
+    per_day: {answers: 5000}          # optional: a ceiling on the school's key
+```
+
+```
+install -D -g 65532 -m 640 /dev/stdin /etc/aishie-runtime/secrets/school/keys/anthropic-main
+    (paste the key, Enter, Ctrl-D)
+aishie-runtime check --live && docker kill -s HUP aishie-runtime
+```
+
+`per_owner_day` is 100 answers and `per_asker_day` 20 unless set; each may
+also take `usd:`, which the runtime refuses to start without a price table
+(`prices_ref` or `PRICES`) that prices every offer. Answers alone need no
+prices: an offer's cost is then unknown, as the owner's page says. Days
+are UTC: a quota starts again at 00:00 UTC. An offer is held to
+`allowed_models` and `denied_models` as any model on the school's key.
+
+An owner chooses an offer in the front end, and may put their own model
+and key behind it: once the plan's quota for them (or for the asker, or
+the school's ceiling) is spent that day, their own key answers; without
+one, the asker is told the school's allowance is used up (in English and
+Chinese, or in the language `answer_language` fixes; `on_quota_text` in
+`school:` sets the words). Taking an offer out of `school:` stops the
+agents on it, each saying so in its state, until their owners choose
+another. `check` lists the offers and the quotas; the runtime's
+administrators read today's use per owner at `GET
+/runtime/api/v1/admin/school-plan/usage`.
+
 ## The API for the front end
 
 AIShiteru-Frontend manages hosted agents through the runtime's JSON API

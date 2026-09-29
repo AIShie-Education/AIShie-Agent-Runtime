@@ -76,7 +76,9 @@ which the runtime keeps in its database and runs beside them
 ([`docs/design.md`](docs/design.md) §11).
 Each document holds the agent, and overrides per course if it has any.
 One `runtime:` document holds the process's own settings: tenants' quotas,
-the price table, and the models the school's key may use. See
+the price table, the models the school's key may use, and the school's AI
+plan, the models the school offers hosted agents on its own key with the
+quotas that hold them. See
 [`examples/`](examples):
 
 - [`agents/delegate.yaml`](examples/agents/delegate.yaml): a student's own
@@ -84,7 +86,7 @@ the price table, and the models the school's key may use. See
 - [`agents/course-tutor.yaml`](examples/agents/course-tutor.yaml): an
   instructor's course tutor, on the school's Anthropic key, with a fallback
   model and settings for one course.
-- [`runtime.yaml`](examples/runtime.yaml) and
+- [`runtime.yaml`](examples/runtime.yaml), with the school's plan, and
   [`prices.example.yaml`](examples/prices.example.yaml).
 
 Secrets are never written in the YAML, only referred to:
