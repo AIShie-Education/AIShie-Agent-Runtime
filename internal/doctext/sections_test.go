@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/doctext/doctexttest"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext/doctexttest"
 )
 
 // holdSections holds a result's sections to what they promise: in order,

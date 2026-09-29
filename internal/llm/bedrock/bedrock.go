@@ -29,9 +29,9 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/smithy-go/encoding/httpbinding"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/httpx"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolschema"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/httpx"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolschema"
 )
 
 // signingService is the SigV4 service name of Bedrock's runtime endpoints.

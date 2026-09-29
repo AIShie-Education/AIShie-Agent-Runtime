@@ -18,13 +18,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/fakecore"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/fakellm"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/pricing"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/pgstore"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/version"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/worker"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/fakecore"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/fakellm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/pgstore"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/version"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/worker"
 )
 
 // childArgs, when set, makes the test binary the runtime itself, running

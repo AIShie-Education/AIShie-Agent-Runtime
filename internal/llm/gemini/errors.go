@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 )
 
 // maxErrorBody bounds how much of a refusal is kept to read. Google's error

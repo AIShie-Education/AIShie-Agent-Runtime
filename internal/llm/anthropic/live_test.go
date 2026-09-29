@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 )
 
 // TestLive calls Anthropic's API when LIVE=1 and ANTHROPIC_API_KEY are

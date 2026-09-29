@@ -18,15 +18,15 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"go.yaml.in/yaml/v3"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/fakellm"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/metrics"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/netguard"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/redact"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/memstore"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/worker"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/fakellm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/metrics"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/netguard"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/redact"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/memstore"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/worker"
 )
 
 // The runtime runs in-process, built as the binary's run command builds it

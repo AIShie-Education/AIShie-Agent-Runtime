@@ -1,4 +1,4 @@
-module github.com/AIShiteru-LMS/AIShie-Agent-Runtime
+module github.com/AIShie-Education/AIShie-Agent-Runtime
 
 go 1.27.1
 

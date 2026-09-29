@@ -1,4 +1,4 @@
-// Package e2e is the runtime's end-to-end tests against a real AIShiteru
+// Package e2e is the runtime's end-to-end tests against a real AIshie
 // Core (Core's docs/agent-runtime.md §8.2 item 3, and M1's "done when"): a
 // student's own agent and a course tutor answer, the moved-on, duplicate and
 // denied paths hold, proposals are followed, an idle agent long-polling its

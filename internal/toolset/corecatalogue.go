@@ -4,9 +4,9 @@
 package toolset
 
 import (
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolschema"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolschema"
 )
 
 // FromCore is the toolset's view of Core's catalogue: its tools by MCP

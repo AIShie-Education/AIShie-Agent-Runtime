@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 )
 
 // TestStreamGolden streams each of testdata/stream/*.sse, written as

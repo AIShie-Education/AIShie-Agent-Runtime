@@ -1,4 +1,4 @@
-// Package fakecore is a fake AIShiteru Core for the runtime's tests (Core's
+// Package fakecore is a fake AIshie Core for the runtime's tests (Core's
 // docs/agent-runtime.md §8.2): the same MCP surface and envelope as the real
 // one, served in-process, scripted from Go, and held to fixtures recorded
 // from a real Core (testdata/fixtures, conformance_test.go).
@@ -98,7 +98,7 @@ const (
 	defaultLongPollWaitersPerActor = 16
 )
 
-// Core is a fake AIShiteru Core. Its methods are safe for concurrent use.
+// Core is a fake AIshie Core. Its methods are safe for concurrent use.
 type Core struct {
 	opts    Options
 	cat     *catalogue

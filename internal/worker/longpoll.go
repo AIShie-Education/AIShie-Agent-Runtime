@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 )
 
 // Long polling (Core 2c1fe1b; its docs/agent-runtime.md §7.2, design

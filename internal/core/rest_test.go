@@ -263,7 +263,7 @@ func TestRESTAnswers(t *testing.T) {
 		{"500 with a recorded outcome", body(500, `{"status":"failed","action_id":"a1","error":{"code":"odd","message":"?"}}`), envelope(StatusFailed, "odd", "")},
 		{"503 with a status but no action: not Core's", body(503, `{"status":"error","message":"upstream unavailable"}`), transient(503)},
 		{"401", func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="aishiteru"`)
+			w.Header().Set("WWW-Authenticate", `Bearer realm="aishie"`)
 			body(401, `{"error":{"code":"unauthenticated","message":"the credential is missing or not valid"}}`)(w, nil)
 		}, func(t *testing.T, env *Envelope, err error) {
 			if !errors.Is(err, ErrUnauthenticated) || env != nil {

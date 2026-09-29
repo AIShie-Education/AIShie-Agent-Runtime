@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/doctext/doctexttest"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/fakellm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext/doctexttest"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/fakellm"
 )
 
 // weekThreeSlides is a deck of slides as a course's lecture slides are:

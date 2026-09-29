@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/doctext"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext"
 )
 
 // TextCache keeps what the runtime read of documents' files for the models

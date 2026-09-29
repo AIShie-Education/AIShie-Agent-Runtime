@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/ocr"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
 )
 
 // Env is the process's settings from its environment (§8.3).

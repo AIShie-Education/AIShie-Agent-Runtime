@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/doctext"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/ocr"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
 // OCR recognizes the text of a file that has none of its own to read, for

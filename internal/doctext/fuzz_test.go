@@ -11,7 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/doctext/doctexttest"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext/doctexttest"
 )
 
 // The fuzz targets hold the readers to what they promise of any file,

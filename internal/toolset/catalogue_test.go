@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolschema"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolschema"
 )
 
 func TestBuild(t *testing.T) {

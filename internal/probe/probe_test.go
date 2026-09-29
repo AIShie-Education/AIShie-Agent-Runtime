@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/fakecore"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/fakecore"
 )
 
 // world is a fake Core with Yuki, her agent seated as her delegate, and

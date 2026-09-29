@@ -10,7 +10,7 @@ import (
 // testdata/renderer.json holds generated bodies of links, near-links and the
 // Markdown around them (code, TeX, tables, lists, block quotes), each with
 // Body's output, as checked when they were recorded against
-// AIShiteru-Frontend's own renderer (src/utils/markdown.ts: markdown-it
+// AIShie-Frontend's own renderer (src/utils/markdown.ts: markdown-it
 // 15.0.2, linkify-it 6.1.0, KaTeX, DOMPurify): how many links and images
 // carrying data the renderer made of the input and of the output (none),
 // and whether the output's code and TeX read as the input's. A change to

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
 // testAudit: an event is kept as recorded, its detail as the same JSON, a

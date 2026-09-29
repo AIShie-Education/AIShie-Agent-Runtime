@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 )
 
 // streamServer answers every request with the SSE body sse, as the

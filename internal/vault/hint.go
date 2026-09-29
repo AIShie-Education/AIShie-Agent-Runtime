@@ -4,7 +4,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
 // Ellipsis stands for what a hint leaves out.

@@ -14,16 +14,16 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/providers"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/metrics"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/netguard"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/pricing"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/secrets"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolset"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/providers"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/metrics"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/netguard"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/secrets"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolset"
 )
 
 // Options are what a Supervisor is built from. Every dependency can be

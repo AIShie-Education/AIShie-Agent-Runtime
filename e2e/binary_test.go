@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/fakellm"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/redact"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/worker"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/fakellm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/redact"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/worker"
 )
 
 // binaryTimeout bounds building the binary, and each of its runs.

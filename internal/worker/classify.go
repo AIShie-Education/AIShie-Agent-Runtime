@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
 // Next is what the runtime does after posting an answer, or trying to.

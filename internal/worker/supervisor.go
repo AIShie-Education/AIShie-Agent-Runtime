@@ -14,13 +14,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/pricing"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/redact"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolschema"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolset"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/redact"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolschema"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolset"
 )
 
 // Supervisor runs every configured agent this worker can lease (design

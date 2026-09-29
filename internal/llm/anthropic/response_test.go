@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/httpx"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/httpx"
 )
 
 func httpResponse(body []byte) *httpx.Response {

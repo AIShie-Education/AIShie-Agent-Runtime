@@ -12,11 +12,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/prompt"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolschema"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolset"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/prompt"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolschema"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolset"
 )
 
 // Seat is one seat an agent answers in (design §5.2): its toolset, built

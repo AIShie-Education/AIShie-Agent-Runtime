@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
 func failed(code, reason string, details ...string) *core.Envelope {

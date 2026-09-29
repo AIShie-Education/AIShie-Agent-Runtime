@@ -12,8 +12,8 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/pricing"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 )
 
 // update rewrites the golden files: go test ./internal/config -update.

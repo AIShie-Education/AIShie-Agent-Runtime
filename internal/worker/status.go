@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolset"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolset"
 )
 
 // AgentStatus is what the supervisor knows of one configured agent, for

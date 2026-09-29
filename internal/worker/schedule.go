@@ -4,7 +4,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 )
 
 // Polling spends a share of Core's rate limit (Core's docs/agent-runtime.md

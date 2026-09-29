@@ -72,7 +72,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
 // Opener gives a test a fresh, empty store, and closes it when the test

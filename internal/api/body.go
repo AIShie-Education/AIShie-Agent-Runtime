@@ -11,7 +11,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/jsonstrict"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/jsonstrict"
 )
 
 // noQuery refuses a query parameter, answering the refusal

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 )
 
 var update = flag.Bool("update", false, "rewrite the golden files in testdata/golden")
@@ -144,7 +144,7 @@ func goldenCases() []goldenCase {
 
 	openrouter := cfg(openrouterBase, "anthropic/claude-sonnet-4.5")
 	openrouter.Reasoning = llm.Reasoning{Effort: "medium"}
-	openrouter.Headers = map[string]string{"http-referer": "https://lms.example.edu", "X-Title": "AIShie"}
+	openrouter.Headers = map[string]string{"http-referer": "https://lms.example.edu", "X-Title": "AIshie"}
 	openrouter.Capabilities = llm.CapabilityOverrides{ParallelToolCalls: no()}
 	orMaker := maker(openrouterBase, "anthropic/claude-sonnet-4.5")
 

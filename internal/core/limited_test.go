@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/ratelimit"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/ratelimit/ratelimittest"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ratelimit"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ratelimit/ratelimittest"
 )
 
 // recorder is a Caller that reports each call's tool as it is made.

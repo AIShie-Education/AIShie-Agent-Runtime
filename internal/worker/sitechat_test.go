@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/fakecore"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/scripted"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/fakecore"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/scripted"
 )
 
 // siteChatCalls are the actor's me.site_chat calls, their arguments read.

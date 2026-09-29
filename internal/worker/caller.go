@@ -8,11 +8,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/metrics"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/ratelimit"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/version"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/metrics"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ratelimit"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/version"
 )
 
 // SnapshotCatalogueHash is the hash of the Core catalogue this runtime was

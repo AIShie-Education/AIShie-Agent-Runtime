@@ -7,14 +7,14 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/anthropic"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/bedrock"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/gemini"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/openaichat"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/openairesponses"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolschema"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/anthropic"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/bedrock"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/gemini"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/openaichat"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/openairesponses"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolschema"
 )
 
 // Adapters are the adapters this runtime has, by their names in

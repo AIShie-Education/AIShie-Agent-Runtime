@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/webauth"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/webauth"
 )
 
 // wwwAuthenticate is what a 401 names as the way in.

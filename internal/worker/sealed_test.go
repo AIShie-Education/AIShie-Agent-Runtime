@@ -10,12 +10,12 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/scripted"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/secrets"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/memstore"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/vault"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/scripted"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/secrets"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/memstore"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
 )
 
 // testVault is a vault on a keyring of one key, in a directory of t's own.

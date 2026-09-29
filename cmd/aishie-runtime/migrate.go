@@ -7,7 +7,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/pgstore"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/pgstore"
 )
 
 // cmdMigrate is `aishie-runtime migrate up|down --yes|version`: the

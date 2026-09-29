@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/probe"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/registry"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/vault"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/probe"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
 )
 
 // The models an owner may choose, and their own key (the API contract,
@@ -257,7 +257,7 @@ func (s *Server) denied(sec *modelSection, at string) *Error {
 func keyMalformed(key, field string) *Error {
 	if strings.HasPrefix(key, "ais_") || strings.HasPrefix(key, "aisinv_") || config.HoldsCoreToken(key) {
 		return fieldError(CodeInvalidArgument, ReasonKeyMalformed, field,
-			"that is an AIShie token, a person's or an agent's, not a provider's API key: it is never sent to a provider")
+			"that is an AIshie token, a person's or an agent's, not a provider's API key: it is never sent to a provider")
 	}
 	bad := len(key) < 8 || len(key) > 4096
 	for i := 0; i < len(key) && !bad; i++ {

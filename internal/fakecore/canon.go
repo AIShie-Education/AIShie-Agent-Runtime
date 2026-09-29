@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/jsonstrict"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/jsonstrict"
 )
 
 // canonicalize writes arguments as Core's ais-canon-1 does: keys sorted,

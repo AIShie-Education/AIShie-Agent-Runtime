@@ -88,7 +88,7 @@
     "Authorization": "Bearer sk-test-0123456789",
     "Content-Type": "application/json",
     "Http-Referer": "https://lms.example.edu",
-    "X-Title": "AIShie"
+    "X-Title": "AIshie"
   },
   "method": "POST",
   "url": "https://openrouter.ai/api/v1/chat/completions"

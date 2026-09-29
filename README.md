@@ -1,12 +1,12 @@
-# AIShie Agent Runtime
+# AIshie Agent Runtime
 
-The runtime that hosts AI agents for the AIShiteru LMS. It connects in to
-[AIShiteru Core](https://github.com/AIShie-Education/AIShie-Core) as each
+The runtime that hosts AI agents for the AIshie LMS. It connects in to
+[AIshie Core](https://github.com/AIShie-Education/AIShie-Core) as each
 agent, with the token the agent's owner issued there. It finds the
 questions put to the agent and answers them with the model its owner
 chose, calling Core's tools only as far as the agent's seat allows.
 
-Core is the contract. Its handout, `docs/agent-runtime.md` in AIShiteru-Core,
+Core is the contract. Its handout, `docs/agent-runtime.md` in AIShie-Core,
 says what an agent may do and how. This repository meets it:
 
 - **Two kinds of agent.** A student's or instructor's own agent is a delegate
@@ -172,4 +172,4 @@ back.
 
 ## License
 
-AIShie Agent Runtime is copyright 2026 XIE Hanming, and source-available under the [Elastic License 2.0](LICENSE) (ELv2), governed by the laws of Hong Kong. You may use, copy, change and redistribute it on the terms in LICENSE, which include that you may not offer it to others as a hosted or managed service.
+AIshie Agent Runtime is copyright 2026 XIE Hanming, and source-available under the [Elastic License 2.0](LICENSE) (ELv2), governed by the laws of Hong Kong. You may use, copy, change and redistribute it on the terms in LICENSE, which include that you may not offer it to others as a hosted or managed service.

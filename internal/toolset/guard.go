@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 )
 
 // SeatGuard is what keeps a model's member writes off the seats it must

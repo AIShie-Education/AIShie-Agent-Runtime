@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
 // hosted is a hosted agent as the API would create it, with its token

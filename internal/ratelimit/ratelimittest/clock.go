@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/ratelimit"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ratelimit"
 )
 
 // Clock is a ratelimit.Clock moved by Advance.

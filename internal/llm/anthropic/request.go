@@ -10,7 +10,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 )
 
 // wireRequest is the body of POST /v1/messages.

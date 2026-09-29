@@ -7,7 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
 // attemptColumns are what scanAttempt reads, in its order.

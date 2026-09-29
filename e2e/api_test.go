@@ -16,10 +16,10 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/api"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/redact"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/webauth"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/api"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/redact"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/webauth"
 )
 
 // apiTakesCoresAssertion is R4 against the real Core: the runtime's API,

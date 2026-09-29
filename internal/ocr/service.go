@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/metrics"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/metrics"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
 // Recognizer reads the text of a file: an Engine, or a test's.

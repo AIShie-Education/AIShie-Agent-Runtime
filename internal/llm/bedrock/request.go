@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 )
 
 // converseRequest is Converse's request body, in the order AWS documents

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/fakellm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/fakellm"
 )
 
 // longPollPickup is an idle agent noticing a question at once where Core's

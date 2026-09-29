@@ -13,7 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/pgstore"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/pgstore"
 )
 
 // The watcher's tests run on PostgreSQL, at TEST_DATABASE_URL (the local

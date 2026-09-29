@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/doctext/doctexttest"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext/doctexttest"
 )
 
 // course is a two-page PDF of what a course's handout holds: Latin text,

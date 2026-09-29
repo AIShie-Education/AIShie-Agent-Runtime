@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/doctext"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext"
 )
 
 // The lines of the scanned page the real test reads: a course's notice in

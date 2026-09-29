@@ -12,9 +12,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/pgstore"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/vault"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/pgstore"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
 )
 
 // writeKey writes a 32-byte key, base64, as the file name in dir.

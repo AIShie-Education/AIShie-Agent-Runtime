@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/toolschema"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolschema"
 )
 
 // Config is what an adapter is built from: one agent's model section, with

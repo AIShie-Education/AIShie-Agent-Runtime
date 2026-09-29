@@ -222,7 +222,10 @@ for pair in "postgres://u:p@localhost:5433/rt_db?sslmode=disable=5433 rt_db" \
 done
 
 # ...never Core's, nor one elsewhere, nor none: refused before anything runs.
-for url in "postgres://aishiteru:x@127.0.0.1:5432/aishiteru" "postgres://u:p@db.example.com:5432/aishie_runtime" \
+# Without Core's env file, Core's is aishie; aishiteru, its name from before
+# Core's rename, is refused whatever the env file says.
+for url in "postgres://aishie:x@127.0.0.1:5432/aishie" "postgres://u:p@127.0.0.1:5432/aishiteru" \
+  "postgres://u:p@db.example.com:5432/aishie_runtime" \
   "postgres://u:p@10.0.0.7/aishie_runtime" "postgres://u:p@127.0.0.1:5432/" "mysql://u:p@127.0.0.1/aishie_runtime" \
   "postgres://u:p@127.0.0.1:5432/x;id" "postgres://u:p@127.0.0.1:5432/-x" "postgres://u:p@127.0.0.1:port/aishie_runtime" ""; do
   setup refused-db
@@ -236,6 +239,11 @@ printf 'DATABASE_URL=postgres://rt:x@127.0.0.1:5432/lms\n' >> "$STATE/env"
 if deploy "$IMG"; then fail "deployed onto Core's database"; fi
 ran_nothing
 grep -q "Core's database" "$STATE/out" || fail "said: $(cat "$STATE/out")"
+setup refused-old-core-db
+printf 'DATABASE_URL=postgres://lms:x@127.0.0.1:5432/lms\n' > "$STATE/core.env"
+printf 'DATABASE_URL=postgres://rt:x@127.0.0.1:5432/aishiteru\n' >> "$STATE/env"
+if deploy "$IMG"; then fail "deployed onto aishiteru"; fi
+ran_nothing
 setup core-db-elsewhere
 printf 'DATABASE_URL=postgres://lms:x@127.0.0.1:5432/lms\n' > "$STATE/core.env"
 deploy "$IMG" || fail "refused its own database beside Core's: $(cat "$STATE/out")"

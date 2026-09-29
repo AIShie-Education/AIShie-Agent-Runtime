@@ -60,7 +60,7 @@ jobs:
     env:
       TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
       # scripts/ci-core.sh creates it for Core, and Core alone uses it.
-      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/aishiteru_e2e?sslmode=disable
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/aishie_e2e?sslmode=disable
     outputs:
       prev: ${{ steps.release.outputs.prev }}
       migrations: ${{ steps.release.outputs.migrations }}
@@ -106,8 +106,8 @@ jobs:
         with:
           name: e2e-${{ github.ref_name }}-${{ github.run_attempt }}
           path: |
-            ${{ runner.temp }}/aishiteru-ci-core/core.log
-            ${{ runner.temp }}/aishiteru-ci-core/e2e.log
+            ${{ runner.temp }}/aishie-ci-core/core.log
+            ${{ runner.temp }}/aishie-ci-core/e2e.log
           if-no-files-found: ignore
           retention-days: 14
 

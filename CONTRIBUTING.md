@@ -14,7 +14,9 @@ make docker   # the image, as CI builds it; never pushed
 over the local socket, by default). `make e2e` runs the Core pinned in
 `.github/core-image` in Docker, which takes `docker login ghcr.io` with a
 token that can read Core's image (classic, `read:packages`); without Docker,
-give it a binary of Core: `CORE_BIN=../AIShiteru-Core/bin/aishiterud make e2e`.
+give it a binary of Core: `CORE_BIN=../AIShie-Core/bin/aishie-core make e2e`.
+The scripts run it by whatever name it has, so a Core from before its
+rename, whose binary is `aishiterud`, runs as well.
 
 Work on a branch and open a pull request against `main`. `main` is protected:
 it takes changes by pull request only, with `lint`, `test (pg 13)`,
@@ -214,7 +216,7 @@ Move the three together, in one pull request:
    ```
    make build
    DATABASE_URL=postgres:///aishie_pin_core scripts/ci-core.sh start
-   . "${TMPDIR:-/tmp}/aishiteru-ci-core/env"
+   . "${TMPDIR:-/tmp}/aishie-ci-core/env"
    bin/aishie-runtime catalogue --core "$E2E_CORE_URL" --write internal/core/testdata/catalogue.json
    make record-fixtures
    scripts/ci-core.sh stop

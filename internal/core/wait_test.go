@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/ratelimit"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/ratelimit/ratelimittest"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ratelimit"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ratelimit/ratelimittest"
 )
 
 // TestCatalogueMaxWait reads wait_s from the catalogue Core serves: the

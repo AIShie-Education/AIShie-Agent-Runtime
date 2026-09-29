@@ -42,7 +42,7 @@ func runBodyCases(t *testing.T, cases []bodyCase) {
 	}
 }
 
-// The expectations below are what AIShiteru-Frontend's renderer
+// The expectations below are what AIShie-Frontend's renderer
 // (markdown-it 15, html off, linkify on, the TeX plugin) makes of each
 // input: each was checked by rendering it, and Body's output, with the
 // frontend's own src/utils/markdown.ts.

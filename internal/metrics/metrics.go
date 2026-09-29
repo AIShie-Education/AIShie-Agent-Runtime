@@ -15,8 +15,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 )
 
 // Metrics are the runtime's collectors, registered on one registry.

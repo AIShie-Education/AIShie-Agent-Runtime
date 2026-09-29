@@ -8,11 +8,11 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/redact"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/pgstore"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/vault"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/redact"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/pgstore"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
 )
 
 // keysPage is how many secrets keys reads at once.

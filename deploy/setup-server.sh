@@ -1,6 +1,6 @@
 #!/bin/sh
-# Sets up an Ubuntu server (24.04 or later) to run the AIShie Agent Runtime,
-# beside AIShiteru Core (a server set up by Core's deploy/setup-server.sh) or
+# Sets up an Ubuntu server (24.04 or later) to run the AIshie Agent Runtime,
+# beside AIshie Core (a server set up by Core's deploy/setup-server.sh) or
 # on its own. Run as root with this directory copied to the server
 # (docs/deploying.md):
 #
@@ -50,11 +50,15 @@ case $ENVIRONMENT in staging | production) ;; *) usage ;; esac
 here=$(cd "$(dirname "$0")" && pwd)
 ETC=/etc/aishie-runtime
 ENV_FILE=$ETC/runtime.env
-CORE_ENV_FILE=/etc/aishiteru/aishiteru.env
+# Core's, as Core's setup-server.sh writes it; on a server whose Core was set
+# up before Core's rename, under the old name (a fallback, until Core's
+# setup-server.sh runs there again).
+CORE_ENV_FILE=/etc/aishie/aishie.env
+[ -e "$CORE_ENV_FILE" ] || [ ! -e /etc/aishiteru/aishiteru.env ] || CORE_ENV_FILE=/etc/aishiteru/aishiteru.env
 BACKUPS=/var/backups/aishie-runtime
 KEY=/root/aishie-runtime-deploy-key
 USER_NAME=aishie-deploy
-# The runtime's database and its role: never Core's (aishiteru).
+# The runtime's database and its role: never Core's.
 DB=aishie_runtime
 say() { printf '\n== %s\n' "$*"; }
 systemd() { [ -d /run/systemd/system ]; }
@@ -142,7 +146,7 @@ install -d -o postgres -g postgres -m 700 "$BACKUPS"
 install -m 755 "$here/aishie-runtime-deploy" "$here/aishie-runtime" /usr/local/bin/
 echo "installed aishie-runtime-deploy and aishie-runtime in /usr/local/bin"
 cat > /etc/cron.d/aishie-runtime-backup <<CRONEOF
-# AIShie Agent Runtime: a backup of its database every night, one per weekday
+# AIshie Agent Runtime: a backup of its database every night, one per weekday
 # (seven kept), half an hour after Core's.
 # A job in /etc/cron.d gets no /usr/sbin, where runuser is, unless it says so.
 PATH=/usr/sbin:/usr/bin:/sbin:/bin

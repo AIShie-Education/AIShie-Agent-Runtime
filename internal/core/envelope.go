@@ -1,4 +1,4 @@
-// Package core is the runtime's client of AIShiteru Core: one agent's
+// Package core is the runtime's client of AIshie Core: one agent's
 // connection, over MCP (or REST), with that agent's token. Core pushes
 // nothing and decides everything; this package only carries calls and reads
 // what came back (Core's docs/agent-runtime.md §1.2, §2).

@@ -5,7 +5,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
 // OCRText is the text kept under sum; store.ErrNotFound when there is

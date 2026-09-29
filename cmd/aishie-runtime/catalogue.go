@@ -14,8 +14,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/version"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/version"
 )
 
 // maxCatalogueBytes bounds GET /v1/tools' answer; Core's is about 200 KB.

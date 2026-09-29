@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/ratelimit"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/ratelimit/ratelimittest"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ratelimit"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ratelimit/ratelimittest"
 )
 
 // waitFor polls cond for up to a second: the goroutines under test reach

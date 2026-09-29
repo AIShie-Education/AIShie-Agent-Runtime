@@ -1,7 +1,7 @@
 # How the runtime is built
 
 The contract with Core and the reasons behind most choices are in Core's
-handout, `docs/agent-runtime.md` in AIShiteru-Core (cited here as §n). This
+handout, `docs/agent-runtime.md` in AIShie-Core (cited here as §n). This
 document says how this repository meets it: what each package does, the
 algorithms that matter, and the defaults. Where this code departs from the
 handout, it says so and why.
@@ -22,7 +22,7 @@ aishie-runtime version
 
 Agents are configured from YAML (§4), with secrets from the environment or
 files, as M1 has it, and, with the store in PostgreSQL, from the registry of
-hosted agents that people connect from AIShiteru-Frontend (§11): the secret
+hosted agents that people connect from AIShie-Frontend (§11): the secret
 store seals their tokens and their owners' keys in the runtime's database,
 and the registry runs them beside the YAML agents. The JSON API the front
 end calls (§11.4) listens apart, on `API_ADDR`. `/status` is the
@@ -1171,7 +1171,7 @@ The prompt's hash is kept per answer.
   bytes. Link text is kept; an image becomes its alt text; a bare URL
   becomes `[link removed]`. Reference definitions and HTML `a` and `img` go
   the same way.
-- It reads the answer exactly as AIShiteru-Frontend's renderer does
+- It reads the answer exactly as AIShie-Frontend's renderer does
   (`src/utils/markdown.ts`: markdown-it 15 with `html: false` and
   `linkify: true`, linkify-it 6 with fuzzy links off and fuzzy emails on,
   its `$` math plugin): `internal/safety` holds a port of markdown-it's
@@ -1474,7 +1474,7 @@ question waiting 5 s for it.
 
 ## 11. Hosted agents
 
-M2 lets people connect their own agents from AIShiteru-Frontend instead of
+M2 lets people connect their own agents from AIShie-Frontend instead of
 an operator writing YAML. The runtime's side is built in steps: the secret
 store (§11.1), the registry of hosted agents that runs them beside the YAML
 agents (§11.2), and a versioned JSON API for the front end (§11.4).
@@ -1628,7 +1628,7 @@ document a YAML file would hold, and runs it beside the YAML agents:
 
 ### 11.3 Where M2 departs from the handout
 
-- **The UI lives in AIShiteru-Frontend** (the product owner's D1), not in a
+- **The UI lives in AIShie-Frontend** (the product owner's D1), not in a
   `runtime-web` of the runtime's (§8.3): the runtime serves a versioned
   JSON API only (§11.4), and no HTML. People authenticate to it with a
   short-lived assertion Core mints for its signed-in person (Ed25519, the
@@ -1800,7 +1800,7 @@ The API needs `CORE_BASE_URL`, `API_AUDIENCE`, `DATABASE_URL` and
     meanwhile is revoked in its turn and the row deleted holding it (three
     tries at most), and with `If-Match` the write meanwhile is 412. An
     agent suspended in Core cannot revoke its own tokens: the answer says
-    so, and its owner revokes them in AIShie.
+    so, and its owner revokes them in AIshie.
 - **Hosted agents' models** (D9) are called at the providers' own
   endpoints alone, which the API makes from the provider, an endpoint
   choice, an Azure resource or an AWS region (patterns with no dots),

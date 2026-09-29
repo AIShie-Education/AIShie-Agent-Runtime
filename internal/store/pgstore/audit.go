@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
 // RecordAudit records e, and returns its id.

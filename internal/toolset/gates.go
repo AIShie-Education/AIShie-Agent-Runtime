@@ -25,7 +25,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 )
 
 // Gate is the permissions that let a seat be offered a tool, as Core's own
@@ -60,7 +60,7 @@ func (g Gate) Allowed(perms map[string]string) bool {
 // Gates are the permission gates of the read tools a model may be offered,
 // kept by hand because GET /v1/tools does not name them (§4, §10 item 2):
 // each is the permissions Core's declaration of the tool checks
-// (internal/tools in AIShiteru-Core). CheckCatalogue holds them to the
+// (internal/tools in AIShie-Core). CheckCatalogue holds them to the
 // catalogue whenever its hash changes. A tool with no gate here or in
 // WriteGates is never offered: event_list and action_list_mine, which §4
 // gates on document_read, are left out with BuiltinDeny's reason.
@@ -105,7 +105,7 @@ var Gates = map[string]Gate{
 // (ReadWrite): the course's work that a person may ask their own agent to
 // do for them, and nothing of the runtime's own or of the platform's. Each
 // is the permissions Core's declaration of the tool checks (internal/tools
-// in AIShiteru-Core): a document's write is any of the three kinds' (the
+// in AIShie-Core): a document's write is any of the three kinds' (the
 // document's kind then names the one that governs, as reading does), and
 // grade_regrade takes both grade permissions, at the lower of their levels.
 // The course's members are managed on member_manage, which only someone who

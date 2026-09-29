@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/doctext"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/doctext/doctexttest"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm/scripted"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/ocr"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store/memstore"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext/doctexttest"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/scripted"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/memstore"
 )
 
 // fileResult is what a document_get result says of its file: the record

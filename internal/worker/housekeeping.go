@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/ocr"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
 // defaultRetentionDays is how long a seat's memory is kept after it left,

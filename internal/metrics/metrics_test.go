@@ -10,8 +10,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/prometheus/common/expfmt"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 )
 
 type stubCaller struct {

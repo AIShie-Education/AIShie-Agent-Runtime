@@ -12,7 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/jsonstrict"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/jsonstrict"
 )
 
 // apiError is Core's apperr.Error as the wire shows it. Classify by Code and

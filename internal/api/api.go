@@ -1,4 +1,4 @@
-// Package api serves the runtime's JSON API for AIShiteru-Frontend (the
+// Package api serves the runtime's JSON API for AIShie-Frontend (the
 // product owner's D1; its contract is docs/design.md §11.4 and the M2 API
 // contract it follows). It listens on a listener of its own, API_ADDR,
 // behind Caddy at /runtime/api/ on Core's origin with the Cookie header
@@ -27,13 +27,13 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/config"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/netguard"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/pricing"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/vault"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/webauth"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/netguard"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/webauth"
 )
 
 // Prefix is where every route of the API is.

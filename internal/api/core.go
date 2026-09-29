@@ -11,10 +11,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/core"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/probe"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/vault"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/probe"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
 )
 
 // The API asks Core about a token, with the token, at CORE_BASE_URL and
@@ -70,7 +70,7 @@ type inspected struct {
 // errTokenMalformed is a token not of Core's shape, which Core is not
 // asked about.
 var errTokenMalformed = Error{Code: CodeInvalidArgument, Reason: ReasonTokenMalformed,
-	Message: "the token is not an agent token of AIShie's (ais_ and a prefix of 12 characters)"}
+	Message: "the token is not an agent token of AIshie's (ais_ and a prefix of 12 characters)"}
 
 // tokenErrors are Inspect's refusals, as the API answers them.
 var tokenErrors = map[string]Error{

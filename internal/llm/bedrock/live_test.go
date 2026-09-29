@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 )
 
 // TestLive calls Bedrock itself when LIVE=1 and BEDROCK_MODEL names a model,

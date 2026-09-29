@@ -14,7 +14,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 )
 
 // The golden tests run the adapter end to end against a fake provider.

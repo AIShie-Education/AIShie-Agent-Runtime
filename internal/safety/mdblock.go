@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// This file and mdinline.go read Markdown exactly as AIShiteru-Frontend
+// This file and mdinline.go read Markdown exactly as AIShie-Frontend
 // renders an answer (src/utils/markdown.ts): markdown-it 15 with html off,
 // linkify on and the frontend's TeX plugin (src/utils/markdownMath.ts).
 // They are a port of markdown-it's own rules, kept close to its source so

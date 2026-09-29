@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/fakecore"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/vault"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/fakecore"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
 )
 
 // hostWorld is the API over a fake Core: Yuki and Ken, and Yuki's agent,
@@ -122,7 +122,7 @@ func (h *hostWorld) as(p fakecore.Actor) string {
 // token issues the agent another token, which nothing may repeat.
 func (h *hostWorld) token(agentID string) fakecore.Token {
 	h.t.Helper()
-	tok, err := h.fc.IssueLabelledToken(agentID, "AIShie runtime")
+	tok, err := h.fc.IssueLabelledToken(agentID, "AIshie runtime")
 	h.ok(err)
 	h.tokens = append(h.tokens, tok.Token)
 	return tok

@@ -11,7 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/AIShiteru-LMS/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
 // RecordLLMCall records c, once: a call already recorded under its agent
