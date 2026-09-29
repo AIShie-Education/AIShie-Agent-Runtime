@@ -1,5 +1,7 @@
 package config
 
+import "strings"
+
 // Texts the runtime posts or gives when the model's answer cannot be used.
 const (
 	DefaultRefusalText = "I can't help with that here. Please ask your instructor."
@@ -7,6 +9,44 @@ const (
 	DefaultQuotaText   = "I've answered as many questions as I can today. Please try again tomorrow, or ask your instructor."
 	DefaultCloseReason = "I couldn't produce an answer to this after several tries, so I've closed this conversation. Please ask again, or ask your instructor."
 )
+
+// The notice posted when a quota of the school plan's is spent and the
+// agent has no key of its owner's to go on with (runtime.school), in the
+// language answers are fixed to, when they are; otherwise in English and
+// in Traditional Chinese, the school's two, since the runtime has not read
+// the question yet.
+const (
+	SchoolQuotaTextEn     = "Today's school AI allowance is used up. Please try again tomorrow."
+	SchoolQuotaTextZhHant = "今天的學校 AI 額度已用完，請明天再試。"
+	SchoolQuotaTextZhHans = "今天的学校 AI 额度已用完，请明天再试。"
+)
+
+// SchoolQuotaText is the school plan's notice for an agent whose
+// prompt.answer_language is answerLanguage: text when the plan sets its
+// own, else the built-in one in the language answers are fixed to (English,
+// or Chinese in either script), else in English and Traditional Chinese.
+func SchoolQuotaText(text, answerLanguage string) string {
+	if strings.TrimSpace(text) != "" {
+		return text
+	}
+	tag, fixed := strings.CutPrefix(answerLanguage, LanguageFixed)
+	if !fixed {
+		return SchoolQuotaTextEn + "\n\n" + SchoolQuotaTextZhHant
+	}
+	lang, rest, _ := strings.Cut(strings.ToLower(tag), "-")
+	switch lang {
+	case "en":
+		return SchoolQuotaTextEn
+	case "zh":
+		// Simplified where the tag says so, or names a region that
+		// writes it; Traditional otherwise.
+		if strings.HasPrefix(rest, "hans") || rest == "cn" || rest == "sg" || rest == "my" {
+			return SchoolQuotaTextZhHans
+		}
+		return SchoolQuotaTextZhHant
+	}
+	return SchoolQuotaTextEn + "\n\n" + SchoolQuotaTextZhHant
+}
 
 // The MCP revisions Core answers (§1.2), and the one the runtime pins.
 var mcpRevisions = []string{"2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"}
