@@ -382,8 +382,8 @@ func TestToolNamesTakeCoresCatalogue(t *testing.T) {
 	if err := json.Unmarshal(b, &cat); err != nil {
 		t.Fatal(err)
 	}
-	if len(cat.Tools) != 132 {
-		t.Fatalf("%d tools; the snapshot holds 132", len(cat.Tools))
+	if len(cat.Tools) != 134 {
+		t.Fatalf("%d tools; the snapshot holds 134", len(cat.Tools))
 	}
 	for _, tool := range cat.Tools {
 		name := strings.ReplaceAll(tool.Name, ".", "_")

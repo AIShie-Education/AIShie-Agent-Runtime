@@ -86,8 +86,8 @@ func TestCatalogueSnapshot(t *testing.T) {
 			reads++
 		}
 	}
-	if len(cat.tools) != 132 || reads != 48 || writes != 84 {
-		t.Errorf("%d tools, %d reads, %d writes; the snapshot holds 132, 48, 84", len(cat.tools), reads, writes)
+	if len(cat.tools) != 134 || reads != 49 || writes != 85 {
+		t.Errorf("%d tools, %d reads, %d writes; the snapshot holds 134, 49, 85", len(cat.tools), reads, writes)
 	}
 	older, err := catalogueWithoutSiteChat(false)
 	if err != nil {
@@ -1451,7 +1451,7 @@ func TestOwners(t *testing.T) {
 					} `json:"tools"`
 				} `json:"result"`
 			}
-			if err != nil || json.Unmarshal(l.Body, &list) != nil || len(list.Result.Tools) != 132 {
+			if err != nil || json.Unmarshal(l.Body, &list) != nil || len(list.Result.Tools) != 134 {
 				t.Fatalf("tools/list: %v %d", err, l.Status)
 			}
 			for _, tl := range list.Result.Tools {
