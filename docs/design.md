@@ -1053,6 +1053,15 @@ The events poller reads `event_list` from the seat's cursor:
   it was the agent's own answer, a note not to repeat it.
 - `conversation.message_posted` by an opener: the course is hot.
 
+Core makes a proposal's action during the call that sends the attempt, and
+a person may decide it before the store has recorded the attempt as
+proposed. A decision on an action the store does not know, of an answer or
+a close (its `payload.action_type`), read while one of the seat's attempts
+is being sent, stops that read: the cursor stays before its page, and
+events are read again at once when no attempt is being sent, by when the
+store has the action. Without this, a decision read too soon would be
+passed over for good, and the attempt left `proposed` until a restart.
+
 `action_list_mine` is also read at start for proposals the store still has
 as `proposed`, so that a decision made while the runtime was down is found,
 and attempts left `sending` are sent again; a replay that comes back

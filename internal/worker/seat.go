@@ -82,6 +82,11 @@ type Seat struct {
 	failures map[string]int
 	// followUps are when events are read after a proposal.
 	followUps []time.Time
+	// sends counts the seat's attempts being sent (sendBegins);
+	// eventsHeld is set while a read of events stopped for one of them
+	// (holdEvents).
+	sends      int
+	eventsHeld bool
 }
 
 type seatHold struct {
@@ -409,6 +414,59 @@ func (s *Seat) followUp() {
 	sort.Slice(s.followUps, func(i, j int) bool { return s.followUps[i].Before(s.followUps[j]) })
 	s.mu.Unlock()
 	poke(s.wakeEvents)
+}
+
+// eventsAtOnce has the seat read its events at once.
+func (s *Seat) eventsAtOnce() {
+	now := s.a.now()
+	s.mu.Lock()
+	s.followUps = append(s.followUps, now)
+	sort.Slice(s.followUps, func(i, j int) bool { return s.followUps[i].Before(s.followUps[j]) })
+	s.mu.Unlock()
+	poke(s.wakeEvents)
+}
+
+// sendBegins marks one of the seat's attempts as being sent, from just
+// before the call to Core until the func it returns is called, once the
+// store has what came back. Core makes the attempt's action during the
+// call, and a person may decide it at once: a decision read before the
+// store knows the action is left for a read after the send (holdEvents).
+func (s *Seat) sendBegins() (over func()) {
+	s.mu.Lock()
+	s.sends++
+	s.mu.Unlock()
+	return func() {
+		s.mu.Lock()
+		s.sends--
+		again := s.sends == 0 && s.eventsHeld
+		if again {
+			s.eventsHeld = false
+		}
+		s.mu.Unlock()
+		if again {
+			s.eventsAtOnce()
+		}
+	}
+}
+
+// sending reports whether one of the seat's attempts is being sent.
+func (s *Seat) sending() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sends > 0
+}
+
+// holdEvents notes that a read of events stopped at a decision that may be
+// on an attempt being sent: events are read again, from before it, at once
+// when no attempt is being sent, which may be now.
+func (s *Seat) holdEvents() {
+	s.mu.Lock()
+	held := s.sends > 0
+	s.eventsHeld = s.eventsHeld || held
+	s.mu.Unlock()
+	if !held {
+		s.eventsAtOnce()
+	}
 }
 
 // polling is the course's polling settings.

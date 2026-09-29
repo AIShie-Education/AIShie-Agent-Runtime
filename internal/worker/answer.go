@@ -409,10 +409,12 @@ func (c *claim) resent(ctx context.Context, at store.Attempt, r passResult) pass
 // send sends an attempt's bytes, settles the attempt with what came back,
 // and acts on it.
 func (c *claim) send(ctx context.Context, r passResult, at store.Attempt, rep safety.Report) passResult {
+	over := c.s.sendBegins()
 	env, err := c.a.client.Send(ctx, at.Tool, at.Args)
 	d := Classify(env, err)
 	r.postAt, r.postedID = c.a.now(), messageID(env)
 	settle(c.a, c.eff, at, env, d)
+	over()
 	return c.act(ctx, r, d, rep)
 }
 
@@ -659,9 +661,11 @@ func (c *claim) exhausted(ctx context.Context, r passResult) passResult {
 	} else if err != nil {
 		return c.failedHere(r, "the close could not be written ahead", err)
 	}
+	over := c.s.sendBegins()
 	env, err := c.a.client.Send(ctx, at.Tool, at.Args)
 	d := classifyClose(env, err)
 	settle(c.a, c.eff, at, env, d)
+	over()
 	r.outcome = d.Outcome
 	switch d.Next {
 	case NextDone:

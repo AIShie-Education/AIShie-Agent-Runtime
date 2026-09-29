@@ -174,7 +174,7 @@ func (s *Seat) readEvents(ctx context.Context, wait time.Duration) (bool, error)
 				// The cursor stays before this page: its events are read,
 				// and acted on, again next time. Acting on one twice does
 				// no harm.
-				if ctx.Err() == nil {
+				if ctx.Err() == nil && !errors.Is(err, errSendUnderWay) {
 					s.log.Warn("an event could not be acted on; it is read again next time", "type", ev.Type, "seq", ev.Seq, "err", err)
 				}
 				return found, nil
@@ -201,19 +201,34 @@ func (s *Seat) markEventsRead() {
 	s.mu.Unlock()
 }
 
+// errSendUnderWay is a decision read while an attempt is being sent, on
+// an action the store does not know: it may be that attempt's, which the
+// store knows once the send is over.
+var errSendUnderWay = errors.New("a decision on an action not yet stored, while an attempt is being sent")
+
 // onEvent acts on one event. Only what concerns an attempt the store
 // holds, the agent's own conversations, or its answers is acted on, so
 // that a seat reading its whole history on its first read does no harm.
-// Its error is the store failing, when the event must be read again.
+// Its error is the store failing, or errSendUnderWay, when the event must
+// be read again.
 func (s *Seat) onEvent(ctx context.Context, ev core.Event, acts *actionLookup) error {
 	switch ev.Type {
 	case core.EventActionApproved, core.EventActionRejected, core.EventActionCancelled:
 		if ev.ActionID == nil {
 			return nil
 		}
+		// Asked before the store is read: a send over by then has its
+		// action id stored.
+		sending := s.sending()
 		at, err := s.a.store().AttemptByAction(ctx, s.a.id, *ev.ActionID)
 		switch {
 		case errors.Is(err, store.ErrNotFound):
+			// A person may decide a proposal before the send that made it
+			// has come back: the decision is read again after the send.
+			if sending && mayBeRuntimes(ev) {
+				s.holdEvents()
+				return errSendUnderWay
+			}
 			return nil
 		case err != nil:
 			return err
@@ -247,6 +262,17 @@ func (s *Seat) onEvent(ctx context.Context, ev core.Event, acts *actionLookup) e
 		}
 	}
 	return nil
+}
+
+// mayBeRuntimes reports whether a decision event may be on an action of
+// the runtime's own (runtimesOwn): its payload's action_type says, when it
+// has one.
+func mayBeRuntimes(ev core.Event) bool {
+	var p struct {
+		ActionType string `json:"action_type"`
+	}
+	_ = json.Unmarshal(ev.Payload, &p)
+	return p.ActionType == "" || runtimesOwn(p.ActionType)
 }
 
 // actionFromEvent is what an event says of a proposal's fate, for when
@@ -531,6 +557,7 @@ func (s *Seat) resendAtStart(ctx context.Context, at store.Attempt) {
 	ctx, cancel := context.WithTimeout(core.WithPriority(ctx, core.PriorityAnswer), c.eff.Budgets.PerAnswer.WallClock()+passSlack)
 	defer cancel()
 	s.log.Info("an attempt written ahead is sent again", "conversation", at.ConversationID, "key", at.Key)
+	over := s.sendBegins()
 	env, err := s.a.client.Send(ctx, at.Tool, at.Args)
 	var d Decision
 	if at.Tool == toolClose {
@@ -539,6 +566,7 @@ func (s *Seat) resendAtStart(ctx context.Context, at store.Attempt) {
 		d = Classify(env, err)
 	}
 	settle(s.a, c.eff, at, env, d)
+	over()
 	switch d.Next {
 	case NextDone:
 		if at.Tool == toolAnswer {
