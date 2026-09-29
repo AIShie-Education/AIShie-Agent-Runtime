@@ -239,6 +239,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 // writeError answers a call that was never attempted.
 func writeError(w http.ResponseWriter, e *apiError) {
 	if e.Code == codeUnauthenticated {
+		// The pinned Core's realm (fixtures/rest.json), named before its rename.
 		w.Header().Set("WWW-Authenticate", `Bearer realm="aishiteru"`)
 	}
 	writeJSON(w, codeStatus(e.Code), map[string]any{"error": e})

@@ -50,11 +50,15 @@ case $ENVIRONMENT in staging | production) ;; *) usage ;; esac
 here=$(cd "$(dirname "$0")" && pwd)
 ETC=/etc/aishie-runtime
 ENV_FILE=$ETC/runtime.env
-CORE_ENV_FILE=/etc/aishiteru/aishiteru.env
+# Core's, as Core's setup-server.sh writes it; on a server whose Core was set
+# up before Core's rename, under the old name (a fallback, until Core's
+# setup-server.sh runs there again).
+CORE_ENV_FILE=/etc/aishie/aishie.env
+[ -e "$CORE_ENV_FILE" ] || [ ! -e /etc/aishiteru/aishiteru.env ] || CORE_ENV_FILE=/etc/aishiteru/aishiteru.env
 BACKUPS=/var/backups/aishie-runtime
 KEY=/root/aishie-runtime-deploy-key
 USER_NAME=aishie-deploy
-# The runtime's database and its role: never Core's (aishiteru).
+# The runtime's database and its role: never Core's.
 DB=aishie_runtime
 say() { printf '\n== %s\n' "$*"; }
 systemd() { [ -d /run/systemd/system ]; }

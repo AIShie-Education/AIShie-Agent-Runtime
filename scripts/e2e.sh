@@ -5,7 +5,7 @@
 # runtime with a scripted model, and watch the answers arrive in Core.
 #
 #   make e2e                                  (builds first)
-#   CORE_BIN=../AIShiteru-Core/bin/aishiterud DATABASE_URL=postgres:///aishie_e2e scripts/e2e.sh
+#   CORE_BIN=../AIShie-Core/bin/aishie-core DATABASE_URL=postgres:///aishie_e2e scripts/e2e.sh
 #
 # When E2E_CORE_URL and E2E_ROOT_TOKEN are already set, that Core is used
 # and nothing is started: it must be a throwaway. E2E_ROOT_TOKEN is root's
@@ -18,7 +18,7 @@ started=""
 if [ -z "${E2E_CORE_URL:-}" ]; then
   export DATABASE_URL=${DATABASE_URL:-postgres:///aishie_e2e_core}
   export CORE_PORT=${CORE_PORT:-18090}
-  dir=${CORE_DIR:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/aishiteru-ci-core}
+  dir=${CORE_DIR:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/aishie-ci-core}
   export CORE_DIR=${dir//\/\//\/}
   scripts/ci-core.sh start
   started=1

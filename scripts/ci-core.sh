@@ -8,11 +8,16 @@
 # CI runs the image pinned in .github/core-image, in Docker. Without Docker,
 # give it a binary of Core instead:
 #
-#   CORE_BIN=../AIShiteru-Core/bin/aishiterud DATABASE_URL=postgres:///aishiteru_e2e \
+#   CORE_BIN=../AIShie-Core/bin/aishie-core DATABASE_URL=postgres:///aishie_e2e \
 #     scripts/ci-core.sh start
-#   . "${TMPDIR:-/tmp}/aishiteru-ci-core/env"    # E2E_CORE_URL, E2E_ROOT_TOKEN, E2E_PASSWORD
+#   . "${TMPDIR:-/tmp}/aishie-ci-core/env"    # E2E_CORE_URL, E2E_ROOT_TOKEN, E2E_PASSWORD
 #   go test ./e2e
 #   scripts/ci-core.sh stop
+#
+# Nothing here names Core's binary: CORE_BIN is run by whatever name it has,
+# and the image by its entrypoint. So a Core from before its rename, whose
+# binary and entrypoint are aishiterud, runs as well as one after it, whose
+# are aishie-core.
 #
 # E2E_ROOT_TOKEN is root's signed-in session, not an API token: people hold
 # no API tokens, only agents do. Root is bootstrapped with the email
@@ -53,11 +58,11 @@
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")/.." && pwd)
-DIR=${CORE_DIR:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/aishiteru-ci-core}
+DIR=${CORE_DIR:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/aishie-ci-core}
 DIR=${DIR//\/\//\/} # macOS's TMPDIR ends in a /
 PORT=${CORE_PORT:-8080}
 URL=http://127.0.0.1:$PORT
-CONTAINER=aishiteru-ci-core
+CONTAINER=aishie-ci-core
 
 die() { echo "ci-core: $*" >&2; exit 1; }
 in_actions() { [ "${GITHUB_ACTIONS:-}" = true ]; }
@@ -71,7 +76,8 @@ else
   [ -n "$IMAGE" ] || die ".github/core-image names no image"
 fi
 
-# core ARGS: a one-off aishiterud command, with standard input passed on.
+# core ARGS: a one-off command of Core's, with standard input passed on: CORE_BIN
+# ARGS, or the image's entrypoint with ARGS.
 core() {
   if [ "$mode" = binary ]; then
     "$CORE_BIN" "$@"
@@ -83,7 +89,7 @@ core() {
 # The database: its name, and the server's maintenance database to create and
 # drop it from, both taken from DATABASE_URL.
 database() {
-  [ -n "${DATABASE_URL:-}" ] || die "set DATABASE_URL to a database of the tests' own, e.g. postgres:///aishiteru_e2e"
+  [ -n "${DATABASE_URL:-}" ] || die "set DATABASE_URL to a database of the tests' own, e.g. postgres:///aishie_e2e"
   export DATABASE_URL
   local base=${DATABASE_URL%%\?*}
   local query=${DATABASE_URL#"$base"}

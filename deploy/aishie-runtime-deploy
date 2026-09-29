@@ -30,8 +30,13 @@ LOG_FILE=${AISHIE_RUNTIME_LOG_FILE:-/var/log/aishie-runtime-deploy.log}
 LOCK_FILE=${AISHIE_RUNTIME_LOCK_FILE:-/run/aishie-runtime-deploy.lock}
 HEALTH_TRIES=${AISHIE_RUNTIME_HEALTH_TRIES:-30}
 # Core's env file, as Core's setup-server.sh writes it: its database is never
-# the runtime's.
-CORE_ENV_FILE=${AISHIE_RUNTIME_CORE_ENV_FILE:-/etc/aishiteru/aishiteru.env}
+# the runtime's. A server whose Core was set up before Core's rename has it
+# under the old name, which is read when there is none under the new one
+# (a fallback for such a server, until Core's setup-server.sh runs there
+# again).
+CORE_ENV_FILE=${AISHIE_RUNTIME_CORE_ENV_FILE:-/etc/aishie/aishie.env}
+[ -n "${AISHIE_RUNTIME_CORE_ENV_FILE:-}" ] || [ -e "$CORE_ENV_FILE" ] || [ ! -e /etc/aishiteru/aishiteru.env ] ||
+  CORE_ENV_FILE=/etc/aishiteru/aishiteru.env
 REPO=ghcr.io/aishie-education/aishie-agent-runtime
 NAME=aishie-runtime
 KEEP_BACKUPS=10
@@ -77,18 +82,19 @@ parse_db() {
 }
 
 # The database to back up is DATABASE_URL's, on this server's PostgreSQL.
-# Core's (its env file's, or aishiteru where there is none) is refused: the
-# runtime's migrations would go into it.
+# Core's (its env file's, or aishie where there is none) is refused: the
+# runtime's migrations would go into it. So is aishiteru, Core's database
+# from before its rename (a fallback, as above).
 parse_db "$(setting DATABASE_URL)"
-core_db=aishiteru
+core_db=aishie
 if [ -r "$CORE_ENV_FILE" ]; then
   parse_db "$(sed -n 's/^DATABASE_URL=//p' "$CORE_ENV_FILE" | tail -n 1)"
-  core_db=${db:-aishiteru}
+  core_db=${db:-aishie}
   parse_db "$(setting DATABASE_URL)"
 fi
 case $db in '' | -* | *[!A-Za-z0-9_-]*) die "cannot read a plain database name from DATABASE_URL in $ENV_FILE: the runtime keeps its state in a database of its own" ;; esac
 case $db in
-  "$core_db") die "DATABASE_URL in $ENV_FILE names $db, which is Core's database: the runtime has one of its own (deploy/setup-server.sh)" ;;
+  "$core_db" | aishiteru) die "DATABASE_URL in $ENV_FILE names $db, which is Core's database: the runtime has one of its own (deploy/setup-server.sh)" ;;
 esac
 case $dbport in *[!0-9]*) die "cannot read the port of DATABASE_URL in $ENV_FILE" ;; esac
 case $dbhost in

@@ -20,7 +20,9 @@ import (
 )
 
 // instructions is what Core tells a connecting agent about the whole
-// server, word for word (Core's internal/mcpapi/mcpapi.go).
+// server, word for word (Core's internal/mcpapi/mcpapi.go), as the pinned
+// Core says it (fixtures/initialize.json): with Core's name from before its
+// rename, until the pin moves past it.
 const instructions = `AIshiteru Core is a learning management system in which you are a member of courses, like the people in them. What you may do is set per course, per kind of action, on your membership; it does not depend on your being an agent.
 
 You connect with an API token of your own. Only agents hold API tokens, and an agent never signs in: no password, invitation or single sign-on is ever yours. People sign in to the site and hold no API token, so never ask anyone for theirs.
@@ -113,6 +115,7 @@ func requestOf(ctx context.Context) context.Context {
 }
 
 func (c *Core) newServer() *mcp.Server {
+	// Core's name and title as the pinned Core gives them, like instructions.
 	server := mcp.NewServer(&mcp.Implementation{Name: "aishiteru-core", Title: "AIshiteru Core", Version: Version},
 		&mcp.ServerOptions{Instructions: instructions, Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}}})
 	for _, t := range c.cat.tools {
