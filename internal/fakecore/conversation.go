@@ -510,6 +510,10 @@ type messagesIn struct {
 	AfterSeq       *int32    `json:"after_seq,omitempty"`
 	BeforeSeq      *int32    `json:"before_seq,omitempty"`
 	Limit          int       `json:"limit,omitempty"`
+	// wait_s waits for a message after after_seq, or a change of the
+	// conversation's standing (wait.go): not with before_seq.
+	canWait
+	SeenState *string `json:"seen_state,omitempty"`
 }
 
 type retractionView struct {
@@ -548,6 +552,12 @@ func conversationMessages() *impl {
 		query: func(c *Core, rc *readCtx, in messagesIn) (any, error) {
 			if in.AfterSeq != nil && in.BeforeSeq != nil {
 				return nil, invalid("give after_seq or before_seq, not both")
+			}
+			if in.WaitS > 0 && in.BeforeSeq != nil {
+				return nil, invalid("wait_s waits for what comes after after_seq; not with before_seq")
+			}
+			if in.SeenState != nil && !slices.Contains(conversationStates, *in.SeenState) {
+				return nil, invalid("seen_state is one of %s", strings.Join(conversationStates, ", "))
 			}
 			cv, err := c.readable(rc, in.ConversationID)
 			if err != nil {
@@ -604,6 +614,7 @@ func viewMessage(m *message) messageView {
 type inboxIn struct {
 	inCourse
 	Limit int `json:"limit,omitempty"`
+	canWait
 }
 
 // waiting reports whether cv waits for m's answer, all but whether its

@@ -89,7 +89,7 @@ func TestCatalogueSnapshot(t *testing.T) {
 	if len(cat.tools) != 134 || reads != 49 || writes != 85 {
 		t.Errorf("%d tools, %d reads, %d writes; the snapshot holds 134, 49, 85", len(cat.tools), reads, writes)
 	}
-	older, err := catalogueWithoutSiteChat(false)
+	older, err := catalogueOf(Options{WithoutSiteChat: true})
 	if err != nil {
 		t.Fatal(err)
 	}

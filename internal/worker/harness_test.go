@@ -84,6 +84,9 @@ func newWorldWith(t *testing.T, o fakecore.Options) *world {
 		fc.Handler().ServeHTTP(rw, r)
 	}))
 	t.Cleanup(w.srv.Close)
+	// Before the server closes, which waits for every call in progress:
+	// those waiting for news answer at once.
+	t.Cleanup(fc.Shutdown)
 	w.co = fc.AddCourse("CS101")
 	w.sato = fc.AddPerson("Sato")
 	w.satoSeat = w.must(fc.Seat(w.sato.ID, w.co.ID, fakecore.SeatOptions{Preset: "instructor"}))

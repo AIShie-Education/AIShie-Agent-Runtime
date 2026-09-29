@@ -49,6 +49,9 @@ func newFakeWorld(t *testing.T, o Options) *fakeWorld {
 	fc := New(o)
 	srv := httptest.NewServer(fc.Handler())
 	t.Cleanup(srv.Close)
+	// Before the server closes, which waits for every call in progress:
+	// those waiting for news answer at once.
+	t.Cleanup(fc.Shutdown)
 	w := &fakeWorld{t: t, fc: fc, srv: srv, opener: map[string]int{}, author: map[string]int{}, clients: map[string]*mcpClient{}}
 	w.co = fc.AddCourse("CS101")
 	must := func(m Member, err error) Member {
