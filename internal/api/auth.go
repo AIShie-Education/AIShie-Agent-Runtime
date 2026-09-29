@@ -26,7 +26,8 @@ type Caller struct {
 	// ExpiresAt is when the assertion runs out.
 	ExpiresAt time.Time
 	// IsAdmin is whether they are one of the runtime's administrators
-	// (D4): no v1 route grants them more than an owner.
+	// (D4): they alone read the school's plan's use by owner; no other
+	// route grants them more than an owner.
 	IsAdmin bool
 }
 

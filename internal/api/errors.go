@@ -81,6 +81,8 @@ const (
 	ReasonOwnKeyProviderMismatch = "own_key_provider_mismatch"
 	ReasonModelDenied            = "model_denied"
 	ReasonSettingsRejected       = "settings_rejected"
+	// An administrators' route asked by someone else.
+	ReasonNotAdmin = "not_admin"
 )
 
 // maxMessage bounds a message, in bytes, as Core's apperr.Clip does.

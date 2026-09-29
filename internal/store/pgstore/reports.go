@@ -158,3 +158,66 @@ func (s *Store) AskerUsage(ctx context.Context, agentID, courseID string, since,
 	slices.SortFunc(out, func(a, b store.AskerUsage) int { return strings.Compare(a.OpenerMemberID, b.OpenerMemberID) })
 	return out, nil
 }
+
+// TenantUsage is the use on keySource in [since, until), a row per tenant.
+func (s *Store) TenantUsage(ctx context.Context, keySource string, since, until time.Time) ([]store.TenantUsage, error) {
+	if err := store.CheckKeySpan(keySource, since, until); err != nil {
+		return nil, err
+	}
+	byTenant := map[string]*store.TenantUsage{}
+	row := func(tenant string) *store.TenantUsage {
+		if byTenant[tenant] == nil {
+			byTenant[tenant] = &store.TenantUsage{TenantID: tenant}
+		}
+		return byTenant[tenant]
+	}
+	answers, err := s.pool.Query(ctx, `
+		SELECT tenant_id, count(*) FILTER (WHERE billable)
+		  FROM answer
+		 WHERE key_source = $1 AND at >= $2 AND at < $3
+		 GROUP BY 1`, keySource, since, until)
+	if err != nil {
+		return nil, fmt.Errorf("store: use of the %s key: %w", keySource, err)
+	}
+	defer answers.Close()
+	for answers.Next() {
+		var tenant string
+		var billable int
+		if err := answers.Scan(&tenant, &billable); err != nil {
+			return nil, fmt.Errorf("store: use of the %s key: %w", keySource, err)
+		}
+		row(tenant).Answers += billable
+	}
+	if err := answers.Err(); err != nil {
+		return nil, fmt.Errorf("store: use of the %s key: %w", keySource, err)
+	}
+	calls, err := s.pool.Query(ctx, `
+		SELECT tenant_id, count(*), sum(cost_pusd)::bigint
+		  FROM llm_call
+		 WHERE key_source = $1 AND at >= $2 AND at < $3
+		 GROUP BY 1`, keySource, since, until)
+	if err != nil {
+		return nil, fmt.Errorf("store: use of the %s key: %w", keySource, err)
+	}
+	defer calls.Close()
+	for calls.Next() {
+		var tenant string
+		var n int
+		var cost int64
+		if err := calls.Scan(&tenant, &n, &cost); err != nil {
+			return nil, fmt.Errorf("store: use of the %s key: %w", keySource, err)
+		}
+		r := row(tenant)
+		r.ModelCalls += n
+		r.CostPUSD += cost
+	}
+	if err := calls.Err(); err != nil {
+		return nil, fmt.Errorf("store: use of the %s key: %w", keySource, err)
+	}
+	out := make([]store.TenantUsage, 0, len(byTenant))
+	for _, r := range byTenant {
+		out = append(out, *r)
+	}
+	slices.SortFunc(out, func(a, b store.TenantUsage) int { return strings.Compare(a.TenantID, b.TenantID) })
+	return out, nil
+}

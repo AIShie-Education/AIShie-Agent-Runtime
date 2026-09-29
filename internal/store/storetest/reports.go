@@ -114,6 +114,47 @@ func testReports(t *testing.T, open Opener) {
 		}
 	})
 
+	t.Run("TenantUsage counts a key's use per tenant, since inclusive and until exclusive", func(t *testing.T) {
+		s := open(t)
+		school := func(agent, tenant string) scope {
+			return scope{agent: agent, tenant: tenant, course: "c1", opener: "p1", key: "school"}
+		}
+		yuki1, yuki2, ken := school("a1", "ten_yuki"), school("a2", "ten_yuki"), school("a3", "ten_ken")
+		own := scope{agent: "a1", tenant: "ten_yuki", course: "c1", opener: "p1", key: "own"}
+		record(t, s,
+			[]store.LLMCall{
+				call("k1", day1, yuki1, 100), call("k2", day1.Add(time.Hour), yuki2, 200), call("k3", day1, ken, 50),
+				call("k4", day1, own, 7000), call("k5", day2, yuki1, 9000), call("k6", day1.Add(-time.Microsecond), yuki1, 9000),
+			},
+			[]store.AnswerRecord{
+				answerRecord("r1", day1, yuki1, true, 100), answerRecord("r2", day1.Add(time.Hour), yuki2, true, 200),
+				answerRecord("r3", day1, yuki1, false, 0), answerRecord("r4", day1, ken, true, 50),
+				answerRecord("r5", day1, own, true, 7000), answerRecord("r6", day2, yuki1, true, 9000),
+			})
+		got, err := s.TenantUsage(t.Context(), "school", day1, day2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []store.TenantUsage{
+			{TenantID: "ten_ken", Answers: 1, ModelCalls: 1, CostPUSD: 50},
+			{TenantID: "ten_yuki", Answers: 2, ModelCalls: 2, CostPUSD: 300},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("TenantUsage:\n got %+v\nwant %+v", got, want)
+		}
+		if got, err := s.TenantUsage(t.Context(), "school", day2.Add(24*time.Hour), day2.Add(48*time.Hour)); err != nil || len(got) != 0 {
+			t.Errorf("TenantUsage of a day with nothing = %+v, %v", got, err)
+		}
+		for _, c := range []struct {
+			key          string
+			since, until time.Time
+		}{{"", day1, day2}, {"school", day2, day1}, {"school", day1, day1}} {
+			if _, err := s.TenantUsage(t.Context(), c.key, c.since, c.until); err == nil {
+				t.Errorf("TenantUsage(%q, %s, %s) was taken", c.key, c.since, c.until)
+			}
+		}
+	})
+
 	t.Run("refuses a report of no agent or of an empty span", func(t *testing.T) {
 		s := open(t)
 		for _, c := range []struct {
