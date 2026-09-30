@@ -13,6 +13,7 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolset"
 )
 
 // An answer's draft (docs/design.md §5.3, Drafts). While the model works on
@@ -557,7 +558,7 @@ func (a *Agent) countDraft(outcome string) {
 // stepKind is the kind of the step a call of tool is.
 func stepKind(tool string) string {
 	switch tool {
-	case "document_get":
+	case "document_get", toolset.AttachmentTool:
 		return core.StepReadingDocument
 	case "document_list":
 		return core.StepListingDocuments

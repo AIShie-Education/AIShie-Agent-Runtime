@@ -68,13 +68,20 @@ type Runner struct {
 	// the goroutine that made it, while the other calls may still run: what
 	// the answer's draft says of the call.
 	Seen func(call llm.Part, env *core.Envelope)
+	// Conversation is the conversation the answer is written in: the only
+	// one whose files AttachmentTool reads (attachments.go).
+	Conversation string
+
+	// tags are what the readings kept while a message's file is given are
+	// tagged with (keep): the file's id and its message's.
+	tags []string
 }
 
 // Defaults of Runner.
 const (
 	DefaultMaxParallel    = 4
 	DefaultMaxResultBytes = 32 << 10
-	DefaultMaxFileBytes   = 10 << 20
+	DefaultMaxFileBytes   = 50 << 20
 	// minResultBytes leaves room for the status, the error and the
 	// truncation mark whatever the configuration says.
 	minResultBytes = 1 << 10
@@ -394,6 +401,9 @@ type prepared struct {
 	// file is what the model asked of a document's file by the runtime's
 	// own arguments (FilePartArg, FilePagesArg), and the course.
 	file fileArgs
+	// attach is a call of the runtime's own AttachmentTool, which reaches
+	// Core only for the file's URL (attachments.go).
+	attach *attachmentCall
 }
 
 func refusedCall(res llm.Part, code, msg string) prepared {
@@ -406,6 +416,9 @@ func (s *Set) prepare(r Runner, courseID string, call llm.Part) prepared {
 	t, ok := s.lookup(call.Name)
 	if !ok {
 		return refusedCall(res, core.CodeNotFound, s.noSuchTool(call.Name))
+	}
+	if t.kind == KindRuntime && call.Name == AttachmentTool {
+		return prepareAttachment(r, courseID, call, res, t)
 	}
 	// The deny list holds at every stage (§6.1), whatever built this set,
 	// and before anything of the call is looked at; so does a write's
@@ -474,6 +487,9 @@ func bindKey(args json.RawMessage, key string) (json.RawMessage, error) {
 // send sends one prepared call. Its error is fatal to the answer;
 // everything else is in the result.
 func (s *Set) send(ctx context.Context, r Runner, p prepared) (llm.Part, *llm.File, *core.Envelope, error) {
+	if p.attach != nil {
+		return s.sendAttachment(ctx, r, p)
+	}
 	res := p.res
 	env, err := r.Client.Call(ctx, res.Name, p.args)
 	switch {
@@ -608,7 +624,11 @@ func refuse(res llm.Part, code, msg string) llm.Part {
 // field in Core's order (status first), then what became of a document's
 // file, and its text when that is given as text.
 type content struct {
-	Status      core.Status     `json:"status"`
+	// Status is Core's, or the runtime's own tool's; "" in what the
+	// question is given of its files (GiveAttachments), which Attachment
+	// names.
+	Status      core.Status     `json:"status,omitempty"`
+	Attachment  json.RawMessage `json:"attachment,omitempty"`
 	ActionID    string          `json:"action_id,omitempty"`
 	ReviewState string          `json:"review_state,omitempty"`
 	Replayed    bool            `json:"replayed,omitempty"`

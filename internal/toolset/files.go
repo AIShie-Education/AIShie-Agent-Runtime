@@ -177,6 +177,73 @@ type docFile struct {
 	// first and last are the pages of the file the model asked for
 	// (FilePagesArg), 0 for none.
 	first, last int
+	// attachmentID and messageID name, in place of a document's version,
+	// a file a message of the conversation carries (attachments.go): its
+	// parts are asked for of AttachmentTool. noTool is that the model has
+	// no tool to ask with (tools mode none): no call is named.
+	attachmentID, messageID string
+	noTool                  bool
+}
+
+// tool is the tool the model reads more of the file with.
+func (d *docFile) tool() string {
+	if d.attachmentID != "" {
+		return AttachmentTool
+	}
+	return FilePartTool
+}
+
+// partArg is the argument of d.tool that names a part of the file.
+func (d *docFile) partArg() string {
+	if d.attachmentID != "" {
+		return AttachmentPartArg
+	}
+	return FilePartArg
+}
+
+// pagesArg is the argument of d.tool that names pages of the file.
+func (d *docFile) pagesArg() string {
+	if d.attachmentID != "" {
+		return AttachmentPagesArg
+	}
+	return FilePagesArg
+}
+
+// again is the call that reads part (0 for none: the file as first asked
+// for) of the file again, of the version Core gave, or the file of the
+// message: the model makes it as it is. nil where the model has no tool to.
+func (d *docFile) again(part int) *nextPart {
+	if d.noTool {
+		return nil
+	}
+	if d.attachmentID != "" {
+		args := map[string]any{"attachment_id": d.attachmentID}
+		if part > 0 {
+			args[AttachmentPartArg] = part
+		}
+		return &nextPart{Tool: AttachmentTool, Arguments: args}
+	}
+	args := map[string]any{"document_id": d.documentID}
+	if part > 0 {
+		args[FilePartArg] = part
+	}
+	if d.versionID != "" {
+		args["version_id"] = d.versionID
+	}
+	return &nextPart{Tool: FilePartTool, Arguments: args}
+}
+
+// readNext says how the model reads part k of the file: the call next_part
+// names, or, with no tool to, that it cannot here.
+func (d *docFile) readNext(k int) string {
+	if d.noTool {
+		return fmt.Sprintf("; part %d cannot be read here", k)
+	}
+	what := "this version"
+	if d.attachmentID != "" {
+		what = "this file"
+	}
+	return fmt.Sprintf("; to read part %d, call %s with next_part's arguments, which name %s", k, d.tool(), what)
 }
 
 // documentFile finds the file of a document_get result: its version's
@@ -253,10 +320,27 @@ func classify(mediaType string) fileKind {
 	if doctext.OldOffice(mediaType) {
 		return kindOldOffice
 	}
-	if strings.HasPrefix(mediaType, "text/") || strings.HasSuffix(mediaType, "+json") {
+	if strings.HasPrefix(mediaType, "text/") || strings.HasSuffix(mediaType, "+json") || textApplications[mediaType] ||
+		strings.HasPrefix(mediaType, "application/") && strings.HasSuffix(mediaType, "+xml") {
 		return kindText
 	}
 	return kindOther
+}
+
+// textApplications are the types of files that are text, as a program's
+// source, a configuration or data in a text format is, which a browser or
+// a server calls application/…: given as text, as text/… is, and so is an
+// application/…+xml. (Code of no telling type, application/octet-stream,
+// is known by its bytes: sniff. A picture drawn in XML, image/svg+xml, is
+// not text to read.)
+var textApplications = map[string]bool{
+	"application/xml": true, "application/javascript": true, "application/x-javascript": true, "application/ecmascript": true,
+	"application/typescript": true, "application/x-typescript": true, "application/x-sh": true, "application/x-shellscript": true,
+	"application/x-python": true, "application/x-python-code": true, "application/x-yaml": true, "application/yaml": true,
+	"application/toml": true, "application/x-toml": true, "application/sql": true, "application/x-sql": true,
+	"application/x-tex": true, "application/x-latex": true, "application/x-httpd-php": true, "application/x-php": true,
+	"application/x-perl": true, "application/x-ruby": true, "application/x-ndjson": true, "application/graphql": true,
+	"application/x-subrip": true, "application/csv": true,
 }
 
 // mediaType is a content type's type/subtype, lower case, without
@@ -283,6 +367,7 @@ const (
 		"ask for it as .pptx, .docx or .xlsx, or as a PDF"
 	notePassword  = notGiven + "it is password-protected; ask for a copy without a password"
 	noteNoFiles   = notGiven + "this model does not take files"
+	noteNoImages  = notGiven + "this model cannot see images"
 	noteNoText    = "the PDF has no text to read: it looks scanned, or like pictures of text"
 	noteUnmapped  = "the PDF's text cannot be read: its fonts do not map to text"
 	askSelectable = "; ask for a version with selectable text"
@@ -302,6 +387,9 @@ type given struct {
 	// never in parts.
 	aside bool
 	file  *llm.File
+	// filePages is how many pages file shows: a PDF's (one when they are
+	// not known), an image's one.
+	filePages int
 	// pages is the file's pages given as the model asked (FilePagesArg),
 	// or why none are.
 	pages bool
@@ -347,7 +435,7 @@ func (r Runner) giveFile(ctx context.Context, d *docFile, part int) given {
 		return g
 	}
 	key := r.textKey(d)
-	if kept := r.Texts.get(key); kept != nil && !r.givesFile(kept.mt) {
+	if kept := r.kept(key); kept != nil && !r.givesFile(kept.mt) {
 		if kind == kindUnknown {
 			rec.ContentType = kept.mt
 		}
@@ -379,7 +467,7 @@ func (r Runner) giveFile(ctx context.Context, d *docFile, part int) given {
 	switch {
 	case kind == kindImage && r.FileInput:
 		rec.GivenAs = givenFile
-		g.file = &llm.File{Name: fileName(d.title, mt), MIME: mt, Data: f.Data}
+		g.file, g.filePages = &llm.File{Name: fileName(d.title, mt), MIME: mt, Data: f.Data}, 1
 		return g
 	case kind == kindConvert:
 		return r.giveConverted(ctx, g, d, mt, f.Data, part)
@@ -410,12 +498,12 @@ func (r Runner) giveFile(ctx context.Context, d *docFile, part int) given {
 			}
 		}
 	}
-	rd := r.Texts.get(key)
+	rd := r.kept(key)
 	if rd == nil {
 		var keep bool
 		rd, keep = r.read(ctx, mt, kind, f.Data)
 		if keep {
-			r.Texts.put(key, rd)
+			r.keep(key, rd)
 		}
 	}
 	return r.giveReading(ctx, g, d, rd, past, f.Data)
@@ -492,7 +580,7 @@ func (r Runner) giveReading(ctx context.Context, g given, d *docFile, rd *fileRe
 	kind := classify(rd.mt)
 	switch {
 	case kind == kindImage:
-		return r.giveOCR(ctx, g, rd, ocrFile{kind: ocr.Image, why: noteNoFiles, sum: rd.sum, data: r.refetch(d, rd, data), again: askAgain(d)})
+		return r.giveOCR(ctx, g, rd, ocrFile{kind: ocr.Image, why: noteNoImages, sum: rd.sum, data: r.refetch(d, rd, data), again: d.again(0)})
 	case kind == kindText && rd.res != nil:
 		if rd.res.Text == "" {
 			rec.Note = "the file is empty"
@@ -533,7 +621,7 @@ func (r Runner) givePDFText(ctx context.Context, g given, d *docFile, rd *fileRe
 		} else {
 			why = noteNoFiles + ", and " + why
 		}
-		return r.giveOCR(ctx, g, rd, ocrFile{kind: ocr.PDF, pages: res.Of, why: why, ask: askSelectable, sum: rd.sum, data: r.refetch(d, rd, data), again: askAgain(d)})
+		return r.giveOCR(ctx, g, rd, ocrFile{kind: ocr.PDF, pages: res.Of, why: why, ask: askSelectable, sum: rd.sum, data: r.refetch(d, rd, data), again: d.again(0)})
 	}
 	g = r.extracted(g, res)
 	if past != "" {
@@ -613,7 +701,7 @@ func (r Runner) refusal(mt string, kind fileKind) string {
 		return noteOldOffice
 	case kindImage:
 		if ok, why := r.ocrAvailable(); !r.FileInput && !ok {
-			return noteNoFiles + noOCR(why)
+			return noteNoImages + noOCR(why)
 		}
 	}
 	return ""

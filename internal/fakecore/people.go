@@ -16,9 +16,10 @@ var gateAsks = gate{perms: []string{permConversationAsk}}
 
 type openIn struct {
 	inCourse
-	RespondentMemberID uuid.UUID `json:"respondent_member_id"`
-	Title              *string   `json:"title,omitempty"`
-	Body               *string   `json:"body,omitempty"`
+	RespondentMemberID uuid.UUID      `json:"respondent_member_id"`
+	Title              *string        `json:"title,omitempty"`
+	Body               *string        `json:"body,omitempty"`
+	Attachments        []attachmentIn `json:"attachments,omitempty"`
 }
 
 // checkOpen is conversation_open's rule: a title and a body that fit, a
@@ -32,6 +33,8 @@ func (c *Core) checkOpen(m, respondent *member, in openIn) error {
 		if err := checkBody(*in.Body); err != nil {
 			return err
 		}
+	} else if len(in.Attachments) > 0 {
+		return errAttachmentsNeedBody
 	}
 	if respondent.actor.kind != "agent" {
 		return errWithAgents
@@ -52,11 +55,18 @@ func conversationOpen() *impl {
 			return target{typ: "conversation"}, nil
 		},
 		pin: func(c *Core, m *member, in openIn) error {
-			return c.checkOpen(m, c.members[in.RespondentMemberID.String()], in)
+			if err := c.checkOpen(m, c.members[in.RespondentMemberID.String()], in); err != nil {
+				return err
+			}
+			return c.checkProposedFiles(m, nil, in.Attachments)
 		},
 		execute: func(c *Core, ec *execCtx, in openIn) (any, error) {
 			respondent := c.members[in.RespondentMemberID.String()]
 			if err := c.checkOpen(ec.member, respondent, in); err != nil {
+				return nil, err
+			}
+			files, names, err := c.checkFiles(ec.member, in.Attachments, false)
+			if err != nil {
 				return nil, err
 			}
 			title, _ := optionalText("title", in.Title, 200)
@@ -72,7 +82,7 @@ func conversationOpen() *impl {
 				MessageID      *string `json:"message_id,omitempty"`
 			}{ConversationID: cv.id}
 			if in.Body != nil {
-				id, err := c.post(ec, cv, nil, *in.Body, nil)
+				id, err := c.post(ec, cv, nil, *in.Body, nil, files, names)
 				if err != nil {
 					return nil, err
 				}
@@ -85,8 +95,9 @@ func conversationOpen() *impl {
 
 type askIn struct {
 	inCourse
-	ConversationID uuid.UUID `json:"conversation_id"`
-	Body           string    `json:"body"`
+	ConversationID uuid.UUID      `json:"conversation_id"`
+	Body           string         `json:"body"`
+	Attachments    []attachmentIn `json:"attachments,omitempty"`
 }
 
 var errNotOpener = forbid("only whoever opened a conversation asks in it; the member it is addressed to answers, with conversation.answer")
@@ -124,7 +135,10 @@ func conversationAsk() *impl {
 			if err != nil {
 				return err
 			}
-			return c.checkAsk(m, cv, in.Body)
+			if err := c.checkAsk(m, cv, in.Body); err != nil {
+				return err
+			}
+			return c.checkProposedFiles(m, cv, in.Attachments)
 		},
 		execute: func(c *Core, ec *execCtx, in askIn) (any, error) {
 			cv, err := c.findConversation(ec.course, in.ConversationID)
@@ -134,7 +148,11 @@ func conversationAsk() *impl {
 			if err := c.checkAsk(ec.member, cv, in.Body); err != nil {
 				return nil, err
 			}
-			id, err := c.post(ec, cv, nil, in.Body, nil)
+			files, names, err := c.checkFiles(ec.member, in.Attachments, false)
+			if err != nil {
+				return nil, err
+			}
+			id, err := c.post(ec, cv, nil, in.Body, nil, files, names)
 			if err != nil {
 				return nil, err
 			}

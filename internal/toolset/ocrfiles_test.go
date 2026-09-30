@@ -260,7 +260,7 @@ func TestOCRFiles(t *testing.T) {
 		text      string
 	}{
 		{name: "an image, to a model that takes no files", path: "/photo.png", ct: "image/png", asked: ocr.Image, givenAs: givenText,
-			notes: []string{"the runtime's OCR of the image (this model does not take files)", "recognition errors"}, text: "看板：Notice",
+			notes: []string{"the runtime's OCR of the image (this model cannot see images)", "recognition errors"}, text: "看板：Notice",
 			ocr: &fakeOCR{respond: func(int, func(context.Context) ([]byte, error)) ocr.State { return img }}},
 		{name: "an image, to a model that takes files", path: "/photo.png", ct: "image/png", fileInput: true, givenAs: givenFile, file: true,
 			ocr: &fakeOCR{}},
@@ -293,7 +293,7 @@ func TestOCRFiles(t *testing.T) {
 			notes: []string{"the runtime has no OCR here to recognize its text (tesseract is not installed); ask for a version"},
 			ocr:   &fakeOCR{off: "tesseract is not installed"}},
 		{name: "an image where there is no OCR is not fetched", path: "/photo.png", ct: "image/png", givenAs: givenNot,
-			notes: []string{"this model does not take files; the runtime has no OCR here to recognize its text (OCR is off)"},
+			notes: []string{"this model cannot see images; the runtime has no OCR here to recognize its text (OCR is off)"},
 			ocr:   &fakeOCR{off: "OCR is off"}},
 	}
 	for _, tc := range tests {

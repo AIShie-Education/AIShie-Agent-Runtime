@@ -407,6 +407,8 @@ func actionErrorReason(act core.Action) string {
 // written already, is left as it is. Its error is the store failing.
 func (s *Seat) retracted(ctx context.Context, conv, msg string) error {
 	s.a.withdraw(conv, msg)
+	// What was read of its files goes with it (Core withholds them now).
+	s.a.s.texts.Drop(msg)
 	st := s.a.store()
 	notes, err := st.Notes(ctx, s.a.id, s.id, conv, memoryNotes)
 	if err != nil {

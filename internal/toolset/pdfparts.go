@@ -74,7 +74,7 @@ func (r Runner) givePDFFile(ctx context.Context, g given, d *docFile, p pdfFile,
 			return g, false
 		}
 		rec.GivenAs = givenFile
-		g.file = &llm.File{Name: fileName(d.title, pdfMIME), MIME: pdfMIME, Data: p.data}
+		g.file, g.filePages = &llm.File{Name: fileName(d.title, pdfMIME), MIME: pdfMIME, Data: p.data}, max(p.pages, 1)
 		if p.converted {
 			rec.ConvertedTo = "pdf"
 			rec.Note = "LibreOffice converted it to PDF, which is given: " + looks(p)
@@ -87,7 +87,7 @@ func (r Runner) givePDFFile(ctx context.Context, g given, d *docFile, p pdfFile,
 	rec.Parts = parts
 	if k > parts {
 		rec.Note = fmt.Sprintf("the file is given as a PDF in %d parts of its %ss: there is no part %d; ask for %s from 1 to %d",
-			parts, p.unit, k, FilePartArg, parts)
+			parts, p.unit, k, d.partArg(), parts)
 		return g, true
 	}
 	first, last := (k-1)*per+1, min(k*per, p.pages)
@@ -98,11 +98,7 @@ func (r Runner) givePDFFile(ctx context.Context, g given, d *docFile, p pdfFile,
 	}
 	rec.Part, rec.PartHolds = k, pageRange(p.unit, first, last)
 	if k < parts {
-		args := map[string]any{"document_id": d.documentID, FilePartArg: k + 1}
-		if d.versionID != "" {
-			args["version_id"] = d.versionID
-		}
-		rec.NextPart = &nextPart{Tool: FilePartTool, Arguments: args}
+		rec.NextPart = d.again(k + 1)
 	}
 	var b2 strings.Builder
 	if p.converted {
@@ -122,7 +118,7 @@ func (r Runner) givePDFFile(ctx context.Context, g given, d *docFile, p pdfFile,
 		fmt.Fprintf(&b2, "the file part is part %d of %d: %s", k, parts, rec.PartHolds)
 	}
 	if k < parts {
-		fmt.Fprintf(&b2, "; to read part %d, call %s with next_part's arguments, which name this version", k+1, FilePartTool)
+		b2.WriteString(d.readNext(k + 1))
 	} else {
 		b2.WriteString("; it is the last")
 	}
@@ -132,7 +128,7 @@ func (r Runner) givePDFFile(ctx context.Context, g given, d *docFile, p pdfFile,
 		return g, true
 	}
 	rec.GivenAs = givenFile
-	g.file = &llm.File{Name: fileName(d.title+" ("+rec.PartHolds+")", pdfMIME), MIME: pdfMIME, Data: b}
+	g.file, g.filePages = &llm.File{Name: fileName(d.title+" ("+rec.PartHolds+")", pdfMIME), MIME: pdfMIME, Data: b}, last-first+1
 	notesBeside(&g, p, first, last)
 	return g, true
 }
@@ -148,7 +144,7 @@ func (r Runner) givePDFPages(ctx context.Context, g given, d *docFile, p pdfFile
 	first, last := d.first, d.last
 	if p.pages > 0 && first > p.pages {
 		rec.Note = fmt.Sprintf("the file has %s: there is no %s %d; ask for %s from 1 to %d", plural(p.pages, p.unit), p.unit, first,
-			FilePagesArg, p.pages)
+			d.pagesArg(), p.pages)
 		return g, true
 	}
 	if p.pages > 0 {
@@ -167,7 +163,7 @@ func (r Runner) givePDFPages(ctx context.Context, g given, d *docFile, p pdfFile
 		rec.GivenAs = givenFile
 		b.WriteString("its pages cannot be cut here, so the whole PDF is given: see " + pageRange(p.unit, first, last) + " in it")
 		rec.Note = b.String()
-		g.file = &llm.File{Name: fileName(d.title, pdfMIME), MIME: pdfMIME, Data: p.data}
+		g.file, g.filePages = &llm.File{Name: fileName(d.title, pdfMIME), MIME: pdfMIME, Data: p.data}, max(p.pages, 1)
 		notesBeside(&g, p, first, last)
 		return g, true
 	}
@@ -184,7 +180,7 @@ func (r Runner) givePDFPages(ctx context.Context, g given, d *docFile, p pdfFile
 		return g, true
 	}
 	rec.GivenAs = givenFile
-	g.file = &llm.File{Name: fileName(d.title+" ("+rec.PartHolds+")", pdfMIME), MIME: pdfMIME, Data: data}
+	g.file, g.filePages = &llm.File{Name: fileName(d.title+" ("+rec.PartHolds+")", pdfMIME), MIME: pdfMIME, Data: data}, last-first+1
 	notesBeside(&g, p, first, last)
 	return g, true
 }

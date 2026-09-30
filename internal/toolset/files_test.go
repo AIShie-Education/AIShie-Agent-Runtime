@@ -233,7 +233,7 @@ func TestRunFiles(t *testing.T) {
 		{name: "a document past what the runtime reads of one", path: "/deck.pptx", title: "Week 3", ct: doctexttest.PPTXType, size: len(deck),
 			docLimits: doctext.Limits{MaxTokens: 50}, givenAs: givenNot, fetched: true, note: "larger or more complex than the runtime reads"},
 		{name: "an image is not fetched for a model that takes no files", path: "/photo.png", title: "Photo", ct: "image/png", size: 8,
-			givenAs: givenNot, note: "this model does not take files"},
+			givenAs: givenNot, note: "this model cannot see images"},
 		{name: "a type the runtime does not read is not fetched", path: "/talk.mp3", title: "Talk", ct: "audio/mpeg", size: 10,
 			fileInput: true, givenAs: givenNot, note: "audio/mpeg files are not read here"},
 		{name: "a file Core says is too large is not fetched", path: "/big.pdf", title: "Big", ct: "application/pdf",
@@ -496,7 +496,9 @@ func TestFileName(t *testing.T) {
 func TestClassify(t *testing.T) {
 	tests := map[string]fileKind{
 		"text/plain": kindText, "text/markdown": kindText, "text/csv": kindText, "application/json": kindText,
-		"application/ld+json": kindText, "application/x-markdown": kindText,
+		"application/ld+json": kindText, "application/x-markdown": kindText, "application/javascript": kindText,
+		"application/x-python": kindText, "application/xml": kindText, "application/xhtml+xml": kindText, "application/x-yaml": kindText,
+		"application/sql": kindText,
 		"application/pdf": kindPDF, "image/png": kindImage, "image/jpeg": kindImage, "image/webp": kindImage, "image/gif": kindImage,
 		doctexttest.PPTXType: kindOffice, doctexttest.DOCXType: kindOffice, doctexttest.XLSXType: kindOffice,
 		"application/vnd.ms-powerpoint.presentation.macroenabled.12": kindOffice,

@@ -200,7 +200,12 @@ var BuiltinDeny = []string{
 	// every one addressed to it), or open, ask in, answer, close or
 	// retract one in someone else's name. conversation_draft among them:
 	// the runtime writes an answer's draft itself, and a model writing one
-	// would show the asker whatever it liked as the answer to come.
+	// would show the asker whatever it liked as the answer to come. So are
+	// a message's files (conversation_attachment, Core's attachments): a
+	// tutor's token reads the files of every conversation addressed to it,
+	// and the attachment's URL is a credential; the runtime fetches them
+	// itself, for the conversation it answers alone. conversation_upload_url
+	// is a signed URL for bytes a model cannot send.
 	"conversation_*",
 	// The runtime follows the course's events itself (design §5.4), and
 	// action_list_mine returns the agent's own actions, among them the

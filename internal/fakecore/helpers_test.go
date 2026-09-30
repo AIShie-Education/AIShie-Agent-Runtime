@@ -211,7 +211,7 @@ const longText = 16384
 // placeholders stable within one file: every UUID by <id:n> in the order
 // first met (written in upper case, <ID:n> with its lower case's n),
 // timestamps by <time>, tokens by <token> and their public prefixes by
-// <prefix>, the feed's sequence numbers by
+// <prefix>, uploads' tokens by <upload_token>, the feed's sequence numbers by
 // <seq:n>, long text by its length, and the Go type a message names by
 // <type>. Objects are walked in the order of their sorted keys, so the
 // numbering depends only on what the file holds.
@@ -248,6 +248,11 @@ func (z *normalizer) walk(key string, v any, inEvent bool) any {
 		if key == "token_prefix" {
 			// A token's public prefix: random, as the token is.
 			return "<prefix>"
+		}
+		if key == "upload_token" {
+			// An upload's token: a credential, signed by Core in a form
+			// of its own, which the fake does not copy.
+			return "<upload_token>"
 		}
 		return z.text(x)
 	case json.Number:

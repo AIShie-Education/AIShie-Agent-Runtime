@@ -94,7 +94,7 @@ func (r Runner) recognize(ctx context.Context, rd *fileReading, f ocrFile) (*doc
 	if l, ok := r.OCR.(interface{ Languages() string }); ok {
 		key += "\x00" + l.Languages()
 	}
-	if kept := r.Texts.get(key); kept != nil && kept.res != nil {
+	if kept := r.kept(key); kept != nil && kept.res != nil {
 		return kept.res, ocr.State{Status: ocr.StatusDone}
 	}
 	st := r.OCR.Text(ctx, f.sum, f.kind, f.pages, f.data)
@@ -103,7 +103,7 @@ func (r Runner) recognize(ctx context.Context, rd *fileReading, f ocrFile) (*doc
 	}
 	res := ocrResult(st.Text)
 	if strings.TrimSpace(res.Text) != "" {
-		r.Texts.put(key, &fileReading{mt: rd.mt, size: rd.size, sum: rd.sum, res: res})
+		r.keep(key, &fileReading{mt: rd.mt, size: rd.size, sum: rd.sum, res: res})
 	}
 	return res, st
 }
@@ -129,11 +129,11 @@ func (r Runner) giveOCR(ctx context.Context, g given, rd *fileReading, f ocrFile
 		}
 		rec.OCR, rec.AskAgain = OCRInProgress, f.again
 		rec.Note = f.why + "; the runtime is recognizing its text now (OCR)" + progress +
-			": to read it, call " + FilePartTool + " again with ask_again's arguments in a minute or so"
+			": to read it, " + callAgain(f.again, "in a minute or so")
 	case ocr.StatusBusy:
 		rec.OCR, rec.AskAgain = OCRBusy, f.again
 		rec.Note = f.why + "; the runtime could not start recognizing its text (OCR) just now: " + st.Why +
-			"; call " + FilePartTool + " again with ask_again's arguments in a few minutes to try again"
+			"; " + callAgain(f.again, "in a few minutes to try again")
 	case ocr.StatusFailed:
 		rec.OCR, rec.Note = OCRFailed, f.why+"; nor could the runtime's OCR recognize its text: "+st.Why+f.ask
 	default:
@@ -180,14 +180,13 @@ func ocrResult(t *store.OCRText) *doctext.Result {
 	return res
 }
 
-// askAgain is the call that asks for d's text again, of the version Core
-// gave: the model makes it as it is.
-func askAgain(d *docFile) *nextPart {
-	args := map[string]any{"document_id": d.documentID}
-	if d.versionID != "" {
-		args["version_id"] = d.versionID
+// callAgain says how the model asks for a file again, and when: the call
+// ask_again names (np), or, where it has no tool to, that it cannot here.
+func callAgain(np *nextPart, when string) string {
+	if np == nil {
+		return "it cannot be asked for again here"
 	}
-	return &nextPart{Tool: FilePartTool, Arguments: args}
+	return "call " + np.Tool + " again with ask_again's arguments " + when
 }
 
 // errNotTheFile is a file fetched again for OCR that is not the one read
