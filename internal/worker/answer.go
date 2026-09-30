@@ -269,11 +269,15 @@ func nextAttempt(atts []store.Attempt) (n int, busy bool) {
 func (c *claim) generate(ctx context.Context, r passResult, read *core.Messages, shorter bool) passResult {
 	access := c.access(read)
 	m, _ := c.models()
-	set, err := c.s.toolsFor(m.ad.Dialect(), access)
+	var files *core.Messages
+	if carriesFiles(read.Messages, r.msg) {
+		files = read
+	}
+	set, err := c.toolset(m, access, files != nil)
 	if err != nil {
 		return c.failedHere(r, "the toolset could not be built", err)
 	}
-	sys, hash, err := c.system(ctx, read, shorter, set)
+	sys, hash, err := c.system(ctx, read, shorter, set, files != nil)
 	if err != nil {
 		return c.failedHere(r, "the memory could not be read", err)
 	}
@@ -286,7 +290,7 @@ func (c *claim) generate(ctx context.Context, r passResult, read *core.Messages,
 		c.d = c.a.drafter(c.s.course, c.conv)
 	}
 	c.d.begin()
-	l, err := newLoop(c, r.msg, r.no, access, c.guard(read), sys, hist)
+	l, err := newLoop(c, r.msg, r.no, access, c.guard(read), sys, hist, files)
 	if err != nil {
 		c.d.end(false)
 		return c.failedHere(r, "the toolset could not be built", err)
@@ -366,9 +370,20 @@ func (c *claim) guard(read *core.Messages) toolset.SeatGuard {
 	return toolset.SeatGuard{Self: c.s.id, Principal: deref(c.s.membership().PrincipalMemberID), Opener: c.openerOf(read)}
 }
 
+// toolset is the tools the answer's model m is offered with access: the
+// seat's, and, where the conversation's messages carry files, the
+// runtime's own that reads them (toolset.AttachmentTool).
+func (c *claim) toolset(m *model, access toolset.Access, files bool) (*toolset.Set, error) {
+	set, err := c.s.toolsFor(m.ad.Dialect(), access)
+	if err != nil || !files {
+		return set, err
+	}
+	return set.WithAttachments(c.eff.Tools, m.ad.Dialect(), c.a.s.schemas)
+}
+
 // system is the system prompt for this answer, whose model is offered set,
-// and its hash.
-func (c *claim) system(ctx context.Context, read *core.Messages, shorter bool, set *toolset.Set) (string, string, error) {
+// and its hash; files is that the conversation's messages carry files.
+func (c *claim) system(ctx context.Context, read *core.Messages, shorter bool, set *toolset.Set, files bool) (string, string, error) {
 	var notes []store.Note
 	if c.eff.Memory.Enabled {
 		var err error
@@ -382,7 +397,7 @@ func (c *claim) system(ctx context.Context, read *core.Messages, shorter bool, s
 		Seat: prompt.Seat{
 			AgentName: c.a.name(), Course: prompt.CourseName(m), AnswersCourse: m.AnswersCourse,
 			AskerName: read.Conversation.Opener.DisplayName, AnswerLevel: read.Conversation.Respondent.AnswerLevel,
-			Tools: set.Reads(), Writes: set.Writes(),
+			Tools: set.Reads(), Writes: set.Writes(), Files: files, FileTool: fileTool(set),
 		},
 		AnswerLanguage: c.eff.Prompt.AnswerLanguage, Notes: notes, Now: c.a.now(),
 	})
@@ -391,6 +406,15 @@ func (c *claim) system(ctx context.Context, read *core.Messages, shorter bool, s
 			"Write a shorter one, well under %d characters, with no links.", c.eff.Answer.MaxBodyChars)
 	}
 	return text, hash, nil
+}
+
+// fileTool is the tool that reads the conversation's files, when set
+// offers it.
+func fileTool(set *toolset.Set) string {
+	if set.Has(toolset.AttachmentTool) {
+		return toolset.AttachmentTool
+	}
+	return ""
 }
 
 // post makes body safe (step 8) and posts it written ahead (step 9) under

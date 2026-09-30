@@ -66,6 +66,14 @@ type loop struct {
 	// cont is the answer being continued while a continuation is asked
 	// for (continue.go); nil on a turn.
 	cont *continuation
+	// files is the conversation as read, when its messages carry files
+	// (attachments.go): the model is offered AttachmentTool, and the
+	// history is made again with the files before the first call, and for
+	// a fallback that takes files otherwise; nil when they carry none.
+	// filesGiven is that it was; halved that the history was halved since.
+	files      *core.Messages
+	filesGiven bool
+	halved     bool
 	// lastTook and lastUsage are the last call answered: how long it took
 	// and what it used.
 	lastTook  time.Duration
@@ -114,11 +122,12 @@ type loopEnd struct {
 // the model is offered the seat's writes, each bound to the key of its
 // number in this attempt (core.ToolKey), at most per_answer.max_writes,
 // and its member writes kept off the seats guard names.
-func newLoop(c *claim, msg string, attempt int, access toolset.Access, guard toolset.SeatGuard, system string, history []llm.Message) (*loop, error) {
+func newLoop(c *claim, msg string, attempt int, access toolset.Access, guard toolset.SeatGuard, system string, history []llm.Message,
+	files *core.Messages) (*loop, error) {
 	m, fallback := c.models()
 	l := &loop{
 		c: c, msg: msg, b: c.eff.Budgets.PerAnswer, start: c.a.now(), system: system, history: history,
-		m: m, fallback: fallback, access: access, guard: guard, d: c.d,
+		m: m, fallback: fallback, access: access, guard: guard, d: c.d, files: files,
 	}
 	if access == toolset.ReadWrite {
 		conv := c.conv
@@ -134,7 +143,7 @@ func newLoop(c *claim, msg string, attempt int, access toolset.Access, guard too
 // use makes m the loop's model: its toolset's declarations in its dialect,
 // and its output cap.
 func (l *loop) use(m *model) error {
-	set, err := l.c.s.toolsFor(m.ad.Dialect(), l.access)
+	set, err := l.c.toolset(m, l.access, l.files != nil)
 	if err != nil {
 		return err
 	}
@@ -155,6 +164,10 @@ type retries struct {
 func (l *loop) run(ctx context.Context) loopEnd {
 	var tried retries
 	forced := false
+	if l.files != nil && !l.filesGiven {
+		l.filesGiven = true
+		l.giveFiles(ctx)
+	}
 	for {
 		if err := ctx.Err(); err != nil {
 			// The claim's time ran out, the agent is stopping, or the
@@ -337,8 +350,13 @@ func (l *loop) call(ctx context.Context, forced bool) (*llm.Response, error) {
 			// and some refuse tool calls in history without their own.
 			l.turns = llm.FlattenToolHistory(l.turns)
 		}
+		same := takesFilesAs(l.m, fb)
 		if err := l.use(fb); err != nil {
 			return nil, err
+		}
+		if l.files != nil && !same && !l.halved {
+			// The question's files, as this model takes them.
+			l.giveFiles(ctx)
 		}
 	}
 }
@@ -501,23 +519,8 @@ func (l *loop) runTools(ctx context.Context, resp *llm.Response) error {
 		run, over = calls[:room], calls[room:]
 	}
 	l.stats.ToolCalls += len(calls)
-	eff := l.c.eff
-	// A PDF past what the model's provider takes as a file is given as
-	// its text.
-	var pdf llm.FileLimits
-	if fl, ok := l.m.ad.(llm.FileLimiter); ok {
-		pdf = fl.FileLimits()
-	}
-	runner := toolset.Runner{
-		Client: l.c.a.client, Files: l.c.a.s.files, Texts: l.c.a.s.texts, OCR: l.c.a.s.o.OCR, MaxParallel: eff.Tools.MaxParallelTools,
-		FileInput: l.m.ad.Capabilities().FileInput, PDFLimits: pdf, Writes: l.writes, Guard: l.guard,
-		Office: l.c.a.s.o.Office, PartPages: l.c.a.s.o.Env.PDFPartPages,
-	}
-	if l.d != nil {
-		runner.Seen = l.d.seen
-	}
 	l.d.calls(run)
-	parts, err := l.set.Run(ctx, runner, l.c.s.course, run)
+	parts, err := l.set.Run(ctx, l.runner(), l.c.s.course, run)
 	l.d.callsDone()
 	l.accountWrites()
 	if err != nil {
@@ -661,7 +664,7 @@ func (l *loop) halve() bool {
 		}
 		out = append(out, m)
 	}
-	l.history = out
+	l.history, l.halved = out, true
 	l.c.s.log.Info("the model's context overflowed: the history is halved", "conversation", l.c.conv,
 		"turns_before", len(prior)+1, "turns_after", len(out))
 	return true
