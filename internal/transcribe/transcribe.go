@@ -1,8 +1,10 @@
 // Package transcribe is the runtime's transcriber (docs/design.md §12): a
 // module of its own, off unless the site's administrators turn it on, that
-// gives every version of a course's documents with a file its text version
-// in Core (AIShie-Core #43). It claims the versions waiting from Core's
-// queue with the site's service credential, fetches each file, converts an
+// gives every file of a course's documents its text version in Core
+// (AIShie-Core #43; each file of a version its own since #49, a Core
+// before it claiming versions of one file). It claims the files waiting
+// from Core's queue with the site's service credential, each on its own
+// and every call about it naming it (file_id), fetches each, converts an
 // Office file to PDF (package office), counts its pages, has a model of
 // the school's plan (one offer, which the administrators choose, on the
 // school's key) transcribe it into Markdown a range of pages at a time
@@ -17,7 +19,7 @@
 // their own kind (store.CallTranscription), on the school's key: they
 // count against the plan's ceiling across the whole key (per_day_usd), and
 // no owner's or asker's quota. It keeps a record of what it did with each
-// version (store.TranscriptionJob), for the administrators, and counts its
+// claim, a file (store.TranscriptionJob), for the administrators, and counts its
 // work (metrics.Transcribe*). Nothing it logs or keeps holds the service's
 // token, a key, or any document's text.
 //

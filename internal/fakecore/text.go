@@ -107,6 +107,14 @@ func (tv *textVersion) view(withBody bool) *textView {
 	return v
 }
 
+// viewIf is tv's view, nil where there is no text version.
+func (tv *textVersion) viewIf(withBody bool) *textView {
+	if tv == nil {
+		return nil
+	}
+	return tv.view(withBody)
+}
+
 func strOrNil(s string) *string {
 	if s == "" {
 		return nil
@@ -158,6 +166,9 @@ func (c *Core) textEvent(f *versionFile, status string) {
 	}
 	tv := f.text
 	payload := map[string]any{"kind": doc.kind, "version_id": doc.versionID, "file_id": f.id, "status": status, "revision": tv.revision}
+	if c.opts.WithoutFiles {
+		delete(payload, "file_id")
+	}
 	if status == textDone {
 		payload["source"] = tv.source
 	}
@@ -326,12 +337,18 @@ func (c *Core) claim(cred *credential, n int, lease time.Duration, now time.Time
 		tv.attempts++
 		tv.status, tv.updatedAt = textWorking, now
 		tv.claim = &textClaim{leaseID: uuid.NewString(), expires: now.Add(lease), cred: cred}
-		out = append(out, map[string]any{
+		claimed := map[string]any{
 			"version_id": d.versionID, "file_id": f.id, "position": f.position, "filename": f.filename, "document_id": d.id,
 			"course_id": d.course.id, "lease_id": tv.claim.leaseID, "lease_expires_at": tv.claim.expires, "attempt": tv.attempts,
 			"backfill": tv.backfill, "content_type": f.contentType, "byte_size": len(f.data), "checksum": f.checksum(),
 			"download_url": base + blobPath + f.token, "download_expires_at": now.Add(downloadTTL),
-		})
+		}
+		if c.opts.WithoutFiles {
+			delete(claimed, "file_id")
+			delete(claimed, "position")
+			delete(claimed, "filename")
+		}
+		out = append(out, claimed)
 	}
 	return out
 }
@@ -373,10 +390,10 @@ func (c *Core) hasVersion(versionID string) bool {
 }
 
 // fileOf is document_text.file's result for f's claim.
-func (c *Core) fileOf(f *versionFile, base string, now time.Time) map[string]any {
-	return map[string]any{"version_id": f.doc.versionID, "file_id": f.id, "position": f.position, "filename": f.filename,
+func (c *Core) fileOf(f *versionFile, base string, now time.Time) any {
+	return c.older(map[string]any{"version_id": f.doc.versionID, "file_id": f.id, "position": f.position, "filename": f.filename,
 		"content_type": f.contentType, "byte_size": len(f.data), "checksum": f.checksum(), "download_url": base + blobPath + f.token,
-		"download_expires_at": now.Add(downloadTTL), "lease_expires_at": f.text.claim.expires}
+		"download_expires_at": now.Add(downloadTTL), "lease_expires_at": f.text.claim.expires}, "file_id", "position", "filename")
 }
 
 // completion is document_text.complete's input.
@@ -423,7 +440,8 @@ func (c *Core) complete(caller *actor, t *toolDef, raw []byte, key string, now t
 		act.status, act.result = actFailed, errorResult(e)
 		return outcome{Status: actFailed, ActionID: act.id, ReviewState: reviewNone, Error: e}
 	}
-	res := mustJSON(map[string]any{"version_id": in.VersionID, "file_id": f.id, "status": in.Status, "revision": f.text.revision})
+	res := mustJSON(c.older(map[string]any{"version_id": in.VersionID, "file_id": f.id, "status": in.Status, "revision": f.text.revision},
+		"file_id"))
 	act.executedAt, act.result = &now, res
 	return outcome{Status: actExecuted, ActionID: act.id, ReviewState: reviewNone, Result: res}
 }
@@ -803,7 +821,7 @@ func documentText() *impl {
 			}{DocumentID: doc.id, VersionID: doc.versionID, Seq: 1, Published: !doc.draft, FileID: f.id, Position: f.position,
 				Filename: f.filename, Text: tv.view(false)}
 			if tv.status != textDone {
-				return out, nil
+				return c.older(out, "file_id", "position", "filename"), nil
 			}
 			parts := textParts(tv.body)
 			k := 1
@@ -815,7 +833,7 @@ func documentText() *impl {
 			}
 			body := parts[k-1]
 			out.Text.Body, out.Part, out.Parts = &body, &k, len(parts)
-			return out, nil
+			return c.older(out, "file_id", "position", "filename"), nil
 		},
 	})
 }

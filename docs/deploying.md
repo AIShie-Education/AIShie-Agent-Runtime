@@ -567,12 +567,18 @@ Core keeps beside each file of a course's material, instructions and
 rubrics a text version (文字版, AIShie-Core #43): the file as Markdown, a
 page under `## 第 N 頁`, each picture described, which people read and
 correct in the front end and the agents' models read in place of the file.
-The runtime's transcriber makes them: it claims the versions waiting in
-Core's queue, has a model of the school's plan transcribe each file, a
-range of pages at a time, and writes the text back (`docs/design.md` §12).
+The runtime's transcriber makes them: it claims the files waiting in
+Core's queue, has a model of the school's plan transcribe each, a range of
+pages at a time, and writes the text back (`docs/design.md` §12). A
+version of a document may hold several files (a lecture's slides, its
+handout and a sample program; AIShie-Core #49): each has a text version of
+its own, and is claimed, transcribed and written back on its own; a Core
+before it hands out versions of one file, which are transcribed as
+before.
 It is off until the site's administrators turn it on; off, nothing of the
-runtime changes. A model reading a document is given its text version
-whenever Core has one done, whether or not this runtime made it.
+runtime changes. A model reading a document is given every file of its
+version, each file's text version whenever Core has one done, whether or
+not this runtime made it, and the file itself otherwise.
 
 - **It needs** the store in PostgreSQL, `KMS_KEY_ID` and `CORE_BASE_URL`,
   as hosted agents do, and a Core with the transcription service (#43 or
@@ -612,12 +618,13 @@ whenever Core has one done, whether or not this runtime made it.
   offer "…"`, or why it cannot run; so does the start's log line
   (`transcriber`). The card shows what it does now (運作中, 待命, 受阻 and
   why), today's pages, documents and cost, and its jobs of the last 90
-  days (`GET admin/transcription/jobs`), a document's id beside each.
+  days (`GET admin/transcription/jobs`), a job a file, the document's id
+  and the file's (`file_id`, `position`) beside each.
 - **Watching it:** `transcribe_jobs_total{outcome}`, `transcribe_pages_total`,
   `transcribe_inflight` and `transcribe_claim_errors_total{reason}` in
   `/metrics`, and its model calls in `llm_calls_total`, `llm_tokens_total`
-  and `llm_cost_usd_total{key_source="school"}`. One log line a version,
-  with ids, the outcome, pages, calls and time, never its text.
+  and `llm_cost_usd_total{key_source="school"}`. One log line a file,
+  with ids, the outcome, pages, calls and time, never its text or name.
 
 ## The key that seals secrets
 

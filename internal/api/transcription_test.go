@@ -369,6 +369,8 @@ func TestTranscriptionJobs(t *testing.T) {
 			pages := 3
 			j.Pages, j.PagesSent, j.ModelCalls, j.CostPUSD, j.InputTokens, j.OutputTokens = &pages, 3, 1, &cost, 900, 300
 			j.FinishedAt = &at
+			// A file of a version of several (AIShie-Core #49).
+			j.FileID, j.Position = "f2", 2
 		}
 		_, err := h.st.PutTranscriptionJob(ctx, j)
 		h.ok(err)
@@ -379,7 +381,8 @@ func TestTranscriptionJobs(t *testing.T) {
 	a.decode(t, &l)
 	if a.code != 200 || len(l.Jobs) != 5 || l.Next != nil || l.Jobs[0].ID != "trj_4" || *l.Jobs[0].CostUSD != "0.000002" || *l.Jobs[0].Pages != 3 ||
 		*l.Jobs[0].InputTokens != 900 || l.Jobs[0].FinishedAt == nil || l.Jobs[1].CostUSD != nil || l.Jobs[1].InputTokens != nil ||
-		l.Jobs[1].Pages != nil || !strings.Contains(a.body, `"reason":null`) {
+		l.Jobs[1].Pages != nil || !strings.Contains(a.body, `"reason":null`) || *l.Jobs[0].FileID != "f2" || *l.Jobs[0].Position != 2 ||
+		l.Jobs[1].FileID != nil || l.Jobs[1].Position != nil || !strings.Contains(a.body, `"file_id":null`) {
 		t.Fatalf("all: %d %s", a.code, a.body)
 	}
 	a = h.admin("GET", "admin/transcription/jobs?limit=2", "")

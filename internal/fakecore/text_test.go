@@ -434,3 +434,56 @@ func TestFilesThroughTheClient(t *testing.T) {
 		t.Errorf("TextPart naming no file = %+v", tp)
 	}
 }
+
+// A Core from before several files to a version (WithoutFiles) lists no
+// files, names no file in a claim, a text read or a text event, has no
+// document_file, and its service refuses a call that names a file.
+func TestTextWithoutFiles(t *testing.T) {
+	w := newFakeWorld(t, Options{WithoutFiles: true})
+	ctx := t.Context()
+	doc, err := w.fc.AddFile(w.co.ID, "Week 1", "application/pdf", []byte("%PDF-1.4 week 1"))
+	w.ok(err)
+	a := mustCall(t, w.agentC, "document_get", inCourseArgs(w, "document_id", doc))
+	if strings.Contains(a.Text, `"files"`) || !strings.Contains(a.Text, `"download_url"`) || !strings.Contains(a.Text, `"text":{"status":"pending"`) {
+		t.Errorf("document_get: %s", a.Text)
+	}
+	if strings.Contains(mustCall(t, w.as("sato"), "document_versions", inCourseArgs(w, "document_id", doc)).Text, `"files"`) {
+		t.Error("document_versions lists files")
+	}
+	s := w.service(t, w.fc.IssueServiceToken("runtime").Token)
+	claimed, err := s.Queue(ctx, 1, time.Minute, 0)
+	if err != nil || len(claimed) != 1 || claimed[0].FileID != "" || claimed[0].Filename != "" {
+		t.Fatalf("Queue = %+v, %v", claimed, err)
+	}
+	c := claimed[0]
+	named := core.Claim{VersionID: c.VersionID, FileID: "01a0f2de-0000-7000-8000-000000000001", LeaseID: c.LeaseID}
+	var se *core.ServiceError
+	if _, err := s.Renew(ctx, named, time.Minute); !errors.As(err, &se) || se.Code != core.CodeInvalidArgument {
+		t.Errorf("a renewal naming a file: %v", err)
+	}
+	if f, err := s.File(ctx, core.ClaimOf(c)); err != nil || f.FileID != "" {
+		t.Errorf("File = %+v, %v", f, err)
+	}
+	if _, err := s.Complete(ctx, core.ClaimOf(c), core.Completion{Status: core.TextDone, Body: "## 第 1 頁", Pages: 1, Model: "m"}); err != nil {
+		t.Errorf("Complete: %v", err)
+	}
+	for _, call := range w.fc.Calls() {
+		if call.Tool == "document_text_complete" && call.IdempotencyKey != "complete:"+c.VersionID+":"+c.LeaseID {
+			t.Errorf("the completion's key: %q", call.IdempotencyKey)
+		}
+	}
+	p := mustCall(t, w.agentC, "document_text", inCourseArgs(w, "document_id", doc))
+	if strings.Contains(p.Text, "file_id") || !strings.Contains(p.Text, "## 第 1 頁") {
+		t.Errorf("document_text: %s", p.Text)
+	}
+	for _, e := range list(mustCall(t, w.as("sato"), "event_list", inCourseArgs(w, "since_seq", 0)), "events") {
+		if ev := e.(map[string]any); ev["type"] == "document.text_updated" {
+			if _, ok := ev["payload"].(map[string]any)["file_id"]; ok {
+				t.Errorf("a text event names a file: %v", ev)
+			}
+		}
+	}
+	if a, err := w.agentC.call(ctx, "document_file", inCourseArgs(w, "document_id", doc, "file_id", c.VersionID)); err != nil || a.RPCError == nil {
+		t.Errorf("document_file: %v %s", err, a.Body)
+	}
+}

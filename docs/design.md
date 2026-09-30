@@ -1694,7 +1694,7 @@ The prompt's hash is kept per answer.
 | `site_price_rev` | one row: when the site's prices last changed, to the second and always a second past the last, by trigger, which names their version (`site-<UTC second>`) |
 | `site_tenant_quota` | a tenant's daily quota on the school's key as the site sets it (§11.5), in place of `runtime.tenants`': answers and pUSD, each null for none, who set it, when; every write moves `registry_rev` on |
 | `transcription_credential` | one row: the transcriber's service credential (§12), a `core_token` secret of the tenant `site` with its hint, Core's id of it, whether Core took it when it was given, who gave it and when, when Core last took it and last refused it, and why; giving or forgetting it moves `registry_rev` on |
-| `transcription_job` | what the transcriber did with each claim of a version (§12): id `trj_…` and a sequence it is listed by, the version, document and course, the claim, its status (`working`, `done`, `failed`, `skipped`, `dropped`) and why, whether it was the backfill's, the attempt, the file's type and size, its pages and those sent to the model, the offer and model, the calls, their tokens and cost, the worker, and when it started, was last held and ended; kept 90 days |
+| `transcription_job` | what the transcriber did with each claim of a file (§12): id `trj_…` and a sequence it is listed by, the version, the file (`file_id` and `position`, '' and 0 from a Core before AIShie-Core #49; 0012), document and course, the claim, its status (`working`, `done`, `failed`, `skipped`, `dropped`) and why, whether it was the backfill's, the attempt, the file's type and size, its pages and those sent to the model, the offer and model, the calls, their tokens and cost, the worker, and when it started, was last held and ended; kept 90 days |
 
 Beside the sums quotas are checked against (`Spend`), two reports read the
 ledger for people, ids and numbers only: `Usage(agent, since, until)`, a
@@ -2679,7 +2679,8 @@ time: not money) stay `runtime.yaml`'s.
     `standby`, `blocked`, with `blocked_reason`: `no_credential`,
     `credential_rejected`, `no_offer`, `offer_unavailable`,
     `quota_exhausted`), and the UTC day's pages, documents done, failed and
-    skipped, and cost. It is not turned on where it cannot run (422
+    skipped (a job each, a file of a version since AIShie-Core #49), and
+    cost. It is not turned on where it cannot run (422
     `transcription_unavailable`); an offer the plan has not (runtime.yaml's
     or the site's, on or off) is `invalid_field`, one whose model takes no
     files 422 `offer_no_file_input`; `max_pages` is 1 to 5,000,
@@ -2706,17 +2707,23 @@ time: not money) stay `runtime.yaml`'s.
   - `GET /admin/transcription/jobs?after=&limit=&status=`: the
     transcriber's record of its jobs (§12), newest first, a page of at most
     200 (50 unless `limit`), of one status or all, and the next page's
-    cursor (`next`, the last job's sequence); ids, counts, the offer and
-    model, cost and tokens, never a title or any text.
+    cursor (`next`, the last job's sequence); ids (a job's `file_id` and
+    `position`, the file of its version it was, null from a Core before
+    AIShie-Core #49), counts, the offer and model, cost and tokens, never a
+    title, a file's name or any text.
   - `GET /info`'s `features.transcription`: this worker's transcriber runs,
     or stands by, as the site's setting in force turns it on, with nothing
     blocking it; what the front end shows the text versions' queue for.
 
 ## 12. The transcriber
 
-`internal/transcribe` gives every version of a course's documents with a
-file its text version in Core (AIShie-Core #43; §4, Text versions): the
-file transcribed into Markdown by a model of the school's plan. It is a
+`internal/transcribe` gives every file of a course's documents its text
+version in Core (AIShie-Core #43; §4, Text versions): the file transcribed
+into Markdown by a model of the school's plan. A version holds several
+files since AIShie-Core #49, and each has a text version of its own: Core's
+queue hands out files, not versions, and the transcriber works file by
+file (The loop, below); a Core before it hands out versions of one file,
+which are worked on as they always were. It is a
 module of its own, off unless the site's administrators turn it on
 (§11.5); off, the runtime claims nothing from Core's queue, and nothing
 else in it behaves differently. It is the one place the runtime writes to
@@ -2753,9 +2760,18 @@ the runtime through the API.
   Responses, Bedrock's Converse), and to one that takes pictures and no
   PDFs, each page drawn by pdftocairo at 150 dpi.
 - **The loop.** While it holds the lease and nothing blocks it, it asks
-  the queue for as many versions as it has free slots (`concurrency`),
+  the queue for as many files as it has free slots (`concurrency`),
   each claim 10 minutes (`lease_s: 600`), the call waiting up to 25 s for
-  one (`wait_s`), and works on each claimed version in the background: it
+  one (`wait_s`); Core hands a version's files out in their order, each
+  a claim of its own (its `file_id`, `position` and `filename`, and the
+  file's type, size and URL), and each file is its own job, whatever
+  becomes of its version's others. Every call the transcriber makes of a
+  claim names its version and its file (`document_text.file`, `.renew`
+  and `.complete` with `file_id`), and its completion's key is the
+  file's, `complete:{file_id}:{lease_id}`; a claim of a Core before #49
+  names no file, and none is sent, the key then
+  `complete:{version_id}:{lease_id}` as before. It works on each claimed
+  file in the background: it
   fetches the file from its signed URL, with no credential (a fresh URL
   from `document_text.file` where it has expired or is refused); knows it
   by its type or, of no telling type, by what it holds; a text file
@@ -2769,11 +2785,11 @@ the runtime through the API.
   pager (the whole PDF where none cuts, within the provider's pages),
   halving a range whose text the output bound cut off, and joins the
   ranges' texts. It renews the claim every third of it meanwhile, and
-  completes the version, under the key Core names by the claim, done with
+  completes the file, under the key of its claim, done with
   the text, its pages and the offer's label as the model, or failed or
   skipped with why; a completion Core cannot be reached for is sent again
   under its key. Failures that may pass (rate limits, overload, the
-  network) are tried three times a range, with backoff; then the version
+  network) are tried three times a range, with backoff; then the file
   fails (`model_error`).
 - **The prompt** is a constant (`transcribe.Prompt`), the same for every
   document and range: transcribe faithfully, in the document's own
@@ -2808,7 +2824,9 @@ the runtime through the API.
   staff wrote the text meanwhile (`edited_by_staff`), the course or the
   document was archived, or the version is gone, stops the work, and
   nothing is written; so does the worker stopping (its claims lapse, and
-  the versions are claimed again). A job a worker left `working` for
+  the files are claimed again). Core says each of the file the call
+  named: one file's claim lost, or its text written by staff, drops that
+  file's work alone, and its version's other files go on. A job a worker left `working` for
   longer than a claim is ended as `dropped` (`interrupted`) by the next
   claimer.
 - **Without a restart.** The site's setting and the credential are kept in
@@ -2816,7 +2834,8 @@ the runtime through the API.
   puts them in force (`transcribe.Service.Set`), from the next claim: work
   under way goes on as it began.
 - **What it keeps** (§8): the credential, sealed, and a record of each job
-  for 90 days, pruned by the claimer. **What it counts:**
+  (a claim: a file, by its `file_id` and `position`, none from a Core
+  before #49) for 90 days, pruned by the claimer. **What it counts:**
   `transcribe_jobs_total{outcome}` (done, failed, skipped, dropped),
   `transcribe_pages_total` (pages sent to the model),
   `transcribe_inflight`, `transcribe_claim_errors_total{reason}`

@@ -625,8 +625,13 @@ type JobList struct {
 // no price held them) and their tokens (null for no call), and when it
 // started and ended.
 type TranscriptionJob struct {
-	ID           string     `json:"id"`
-	VersionID    string     `json:"version_id"`
+	ID        string `json:"id"`
+	VersionID string `json:"version_id"`
+	// FileID and Position are the file of the version the job was of
+	// (a version holds several since AIShie-Core #49), null for a job of a
+	// Core before it.
+	FileID       *string    `json:"file_id"`
+	Position     *int       `json:"position"`
 	DocumentID   string     `json:"document_id"`
 	CourseID     string     `json:"course_id"`
 	Status       string     `json:"status"`
@@ -722,6 +727,10 @@ func jobView(j store.TranscriptionJob) TranscriptionJob {
 		Reason: strPtr(j.Reason), Backfill: j.Backfill, Attempt: j.Attempt, ContentType: j.ContentType, ByteSize: j.ByteSize,
 		Pages: clonePtr(j.Pages), PagesSent: j.PagesSent, Offer: strPtr(j.Offer), Model: strPtr(j.Model), ModelCalls: j.ModelCalls,
 		StartedAt: j.StartedAt.UTC()}
+	if j.FileID != "" {
+		id, pos := j.FileID, j.Position
+		v.FileID, v.Position = &id, &pos
+	}
 	if j.CostPUSD != nil {
 		usd := costUSD(*j.CostPUSD)
 		v.CostUSD = &usd

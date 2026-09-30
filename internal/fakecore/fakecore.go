@@ -88,6 +88,14 @@ type Options struct {
 	// no such tool, the conversation's views show no draft, and
 	// conversation_messages takes no seen_draft_version.
 	WithoutDraft bool
+	// WithoutFiles answers as a Core from before a version held several
+	// files (AIShie-Core #49), as the runtime was pinned to before it
+	// (documents.go): its catalogue has no document.file, and neither
+	// document.text nor the transcription service's calls take file_id,
+	// which their schemas refuse; document.get and document.versions list
+	// no files, only the version's own fields of its one file; a claim,
+	// a text read and a text event name no file.
+	WithoutFiles bool
 	// WithdrawnWaits answers as a Core from before a question its opener
 	// withdrew waited for no answer, as b0eb848 and older do
 	// (conversation.go): with the opener's latest message retracted, the
@@ -235,13 +243,15 @@ var catalogueBeforeOwners = sync.OnceValues(func() (*catalogue, error) {
 // catalogueOf is the catalogue as the older Core o names serves it: from
 // before C1 (Options.BeforeOwners), before me.site_chat
 // (Options.WithoutSiteChat), before wait_s (Options.WithoutWait), before
-// conversation.draft (Options.WithoutDraft), or any of them.
+// conversation.draft (Options.WithoutDraft), before several files to a
+// version (Options.WithoutFiles), or any of them.
 func catalogueOf(o Options) (*catalogue, error) {
 	raw := catalogueJSON
 	for _, older := range []struct {
 		is   bool
 		edit func([]byte) ([]byte, error)
-	}{{o.BeforeOwners, withoutOwners}, {o.WithoutSiteChat, withoutSiteChat}, {o.WithoutWait, withoutWait}, {o.WithoutDraft, withoutDraft}} {
+	}{{o.BeforeOwners, withoutOwners}, {o.WithoutSiteChat, withoutSiteChat}, {o.WithoutWait, withoutWait}, {o.WithoutDraft, withoutDraft},
+		{o.WithoutFiles, withoutFiles}} {
 		if !older.is {
 			continue
 		}
@@ -274,7 +284,7 @@ func New(o Options) *Core {
 	if o.BeforeOwners {
 		load = catalogueBeforeOwners
 	}
-	if o.WithoutSiteChat || o.WithoutWait || o.WithoutDraft {
+	if o.WithoutSiteChat || o.WithoutWait || o.WithoutDraft || o.WithoutFiles {
 		load = func() (*catalogue, error) { return catalogueOf(o) }
 	}
 	cat, err := load()

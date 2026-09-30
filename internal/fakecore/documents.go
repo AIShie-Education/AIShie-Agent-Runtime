@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -95,6 +98,56 @@ func documentCreate() *impl {
 			return out, nil
 		},
 	})
+}
+
+// withoutFiles is the catalogue raw as a Core from before several files to
+// a version served it (Options.WithoutFiles): no document.file, and no
+// file_id taken by document.text or the service's calls.
+func withoutFiles(raw []byte) ([]byte, error) {
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, fmt.Errorf("fakecore: the catalogue: %w", err)
+	}
+	tools, _ := doc["tools"].([]any)
+	kept := tools[:0]
+	found := 0
+	for _, t := range tools {
+		tool, _ := t.(map[string]any)
+		switch name, _ := tool["name"].(string); name {
+		case "document.file":
+			found++
+			continue
+		case "document.text", "document_text.file", "document_text.renew", "document_text.complete":
+			in, _ := tool["input_schema"].(map[string]any)
+			props, _ := in["properties"].(map[string]any)
+			if _, ok := props["file_id"]; ok {
+				delete(props, "file_id")
+				found++
+			}
+		}
+		kept = append(kept, t)
+	}
+	if found != 5 {
+		return nil, errors.New("fakecore: the catalogue has no document.file, or no file_id in the text tools, to take out")
+	}
+	doc["tools"] = kept
+	return json.Marshal(doc)
+}
+
+// older is v as a Core from before several files to a version gives it
+// (Options.WithoutFiles): without the members that name a file.
+func (c *Core) older(v any, keys ...string) any {
+	if !c.opts.WithoutFiles {
+		return v
+	}
+	var m map[string]any
+	if json.Unmarshal(mustJSON(v), &m) != nil {
+		return v
+	}
+	for _, k := range keys {
+		delete(m, k)
+	}
+	return m
 }
 
 // fileView is a file of a version, as Core shows it (version.files).

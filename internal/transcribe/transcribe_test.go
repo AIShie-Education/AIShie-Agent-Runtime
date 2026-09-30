@@ -210,7 +210,13 @@ prices:
 
 func newRig(t *testing.T, edit ...func(*rig, *Options)) *rig {
 	t.Helper()
-	fc := fakecore.New(fakecore.Options{})
+	return newRigOf(t, fakecore.Options{}, edit...)
+}
+
+// newRigOf is newRig against a fake Core of fo.
+func newRigOf(t *testing.T, fo fakecore.Options, edit ...func(*rig, *Options)) *rig {
+	t.Helper()
+	fc := fakecore.New(fo)
 	srv := httptest.NewServer(fc.Handler())
 	t.Cleanup(srv.Close)
 	t.Cleanup(fc.Shutdown)
@@ -281,6 +287,26 @@ func (r *rig) waitText(doc string) fakecore.TextRecord {
 		}
 		if time.Now().After(deadline) {
 			r.t.Fatalf("the text is still %s", rec.Status)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// waitFileText waits for the text of the file fileID of doc to leave
+// pending and working, and returns it.
+func (r *rig) waitFileText(doc, fileID string) fakecore.TextRecord {
+	r.t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		rec, ok := r.fc.FileText(doc, fileID)
+		if !ok {
+			r.t.Fatal("the file has no text version")
+		}
+		if rec.Status != core.TextPending && rec.Status != core.TextWorking {
+			return rec
+		}
+		if time.Now().After(deadline) {
+			r.t.Fatalf("the file's text is still %s", rec.Status)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -634,6 +660,167 @@ func TestModelFailures(t *testing.T) {
 	bad := r.addFile("Week 2", "application/pdf", pdfOf(1))
 	if rec := r.waitText(bad); rec.Status != core.TextFailed || rec.Reason != ReasonModelError {
 		t.Errorf("a model that refuses the request: %+v", rec)
+	}
+}
+
+// A version of three files (AIShie-Core #49), a PDF, a Word file and a
+// text file: each is claimed on its own and transcribed as a version of
+// one file was, every call of the service naming its file, its completion
+// under the file's key; each file's job says which file it was.
+func TestTranscribesEachFile(t *testing.T) {
+	r := newRig(t)
+	r.credential()
+	doc, ids, err := r.fc.AddFiles(r.co.ID, "Week 3", "Slides first.",
+		fakecore.File{Filename: "slides.pdf", ContentType: "application/pdf", Data: pdfOf(2)},
+		fakecore.File{Filename: "handout.docx", ContentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+			Data: doctexttest.DOCX(doctexttest.Doc{Blocks: []doctexttest.Block{{Text: "Lab 3"}}})},
+		fakecore.File{Filename: "notes.txt", ContentType: "text/plain", Data: []byte("Bring a laptop.")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.run()
+	want := []struct {
+		pages int
+		model string
+		has   string
+	}{{2, offer.Label, "## 第 2 頁"}, {3, offer.Label, "## 第 3 頁"}, {1, TextFileModel, "Bring a laptop."}}
+	for i, id := range ids {
+		rec := r.waitFileText(doc, id)
+		if rec.Status != core.TextDone || rec.Pages != want[i].pages || rec.Model != want[i].model || !strings.Contains(rec.Body, want[i].has) {
+			t.Errorf("file %d's text: %+v", i+1, rec)
+		}
+	}
+	var jobs []store.TranscriptionJob
+	deadline := time.Now().Add(10 * time.Second)
+	for len(jobs) < 3 && time.Now().Before(deadline) {
+		jobs, _ = r.st.TranscriptionJobs(t.Context(), store.JobQuery{Status: store.JobDone, Limit: 10})
+		time.Sleep(20 * time.Millisecond)
+	}
+	byFile := map[string]store.TranscriptionJob{}
+	for _, j := range jobs {
+		byFile[j.FileID] = j
+	}
+	for i, id := range ids {
+		if j, ok := byFile[id]; !ok || j.Position != i+1 || j.DocumentID != doc {
+			t.Errorf("file %d's job: %+v", i+1, j)
+		}
+	}
+	claims := map[string]bool{}
+	for _, c := range r.fc.Calls() {
+		switch c.Tool {
+		case core.ToolTextFile, core.ToolTextRenew, core.ToolTextComplete:
+			var a struct {
+				FileID  string `json:"file_id"`
+				LeaseID string `json:"lease_id"`
+			}
+			_ = json.Unmarshal(c.Args, &a)
+			if a.FileID == "" {
+				t.Errorf("%s names no file: %s", c.Tool, c.Args)
+			}
+			if c.Tool == core.ToolTextComplete {
+				claims[a.FileID] = true
+				if c.IdempotencyKey != "complete:"+a.FileID+":"+a.LeaseID {
+					t.Errorf("the completion's key: %q", c.IdempotencyKey)
+				}
+			}
+		}
+	}
+	if len(claims) != 3 {
+		t.Errorf("completed %v", claims)
+	}
+}
+
+// Core's refusals are of the file the call named: one file's claim lost
+// drops that file's work alone, which is claimed and done again; staff
+// writing one file's text drops that file's work, its text theirs; the
+// version's other file is done meanwhile.
+func TestFileRefusals(t *testing.T) {
+	r := newRig(t)
+	r.credential()
+	sato := r.fc.AddPerson("Sato")
+	m, err := r.fc.Seat(sato.ID, r.co.ID, fakecore.SeatOptions{Preset: "instructor"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc string
+	var ids []string
+	var mu sync.Mutex
+	lapsed, edited := false, false
+	r.model.answer = func(req *llm.Request, _ int) (*llm.Response, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		text := req.Messages[0].Parts[0].Text
+		switch {
+		case strings.Contains(text, "of 2") && !lapsed:
+			// The two pages' claim lapses, and is claimed again, while
+			// the model reads them.
+			lapsed = true
+			if err := r.fc.LapseFileTextClaim(doc, ids[0]); err != nil {
+				return nil, err
+			}
+		case strings.Contains(text, "of 3") && !edited:
+			edited = true
+			if err := r.fc.EditFileText(doc, ids[1], m.ID, "## 第 1 頁\n\nThe staff's"); err != nil {
+				return nil, err
+			}
+		}
+		return transcribed(req), nil
+	}
+	mu.Lock()
+	doc, ids, err = r.fc.AddFiles(r.co.ID, "Week 3", "",
+		fakecore.File{Filename: "slides.pdf", ContentType: "application/pdf", Data: pdfOf(2)},
+		fakecore.File{Filename: "reading.pdf", ContentType: "application/pdf", Data: pdfOf(3)},
+		fakecore.File{Filename: "extra.pdf", ContentType: "application/pdf", Data: pdfOf(1)})
+	mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.run()
+	if rec := r.waitFileText(doc, ids[2]); rec.Status != core.TextDone {
+		t.Errorf("the third file: %+v", rec)
+	}
+	if rec := r.waitFileText(doc, ids[0]); rec.Status != core.TextDone || rec.Attempts != 2 || !strings.Contains(rec.Body, "Text of 2.") {
+		t.Errorf("the file whose claim lapsed, claimed again: %+v", rec)
+	}
+	dropped := map[string]string{}
+	deadline := time.Now().Add(10 * time.Second)
+	for len(dropped) < 2 && time.Now().Before(deadline) {
+		js, _ := r.st.TranscriptionJobs(t.Context(), store.JobQuery{Status: store.JobDropped, Limit: 10})
+		for _, j := range js {
+			dropped[j.FileID] = j.Reason
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if dropped[ids[0]] != core.ReasonLeaseLost || dropped[ids[1]] != core.ReasonEditedByStaff || len(dropped) != 2 {
+		t.Errorf("the jobs dropped, by file: %v", dropped)
+	}
+	if rec, _ := r.fc.FileText(doc, ids[1]); rec.Source != core.SourceStaff || rec.Body != "## 第 1 頁\n\nThe staff's" {
+		t.Errorf("the staff's text: %+v", rec)
+	}
+}
+
+// Against a Core from before several files to a version, whose claims name
+// no file, nothing the transcriber sends names one, its completion's key
+// is the version's, and the version is transcribed as it always was.
+func TestTranscribesForACoreOfOneFile(t *testing.T) {
+	r := newRigOf(t, fakecore.Options{WithoutFiles: true})
+	r.credential()
+	doc := r.addFile("Week 1", "application/pdf", pdfOf(2))
+	r.run()
+	if rec := r.waitText(doc); rec.Status != core.TextDone || rec.Pages != 2 {
+		t.Fatalf("the text: %+v", rec)
+	}
+	j := r.waitJob(store.JobDone)
+	if j.FileID != "" || j.Position != 0 || j.DocumentID != doc {
+		t.Errorf("the job: %+v", j)
+	}
+	for _, c := range r.fc.Calls() {
+		if strings.HasPrefix(c.Tool, "document_text_") && strings.Contains(string(c.Args), "file_id") {
+			t.Errorf("%s names a file: %s", c.Tool, c.Args)
+		}
+		if c.Tool == core.ToolTextComplete && c.IdempotencyKey != "complete:"+j.VersionID+":"+j.LeaseID {
+			t.Errorf("the completion's key: %q", c.IdempotencyKey)
+		}
 	}
 }
 

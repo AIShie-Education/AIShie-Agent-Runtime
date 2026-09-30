@@ -442,12 +442,13 @@ type versionView struct {
 	ContentType *string `json:"content_type,omitempty"`
 	ByteSize    *int64  `json:"byte_size,omitempty"`
 	Checksum    *string `json:"checksum,omitempty"`
-	// Files are the version's files, in order.
-	Files          []fileView `json:"files"`
-	AuthorMemberID string     `json:"author_member_id"`
-	CreatedAt      time.Time  `json:"created_at"`
-	Published      bool       `json:"published"`
-	Text           *textView  `json:"text,omitempty"`
+	// Files are the version's files, in order; none from a Core before
+	// several files to a version (Options.WithoutFiles).
+	Files          *[]fileView `json:"files,omitempty"`
+	AuthorMemberID string      `json:"author_member_id"`
+	CreatedAt      time.Time   `json:"created_at"`
+	Published      bool        `json:"published"`
+	Text           *textView   `json:"text,omitempty"`
 }
 
 func (c *Core) findDocument(co *course, id uuid.UUID) *document {
@@ -500,10 +501,19 @@ func documentGet() *impl {
 			var v *versionView
 			if doc.versionID != "" {
 				v = &versionView{ID: doc.versionID, Seq: 1, BodyMD: doc.bodyMD, AuthorMemberID: doc.authorMemberID,
-					CreatedAt: doc.versionCreatedAt, Published: !doc.draft, Files: filesOf(doc, rc.base, true)}
-				if len(v.Files) > 0 {
-					f := v.Files[0]
+					CreatedAt: doc.versionCreatedAt, Published: !doc.draft}
+				files := filesOf(doc, rc.base, true)
+				if !c.opts.WithoutFiles {
+					v.Files = &files
+				}
+				if len(files) > 0 {
+					f := files[0]
 					v.DownloadURL, v.ContentType, v.ByteSize, v.Checksum, v.Text = f.DownloadURL, &f.ContentType, &f.ByteSize, f.Checksum, f.Text
+					if c.opts.WithoutFiles {
+						// The version's one file's text, whatever its size
+						// beside the others', as before.
+						v.Checksum, v.Text = nil, doc.files[0].text.viewIf(true)
+					}
 				}
 			}
 			out := struct {

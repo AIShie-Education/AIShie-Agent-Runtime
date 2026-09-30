@@ -126,13 +126,14 @@ func (s *Store) NoteTranscriptionCredential(ctx context.Context, secretID string
 
 // jobColumns are what scanJob reads, in its order.
 const jobColumns = `id, seq, version_id, document_id, course_id, lease_id, status, reason, backfill, attempt, content_type, byte_size,
-	pages, pages_sent, offer, model, model_calls, cost_pusd, input_tokens, output_tokens, worker, started_at, heartbeat_at, finished_at`
+	pages, pages_sent, offer, model, model_calls, cost_pusd, input_tokens, output_tokens, worker, started_at, heartbeat_at, finished_at,
+	file_id, position`
 
 func scanJob(row pgx.Row) (*store.TranscriptionJob, error) {
 	var j store.TranscriptionJob
 	if err := row.Scan(&j.ID, &j.Seq, &j.VersionID, &j.DocumentID, &j.CourseID, &j.LeaseID, &j.Status, &j.Reason, &j.Backfill,
 		&j.Attempt, &j.ContentType, &j.ByteSize, &j.Pages, &j.PagesSent, &j.Offer, &j.Model, &j.ModelCalls, &j.CostPUSD,
-		&j.InputTokens, &j.OutputTokens, &j.Worker, &j.StartedAt, &j.HeartbeatAt, &j.FinishedAt); err != nil {
+		&j.InputTokens, &j.OutputTokens, &j.Worker, &j.StartedAt, &j.HeartbeatAt, &j.FinishedAt, &j.FileID, &j.Position); err != nil {
 		return nil, err
 	}
 	utc(&j.StartedAt)
@@ -152,9 +153,9 @@ func (s *Store) PutTranscriptionJob(ctx context.Context, j store.TranscriptionJo
 	out, err := scanJob(s.pool.QueryRow(ctx, `
 		INSERT INTO transcription_job (id, version_id, document_id, course_id, lease_id, status, reason, backfill, attempt,
 		                               content_type, byte_size, pages, pages_sent, offer, model, model_calls, cost_pusd,
-		                               input_tokens, output_tokens, worker, started_at, heartbeat_at, finished_at)
+		                               input_tokens, output_tokens, worker, started_at, heartbeat_at, finished_at, file_id, position)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-		        COALESCE($21::timestamptz, now()), COALESCE($22::timestamptz, now()), $23)
+		        COALESCE($21::timestamptz, now()), COALESCE($22::timestamptz, now()), $23, $24, $25)
 		ON CONFLICT (id) DO UPDATE
 		   SET version_id = EXCLUDED.version_id, document_id = EXCLUDED.document_id, course_id = EXCLUDED.course_id,
 		       lease_id = EXCLUDED.lease_id, status = EXCLUDED.status, reason = EXCLUDED.reason, backfill = EXCLUDED.backfill,
@@ -162,11 +163,12 @@ func (s *Store) PutTranscriptionJob(ctx context.Context, j store.TranscriptionJo
 		       pages = EXCLUDED.pages, pages_sent = EXCLUDED.pages_sent, offer = EXCLUDED.offer, model = EXCLUDED.model,
 		       model_calls = EXCLUDED.model_calls, cost_pusd = EXCLUDED.cost_pusd, input_tokens = EXCLUDED.input_tokens,
 		       output_tokens = EXCLUDED.output_tokens, worker = EXCLUDED.worker, started_at = EXCLUDED.started_at,
-		       heartbeat_at = EXCLUDED.heartbeat_at, finished_at = EXCLUDED.finished_at
+		       heartbeat_at = EXCLUDED.heartbeat_at, finished_at = EXCLUDED.finished_at, file_id = EXCLUDED.file_id,
+		       position = EXCLUDED.position
 		RETURNING `+jobColumns,
 		j.ID, j.VersionID, j.DocumentID, j.CourseID, j.LeaseID, j.Status, j.Reason, j.Backfill, j.Attempt, j.ContentType,
 		j.ByteSize, j.Pages, j.PagesSent, j.Offer, j.Model, j.ModelCalls, j.CostPUSD, j.InputTokens, j.OutputTokens, j.Worker,
-		orNow(j.StartedAt), orNow(j.HeartbeatAt), j.FinishedAt))
+		orNow(j.StartedAt), orNow(j.HeartbeatAt), j.FinishedAt, j.FileID, j.Position))
 	if err != nil {
 		return nil, fmt.Errorf("store: put transcription job %s: %w", j.ID, err)
 	}
