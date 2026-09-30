@@ -994,8 +994,8 @@ the chat) by retracting their newest message, and from then nothing waits
 for an answer in X until they write again. A Core since AIShie-Core #42
 says so: X is `answered`, its draft is deleted with the retraction, and an
 answer to M is refused as `moved_on` naming no message, whether it is
-proposed, approved or posted. The pinned Core, b0eb848, still says
-`awaiting_answer`, keeps the draft and would post the answer; the inbox
+proposed, approved or posted. A Core before it (b0eb848 and older) still
+says `awaiting_answer`, keeps the draft and would post the answer; the inbox
 leaves X out on both. So the runtime goes by the messages, which show M
 retracted on both: step 5 answers no question whose newest message is
 retracted, and after an attempt that posted nothing it reads X's ten
@@ -1024,7 +1024,7 @@ recorded `dropped`, with a log line that says how the withdrawal was seen.
   goes on, and is dropped when Core refuses it as `closed`, as before.
 - An answer already being sent is left to Core, which orders the two: sent
   before the retraction, it is posted; after it, a Core since #42 refuses
-  it (`moved_on` naming no message, then as above), and the pinned Core
+  it (`moved_on` naming no message, then as above), and a Core before #42
   posts it.
 
 **Drafts.** Where the catalogue offers `conversation_draft` (§2.3), the asker
@@ -1305,7 +1305,7 @@ question waiting 5 s for it.
   withdraws, retracting their latest message, which waits for no answer:
   the views say `answered`, its draft goes, and a draft or an answer to it
   is refused (`conversation_not_awaiting`, `moved_on` naming no message),
-  as AIShie-Core #42 has it, and the pinned Core, whose withdrawn question
+  as AIShie-Core #42 has it, and a Core before it, whose withdrawn question
   still waits and takes an answer (`WithdrawnWaits`); each seat's
   ceilings, as Core works them out; an agent's owner
   deciding and reviewing what it did where they could do it themselves;
@@ -1316,9 +1316,7 @@ question waiting 5 s for it.
   pinned Core for every row of §2.4 and more (`make record-fixtures`
   against a live Core, whose recorder declares each agent's site chat with
   its token); a conformance test holds the fake to them, and Core's own
-  client is tested live against the real one. Four, `drafts`,
-  `staff_retract`, `retracted_pending` and `withdrawn`, are recorded from
-  #42's Core, ahead of the pin, until the pin moves to it.
+  client is tested live against the real one.
 - Adapters: golden translations both ways in `testdata/`, every stop reason
   and usage field; `LIVE=1` runs them against the real providers whose keys
   are set, with one request declaring every tool at 16 output tokens, and
@@ -1349,8 +1347,8 @@ question waiting 5 s for it.
   hold the answer back. The end to end (`drafts-shown`, skipped against a
   Core without the tool) watches them as the site does, by long polls with
   `seen_draft_version`.
-- A question withdrawn, against the fake as #42 has it and as the pinned
-  Core (`WithdrawnWaits`): withdrawn while the model is part way through
+- A question withdrawn, against the fake as #42 has it and as a Core
+  before it (`WithdrawnWaits`): withdrawn while the model is part way through
   its answer, with events read every 30 s, its call is cancelled within
   moments for that cause, nothing is posted, no `done` is sent, the ledger
   says `dropped` and the question is not tried again; withdrawn as the
@@ -1358,9 +1356,10 @@ question waiting 5 s for it.
   message, it is sent once and not tried again; an older question or the
   agent's answer retracted stops nothing; with the events unreadable, a
   draft refused has the conversation read and the answer stopped, and one
-  refused for a conversation closed stops nothing; and on the pinned Core
-  an answer already being sent is posted. The end to end
-  (`stop-cancels-the-answer`, against the pinned Core and #42's) has Yuki
+  refused for a conversation closed stops nothing; and on a Core before
+  #42 an answer already being sent is posted. The end to end
+  (`stop-cancels-the-answer`, against the pinned Core, and run by hand
+  against b0eb848's) has Yuki
   withdraw her question while her agent's model has stalled part way
   through its streamed answer, and sees the model's request cancelled
   within seconds and no answer ever posted.

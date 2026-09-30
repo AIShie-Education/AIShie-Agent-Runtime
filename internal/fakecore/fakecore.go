@@ -82,7 +82,7 @@ type Options struct {
 	// conversation_messages takes no seen_draft_version.
 	WithoutDraft bool
 	// WithdrawnWaits answers as a Core from before a question its opener
-	// withdrew waited for no answer, as b0eb848, the runtime's pin, does
+	// withdrew waited for no answer, as b0eb848 and older do
 	// (conversation.go): with the opener's latest message retracted, the
 	// views still say awaiting_answer, or reply_pending_approval with the
 	// answer that waits; a draft of the answer is still written, and kept;

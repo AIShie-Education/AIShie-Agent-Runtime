@@ -12,9 +12,10 @@ import (
 // words of its answer and then stalls, as a slow model may; she withdraws
 // the question ("stop" in the chat: conversation.retract of her message).
 // The runtime cancels the model's request within seconds, and no answer is
-// ever posted: against the pinned Core, whose withdrawn question still
-// waits for an answer, and one would be posted, and against a Core whose
-// withdrawn question waits for nothing (AIShie-Core #42).
+// ever posted: against the pinned Core, whose withdrawn question waits
+// for nothing (since AIShie-Core #42), and against one before it, whose
+// withdrawn question still waits for an answer, and one would be posted
+// (CORE_BIN of b0eb848's tree).
 func stopCancelsTheAnswer(t *testing.T, w *world) {
 	m := newModel(t, func(fakellm.ChatRequest) fakellm.ChatResponse {
 		r := fakellm.Reply("Recursion is a function calling itself on a smaller input, until it reaches a case it answers at once.")

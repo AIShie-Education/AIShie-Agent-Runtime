@@ -167,8 +167,8 @@ func numberOf(v any) float64 {
 // TestWithdrawn: a question its opener withdraws, retracting their latest
 // message, waits for no answer: its draft goes, the view says answered, a
 // draft is refused, and so is an answer proposed or posted to it, as
-// moved_on naming no message. With Options.WithdrawnWaits, as the pinned
-// Core, it waits as before: the draft is kept and written, the view says
+// moved_on naming no message. With Options.WithdrawnWaits, as a Core
+// before AIShie-Core #42, it waits as before: the draft is kept and written, the view says
 // awaiting_answer, and the answer is proposed, and posted once approved.
 func TestWithdrawn(t *testing.T) {
 	for _, waits := range []bool{false, true} {

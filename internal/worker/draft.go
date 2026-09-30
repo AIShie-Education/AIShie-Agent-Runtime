@@ -301,8 +301,8 @@ func (d *drafter) hold() {
 }
 
 // withdraw stops the attempt's writes, its end included: its question was
-// withdrawn, which deletes its draft in Core (the pinned Core, b0eb848,
-// keeps it until it goes stale).
+// withdrawn, which deletes its draft in Core (a Core before AIShie-Core
+// #42 keeps it until it goes stale).
 func (d *drafter) withdraw() {
 	if d == nil {
 		return

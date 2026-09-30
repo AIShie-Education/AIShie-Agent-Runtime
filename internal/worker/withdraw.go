@@ -27,8 +27,8 @@ import (
 //
 // Once the answer is being sent, a withdrawal leaves it be: Core orders the
 // two. Sent before the retraction, it is posted; after, a Core since
-// AIShie-Core #42 refuses it as moved_on naming no message, and the pinned
-// Core, b0eb848, posts it.
+// AIShie-Core #42 refuses it as moved_on naming no message, and one before
+// it (b0eb848 and older) posts it.
 
 // errWithdrawn is the cause an answer being written is stopped with: its
 // question was withdrawn.

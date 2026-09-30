@@ -452,7 +452,7 @@
       "openWorldHint": false,
       "readOnlyHint": false
      },
-     "description_sha256": "93862729701c92ddc3e26dbe9bb27e43344f1e0180334fa28289f6fe674087cd",
+     "description_sha256": "cfe672e4c28e263cc85656e884c7ece4f7ca466da026b1ffa5b99c855fd8e589",
      "input_schema_sha256": "ca4104b1ffb6f1f20785ef6170f9b3d256bc5ef6bd53542bf82ae345dd05933b",
      "name": "conversation_answer",
      "output_schema_sha256": "590f9249cbc38450b9d34e43f198eee6f82412224522157282cf316e58d33685"
@@ -485,7 +485,7 @@
       "openWorldHint": false,
       "readOnlyHint": false
      },
-     "description_sha256": "e2b43f914be5554eebfaacbb7977d9e724fb677322c1833d364a789ab21f1c20",
+     "description_sha256": "78cbffd274edcffb59f6ead7816deb8bdd3681bc83fba7b0f1499e7737be7f59",
      "input_schema_sha256": "0f74ad75b4ac083f460cd4d3b04d33151093a47f23693209a465249fdd31e1a8",
      "name": "conversation_draft",
      "output_schema_sha256": "45e94df39b5350698a8769df22a48c530d3807e7273a801aece56461e866a08f"
@@ -499,7 +499,7 @@
      "description_sha256": "3bc16427ed382fdac0efde73e6f9f96e7c5dcf6a8fe1403b231c4c7e9f220d11",
      "input_schema_sha256": "d83cb5adbde31f38b216dd02b0f718de698d5b84d27285ba3d66037931a7f7a9",
      "name": "conversation_get",
-     "output_schema_sha256": "e99dca52d5b003edd17bb464093ba4720fbc9daf735e164d88bc10da814398ba"
+     "output_schema_sha256": "669199a4dcf0b9e603ebf6fd421d682e016614559461eca3c8e4fc3ef76e29fb"
     },
     {
      "annotations": {
@@ -510,7 +510,7 @@
      "description_sha256": "1bc5006e636df71308bcdde100842384dabb9f9fc4f91f7537279a4283760a14",
      "input_schema_sha256": "86f58c72bacf5ec4ffc75ea7fc1f8713f62dabe5e4d0b24160a01a7e5ce0ef12",
      "name": "conversation_inbox",
-     "output_schema_sha256": "b413ce49848f3333e01216b4a547b1393c04edb40b3c7820c9bd4feed7d1950a"
+     "output_schema_sha256": "a180c64b45f3e214e0970ffe27911397a809f003e256cba2e9410bdd9eb56c2f"
     },
     {
      "annotations": {
@@ -521,7 +521,7 @@
      "description_sha256": "a660800379eec4676606462acfbe44ff8d14067255d1781db3cb17d7d400f2e7",
      "input_schema_sha256": "69396222f9cc16ae4df18478f62e922ca61f294622a3e0091e95aab082c6c0af",
      "name": "conversation_list",
-     "output_schema_sha256": "385ffdc09d60c799ec4ca04ca18aaa2365d836e43a3a9d76b5b7a0975224480e"
+     "output_schema_sha256": "6a9df01b7ffc9a1fcc47984f7b54dcfd937edfa8d34fb01df4f5ccb08a5d29ac"
     },
     {
      "annotations": {
@@ -543,7 +543,7 @@
      "description_sha256": "0fbe30cfe8207244c2c596c35e18640fe4051bc3a09d11a45c8ca482f5353fdd",
      "input_schema_sha256": "4d9b9f1c7ee513d4c1d50c3d9efe3f955d476830596cea4fb208913c3e04e802",
      "name": "conversation_messages",
-     "output_schema_sha256": "a674408242a5761bf7efd7e24f9e8501de1ba5a2bf1946b673c3a6a6e5071c59"
+     "output_schema_sha256": "2e96cf06ae4d42a2e8c19e9daecb6e1732cf0d11cf84efb3510d73d418d594b5"
     },
     {
      "annotations": {
@@ -573,7 +573,7 @@
       "openWorldHint": false,
       "readOnlyHint": false
      },
-     "description_sha256": "8232513b7572e788f3d9a8d855d2b0a6bd17a43e1098bd7771fb7f6cdc99bc95",
+     "description_sha256": "110258464b234c00df183a16959fdf6eadae4833bd61b02b57ac7f34ad765def",
      "input_schema_sha256": "b41c10cb71d807c5b345e6beefabd76407a7f835571985f464a765256034b071",
      "name": "conversation_retract",
      "output_schema_sha256": "b818935103a8764ec44e442c7c3bb938a80a0b4cb3f43764f98e9e4d93f99788"

@@ -580,8 +580,8 @@ func (c *claim) stillWaiting(ctx context.Context, r passResult) passResult {
 // answer because its opener withdrew what they asked last: their latest
 // message is retracted ("stop" in the chat). The inbox leaves such a
 // conversation out. A Core since AIShie-Core #42 says it is answered, and
-// refuses an answer to it; the pinned Core, b0eb848, says it still waits
-// for one, and would post it.
+// refuses an answer to it; a Core before it (b0eb848 and older) says it
+// still waits for one, and would post it.
 func questionWithdrawn(read *core.Messages) bool {
 	latest := deref(read.Conversation.LatestOpenerMessageID)
 	if latest == "" {

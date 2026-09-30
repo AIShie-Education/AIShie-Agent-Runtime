@@ -23,8 +23,9 @@ import (
 
 // A question its opener withdraws, retracting it ("stop" in the chat), is
 // not answered: against a Core whose withdrawn question waits for no
-// answer, as the fake is, and against the pinned one, whose state still
-// says it waits and which would post an answer to it
+// answer, as the fake and the pinned Core are, and against one before
+// AIShie-Core #42, whose state still says it waits and which would post an
+// answer to it
 // (fakecore.Options.WithdrawnWaits).
 
 // withdrawnCore names a test's Core by what it does with a question
