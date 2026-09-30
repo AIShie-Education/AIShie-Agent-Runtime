@@ -237,7 +237,11 @@ func describeSchool(p func(string, ...any), sc config.School) {
 	}
 	for _, o := range sc.Offers {
 		m := o.AsModel()
-		p("school plan: offer %s, %q: %s %s (%s)", o.ID, redact.String(o.Label), m.Adapter, m.Model, m.EffectiveProvider())
+		site := ""
+		if o.Site {
+			site = ", made in the site"
+		}
+		p("school plan: offer %s, %q: %s %s (%s)%s", o.ID, redact.String(o.Label), m.Adapter, m.Model, m.EffectiveProvider(), site)
 	}
 	p("school plan: per owner %s; per asker %s; across the school %s (UTC days)", quotaLine(sc.OwnerQuota()), quotaLine(sc.AskerQuota()), quotaLine(sc.PerDay))
 }

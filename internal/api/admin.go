@@ -71,7 +71,11 @@ func (s *Server) schoolPlanUsage(w http.ResponseWriter, r *http.Request, c *Call
 		s.storeUnavailable(w, "the school's plan's use", err)
 		return
 	}
-	sc := s.yaml().Runtime.School
+	sc, err := s.plan(ctx)
+	if err != nil {
+		s.storeUnavailable(w, "the site's settings", err)
+		return
+	}
 	out := SchoolPlanUsage{Since: since, Owners: []OwnerPlanUse{},
 		Limits: SchoolPlanLimits{PerOwnerDay: *sc.OwnerQuota().Answers, PerAskerDay: *sc.AskerQuota().Answers, PerDay: sc.PerDay.Answers}}
 	var total int64

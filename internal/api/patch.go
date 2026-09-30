@@ -109,7 +109,8 @@ type patchOf struct {
 	offer     string
 }
 
-func (s *Server) readPatch(req patchRequest) (patchOf, *Error) {
+// readPatch reads a PATCH's members, with the school's plan in force sc.
+func (s *Server) readPatch(req patchRequest, sc config.School) (patchOf, *Error) {
 	var p patchOf
 	var mp modelPatch
 	var choice *OwnModelChoice
@@ -174,7 +175,6 @@ func (s *Server) readPatch(req patchRequest) (patchOf, *Error) {
 			if sp.Offer == nil || *sp.Offer == "" {
 				return p, fieldError(CodeInvalidArgument, ReasonMissingField, "/model/school/offer", "the school's plan needs the offer's id")
 			}
-			sc := s.yaml().Runtime.School
 			if !sc.Offered() {
 				return p, &Error{Code: CodeFailedPrecondition, Reason: ReasonSchoolKeyNotOffered, Message: "the school offers no model on its plan",
 					Details: map[string]any{"field": "/model/school"}}
@@ -213,13 +213,18 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, c *Caller, au *a
 	if !readBody(w, r, &req) {
 		return
 	}
-	p, e := s.readPatch(req)
+	ctx, cancel := context.WithTimeout(r.Context(), 3*storeTimeout)
+	defer cancel()
+	eff, err := s.effective(ctx)
+	if err != nil {
+		s.storeUnavailable(w, "the site's settings", err)
+		return
+	}
+	p, e := s.readPatch(req, eff.Runtime.School)
 	if e != nil {
 		WriteError(w, *e)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 3*storeTimeout)
-	defer cancel()
 	row := s.ownRow(ctx, w, r.PathValue("id"), c)
 	if row == nil || !checkVersion(w, row, version, true) {
 		return
@@ -315,7 +320,7 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, c *Caller, au *a
 			return
 		}
 		o := registry.Options{CoreBaseURL: s.o.CoreBaseURL, Allowlist: s.o.Allowlist}
-		if err := registry.Check(ctx, s.yaml(), next, courses, o); err != nil {
+		if err := registry.Check(ctx, eff, next, courses, o); err != nil {
 			WriteError(w, Error{Code: CodeFailedPrecondition, Reason: ReasonSettingsRejected,
 				Message: "the runtime cannot run these settings", Details: map[string]any{"problems": problems(err)}})
 			return

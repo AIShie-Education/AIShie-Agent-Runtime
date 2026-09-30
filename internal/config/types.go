@@ -282,10 +282,47 @@ type Runtime struct {
 	// DeniedModels an administrator denies even on an owner's key.
 	DeniedModels []string `yaml:"denied_models"`
 	// School is the school's AI plan: the models the school offers hosted
-	// agents on its own key, and the quotas that hold them.
+	// agents on its own key, and the quotas that hold them. Once the
+	// registry has read the site's settings, it is the plan in force
+	// (WithSite).
 	School School `yaml:"school"`
+	// Site is what the site's administrators set through the API, which
+	// the registry reads with its hosted agents (WithSite): never YAML's.
+	Site Site `yaml:"-"`
 	// File is the file the runtime document came from; problems name it.
 	File string `yaml:"-"`
+}
+
+// Site is what the site's administrators set through the API
+// (docs/design.md §11.5), within the ceiling the environment and
+// runtime.yaml set: offers of the school's plan beside runtime.yaml's, the
+// plan's quotas in answers in place of runtime.yaml's, and whether OCR
+// runs, in which of the languages installed.
+type Site struct {
+	// Offers are the plan's offers the site made and turned on, each on
+	// its sealed key (SchoolOffer.Site).
+	Offers []SchoolOffer
+	// Quotas, when set, are the plan's quotas in answers.
+	Quotas *SiteQuotas
+	OCR    SiteOCR
+}
+
+// SiteQuotas are the school plan's quotas in answers a UTC day, as the
+// site sets them: per owner and per asker, and across the school, nil for
+// no ceiling. The plan's quotas in dollars are runtime.yaml's alone.
+type SiteQuotas struct {
+	PerOwnerDay int  `json:"per_owner_day"`
+	PerAskerDay int  `json:"per_asker_day"`
+	PerDay      *int `json:"per_day"`
+}
+
+// SiteOCR is whether OCR runs, and in which languages, as the site sets
+// it: nil and empty are the environment's (on, in OCR_LANGUAGES). The
+// environment is its ceiling too: with OCR=off, or its programs missing,
+// OCR does not run whatever the site says.
+type SiteOCR struct {
+	Enabled   *bool    `json:"enabled,omitempty"`
+	Languages []string `json:"languages,omitempty"`
 }
 
 // Tenant is one tenant's quotas.
@@ -336,6 +373,12 @@ type SchoolOffer struct {
 	Params       ModelParams  `yaml:"params"`
 	Reasoning    Reasoning    `yaml:"reasoning"`
 	Capabilities Capabilities `yaml:"capabilities"`
+	// Site is set for an offer the site's administrators made through the
+	// API (Runtime.Site): its key is sealed, and its endpoint a provider's
+	// own, which the API made from the provider's offer, as it makes an
+	// owner's; the registry holds it to that, and the worker calls it over
+	// the hosted-model client. Never YAML's.
+	Site bool `yaml:"-"`
 }
 
 // The school plan's quotas when the runtime's settings give none.
@@ -346,6 +389,65 @@ const (
 
 // Offered reports whether the plan offers any model.
 func (s School) Offered() bool { return len(s.Offers) > 0 }
+
+// Why a site's offer is withheld from the plan in force (Withheld).
+const (
+	// WithheldIDTaken: an offer of runtime.yaml's has its id, and wins.
+	WithheldIDTaken = "id_taken"
+	// WithheldModelNotAllowed: runtime.denied_models denies its model, or
+	// runtime.allowed_models does not list it.
+	WithheldModelNotAllowed = "model_not_allowed"
+)
+
+// Withheld says why the site's offer o is not in the plan in force with
+// rt's settings (WithheldIDTaken, WithheldModelNotAllowed), or "" when it
+// is: the operator's offers and model lists stand over the site's.
+func (rt Runtime) Withheld(o SchoolOffer) string {
+	for _, y := range rt.School.Offers {
+		if !y.Site && y.ID == o.ID {
+			return WithheldIDTaken
+		}
+	}
+	triple := o.Adapter + ":" + o.AsModel().EffectiveProvider() + ":" + o.Model
+	if _, denied := matchModel(rt.DeniedModels, triple); denied {
+		return WithheldModelNotAllowed
+	}
+	if _, ok := matchModel(rt.AllowedModels, triple); len(rt.AllowedModels) > 0 && !ok {
+		return WithheldModelNotAllowed
+	}
+	return ""
+}
+
+// WithSite is rt, runtime.yaml's settings as loaded, with the site's
+// settings s in force: the plan offers runtime.yaml's offers, then the
+// site's that Withheld does not hold back; and the site's quotas in
+// answers, when it sets them, stand in place of runtime.yaml's, whose
+// dollars stay.
+func (rt Runtime) WithSite(s Site) Runtime {
+	sc := rt.School
+	sc.Offers = nil
+	for _, o := range rt.School.Offers {
+		if !o.Site {
+			sc.Offers = append(sc.Offers, o)
+		}
+	}
+	rt.School = sc
+	for _, o := range s.Offers {
+		if rt.Withheld(o) == "" {
+			sc.Offers = append(sc.Offers, o)
+		}
+	}
+	if q := s.Quotas; q != nil {
+		owner, asker := q.PerOwnerDay, q.PerAskerDay
+		sc.PerOwnerDay.Answers, sc.PerAskerDay.Answers, sc.PerDay.Answers = &owner, &asker, nil
+		if q.PerDay != nil {
+			day := *q.PerDay
+			sc.PerDay.Answers = &day
+		}
+	}
+	rt.School, rt.Site = sc, s
+	return rt
+}
 
 // OfferOf is the offer whose id is id.
 func (s School) OfferOf(id string) (SchoolOffer, bool) {

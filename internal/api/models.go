@@ -33,9 +33,9 @@ type OwnKeyOffers struct {
 	Providers []ProviderOffer `json:"providers"`
 }
 
-// SchoolKeyOffers are the offers of the school's plan, in the order the
-// runtime's settings list them, and its daily quotas in answers; offered
-// is false when there are none.
+// SchoolKeyOffers are the offers of the school's plan in force, in the
+// order runtime.yaml lists its own, then the site's by id, and its daily
+// quotas in answers; offered is false when there are none.
 type SchoolKeyOffers struct {
 	Offered bool          `json:"offered"`
 	Offers  []SchoolOffer `json:"offers"`
@@ -60,10 +60,9 @@ type SchoolLimits struct {
 	PerAskerDay int `json:"per_asker_day"`
 }
 
-// schoolOffers are the offers of the school's plan, as GET /models lists
-// them.
-func (s *Server) schoolOffers(now time.Time) SchoolKeyOffers {
-	sc := s.yaml().Runtime.School
+// schoolOffers are the offers of the school's plan sc, as GET /models
+// lists them.
+func (s *Server) schoolOffers(sc config.School, now time.Time) SchoolKeyOffers {
 	owner, asker := sc.OwnerQuota(), sc.AskerQuota()
 	out := SchoolKeyOffers{Offered: sc.Offered(), Offers: []SchoolOffer{},
 		Limits: SchoolLimits{PerOwnerDay: *owner.Answers, PerAskerDay: *asker.Answers}}
@@ -113,10 +112,17 @@ type SuggestedModel struct {
 }
 
 // models is GET /models.
-func (s *Server) models(w http.ResponseWriter, _ *http.Request, _ *Caller) {
+func (s *Server) models(w http.ResponseWriter, r *http.Request, _ *Caller) {
 	now := s.o.Now()
-	prices, rt := s.prices(), s.yaml().Runtime
-	out := Models{OwnKey: OwnKeyOffers{Offered: true, Providers: []ProviderOffer{}}, SchoolKey: s.schoolOffers(now)}
+	ctx, cancel := context.WithTimeout(r.Context(), storeTimeout)
+	defer cancel()
+	eff, err := s.effective(ctx)
+	if err != nil {
+		s.storeUnavailable(w, "the site's settings", err)
+		return
+	}
+	prices, rt := s.prices(), eff.Runtime
+	out := Models{OwnKey: OwnKeyOffers{Offered: true, Providers: []ProviderOffer{}}, SchoolKey: s.schoolOffers(rt.School, now)}
 	for _, o := range registry.Offers() {
 		p := ProviderOffer{Provider: o.Provider, Label: o.Label, Adapters: o.Adapters, SuggestedModels: []SuggestedModel{},
 			Endpoint: EndpointOffer{Kind: o.Endpoint.Kind, BaseURL: o.Endpoint.BaseURL, Pattern: o.Endpoint.Pattern,

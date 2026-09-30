@@ -31,6 +31,7 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/netguard"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/webauth"
@@ -283,4 +284,26 @@ func (s *Server) yaml() *config.Config {
 		return c
 	}
 	return &config.Config{}
+}
+
+// effective is the operator's configuration with the site's settings in
+// force (registry.ReadSite, registry.WithSite), as the registry builds the
+// configuration the worker runs: read from the store at each request, so
+// that the request after an administrator's change sees it.
+func (s *Server) effective(ctx context.Context) (*config.Config, error) {
+	site, err := registry.ReadSite(ctx, s.o.Store)
+	if err != nil {
+		return nil, err
+	}
+	return registry.WithSite(s.yaml(), site), nil
+}
+
+// plan is the school's plan in force: runtime.yaml's, with the site's
+// offers and quotas (effective).
+func (s *Server) plan(ctx context.Context) (config.School, error) {
+	eff, err := s.effective(ctx)
+	if err != nil {
+		return config.School{}, err
+	}
+	return eff.Runtime.School, nil
 }

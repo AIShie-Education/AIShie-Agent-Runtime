@@ -19,19 +19,23 @@
 //     key, or no key at all, never one it would inherit from the runtime's
 //     defaults.
 //   - A model section on the school's key is an offer of the school's plan
-//     (runtime.school), named by its id and nothing else: the registry
-//     writes the offer's settings, its key's reference among them, in the
-//     document it builds, which is never stored. The key stays a file on
-//     the runtime's host; the plan's quotas hold the agent (the worker's
-//     quota check). Only the agent's own model may be on the plan, not a
-//     course's.
+//     (runtime.school, and the offers the site's administrators made),
+//     named by its id and nothing else: the registry writes the offer's
+//     settings, its key's reference among them, in the document it builds,
+//     which is never stored. The key stays a file on the runtime's host,
+//     or a sealed secret of the school's for an offer the site made; the
+//     plan's quotas hold the agent (the worker's quota check). Only the
+//     agent's own model may be on the plan, not a course's. On an offer
+//     the school has withdrawn, the owner's model behind it answers alone;
+//     with none, the agent is not run (ErrOfferWithdrawn).
 //   - Every model it calls has a key of its own: a model without one would
 //     be called with the runtime's own credentials (Bedrock's, from the
 //     host) or at a server that takes none.
 //   - A model on the owner's key has a base_url that is empty (the
 //     adapter's own) or an official provider's, over https, and sends no
 //     extra headers (D9): no request goes to an address the owner chose.
-//     An offer's endpoint is the operator's.
+//     An offer's endpoint is the operator's, but for one the site made,
+//     which is held to the same as an owner's model.
 //
 // And gives them one default YAML does not: a hosted agent's owner is
 // known, Core naming them, so its model is offered the writes its seats'
@@ -48,10 +52,12 @@
 package registry
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"regexp"
 	"slices"
@@ -75,22 +81,104 @@ type Options struct {
 	Allowlist []string
 }
 
-// Reader is what the registry reads: the store's hosted agents.
+// Reader is what the registry reads: the store's hosted agents, and the
+// site's settings and offers.
 type Reader interface {
 	RegistryRev(ctx context.Context) (int64, error)
 	HostedAgents(ctx context.Context) ([]store.HostedAgent, error)
 	ListHostedCourses(ctx context.Context) ([]store.HostedCourse, error)
+	SiteReader
 }
+
+// SiteReader is what ReadSite reads: the store's site settings and the
+// offers of the school's plan the site made.
+type SiteReader interface {
+	SiteSettings(ctx context.Context) ([]store.SiteSetting, error)
+	SchoolOffers(ctx context.Context) ([]store.SchoolOffer, error)
+}
+
+// ReadSite reads what the site's administrators set through the API
+// (docs/design.md §11.5): its offers of the school's plan that are turned
+// on, each on its sealed key, and its settings. A setting whose value does
+// not decode as the API writes it (one written by hand) counts as not set.
+func ReadSite(ctx context.Context, r SiteReader) (config.Site, error) {
+	var site config.Site
+	settings, err := r.SiteSettings(ctx)
+	if err != nil {
+		return site, err
+	}
+	offers, err := r.SchoolOffers(ctx)
+	if err != nil {
+		return site, err
+	}
+	for _, st := range settings {
+		switch st.Name {
+		case store.SettingOCR:
+			var o config.SiteOCR
+			if decodeSetting(st.Value, &o) {
+				site.OCR = o
+			}
+		case store.SettingSchoolQuotas:
+			var q config.SiteQuotas
+			if decodeSetting(st.Value, &q) {
+				site.Quotas = &q
+			}
+		}
+	}
+	for _, o := range offers {
+		if o.Enabled {
+			site.Offers = append(site.Offers, SiteOffer(o))
+		}
+	}
+	return site, nil
+}
+
+// decodeSetting reads a setting's value into v, strictly: every member
+// known, of its type, and nothing after.
+func decodeSetting(raw json.RawMessage, v any) bool {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if dec.Decode(v) != nil {
+		return false
+	}
+	_, err := dec.Token()
+	return errors.Is(err, io.EOF)
+}
+
+// SiteOffer is the site's offer o as the school's plan holds it: a model
+// section on its sealed key, marked as the site's.
+func SiteOffer(o store.SchoolOffer) config.SchoolOffer {
+	return config.SchoolOffer{ID: o.ID, Label: o.Label, Adapter: o.Adapter, Model: o.Model, Provider: o.Provider, BaseURL: o.BaseURL,
+		Region: o.Region, KeyRef: secrets.SchemeSealed + o.KeySecretID, Params: config.ModelParams{MaxOutputTokens: o.MaxOutputTokens},
+		Reasoning: config.Reasoning{Effort: o.ReasoningEffort}, Site: true}
+}
+
+// WithSite is yaml with the site's settings in force (config.Runtime.WithSite):
+// a copy, which shares yaml's agents.
+func WithSite(yaml *config.Config, site config.Site) *config.Config {
+	eff := *yaml
+	eff.Runtime = yaml.Runtime.WithSite(site)
+	return &eff
+}
+
+// ErrOfferWithdrawn is a hosted agent on an offer of the school's plan
+// that the school no longer offers (removed, turned off, or held back),
+// with no model of its owner's behind it: it is not run, saying so
+// (store.ReasonOfferWithdrawn), until the school offers it again or its
+// owner chooses another. With the owner's model behind it, that model
+// answers alone, on the owner's key.
+var ErrOfferWithdrawn = errors.New("the school no longer offers it, and no model of the owner's stands behind it")
 
 // SourceName is what a hosted agent's problems name in place of a file.
 func SourceName(agentID string) string { return "registry:" + agentID }
 
-// Build is the configuration the runtime runs: yaml's runtime settings and
-// agents, then every hosted agent that passes. One that does not, or whose
-// id is a YAML agent's (which wins), is in the result's Rejected, with why.
-// The revision returned is the registry's as it stood before its agents
-// were read, so that a change made meanwhile is seen as one. yaml is not
-// changed.
+// Build is the configuration the runtime runs: yaml's runtime settings,
+// with the site's in force (ReadSite, WithSite), and yaml's agents, then
+// every hosted agent that passes. One that does not, or whose id is a YAML
+// agent's (which wins), is in the result's Rejected, with why. The
+// revision returned is the registry's as it stood before its agents and
+// the site's settings were read, so that a change made meanwhile is seen
+// as one. yaml is not changed.
 func Build(ctx context.Context, yaml *config.Config, r Reader, o Options) (*config.Config, int64, error) {
 	rev, err := r.RegistryRev(ctx)
 	if err != nil {
@@ -104,6 +192,11 @@ func Build(ctx context.Context, yaml *config.Config, r Reader, o Options) (*conf
 	if err != nil {
 		return nil, 0, err
 	}
+	site, err := ReadSite(ctx, r)
+	if err != nil {
+		return nil, 0, err
+	}
+	yaml = WithSite(yaml, site)
 	courses := map[string][]store.HostedCourse{}
 	for _, c := range all {
 		courses[c.AgentID] = append(courses[c.AgentID], c)
@@ -134,7 +227,11 @@ func Build(ctx context.Context, yaml *config.Config, r Reader, o Options) (*conf
 			continue
 		}
 		src, err := Document(a, courses[a.ID], o.CoreBaseURL, defaultKeySource(yaml), yaml.Runtime.School)
-		if err != nil {
+		switch {
+		case errors.Is(err, ErrOfferWithdrawn):
+			reject(a.ID, store.ReasonOfferWithdrawn, err)
+			continue
+		case err != nil:
 			reject(a.ID, store.ReasonSettingsRejected, err)
 			continue
 		}
@@ -167,9 +264,9 @@ func Build(ctx context.Context, yaml *config.Config, r Reader, o Options) (*conf
 // Check holds one hosted agent, as its row would be written with its
 // courses, to what Build holds it to: an id no YAML agent of yaml's has, a
 // CORE_BASE_URL, its document, loaded and validated over yaml's runtime
-// settings, and its models. It reads and writes nothing: the API tries a
-// change with it before it writes one. The error is why it would not run,
-// as a Rejection's Detail words it.
+// settings (with the site's in force, WithSite), and its models. It reads
+// and writes nothing: the API tries a change with it before it writes one.
+// The error is why it would not run, as a Rejection's Detail words it.
 func Check(_ context.Context, yaml *config.Config, row store.HostedAgent, courses []store.HostedCourse, o Options) error {
 	for _, a := range yaml.Agents {
 		if a.ID == row.ID {
@@ -226,8 +323,10 @@ var setByRegistry = []string{"id", "display_name", "tenant_id", "paused", "core"
 // source, as written or as it inherits it from defaultKeySource (and then
 // written out), is own; and on the agent's model on the school's key, the
 // settings of school's offer it names. Settings that set any of those
-// themselves, refer to a file or a secret, put a course's model on the
-// school's key, or name an offer school does not have, are refused.
+// themselves, refer to a file or a secret, or put a course's model on the
+// school's key, are refused. On an offer school no longer has, the owner's
+// model behind it is the agent's model; with none, the agent is refused
+// with ErrOfferWithdrawn.
 func Document(a store.HostedAgent, courses []store.HostedCourse, coreBaseURL, defaultKeySource string, school config.School) (config.Source, error) {
 	src := config.Source{Name: SourceName(a.ID)}
 	settings, err := object(a.Settings, "its settings")
@@ -255,6 +354,18 @@ func Document(a store.HostedAgent, courses []store.HostedCourse, coreBaseURL, de
 		settings["model"] = model
 	}
 	ks := keyed(model, defaultKeySource, key, "agent.model", &problems)
+	if id, _ := model["offer"].(string); ks == config.KeySchool && id != "" && !offered(school, id) {
+		fb, ok := model["fallback"].(map[string]any)
+		if !ok {
+			return src, fmt.Errorf("agent.model.offer %s: %w", strconv.Quote(clip(id, 64)), ErrOfferWithdrawn)
+		}
+		// The school withdrew the offer: the owner's model behind it
+		// answers alone, on the owner's key, as it does when the plan's
+		// quotas are spent.
+		model = fb
+		settings["model"] = model
+		ks = keyed(model, config.KeyOwn, key, "agent.model", &problems)
+	}
 	if ks == config.KeySchool {
 		onOffer(model, school, "agent.model", &problems)
 	}
@@ -380,14 +491,20 @@ func fallbackKeySource(ks string) string {
 	return ks
 }
 
+// offered reports whether school has the offer id.
+func offered(school config.School, id string) bool {
+	_, ok := school.OfferOf(id)
+	return ok
+}
+
 // offerKeys are what a model section on the school's plan holds as its
 // row keeps it: the key source, the offer's id, and the owner's fallback.
 var offerKeys = []string{"key_source", "offer", "fallback"}
 
 // onOffer writes the settings of the offer of school a model section on
 // the school's key names (config.SchoolOffer.Section) into it: one that
-// names none, or one school does not have, or sets anything the offer
-// does, is a problem.
+// names none, or sets anything the offer does, is a problem. One that
+// names an offer school does not have is Document's to take.
 func onOffer(section map[string]any, school config.School, path string, problems *[]string) {
 	var extra []string
 	for k := range section {
@@ -401,12 +518,8 @@ func onOffer(section map[string]any, school config.School, path string, problems
 	}
 	id, _ := section["offer"].(string)
 	o, ok := school.OfferOf(id)
-	switch {
-	case id == "":
+	if id == "" || !ok {
 		*problems = append(*problems, path+": on the school's key, and names no offer of the school's plan")
-		return
-	case !ok:
-		*problems = append(*problems, path+".offer: the school does not offer "+strconv.Quote(clip(id, 64))+" (any more)")
 		return
 	}
 	for k, v := range o.Section() {
@@ -482,13 +595,17 @@ func checkModels(a *config.Agent, key string, school config.School) error {
 		if v.m.KeySource == config.KeySchool {
 			// Document writes out every key source it gives, and the
 			// offer's settings; this holds the model to them as merged
-			// and decoded, whatever the runtime's defaults would give.
+			// and decoded, whatever the runtime's defaults would give. An
+			// offer the site made is held to what an owner's model is:
+			// its endpoint is a provider's own.
 			o, ok := school.OfferOf(v.m.Offer)
 			switch {
 			case v.m.Offer == "" || v.m.Offer != a.Model.Offer || !ok:
 				msg = "is on the school's key, and not on the agent's offer of the school's plan"
 			case v.m.KeyRef != o.KeyRef:
 				msg = "has a key that is not its offer's"
+			case o.Site:
+				msg = checkModel(v.m)
 			}
 			if msg != "" {
 				problems = append(problems, v.path+": "+msg)

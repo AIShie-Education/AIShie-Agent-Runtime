@@ -16,6 +16,7 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/fakecore"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/pgstore"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
@@ -229,15 +230,18 @@ func TestRunWithTheRegistryOff(t *testing.T) {
 // running. (check --live connects them as it does YAML agents with sealed
 // secrets, TestCheckLiveOpensSealedSecrets, and tries their keys at their
 // providers, which a test does not.) A registry it cannot read, as before a deploy's migrate up, is
-// said, and passes too.
+// said, and passes too. The school's plan it shows is the one in force,
+// the site's offers among it.
 func TestCheckReadsTheRegistry(t *testing.T) {
 	w := newRegistryWorld(t)
 	w.host(t, "agt_ok", 0, hostedSettings)
 	w.host(t, "agt_bad", 1, `{"model": {"adapter": "openai_chat", "model": "m", "key_source": "school"}}`)
+	w.siteOffer(t, "fast", "deepseek-chat")
 	getenv := env("CONFIG", t.TempDir(), "DATABASE_URL", w.dbURL, "CORE_BASE_URL", w.coreURL, "KMS_KEY_ID", w.kms)
 	code, out, errs := runCmd(t, getenv, "check")
 	for _, want := range []string{
 		`agent agt_ok (hosted): "Hosted agt_ok"`,
+		`school plan: offer fast, "Site fast": openai_chat deepseek-chat (deepseek), made in the site`,
 		"hosted agent agt_bad: NOT RUN: agent.model.adapter: set by the school's offer", "agent.model: on the school's key, and names no offer of the school's plan",
 		"the configuration passes: 1 agents, 1 of them hosted; 1 hosted agents not run",
 	} {
@@ -366,5 +370,62 @@ func TestBuildIsNotHeldUpByTheDatabase(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("a build the database does not answer did not end")
+	}
+}
+
+// siteOffer makes an offer of the school's plan as the API makes one, on
+// a sealed key of the school's.
+func (w *registryWorld) siteOffer(t *testing.T, id, model string) {
+	t.Helper()
+	key, err := w.v.Seal(t.Context(), store.Secret{ID: vault.NewSecretID(), TenantID: store.SchoolTenantID, Kind: store.SecretModelKey},
+		"sk-school-0123456789abcdefghij")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = w.st.CreateSchoolOffer(t.Context(), store.SchoolOffer{ID: id, Label: "Site " + id, Adapter: "openai_chat", Provider: "deepseek",
+		Model: model, BaseURL: "https://api.deepseek.com", Enabled: true, KeySecretID: key.ID, KeyHint: key.Hint, CreatedBy: "admin"}, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestBuildHoldsTheSitesOffersToThePriceTable: with a quota of the plan's
+// in dollars, an agent on an offer of the site's that the price table does
+// not price is not run, and the others are, the site's priced offer's
+// among them; the plan in force keeps the site's offers when the registry
+// cannot be read after.
+func TestBuildHoldsTheSitesOffersToThePriceTable(t *testing.T) {
+	w := newRegistryWorld(t)
+	w.siteOffer(t, "priced", "deepseek-chat")
+	w.siteOffer(t, "unpriced", "deepseek-reasoner")
+	w.host(t, "agt_priced", 0, `{"model": {"key_source": "school", "offer": "priced"}}`)
+	w.host(t, "agt_unpriced", 1, `{"model": {"key_source": "school", "offer": "unpriced"}}`)
+	prices, err := pricing.Parse([]byte(`
+version: "t1"
+prices:
+  - {provider: deepseek, model: deepseek-chat, from: 2025-09-29, usd_per_mtok: {input: 0.28, output: 0.42}}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	two := 2.0
+	yaml := &config.Config{Runtime: config.Runtime{School: config.School{PerOwnerDay: config.Quota{USD: &two}}}}
+	h := &hosting{env: config.Env{CoreBaseURL: w.coreURL}, pg: w.st, log: slog.New(slog.DiscardHandler), yaml: yaml, prices: prices}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	cfg, _, err := h.build(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Agents) != 1 || cfg.Agents[0].ID != "agt_priced" || len(cfg.Rejected) != 1 || cfg.Rejected[0].AgentID != "agt_unpriced" ||
+		!strings.Contains(cfg.Rejected[0].Detail(), "the price table has no price for deepseek deepseek-reasoner") {
+		t.Fatalf("agents %+v, rejected %+v", cfg.Agents, cfg.Rejected)
+	}
+
+	defer func(d time.Duration) { registryTimeout = d }(registryTimeout)
+	registryTimeout = time.Nanosecond
+	last, _, err := h.build(t.Context())
+	if err == nil || len(last.Runtime.School.Offers) != 2 || len(last.Agents) != 1 {
+		t.Errorf("the registry not read: %v, %+v", err, last.Runtime.School.Offers)
 	}
 }

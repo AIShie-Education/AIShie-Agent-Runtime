@@ -40,8 +40,14 @@ func planRuntime(school map[string]any) map[string]any {
 // sealed key.
 func (h *hosting) hostOnPlan(id string, ag agent, own string) {
 	h.w.t.Helper()
+	h.hostOn(id, ag, "standard", own)
+}
+
+// hostOn is hostOnPlan, on the offer of the plan whose id is offer.
+func (h *hosting) hostOn(id string, ag agent, offer, own string) {
+	h.w.t.Helper()
 	tenant := "ten_" + ag.owner.ID
-	model := map[string]any{"key_source": "school", "offer": "standard"}
+	model := map[string]any{"key_source": "school", "offer": offer}
 	var secrets []store.Secret
 	tok := h.seal(tenant, store.SecretCoreToken, ag.actor.Token)
 	secrets = append(secrets, tok)
@@ -257,5 +263,149 @@ func TestSchoolPlanCeiling(t *testing.T) {
 	}
 	if got := counter(t, wk.reg, "budget_exhausted_total", map[string]string{"budget": "school_day_answers"}); got != 1 {
 		t.Errorf("budget_exhausted_total{school_day_answers} = %v", got)
+	}
+}
+
+// siteKey is the key of the school's that the site's administrators gave
+// its offer: sealed in the store, and in no log line.
+const siteKey = "sk-site-offer-0123456789abcdefghijklmn"
+
+// The offers and quotas the site's administrators set take effect as the
+// registry is read again, without a restart: an agent on the site's offer
+// answers with its model and the school's sealed key, over the
+// hosted-model client, since the site chose it through the API as an
+// owner chooses theirs; past the site's quota per owner, its owner's key
+// answers; the quota raised, the offer answers again; and the offer turned
+// off, the owner's model behind it answers alone, on the owner's key.
+func TestSiteOfferTakesEffectWithoutARestart(t *testing.T) {
+	w := newWorld(t)
+	yukis := w.ownAgent("agt_yuki", 0)
+	h := w.hosting()
+	h.hostOn("agt_yuki", yukis, "fast", "own-m")
+	ctx := context.Background()
+	key := h.seal(store.SchoolTenantID, store.SecretModelKey, siteKey)
+	offer := store.SchoolOffer{ID: "fast", Label: "School AI (fast)", Adapter: "openai_chat", Provider: "deepseek", Model: "site-m",
+		BaseURL: "https://api.deepseek.com", MaxOutputTokens: 500, Enabled: true, KeySecretID: key.ID, KeyHint: "sk-…klmn", CreatedBy: "admin"}
+	_, err := h.st.CreateSchoolOffer(ctx, offer, key)
+	w.ok(err)
+	quotas := func(perOwner int) {
+		t.Helper()
+		v, err := json.Marshal(config.SiteQuotas{PerOwnerDay: perOwner, PerAskerDay: 20})
+		w.ok(err)
+		w.ok(h.st.PutSiteSetting(ctx, store.SiteSetting{Name: store.SettingSchoolQuotas, Value: v, UpdatedBy: "admin"}))
+	}
+	quotas(1)
+	yaml := w.config(planRuntime(nil))
+	cfg := h.build(yaml)
+	if len(cfg.Agents) != 1 || cfg.Agents[0].Model.Offer != "fast" {
+		t.Fatalf("agents %+v, rejected %+v", cfg.Agents, cfg.Rejected)
+	}
+	site := scripted.New(scripted.Reply("From the site's offer."), scripted.Reply("From the site's offer, again."))
+	own := scripted.New(scripted.Reply("From Yuki's key."), scripted.Reply("From Yuki's key, the offer turned off."))
+	hostedHTTP := &http.Client{}
+	wk, built := h.startPlan(cfg, models{"site-m": site, "own-m": own}, hostedHTTP)
+
+	answer := func(q, want string) string {
+		t.Helper()
+		c, _ := w.ask(0, yukis, q)
+		if got := w.waitAnswers(c, 1); got[0].Body != want {
+			t.Fatalf("%s: %q, want %q", q, got[0].Body, want)
+		}
+		settled(t, wk, c)
+		return c
+	}
+	c1 := answer("One.", "From the site's offer.")
+	built.mu.Lock()
+	if built.keys["site-m"] != siteKey || built.clients["site-m"] != hostedHTTP {
+		t.Errorf("the site's offer: key %v, over the hosted-model client %v", built.keys["site-m"] == siteKey, built.clients["site-m"] == hostedHTTP)
+	}
+	built.mu.Unlock()
+	c2 := answer("Two, past the site's quota.", "From Yuki's key.")
+
+	// The quota raised: the offer answers again, the agent never stopped.
+	quotas(5)
+	wk.sup.Update(h.build(yaml))
+	eventually(t, "the site's quota in force", func() bool { return *wk.sup.school().OwnerQuota().Answers == 5 })
+	c3 := answer("Three, the quota raised.", "From the site's offer, again.")
+
+	// The offer turned off: the owner's model answers alone.
+	off := offer
+	off.Enabled = false
+	_, err = h.st.UpdateSchoolOffer(ctx, off)
+	w.ok(err)
+	cfg = h.build(yaml)
+	if m := cfg.Agents[0].Model; m.Offer != "" || m.KeySource != config.KeyOwn || m.Model != "own-m" {
+		t.Fatalf("the offer turned off: %+v", m)
+	}
+	wk.sup.Update(cfg)
+	eventually(t, "the agent on its owner's model", func() bool {
+		for _, a := range wk.sup.config().Agents {
+			if a.ID == "agt_yuki" && a.Model.Offer == "" {
+				return true
+			}
+		}
+		return false
+	})
+	c4 := answer("Four, the offer turned off.", "From Yuki's key, the offer turned off.")
+
+	calls, _ := wk.st.ledger()
+	sources := map[string]string{}
+	for _, c := range calls {
+		sources[c.ConversationID] += c.KeySource
+	}
+	if sources[c1] != "school" || sources[c2] != "own" || sources[c3] != "school" || sources[c4] != "own" {
+		t.Errorf("key sources %q %q %q %q", sources[c1], sources[c2], sources[c3], sources[c4])
+	}
+	if strings.Contains(w.logs.String(), siteKey) {
+		t.Error("a log line holds the site's key")
+	}
+}
+
+// An agent on the site's offer with no model of its owner's behind it is
+// not run once the offer is turned off, and its state says the offer was
+// withdrawn; turned on again, it runs.
+func TestSiteOfferWithdrawnHoldsAnAgentAlone(t *testing.T) {
+	w := newWorld(t)
+	yukis := w.ownAgent("agt_yuki", 0)
+	h := w.hosting()
+	h.hostOn("agt_yuki", yukis, "fast", "")
+	ctx := context.Background()
+	key := h.seal(store.SchoolTenantID, store.SecretModelKey, siteKey)
+	offer := store.SchoolOffer{ID: "fast", Label: "School AI (fast)", Adapter: "openai_chat", Provider: "deepseek", Model: "site-m",
+		BaseURL: "https://api.deepseek.com", Enabled: true, KeySecretID: key.ID, KeyHint: "sk-…klmn", CreatedBy: "admin"}
+	_, err := h.st.CreateSchoolOffer(ctx, offer, key)
+	w.ok(err)
+	yaml := w.config(planRuntime(nil))
+	site := scripted.New(scripted.Reply("From the site's offer."))
+	wk, _ := h.startPlan(h.build(yaml), models{"site-m": site}, &http.Client{})
+	eventually(t, "the agent running", func() bool { return wk.statusOf("agt_yuki").State == store.AgentRunning })
+
+	off := offer
+	off.Enabled = false
+	_, err = h.st.UpdateSchoolOffer(ctx, off)
+	w.ok(err)
+	wk.sup.Update(h.build(yaml))
+	eventually(t, "the agent held", func() bool {
+		st, err := h.st.AgentState(ctx, "agt_yuki")
+		return err == nil && st.State == store.AgentError && st.Reason == store.ReasonOfferWithdrawn
+	})
+	st, _ := h.st.AgentState(ctx, "agt_yuki")
+	if !strings.Contains(st.Detail, `agent.model.offer "fast": the school no longer offers it`) {
+		t.Errorf("the state's detail: %q", st.Detail)
+	}
+
+	on := off
+	on.Version = 0
+	on.Enabled = true
+	_, err = h.st.UpdateSchoolOffer(ctx, on)
+	w.ok(err)
+	wk.sup.Update(h.build(yaml))
+	eventually(t, "the agent running again", func() bool {
+		st, err := h.st.AgentState(ctx, "agt_yuki")
+		return err == nil && st.State == store.AgentRunning
+	})
+	c, _ := w.ask(0, yukis, "Back?")
+	if got := w.waitAnswers(c, 1); got[0].Body != "From the site's offer." {
+		t.Errorf("on the offer again: %q", got[0].Body)
 	}
 }

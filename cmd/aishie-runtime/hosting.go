@@ -29,10 +29,12 @@ type hosting struct {
 	mu     sync.Mutex
 	yaml   *config.Config
 	prices *pricing.Table
-	// hosted and rejected are the registry's agents as last built, kept
-	// for a reload when the registry cannot be read.
+	// hosted and rejected are the registry's agents as last built, and
+	// site the site's settings as last read, kept for a reload when the
+	// registry cannot be read.
 	hosted   []*config.Agent
 	rejected []config.Rejection
+	site     config.Site
 	// reported are the agents last reported not run.
 	reported []string
 }
@@ -77,10 +79,13 @@ func (h *hosting) build(ctx context.Context) (*config.Config, int64, error) {
 	if err != nil {
 		return h.withLastHosted(), 0, err
 	}
+	h.site = cfg.Runtime.Site
 	kept := cfg.Agents[:0]
 	for _, a := range cfg.Agents {
 		if a.Hosted != nil {
-			if p := usdWithoutPrices(&config.Config{Runtime: cfg.Runtime, Agents: []*config.Agent{a}}, h.prices, time.Now()); len(p) > 0 {
+			// The plan's own offers were held to the price table as the
+			// YAML loaded: of the site's, the agent's own is here.
+			if p := agentsUSDWithoutPrices(&config.Config{Runtime: cfg.Runtime, Agents: []*config.Agent{a}}, h.prices, time.Now()); len(p) > 0 {
 				cfg.Rejected = append(cfg.Rejected, config.Rejection{AgentID: a.ID, Source: registry.SourceName(a.ID), Err: errors.New(p[0]),
 					Reason: store.ReasonSettingsRejected, Version: a.Hosted.Version})
 				continue
@@ -99,10 +104,11 @@ func (h *hosting) build(ctx context.Context) (*config.Config, int64, error) {
 	return cfg, rev, nil
 }
 
-// withLastHosted is the YAML with the hosted agents as last built, less
-// any whose id a YAML agent now has. Called with mu held.
+// withLastHosted is the YAML with the site's settings and the hosted
+// agents as last read, less any whose id a YAML agent now has. Called with
+// mu held.
 func (h *hosting) withLastHosted() *config.Config {
-	cfg := &config.Config{Runtime: h.yaml.Runtime, Dir: h.yaml.Dir, Agents: slices.Clone(h.yaml.Agents), Rejected: h.rejected}
+	cfg := &config.Config{Runtime: h.yaml.Runtime.WithSite(h.site), Dir: h.yaml.Dir, Agents: slices.Clone(h.yaml.Agents), Rejected: h.rejected}
 	ids := map[string]bool{}
 	for _, a := range h.yaml.Agents {
 		ids[a.ID] = true

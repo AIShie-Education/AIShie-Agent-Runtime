@@ -132,7 +132,9 @@ func TestDocumentRefuses(t *testing.T) {
 		{name: "the school's key by default", settings: `{"model": {"adapter": "anthropic", "model": "m"}}`, defKS: config.KeySchool,
 			want: []string{"agent.model: on the school's key, and names no offer"}},
 		{name: "an offer the school does not have", settings: `{"model": {"key_source": "school", "offer": "premium"}}`,
-			want: []string{`agent.model.offer: the school does not offer "premium"`}},
+			want: []string{`agent.model.offer "premium": the school no longer offers it, and no model of the owner's stands behind it`}},
+		{name: "an offer that is no text", settings: `{"model": {"key_source": "school", "offer": 7}}`,
+			want: []string{"agent.model: on the school's key, and names no offer"}},
 		{name: "an offer with settings of its own", settings: `{"model": {"key_source": "school", "offer": "standard", "base_url": "https://evil.example", "params": {"max_output_tokens": 9000}}}`,
 			want: []string{"agent.model.base_url: set by the school's offer", "agent.model.params: set by the school's offer"}},
 		{name: "a fallback on the school's key", settings: `{"model": {"key_source": "school", "offer": "standard", "fallback": {"adapter": "anthropic", "model": "n", "key_source": "school"}}}`,
@@ -504,14 +506,14 @@ func TestBuildWithoutACore(t *testing.T) {
 // A store that cannot be read is an error, not a configuration without
 // hosted agents: the one in force stays.
 func TestBuildOfAStoreThatFails(t *testing.T) {
-	for _, f := range []failing{{rev: true}, {agents: true}, {courses: true}} {
+	for _, f := range []failing{{rev: true}, {agents: true}, {courses: true}, {settings: true}, {offers: true}} {
 		if _, _, err := Build(context.Background(), yamlConfig(t, ""), f, Options{CoreBaseURL: core}); err == nil {
 			t.Errorf("%+v: no error", f)
 		}
 	}
 }
 
-type failing struct{ rev, agents, courses bool }
+type failing struct{ rev, agents, courses, settings, offers bool }
 
 var errDown = errors.New("the database is down")
 
@@ -531,6 +533,20 @@ func (f failing) HostedAgents(context.Context) ([]store.HostedAgent, error) {
 
 func (f failing) ListHostedCourses(context.Context) ([]store.HostedCourse, error) {
 	if f.courses {
+		return nil, errDown
+	}
+	return nil, nil
+}
+
+func (f failing) SiteSettings(context.Context) ([]store.SiteSetting, error) {
+	if f.settings {
+		return nil, errDown
+	}
+	return nil, nil
+}
+
+func (f failing) SchoolOffers(context.Context) ([]store.SchoolOffer, error) {
+	if f.offers {
 		return nil, errDown
 	}
 	return nil, nil
@@ -630,8 +646,9 @@ func TestDocumentOnTheSchoolPlan(t *testing.T) {
 
 // Build runs a hosted agent on an offer of the school's plan, with the
 // offer's key, where the offer says, whatever the runtime's defaults say
-// of a model; and not one on an offer the school has withdrawn; nor one
-// whose merged model is on the school's key otherwise than by its offer.
+// of a model; and not one on an offer the school has withdrawn, with no
+// model of its owner's behind it, which says so; nor one whose merged
+// model is on the school's key otherwise than by its offer.
 func TestBuildOnTheSchoolPlan(t *testing.T) {
 	yaml := yamlConfig(t, "")
 	yaml.Runtime.School = schoolPlan()
@@ -648,8 +665,11 @@ func TestBuildOnTheSchoolPlan(t *testing.T) {
 	if got := agentIDs(cfg); !slices.Equal(got, []string{"a1", "agt_alone", "agt_plan"}) {
 		t.Fatalf("agents %v, rejected %v", got, rejectedWhy(cfg))
 	}
-	if why := rejectedWhy(cfg)["agt_gone"]; !strings.Contains(why, `the school does not offer "premium"`) {
+	if why := rejectedWhy(cfg)["agt_gone"]; !strings.Contains(why, `agent.model.offer "premium": the school no longer offers it`) {
 		t.Errorf("an offer withdrawn: %q", why)
+	}
+	if r := cfg.Rejected[0]; r.AgentID != "agt_gone" || r.Reason != store.ReasonOfferWithdrawn || !errors.Is(r.Err, ErrOfferWithdrawn) {
+		t.Errorf("an offer withdrawn is rejected as %+v", r)
 	}
 	a := cfg.Agents[2]
 	if a.Model.KeySource != config.KeySchool || a.Model.Offer != "standard" || a.Model.KeyRef != "secret://school/keys/deepseek" ||
@@ -662,7 +682,7 @@ func TestBuildOnTheSchoolPlan(t *testing.T) {
 	}
 	// The same row with no plan in the runtime's settings is not run.
 	if err := Check(t.Context(), yamlConfig(t, ""), row("agt_plan", `{"model": {"key_source": "school", "offer": "standard"}}`), nil,
-		Options{CoreBaseURL: core}); err == nil || !strings.Contains(err.Error(), "the school does not offer") {
+		Options{CoreBaseURL: core}); !errors.Is(err, ErrOfferWithdrawn) {
 		t.Errorf("with no plan: %v", err)
 	}
 	// A model on the school's key with another key, or no offer.
@@ -677,5 +697,142 @@ func TestBuildOnTheSchoolPlan(t *testing.T) {
 	b.Model = bm
 	if err := checkModels(&b, "sealed://sec_k_agt_plan", yaml.Runtime.School); err == nil || !strings.Contains(err.Error(), "not on the agent's offer") {
 		t.Errorf("no offer: %v", err)
+	}
+}
+
+// siteOffer is an offer of the school's plan as the API makes one, on the
+// sealed key sec_school_<id>.
+func siteOffer(t *testing.T, st *memstore.Store, id string, enabled bool, baseURL string) {
+	t.Helper()
+	o := store.SchoolOffer{ID: id, Label: "Site " + id, Adapter: "openai_chat", Provider: "deepseek", Model: "deepseek-chat", BaseURL: baseURL,
+		MaxOutputTokens: 900, Enabled: enabled, KeySecretID: "sec_school_" + id, KeyHint: "sk-…aaaa", CreatedBy: "admin"}
+	if _, err := st.CreateSchoolOffer(t.Context(), o, fakeSecret(o.KeySecretID, store.SchoolTenantID, store.SecretModelKey)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func putSetting(t *testing.T, st *memstore.Store, name, value string) {
+	t.Helper()
+	if err := st.PutSiteSetting(t.Context(), store.SiteSetting{Name: name, Value: json.RawMessage(value), UpdatedBy: "admin"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Build puts the site's settings in force over runtime.yaml's: its offers
+// that are turned on join the plan, on their sealed keys, but one whose
+// id runtime.yaml's has, which wins; an agent on one runs with its key; an
+// agent on one turned off runs on its owner's model behind it, or, with
+// none, is not run, saying the offer was withdrawn, until it is turned on
+// again. An offer the site made is held to a provider's own endpoint, as
+// an owner's model is. The site's quotas stand in place of runtime.yaml's,
+// and its OCR setting is carried in the runtime's settings.
+func TestBuildWithTheSitesPlan(t *testing.T) {
+	yaml := yamlConfig(t, "")
+	yaml.Runtime.School = schoolPlan()
+	st := hostedStore(t, []store.HostedAgent{
+		row("agt_fast", `{"model": {"key_source": "school", "offer": "fast"}}`),
+		row("agt_off_own", `{"model": {"key_source": "school", "offer": "off", "fallback": {"adapter": "anthropic", "model": "claude-test", "key_source": "own"}}}`),
+		row("agt_off_alone", `{"model": {"key_source": "school", "offer": "off"}}`),
+		row("agt_std", `{"model": {"key_source": "school", "offer": "standard"}}`),
+		row("agt_odd", `{"model": {"key_source": "school", "offer": "odd"}}`),
+	})
+	siteOffer(t, st, "fast", true, "https://api.deepseek.com")
+	siteOffer(t, st, "off", false, "https://api.deepseek.com")
+	siteOffer(t, st, "standard", true, "https://api.deepseek.com")
+	siteOffer(t, st, "odd", true, "https://llm.school.example/v1")
+	putSetting(t, st, store.SettingSchoolQuotas, `{"per_owner_day": 7, "per_asker_day": 3, "per_day": 40}`)
+	putSetting(t, st, store.SettingOCR, `{"enabled": false, "languages": ["eng"]}`)
+
+	cfg, _, err := Build(t.Context(), yaml, st, Options{CoreBaseURL: core})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := agentIDs(cfg); !slices.Equal(got, []string{"a1", "agt_fast", "agt_off_own", "agt_std"}) {
+		t.Fatalf("agents %v, rejected %v", got, rejectedWhy(cfg))
+	}
+	var offers []string
+	for _, o := range cfg.Runtime.School.Offers {
+		offers = append(offers, o.ID)
+	}
+	if !slices.Equal(offers, []string{"standard", "fast", "odd"}) || cfg.Runtime.School.Offers[0].Site {
+		t.Errorf("the plan's offers: %v", offers)
+	}
+	sc := cfg.Runtime.School
+	if *sc.OwnerQuota().Answers != 7 || *sc.AskerQuota().Answers != 3 || sc.PerDay.Answers == nil || *sc.PerDay.Answers != 40 {
+		t.Errorf("the plan's quotas: %+v", sc)
+	}
+	if o := cfg.Runtime.Site.OCR; o.Enabled == nil || *o.Enabled || !slices.Equal(o.Languages, []string{"eng"}) {
+		t.Errorf("the site's OCR: %+v", o)
+	}
+	if len(yaml.Runtime.School.Offers) != 1 || yaml.Runtime.School.PerOwnerDay.Answers != nil {
+		t.Errorf("runtime.yaml's settings were changed: %+v", yaml.Runtime.School)
+	}
+	byID := map[string]*config.Agent{}
+	for _, a := range cfg.Agents {
+		byID[a.ID] = a
+	}
+	if m := byID["agt_fast"].Model; m.KeySource != config.KeySchool || m.Offer != "fast" || m.KeyRef != "sealed://sec_school_fast" ||
+		m.BaseURL != "https://api.deepseek.com" || m.Params.MaxOutputTokens != 900 {
+		t.Errorf("on the site's offer: %+v", m)
+	}
+	if m := byID["agt_off_own"].Model; m.KeySource != config.KeyOwn || m.Offer != "" || m.KeyRef != "sealed://sec_k_agt_off_own" ||
+		m.Model != "claude-test" || m.Fallback != nil {
+		t.Errorf("on an offer turned off, with the owner's model behind it: %+v", m)
+	}
+	if m := byID["agt_std"].Model; m.KeyRef != "secret://school/keys/deepseek" {
+		t.Errorf("on runtime.yaml's offer, whose id the site's has too: %+v", m)
+	}
+	reasons := map[string]string{}
+	for _, r := range cfg.Rejected {
+		reasons[r.AgentID] = r.Reason
+	}
+	why := rejectedWhy(cfg)
+	if reasons["agt_off_alone"] != store.ReasonOfferWithdrawn || !strings.Contains(why["agt_off_alone"], `"off": the school no longer offers it`) {
+		t.Errorf("on an offer turned off, alone: %s %q", reasons["agt_off_alone"], why["agt_off_alone"])
+	}
+	if reasons["agt_odd"] != store.ReasonSettingsRejected || !strings.Contains(why["agt_odd"], "is not an official provider's endpoint") {
+		t.Errorf("on the site's offer at an endpoint of no provider's: %s %q", reasons["agt_odd"], why["agt_odd"])
+	}
+
+	// The offer turned on again: both agents on it are on it again.
+	off, err := st.SchoolOffer(t.Context(), "off")
+	if err != nil {
+		t.Fatal(err)
+	}
+	off.Enabled = true
+	if _, err := st.UpdateSchoolOffer(t.Context(), *off); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err = Build(t.Context(), yaml, st, Options{CoreBaseURL: core})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID = map[string]*config.Agent{}
+	for _, a := range cfg.Agents {
+		byID[a.ID] = a
+	}
+	for _, id := range []string{"agt_off_own", "agt_off_alone"} {
+		if a := byID[id]; a == nil || a.Model.Offer != "off" || a.Model.KeyRef != "sealed://sec_school_off" {
+			t.Errorf("%s on the offer turned on again: %+v", id, a)
+		}
+	}
+	if fb := byID["agt_off_own"].Model.Fallback; fb == nil || fb.KeyRef != "sealed://sec_k_agt_off_own" {
+		t.Errorf("the owner's model behind it again: %+v", fb)
+	}
+}
+
+// A setting written by hand that does not decode as the API writes it
+// counts as not set.
+func TestReadSiteIgnoresASettingItCannotRead(t *testing.T) {
+	st := memstore.New()
+	putSetting(t, st, store.SettingSchoolQuotas, `{"per_owner_day": 7, "per_asker_day": 3, "burst": 1}`)
+	putSetting(t, st, store.SettingOCR, `{"enabled": "yes"}`)
+	putSetting(t, st, "other", `{"x": 1}`)
+	site, err := ReadSite(t.Context(), st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if site.Quotas != nil || site.OCR.Enabled != nil || len(site.Offers) != 0 {
+		t.Errorf("ReadSite = %+v", site)
 	}
 }

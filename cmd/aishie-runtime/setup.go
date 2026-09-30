@@ -81,6 +81,13 @@ func usdWithoutPrices(cfg *config.Config, t *pricing.Table, at time.Time) []stri
 			}
 		}
 	}
+	return append(out, agentsUSDWithoutPrices(cfg, t, at)...)
+}
+
+// agentsUSDWithoutPrices is usdWithoutPrices of cfg's agents alone: of an
+// agent on an offer of the school's plan, the offer's model is its own.
+func agentsUSDWithoutPrices(cfg *config.Config, t *pricing.Table, at time.Time) []string {
+	var out []string
 	for _, a := range cfg.Agents {
 		views := []*config.Effective{{Agent: *a, Enabled: true}}
 		courses := make([]string, 0, len(a.Courses))

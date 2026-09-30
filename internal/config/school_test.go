@@ -206,3 +206,73 @@ func TestSchoolOfferSection(t *testing.T) {
 		t.Fatalf("model: %+v", m)
 	}
 }
+
+// The site's settings over runtime.yaml's plan (WithSite): the site's
+// offers after runtime.yaml's, but one whose id runtime.yaml's has, or
+// whose model the lists do not allow, which Withheld says why of; and the
+// site's quotas in answers in place of runtime.yaml's, the dollars kept,
+// and per_day null for no ceiling. Applied again, its offers replace
+// those applied before.
+func TestWithSite(t *testing.T) {
+	ten, two := 10, 2.5
+	rt := Runtime{
+		DeniedModels: []string{"*:*:*-preview"},
+		School: School{
+			Offers:      []SchoolOffer{{ID: "standard", Label: "School AI", Adapter: "anthropic", Model: "claude-haiku-4-5", KeyRef: "secret://school/keys/a"}},
+			PerOwnerDay: Quota{USD: &two},
+			PerDay:      Quota{Answers: &ten},
+		},
+	}
+	site := func(id, model string) SchoolOffer {
+		return SchoolOffer{ID: id, Label: "Site " + id, Adapter: "openai_chat", Provider: "deepseek", Model: model, BaseURL: "https://api.deepseek.com",
+			KeyRef: "sealed://sec_" + id, Site: true}
+	}
+	fifty, five := 50, 5
+	s := Site{
+		Offers: []SchoolOffer{site("fast", "deepseek-chat"), site("standard", "deepseek-chat"), site("preview", "deepseek-v9-preview")},
+		Quotas: &SiteQuotas{PerOwnerDay: fifty, PerAskerDay: five},
+	}
+	for _, c := range []struct {
+		o    SchoolOffer
+		want string
+	}{{s.Offers[0], ""}, {s.Offers[1], WithheldIDTaken}, {s.Offers[2], WithheldModelNotAllowed}} {
+		if got := rt.Withheld(c.o); got != c.want {
+			t.Errorf("Withheld(%s) = %q, want %q", c.o.ID, got, c.want)
+		}
+	}
+	allowed := rt
+	allowed.AllowedModels = []string{"anthropic:*:*"}
+	if got := allowed.Withheld(s.Offers[0]); got != WithheldModelNotAllowed {
+		t.Errorf("an offer runtime.allowed_models does not list: %q", got)
+	}
+
+	got := rt.WithSite(s)
+	var ids []string
+	for _, o := range got.School.Offers {
+		ids = append(ids, o.ID)
+	}
+	if strings.Join(ids, " ") != "standard fast" || got.School.Offers[0].Site || !got.School.Offers[1].Site {
+		t.Fatalf("the plan's offers: %+v", got.School.Offers)
+	}
+	sc := got.School
+	if *sc.OwnerQuota().Answers != 50 || *sc.AskerQuota().Answers != 5 || sc.PerDay.Answers != nil || sc.PerOwnerDay.USD == nil || *sc.PerOwnerDay.USD != 2.5 {
+		t.Errorf("the plan's quotas: %+v", sc)
+	}
+	if len(got.Site.Offers) != 3 || got.Site.Quotas == nil {
+		t.Errorf("the site's settings are not kept: %+v", got.Site)
+	}
+	if len(rt.School.Offers) != 1 || *rt.School.PerDay.Answers != 10 {
+		t.Errorf("runtime.yaml's settings were changed: %+v", rt.School)
+	}
+
+	// Applied again: the site's offers replace those applied before; with
+	// no site settings, runtime.yaml's quotas and offers stand.
+	again := got.WithSite(Site{Offers: []SchoolOffer{site("fast", "deepseek-chat")}, Quotas: &SiteQuotas{PerOwnerDay: 1, PerAskerDay: 1, PerDay: &ten}})
+	if len(again.School.Offers) != 2 || *again.School.PerDay.Answers != 10 || *again.School.OwnerQuota().Answers != 1 {
+		t.Errorf("applied again: %+v", again.School)
+	}
+	none := rt.WithSite(Site{})
+	if len(none.School.Offers) != 1 || *none.School.OwnerQuota().Answers != DefaultPerOwnerDay || *none.School.PerDay.Answers != 10 {
+		t.Errorf("no site settings: %+v", none.School)
+	}
+}
