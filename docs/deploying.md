@@ -238,7 +238,8 @@ how it works and how it is held in.
 
 - **The image** is Debian 13 slim with those packages, instead of
   distroless: some 240 MB unpacked and 92 MB to pull (for amd64), where it
-  was 30 MB and 10 MB. It still runs as `65532:65532`, with the same
+  was 30 MB and 10 MB; LibreOffice more than doubles that
+  ([below](#presentations-and-documents-libreoffice)). It still runs as `65532:65532`, with the same
   entrypoint, and needs nothing new of `aishie-runtime-deploy`.
 - **What it costs:** one CPU while a file is read, at a lower priority
   than the runtime's own work, so that answering is not starved. At the
@@ -289,11 +290,18 @@ older or OpenDocument document is the text of its PDF. `.xls` and `.ods`
 are converted to `.xlsx` and read as any workbook. `docs/design.md` §4
 (Office files) has how it works and how it is held in.
 
-- **The image** grows by LibreOffice, and Noto's CJK fonts, so that a
-  Chinese slide is drawn in a Chinese font, simplified and traditional,
-  and its PDF keeps its text: some 600 MB more unpacked. It still runs as
-  `65532:65532`, with the same entrypoint, and needs nothing new of
-  `aishie-runtime-deploy`.
+- **The image** holds LibreOffice 25.2 (Debian 13's `-nogui` packages), the
+  fonts Office files are laid out in (Liberation, Carlito, Caladea, whose
+  widths are Arial's, Calibri's and Cambria's), and Noto's CJK fonts, so
+  that a Chinese slide, simplified or traditional, is drawn in a Chinese
+  font, each script in its own forms, and its PDF keeps its text: some 710
+  MB unpacked and 305 MB to pull (for amd64), where it was 250 MB and 95
+  MB. LibreOffice and what it needs are most of that; Noto's CJK fonts are
+  90 MB of it (WenQuanYi's Zen Hei would be 16 MB, but draws the
+  characters both scripts share in the mainland's forms alone, and lacks
+  many beyond GBK and Big5). It
+  still runs as `65532:65532`, with the same entrypoint, and needs nothing
+  new of `aishie-runtime-deploy`.
 - **What it costs:** one CPU while a file converts, at a lower priority than
   the runtime's own work, and some 400 MB of memory within the 2 GiB it
   may have (`OFFICE_PDF_MEMORY_MB`). A lecture of 38 slides converts in
