@@ -404,6 +404,13 @@ func (c *claim) post(ctx context.Context, r passResult, body, kind string) passR
 		safe, _ = safety.Body(c.eff.Prompt.OnBudgetText, c.eff.Answer.MaxBodyChars)
 		kind = kindBudget
 	}
+	if rep.Truncated && kind == kindModel && !r.stats.Truncated {
+		// Longer than an answer may be: cut, and it says so, as an answer
+		// cut short at the output cap does (continue.go).
+		safe, _ = safety.Body(withNote(body, c.eff.Prompt.OnTruncatedText, c.eff.Answer.MaxBodyChars), c.eff.Answer.MaxBodyChars)
+		r.stats.Truncated = true
+		c.a.s.o.Metrics.BudgetExhausted.WithLabelValues(budgetTruncated).Inc()
+	}
 	if rep.LinksRemoved+rep.ImagesRemoved > 0 || rep.Truncated {
 		c.s.log.Info("the answer was made safe to post", "conversation", c.conv, "message", r.msg,
 			"links_removed", rep.LinksRemoved, "images_removed", rep.ImagesRemoved, "truncated", rep.Truncated)

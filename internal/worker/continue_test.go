@@ -323,6 +323,22 @@ func TestContinuationEnds(t *testing.T) {
 	}
 }
 
+// TestAnswerTooLongToPostSaysSo: an answer the model ended, longer than
+// answer.max_body_chars, is cut to fit, and says so as an answer cut short
+// at the cap does.
+func TestAnswerTooLongToPostSaysSo(t *testing.T) {
+	long := strings.Repeat("Each lab builds on the one before. ", 20)
+	model := scripted.New(scripted.Reply(long))
+	body, wk, line := cutOff(t, model, map[string]any{"answer": map[string]any{"max_body_chars": 300}})
+	if n := utf8.RuneCountInString(body); n > 300 || !strings.HasPrefix(body, "Each lab") || !strings.HasSuffix(body, "…\n\n"+config.DefaultTruncatedText) {
+		t.Errorf("%d characters: %q", n, body)
+	}
+	if line["truncated"] != true || line["outcome"] != store.OutcomePosted ||
+		counter(t, wk.reg, "budget_exhausted_total", map[string]string{"budget": budgetTruncated}) != 1 {
+		t.Errorf("the answer's log line: %v", line)
+	}
+}
+
 func TestJoinPiece(t *testing.T) {
 	for _, c := range []struct{ text, piece, want string }{
 		{"It is due on Fri", "day.", "It is due on Friday."},

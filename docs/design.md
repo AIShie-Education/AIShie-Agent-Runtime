@@ -1005,6 +1005,8 @@ For an inbox row (conversation X, question M, opener P):
    `truncated`.
 8. **Safety** (`safety.Body`, §7 below): links and images whose URLs carry
    context stripped, cut to `max_body_chars` on a paragraph or sentence.
+   The model's answer so cut ends with `on_truncated_text`, as one cut
+   short at the output cap does (step 7), and is counted with them.
 9. **Post**, written ahead: the attempt is stored (`sending`, the exact
    bytes) before `conversation_answer`, and finished with what came back.
 10. **Outcome** (§2.4, `worker.Classify`):
@@ -1418,10 +1420,10 @@ which a long answer, in Chinese with a table, overran, and was cut off.
   one attempt; the last continuation, its room less than a cap by the
   output tokens, by the body at the answer's characters a token, or by
   the wall clock at its pace, told that room and to close; one still cut
-  off, one whose continuation fails, and a last turn forced by the wall
-  clock, posted with `on_truncated_text`; a last turn forced by the turns
-  continued; and no continuation past the output tokens, the input tokens,
-  the wall clock or the body. The end to end (`long-answer-continued`) has
+  off, one whose continuation fails, a last turn forced by the wall clock,
+  and an answer too long to post whole, posted with `on_truncated_text`;
+  a last turn forced by the turns continued; and no continuation past the
+  output tokens, the input tokens, the wall clock or the body. The end to end (`long-answer-continued`) has
   Yuki's agent's model cut off at `finish_reason: length`, and sees the
   continuation asked with the answer so far and no tools, one answer
   posted of the two pieces, and, where Core takes drafts, its text growing
