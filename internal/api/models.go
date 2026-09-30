@@ -354,4 +354,4 @@ func (m *modelSection) config() config.Model {
 
 // defaultOutputTokens is the runtime's built-in output bound
 // (config.Defaults).
-const defaultOutputTokens = 2000
+const defaultOutputTokens = 4000

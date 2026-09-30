@@ -17,7 +17,7 @@ model:
     provider: ""
     region: ""
     params:
-        max_output_tokens: 2000
+        max_output_tokens: 4000
         temperature: null
         top_p: null
     reasoning:
@@ -36,8 +36,8 @@ prompt:
     answer_language: opener
     on_refusal_text: I can't help with that here. Please ask your instructor.
     on_budget_text: I couldn't finish this one. Try a narrower question.
+    on_truncated_text: （回答已達長度上限而中斷，回覆「繼續」可看後續。The answer reached its length limit; reply “continue” for the rest.）
     on_quota_text: I've answered as many questions as I can today. Please try again tomorrow, or ask your instructor.
-    close_reason_text: I couldn't produce an answer to this after several tries, so I've closed this conversation. Please ask again, or ask your instructor.
 tools:
     mode: derived
     allow: []
@@ -46,7 +46,7 @@ tools:
     max_parallel_tools: 4
 answer:
     max_attempts: 3
-    on_attempts_exhausted: close
+    on_attempts_exhausted: skip
     on_quota_exhausted: canned
     max_body_chars: 19000
     history_messages: 30
@@ -58,8 +58,8 @@ budgets:
         tool_calls: 12
         max_writes: 10
         input_tokens: 150000
-        output_tokens: 4000
-        wall_clock_s: 90
+        output_tokens: 12000
+        wall_clock_s: 180
     per_agent_day:
         usd: null
         answers: null

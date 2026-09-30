@@ -120,9 +120,10 @@ func TestDefaultsGolden(t *testing.T) {
 	// Spot checks against design §9, in case the golden file is rewritten
 	// carelessly.
 	if a.Core.Transport != "mcp" || a.Core.MCPProtocol != "2025-11-25" || a.Model.KeySource != "own" ||
-		a.Model.Params.MaxOutputTokens != 2000 || a.Tools.MaxParallelTools != 4 || a.Answer.MaxBodyChars != 19000 ||
-		a.Budgets.PerAnswer.WallClock() != 90*time.Second || a.Budgets.PerAgentDay.set() || a.Budgets.PerAskerDay.set() ||
-		a.Polling.MaxRateShare != 0.3 || a.Polling.AssumedCoreBurst != 100 || !a.Memory.Enabled {
+		a.Model.Params.MaxOutputTokens != 4000 || a.Tools.MaxParallelTools != 4 || a.Answer.MaxBodyChars != 19000 ||
+		a.Budgets.PerAnswer.OutputTokens != 12000 || a.Budgets.PerAnswer.WallClock() != 180*time.Second ||
+		a.Budgets.PerAgentDay.set() || a.Budgets.PerAskerDay.set() ||
+		a.Polling.MaxRateShare != 0.3 || a.Polling.AssumedCoreBurst != 100 || !a.Memory.Enabled || a.Prompt.OnTruncatedText != DefaultTruncatedText {
 		t.Fatalf("defaults: %+v", a)
 	}
 }
@@ -476,7 +477,7 @@ func TestForCourseOfAnAgentBuiltInCode(t *testing.T) {
 	a := &Agent{ID: "coded", DisplayName: "Coded"}
 	a.Core = Core{BaseURL: "https://lms.example.edu", Transport: "mcp", MCPProtocol: DefaultMCPProtocol, TokenRef: "env://T"}
 	a.Model = Model{Adapter: "openai_chat", Model: "m", KeyRef: "env://K", KeySource: KeyOwn, Params: ModelParams{MaxOutputTokens: 100}}
-	a.Prompt = Prompt{AnswerLanguage: "opener", OnRefusalText: "r", OnBudgetText: "b", OnQuotaText: "q", CloseReasonText: "c"}
+	a.Prompt = Prompt{AnswerLanguage: "opener", OnRefusalText: "r", OnBudgetText: "b", OnTruncatedText: "t", OnQuotaText: "q", CloseReasonText: "c"}
 	a.Tools = Tools{Mode: "derived", MaxParallelTools: 1}
 	a.Answer = Answer{MaxAttempts: 1, OnAttemptsExhausted: "close", OnQuotaExhausted: "canned", MaxBodyChars: 1000, HistoryMessages: 10, MaxConcurrent: 1, MaxConcurrentPerCourse: 1}
 	a.Budgets = Budgets{PerAnswer: PerAnswer{Turns: 1, ToolCalls: 1, InputTokens: 1, OutputTokens: 1, WallClockS: 1}}

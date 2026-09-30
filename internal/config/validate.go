@@ -23,8 +23,6 @@ import (
 const (
 	// CoreMaxBodyChars is the most characters a message may have.
 	CoreMaxBodyChars = 20000
-	// CoreMaxCloseReason is the most characters a closing reason may have.
-	CoreMaxCloseReason = 500
 )
 
 // MaxWritesPerAnswer bounds budgets.per_answer.max_writes: an answer that
@@ -39,6 +37,9 @@ const (
 	// MaxPromptAppendText is the most characters a course's
 	// prompt_append_text may have.
 	MaxPromptAppendText = 4000
+	// MaxTruncatedText is the most characters prompt.on_truncated_text
+	// may have: a line after the answer, which takes its place in it.
+	MaxTruncatedText = 500
 )
 
 var (
@@ -468,11 +469,13 @@ func checkPrompt(is *issues, a *Agent) {
 			is.add(t.path, "is %d characters; an answer has at most %d (answer.max_body_chars)", n, maxBody)
 		}
 	}
-	switch n := utf8.RuneCountInString(strings.TrimSpace(p.CloseReasonText)); {
+	switch n := utf8.RuneCountInString(strings.TrimSpace(p.OnTruncatedText)); {
 	case n == 0:
-		is.add("prompt.close_reason_text", "required: it is the reason given when a conversation is closed")
-	case n > CoreMaxCloseReason:
-		is.add("prompt.close_reason_text", "is %d characters; Core takes at most %d", n, CoreMaxCloseReason)
+		is.add("prompt.on_truncated_text", "required: it is posted after an answer cut short, so that none ends mid-sentence unexplained")
+	case n > MaxTruncatedText:
+		is.add("prompt.on_truncated_text", "is %d characters; at most %d: it is a line after the answer, within answer.max_body_chars", n, MaxTruncatedText)
+	case n > maxBody:
+		is.add("prompt.on_truncated_text", "is %d characters; an answer has at most %d (answer.max_body_chars)", n, maxBody)
 	}
 	checkText(is, "prompt.system", p.SystemRef, p.SystemText, MaxSystemText)
 	if p.SystemRef != "" {
@@ -518,8 +521,11 @@ func checkAnswer(is *issues, a Answer) {
 	if a.MaxAttempts < 1 || a.MaxAttempts > 10 {
 		is.add("answer.max_attempts", "must be from 1 to 10")
 	}
-	if a.OnAttemptsExhausted != OnExhaustedClose && a.OnAttemptsExhausted != OnExhaustedSkip {
-		is.add("answer.on_attempts_exhausted", "%q is not close or skip", redact.String(a.OnAttemptsExhausted))
+	// close is decoded as skip (decodeAgent), and taken as skip from an
+	// Agent built in code.
+	if a.OnAttemptsExhausted != OnExhaustedSkip && a.OnAttemptsExhausted != OnExhaustedClose {
+		is.add("answer.on_attempts_exhausted", "%q is not skip, which holds a message whose attempts are spent back until the next day",
+			redact.String(a.OnAttemptsExhausted))
 	}
 	if a.OnQuotaExhausted != OnQuotaCanned && a.OnQuotaExhausted != OnQuotaSilent {
 		is.add("answer.on_quota_exhausted", "%q is not canned or silent", redact.String(a.OnQuotaExhausted))

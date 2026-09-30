@@ -58,6 +58,9 @@ type Supervisor struct {
 	// rejected are the registry's agents not run, and why, whose state has
 	// been written.
 	rejected map[string]rejection
+	// deprecated is the runtime document's deprecated settings last
+	// logged (warnDeprecated).
+	deprecated string
 	// cats are Core's catalogues, fetched once per base URL.
 	cats map[string]*catEntry
 	// actors are the Core actors this worker's agents run as, by base URL
@@ -254,8 +257,10 @@ func (s *Supervisor) apply(ctx context.Context) {
 	}
 	var changes []change
 	// rewrite are agents whose hosted row moved on to a version that runs
-	// them as they run: their state is written again for it.
+	// them as they run: their state is written again for it. fresh are
+	// those new or changed, whose deprecated settings are logged.
 	var rewrite []*runner
+	var fresh []*config.Agent
 	for id, r := range s.runners {
 		a, ok := want[id]
 		switch {
@@ -265,6 +270,7 @@ func (s *Supervisor) apply(ctx context.Context) {
 			changes = append(changes, change{r, true, ""})
 		case !sameRun(r.cfg, a):
 			changes = append(changes, change{r: r})
+			fresh = append(fresh, a)
 			r.cfg, r.blocked, r.failures, r.retryAt = a, false, 0, time.Time{}
 		case retry && (r.blocked || r.state == store.AgentError):
 			r.cfg, r.blocked, r.failures, r.retryAt = a, false, 0, time.Time{}
@@ -294,6 +300,7 @@ func (s *Supervisor) apply(ctx context.Context) {
 	for id, a := range want {
 		if _, ok := s.runners[id]; !ok && !a.Paused {
 			s.runners[id] = &runner{id: id, cfg: a}
+			fresh = append(fresh, a)
 		}
 	}
 	var nowPaused []string
@@ -325,6 +332,7 @@ func (s *Supervisor) apply(ctx context.Context) {
 	}
 	s.mu.Unlock()
 
+	s.warnDeprecated(cfg, fresh)
 	for _, c := range changes {
 		s.stopRunner(c.r, 0)
 		if !c.remove {
@@ -365,6 +373,35 @@ func (s *Supervisor) apply(ctx context.Context) {
 		s.rewriteState(ctx, r)
 	}
 	s.updateGauge()
+}
+
+// warnDeprecated logs the deprecated settings (config.Deprecated) of cfg's
+// runtime document, when they changed, and of agents, new or changed in
+// it: they are taken, and the agents run as the runtime does now, not as
+// the settings say. What a setting holds is not logged: a hosted agent's
+// are its owner's words.
+func (s *Supervisor) warnDeprecated(cfg *config.Config, agents []*config.Agent) {
+	const msg = "a deprecated setting is taken, and the agents run as the runtime does now"
+	rt := cfg.Deprecated()
+	var key strings.Builder
+	for _, p := range rt {
+		key.WriteString(p.Error() + "\n")
+	}
+	s.mu.Lock()
+	changed := key.String() != s.deprecated
+	s.deprecated = key.String()
+	s.mu.Unlock()
+	if changed {
+		for _, p := range rt {
+			s.log.Warn(msg, "source", p.File, "path", p.Path, "detail", p.Msg)
+		}
+	}
+	slices.SortFunc(agents, func(x, y *config.Agent) int { return strings.Compare(x.ID, y.ID) })
+	for _, a := range agents {
+		for _, p := range a.Deprecated() {
+			s.log.Warn(msg, "agent", a.ID, "source", p.File, "path", p.Path, "detail", p.Msg)
+		}
+	}
 }
 
 // rewriteState writes r's state again, for the version of its hosted row

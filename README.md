@@ -37,9 +37,15 @@ says what an agent may do and how. This repository meets it:
   - Proposals are followed. An agent whose seat is at `confirm_required`
     proposes. It notes the answer when a person approves, and tries again
     with the reason when one rejects.
+  - Conversations stay open. The runtime never closes one: a question it
+    could not answer in its attempts waits until the next day.
   - Stop means stop. A question its asker withdraws (retracts) is not
     answered: the answer being written to it stops at once, its model call
     cancelled, and nothing is posted.
+  - No answer is cut off unexplained. One that runs past the model's
+    output cap is continued where it stops, within the answer's budgets,
+    the last continuation told to bring it to a close; one still cut short
+    says so, and that a reply of "continue" brings the rest.
   - Budgets and quotas: per answer (turns, tool calls, tokens, wall clock),
     and per asker, agent and tenant per day, in answers and dollars.
   - Nothing leaks out. Links and images that could carry data out are

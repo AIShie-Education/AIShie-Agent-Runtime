@@ -323,6 +323,39 @@ agent:
 	}
 }
 
+// TestBuildTakesDeprecatedSettings: a hosted agent whose settings were
+// written when the runtime closed a conversation whose attempts were spent
+// still runs: on_attempts_exhausted close is taken as skip, in the agent's
+// settings and a course's, and close_reason_text is taken and unused; each
+// is listed as deprecated, under the registry's name for the agent.
+func TestBuildTakesDeprecatedSettings(t *testing.T) {
+	st := hostedStore(t, []store.HostedAgent{row("agt_old", `{"model": {"adapter": "openai_chat", "model": "gpt-4.1-mini", "key_source": "own"},
+		"answer": {"on_attempts_exhausted": "close"}, "prompt": {"close_reason_text": "Closed after three tries."}}`)},
+		store.HostedCourse{AgentID: "agt_old", CourseID: course1, Settings: json.RawMessage(`{"answer": {"on_attempts_exhausted": "close"}}`)})
+	cfg, _, err := Build(t.Context(), yamlConfig(t, ""), st, Options{CoreBaseURL: core, Allowlist: []string{core}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := agentIDs(cfg); !slices.Equal(got, []string{"a1", "agt_old"}) {
+		t.Fatalf("agents %v; rejected %v", got, rejectedWhy(cfg))
+	}
+	old := cfg.Agents[1]
+	e, err := old.ForCourse(course1)
+	if err != nil || old.Answer.OnAttemptsExhausted != config.OnExhaustedSkip || e.Answer.OnAttemptsExhausted != config.OnExhaustedSkip {
+		t.Errorf("on_attempts_exhausted %q, in its course %+v, %v", old.Answer.OnAttemptsExhausted, e.Answer, err)
+	}
+	var paths []string
+	for _, p := range old.Deprecated() {
+		if p.File != "registry:agt_old" {
+			t.Errorf("%v", p)
+		}
+		paths = append(paths, p.Path)
+	}
+	if want := []string{"agent.answer.on_attempts_exhausted", "agent.prompt.close_reason_text", "courses." + course1 + ".answer.on_attempts_exhausted"}; !slices.Equal(paths, want) {
+		t.Errorf("deprecated %v, want %v", paths, want)
+	}
+}
+
 // TestBuildWrites: a hosted agent's owner is known, so its model is
 // offered its writes unless its owner turned them off, whatever the
 // runtime's defaults say; a YAML agent has none unless its configuration

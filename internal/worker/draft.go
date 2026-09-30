@@ -18,10 +18,11 @@ import (
 // An answer's draft (docs/design.md §5.3, Drafts). While the model works on
 // an answer, whoever reads the conversation sees what it does (its steps:
 // thinking, reading a document, …) and, where its adapter streams, the
-// round's text as it is written; the posted answer then takes the draft's
-// place, as Core clears it when it posts or proposes the answer. The
-// runtime writes it with conversation_draft, where the live catalogue has
-// it (core.Catalogue.Drafts); against a Core without it, nothing.
+// round's text as it is written, after the answer so far when the round
+// continues one the output cap cut short; the posted answer then takes the
+// draft's place, as Core clears it when it posts or proposes the answer.
+// The runtime writes it with conversation_draft, where the live catalogue
+// has it (core.Catalogue.Drafts); against a Core without it, nothing.
 //
 // A draft is best effort: nothing the loop does waits for it, and nothing
 // that befalls it touches the answer. The loop only changes the draft's
@@ -107,7 +108,11 @@ type attemptDraft struct {
 	steps   []*core.DraftStep
 	// calls are the steps of the round's tool calls, by call id.
 	calls map[string]*core.DraftStep
-	text  strings.Builder
+	// text is the round's text as the model writes it, after kept: the
+	// answer so far, when the round continues one the output cap cut
+	// short (continue.go).
+	kept string
+	text strings.Builder
 	// changed: since it was last sent; sent: a write of it was sent;
 	// textSent: one carried text, so that text cleared is sent cleared.
 	changed, sent, textSent bool
@@ -214,13 +219,30 @@ func (d *drafter) round() {
 	d.change(func(c *attemptDraft) bool {
 		c.finish()
 		c.add(&core.DraftStep{Kind: core.StepThinking, State: core.StepRunning})
+		c.kept = ""
+		c.text.Reset()
+		return true
+	})
+}
+
+// continues is a model call starting that continues the answer, whose
+// text so far is sofar: the draft shows it, and what the call writes
+// after it; its steps are left as they are, the answer still being
+// written.
+func (d *drafter) continues(sofar string) {
+	d.change(func(c *attemptDraft) bool {
+		if c.kept == sofar && c.text.Len() == 0 {
+			return false
+		}
+		c.kept = sofar
 		c.text.Reset()
 		return true
 	})
 }
 
 // again is the model call being made again (after a retryable failure, or
-// by the fallback): the text it had written so far is no answer.
+// by the fallback): the text it had written so far is no answer, though
+// the answer it continues, if any, still is.
 func (d *drafter) again() {
 	d.change(func(c *attemptDraft) bool {
 		if c.text.Len() == 0 {
@@ -415,7 +437,7 @@ func (d *drafter) next() (core.DraftArgs, bool) {
 	for _, s := range c.steps {
 		args.Steps = append(args.Steps, *s)
 	}
-	if text := c.text.String(); text != "" || c.textSent {
+	if text := c.kept + c.text.String(); text != "" || c.textSent {
 		text = cutChars(text, maxDraftChars)
 		args.Text, c.textSent = &text, true
 	}

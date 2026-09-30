@@ -695,8 +695,9 @@ the budget or one kept off a seat), and in one log line each, with its tool, num
 error code and action, which with Core's own action log is the audit of
 what the agent did. An executed or proposed write is noted in the
 conversation's memory. A proposal of a model's write is its owner's to
-follow in Core: the events poller settles only the runtime's own answers
-and closes, and such a proposal does not hold the actions cursor back.
+follow in Core: the events poller settles only the runtime's own answers,
+and the closes an earlier version proposed, and such a proposal does not
+hold the actions cursor back.
 
 Calls in one turn run at most `max_parallel_tools` at once; results go back
 in call order.
@@ -911,8 +912,16 @@ For an inbox row (conversation X, question M, opener P):
 2. **Unsettled attempt?** An attempt at M found `sending` (a crash, a
    timeout) is sent again with its stored bytes before anything else.
 3. **Attempt number**: one more than the attempts at M so far, all settled
-   without posting. Past `max_attempts`: close X (`close:{X}`, the configured
-   reason) or skip it until tomorrow, per `on_attempts_exhausted`.
+   without posting. Past `max_attempts`: skip it until tomorrow
+   (`on_attempts_exhausted: skip`), X left open. The runtime closes no
+   conversation, where §2.4 closes X (`close:{X}`): nothing ends a
+   conversation in the product any more. A configuration written before
+   that still says `close` is taken, and done as `skip`; its
+   `prompt.close_reason_text` is taken, and unused. Each is logged as
+   deprecated when the configuration is put in force, and `check` shows
+   it. A close an earlier version wrote ahead and left `sending`, or
+   proposed and left waiting for a person, is still settled as it was
+   (§5.4).
 4. **Quota** (§5.3): the asker's day (course, P), the agent's day, the
    tenant's day, each in answers and dollars; dollars checked against the
    p95 of the agent's recent answers. A dollar quota already spent is out;
@@ -942,18 +951,23 @@ For an inbox row (conversation X, question M, opener P):
 7. **Loop** (§7.1) with the seat's toolset, its writes only when the
    owner opened X (§4), bounded by `per_answer`; the writes, by
    `max_writes`, each keyed for this attempt. Stop
-   `end` gives the body. `max_tokens` with partial text is tried once more
-   with twice the cap; `content_filter` and `refusal` give
-   `on_refusal_text`; `context_overflow` halves the history and tries once
-   more; `tool_error` retries the turn once. A spent budget takes a last
-   turn with ForceAnswer, and gives `on_budget_text` if that has no text.
+   `end` gives the body. `max_tokens` with text is continued, not written
+   again (below); with none, its thinking or a tool call it did not finish
+   having taken the cap, the turn is tried once more with twice the cap.
+   `content_filter` and `refusal` give `on_refusal_text`;
+   `context_overflow` halves the history and tries once more; `tool_error`
+   retries the turn once. A spent budget takes a last turn with
+   ForceAnswer, and gives `on_budget_text` if that has no text.
    `turns` is a hard cap: the last call it allows is the forced one, and a
-   provider's error is not a turn. The output-token budget forces the last
+   provider's error is not a turn, nor a continuation (below). The output-token budget forces the last
    turn as soon as what is left cannot hold a whole one, and caps it at what
    is left; tool calls past their budget get an error result and never reach
    Core. A last turn forced by the wall clock gets min(wall clock / 6, 15 s)
    more; the claim's Core calls stop at the wall clock plus 25 s, inside the
-   lease. A provider that cannot be reached is tried up to three times
+   lease. A call is given the wall clock left, at most 120 s: §7.1's 60 s
+   was for a cap of 2,000 tokens, and a whole cap of the default 4,000 at a
+   slow provider's pace takes about two minutes, where a timeout would lose
+   the answer. A provider that cannot be reached is tried up to three times
    with backoff within the wall clock (honouring `Retry-After`), then the
    fallback model, which an auth or bad-request error also moves to. While a
    fallback remains, a call gets two thirds of the time left, and one that
@@ -961,8 +975,38 @@ For an inbox row (conversation X, question M, opener P):
    leaves its fallback time to answer. If all fail, nothing is posted and
    X is held back for a minute, doubling to ten; after five such failures
    on M (counted in memory), `on_budget_text` is posted.
+
+   An answer the output cap of its call cuts off (`max_tokens` with text,
+   on any turn, a forced one too) is continued where it stops
+   (`worker/continue.go`): the model is given the answer so far as its own
+   message and the runtime's word to go on from exactly there, repeating
+   nothing (`prompt.Continue`), with no tools; what it writes is joined to
+   the answer, less any of the answer's end it writes again, and so on
+   while the cap cuts it off. That is one way for every adapter: an
+   assistant prefill, where an API has one, is refused by the models that
+   think. A continuation is a model call of its own in the ledger but not a
+   turn, as turns bound the rounds of tool calls before the answer; it
+   writes within what is left of the output tokens, starts only before the
+   wall clock is spent and while the input tokens are not, and adds to an
+   answer held to `max_body_chars`, less `on_truncated_text`. Its room is
+   the least of what is left of those, the wall clock's and the body's at
+   the pace, and the characters a token, the answer has been written at so
+   far. One whose room cannot hold a whole cap, or whose input spends the
+   input tokens, is the last: it is told its room, to close the answer
+   within it, and else to end by saying, in the answer's language, that it
+   was cut short and that the asker can reply "continue" for the rest. Like
+   a forced turn, it is given min(wall clock / 6, 15 s) if the wall clock
+   runs out while it writes. An answer still cut off with no room left, or
+   whose continuation fails, is posted as the model's with
+   `on_truncated_text` in a paragraph after it: its text cut, and a code
+   block it leaves open closed, so that the note fits and reads as one. It
+   is counted in `budget_exhausted_total{budget="truncated"}`, and the
+   answer's log line gives its `continuations` and whether it was
+   `truncated`.
 8. **Safety** (`safety.Body`, §7 below): links and images whose URLs carry
    context stripped, cut to `max_body_chars` on a paragraph or sentence.
+   The model's answer so cut ends with `on_truncated_text`, as one cut
+   short at the output cap does (step 7), and is counted with them.
 9. **Post**, written ahead: the attempt is stored (`sending`, the exact
    bytes) before `conversation_answer`, and finished with what came back.
 10. **Outcome** (§2.4, `worker.Classify`):
@@ -986,8 +1030,7 @@ For an inbox row (conversation X, question M, opener P):
     the model made counted by what Core said of them; metrics; release the
     lease.
 
-Every claimed message ends answered, proposed, closed, or with a recorded
-outcome.
+Every claimed message ends answered, proposed, or with a recorded outcome.
 
 **A question withdrawn.** The opener withdraws what they asked ("stop" in
 the chat) by retracting their newest message, and from then nothing waits
@@ -1049,8 +1092,11 @@ takes its place.
   kept. Its text is the current model call's text so far (streamed, §3),
   replaced whole with each write, at most 20,000 characters; the next call
   starts it from nothing, and so does a try made again after a stream cut
-  off or a provider's failure, or by the fallback. An adapter that does not
-  stream shows steps alone.
+  off or a provider's failure, or by the fallback. A continuation of an
+  answer the output cap cut off (step 7) shows the answer so far and what
+  it writes after it, its steps left as they were, so that the draft grows
+  through it; a try made again starts again from the answer so far. An
+  adapter that does not stream shows steps alone.
 - It is written through one drafter per conversation (so one write in
   flight per conversation, across the attempts and claims of it): the loop
   only changes the draft's state under a lock and wakes it, and its
@@ -1103,11 +1149,12 @@ The events poller reads `event_list` from the seat's cursor:
 Core makes a proposal's action during the call that sends the attempt, and
 a person may decide it before the store has recorded the attempt as
 proposed. A decision on an action the store does not know, of an answer or
-a close (its `payload.action_type`), read while one of the seat's attempts
-is being sent, stops that read: the cursor stays before its page, and
-events are read again at once when no attempt is being sent, by when the
-store has the action. Without this, a decision read too soon would be
-passed over for good, and the attempt left `proposed` until a restart.
+of an earlier version's close (its `payload.action_type`), read while one
+of the seat's attempts is being sent, stops that read: the cursor stays
+before its page, and events are read again at once when no attempt is
+being sent, by when the store has the action. Without this, a decision
+read too soon would be passed over for good, and the attempt left
+`proposed` until a restart.
 
 `action_list_mine` is also read at start for proposals the store still has
 as `proposed`, so that a decision made while the runtime was down is found,
@@ -1267,15 +1314,16 @@ Postgres (`DATABASE_URL`) for anything that matters.
 
 ## 9. Defaults
 
-The built-in defaults are §4's example: MCP at `2025-11-25`; tools derived,
+The built-in defaults are §4's example: MCP at `2025-11-25`; the owner's own
+key and 4,000 output tokens a call; tools derived,
 the read tools of §2.3 and every gated read (a document's versions, where
 students stand on an assignment, the roster, the queues of proposals) and
 the gated writes allowed, writes off (`tools.writes`, on for a hosted
 agent), four in parallel; three attempts,
-then close; the canned notice when out of quota; 19,000 characters; the
+then skip; the canned notice when out of quota; 19,000 characters; the
 newest 30 messages; eight answers at once per agent, four per course; per
 answer 8 turns, 12 tool calls of which at most 10 writes (`max_writes`),
-150,000 input and 4,000 output tokens, 90 s; no daily
+150,000 input and 12,000 output tokens, 180 s; no daily
 quotas unless set (a school key requires per-agent and per-asker ones, but
 an offer of the school's plan, whose quotas are 100 answers a day per
 owner and 20 per asker unless `runtime.school` sets them);
@@ -1290,7 +1338,9 @@ text given in parts of 24 KB within results of 32 KB, what was read kept
 per worker up to 32 MiB; OCR on where its programs are, in
 `chi_sim+chi_tra+eng`, 40 pages at 300 dpi, 90 s a page and 15 min a file,
 1 GiB a program, one file at a time per worker and eight waiting, the first
-question waiting 5 s for it.
+question waiting 5 s for it. The output tokens, a call's and an answer's,
+and the wall clock are more than §4's example (2,000, 4,000 and 90 s),
+which a long answer, in Chinese with a table, overran, and was cut off.
 
 ## 10. Tests
 
@@ -1363,6 +1413,28 @@ question waiting 5 s for it.
   withdraw her question while her agent's model has stalled part way
   through its streamed answer, and sees the model's request cancelled
   within seconds and no answer ever posted.
+- An answer the output cap cuts off, with the scripted model: continued
+  twice, the pieces joined in order and nothing twice (a table row, a
+  sentence or Chinese words written again left out), each continuation
+  given the answer so far, with no tools; the draft growing through it in
+  one attempt; the last continuation, its room less than a cap by the
+  output tokens, by the body at the answer's characters a token, or by
+  the wall clock at its pace, told that room and to close; one still cut
+  off, one whose continuation fails, a last turn forced by the wall clock,
+  and an answer too long to post whole, posted with `on_truncated_text`;
+  a last turn forced by the turns continued; and no continuation past the
+  output tokens, the input tokens, the wall clock or the body. The end to end (`long-answer-continued`) has
+  Yuki's agent's model cut off at `finish_reason: length`, and sees the
+  continuation asked with the answer so far and no tools, one answer
+  posted of the two pieces, and, where Core takes drafts, its text growing
+  through the continuation as Yuki watches.
+- Attempts spent: the question skipped until the next day and its
+  conversation left open, by default, with `skip`, and with `close`, which
+  is logged as deprecated; a close an earlier version left `sending`, sent
+  again at the seat's start and settled from Core's replay. `close` and
+  `close_reason_text` in `runtime.defaults`, an agent's settings, a
+  course's and a hosted agent's load, taken as `skip`, and are listed as
+  deprecated where they are written; `check` shows them.
 - `toolschema`: every tool of the pinned catalogue through every dialect and
   back through Core's schema.
 - `doctext`: decks, documents, workbooks and PDFs made byte by byte

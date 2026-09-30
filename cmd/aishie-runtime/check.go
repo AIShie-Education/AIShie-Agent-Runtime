@@ -73,6 +73,9 @@ func cmdCheck(ctx context.Context, args []string, getenv func(string) string, st
 			}
 		}
 	}
+	for _, d := range cfg.Deprecated() {
+		p("runtime: deprecated: %s: %s", d.Path, d.Msg)
+	}
 	hosted := 0
 	for _, a := range cfg.Agents {
 		describe(p, a)
@@ -164,6 +167,9 @@ func describe(p func(string, ...any), a *config.Agent) {
 	p("  answers: at most %d attempts, then %s; out of quota, %s; %d at once, %d a course",
 		a.Answer.MaxAttempts, a.Answer.OnAttemptsExhausted, a.Answer.OnQuotaExhausted, a.Answer.MaxConcurrent, a.Answer.MaxConcurrentPerCourse)
 	p("  quotas: per agent %s; per asker %s", quotaLine(a.Budgets.PerAgentDay), quotaLine(a.Budgets.PerAskerDay))
+	for _, d := range a.Deprecated() {
+		p("  deprecated: %s: %s", d.Path, d.Msg)
+	}
 	ids := make([]string, 0, len(a.Courses))
 	for id := range a.Courses {
 		ids = append(ids, id)

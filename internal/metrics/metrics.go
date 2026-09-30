@@ -91,7 +91,8 @@ func New(reg prometheus.Registerer) *Metrics {
 				"error (Core refused the call), unreachable (Core did not answer), refused (the answer's writes were spent).",
 		}, []string{"tool", "outcome"}),
 		BudgetExhausted: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "budget_exhausted_total", Help: "Budgets and quotas reached, by which.",
+			Name: "budget_exhausted_total",
+			Help: "Budgets and quotas reached, by which; truncated counts the answers posted cut short at their length, with prompt.on_truncated_text after them.",
 		}, []string{"budget"}),
 		LeaseTakeovers: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "lease_takeovers_total", Help: "Agents this worker took over from another worker whose lease had lapsed.",

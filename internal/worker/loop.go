@@ -19,9 +19,11 @@ import (
 )
 
 const (
-	// maxCallTimeout bounds one model call (§7.1: "timeout = min(60 s, the
-	// wall clock left)").
-	maxCallTimeout = 60 * time.Second
+	// maxCallTimeout bounds one model call, within the wall clock left.
+	// §7.1 has min(60 s, the wall clock left), for a cap of 2,000 tokens;
+	// at the default 4,000, a slow provider (some 35 tokens a second) needs
+	// about two minutes, and an answer the timeout cut off would be lost.
+	maxCallTimeout = 120 * time.Second
 	// modelTries is how often one adapter is called for one turn while its
 	// errors are retryable.
 	modelTries = 3
@@ -61,6 +63,13 @@ type loop struct {
 	// d is the conversation's drafter, which shows the asker what the
 	// loop does (draft.go); nil against a Core that takes no drafts.
 	d *drafter
+	// cont is the answer being continued while a continuation is asked
+	// for (continue.go); nil on a turn.
+	cont *continuation
+	// lastTook and lastUsage are the last call answered: how long it took
+	// and what it used.
+	lastTook  time.Duration
+	lastUsage llm.Usage
 
 	stats     loopStats
 	exhausted string
@@ -68,9 +77,14 @@ type loop struct {
 
 // loopStats are what the loop spent.
 type loopStats struct {
-	Turns     int
-	ToolCalls int
-	In, Out   int64
+	// Turns are the model calls, continuations aside, which Continuations
+	// counts (continue.go); Truncated is that the answer was posted cut
+	// short, with on_truncated_text after it.
+	Turns         int
+	Continuations int
+	Truncated     bool
+	ToolCalls     int
+	In, Out       int64
 	// Cost is in pico-dollars.
 	Cost int64
 	// Writes are the writes the model made, as Core answered them;
@@ -135,11 +149,12 @@ type retries struct {
 }
 
 // run runs the loop. A spent budget takes one last turn with ToolMode none
-// (ForceAnswer) and gives on_budget_text if that has no text.
+// (ForceAnswer) and gives on_budget_text if that has no text. A turn the
+// output cap cuts off after some text, forced or not, is continued
+// (continue.go).
 func (l *loop) run(ctx context.Context) loopEnd {
 	var tried retries
 	forced := false
-	partial := ""
 	for {
 		if err := ctx.Err(); err != nil {
 			// The claim's time ran out, the agent is stopping, or the
@@ -147,7 +162,7 @@ func (l *loop) run(ctx context.Context) loopEnd {
 			return loopEnd{fatal: err}
 		}
 		if l.stats.Turns >= l.b.Turns {
-			return l.spent(partial)
+			return l.spent()
 		}
 		if !forced {
 			switch why := l.spentOn(); {
@@ -158,7 +173,7 @@ func (l *loop) run(ctx context.Context) loopEnd {
 			}
 		}
 		if l.outLeft() <= 0 {
-			return l.spent(partial)
+			return l.spent()
 		}
 		l.d.round()
 		resp, err := l.call(ctx, forced)
@@ -173,7 +188,7 @@ func (l *loop) run(ctx context.Context) loopEnd {
 					return loopEnd{fatal: ctx.Err()}
 				}
 				if forced {
-					return l.spent(partial)
+					return l.spent()
 				}
 				l.c.s.log.Warn("the model's providers could not be reached", "conversation", l.c.conv, "err_kind", kindOf(err))
 				return loopEnd{failed: true}
@@ -188,7 +203,7 @@ func (l *loop) run(ctx context.Context) loopEnd {
 				if text != "" {
 					return l.body(text)
 				}
-				return l.spent(partial)
+				return l.spent()
 			}
 			if err := l.runTools(ctx, resp); err != nil {
 				return loopEnd{fatal: err}
@@ -199,36 +214,38 @@ func (l *loop) run(ctx context.Context) loopEnd {
 			}
 			// No text is no answer: the turn once more, then the budget.
 			if forced || tried.emptyEnd {
-				return l.spent(partial)
+				return l.spent()
 			}
 			tried.emptyEnd = true
 		case llm.StopMaxTokens:
 			if text != "" {
-				partial = text
+				return l.continueAnswer(ctx, resp.Text())
 			}
+			// Cut off before it wrote any text, its thinking or a tool
+			// call it did not finish having taken the cap: the turn once
+			// more with twice the cap, where the output budget allows.
 			if !forced && !tried.maxTokens {
 				if c := min(2*l.cap, int(min(l.outLeft(), int64(maxInt)))); c > l.cap {
 					tried.maxTokens, l.cap = true, c
 					continue
 				}
 			}
-			return l.spent(partial)
+			return l.spent()
 		case llm.StopContentFilter, llm.StopRefusal:
-			// A refusal's tool calls, if any, were removed, and none is run.
-			return loopEnd{body: l.c.eff.Prompt.OnRefusalText, kind: kindRefusal}
+			return l.refused()
 		case llm.StopContextOverflow:
 			if !tried.overflow && l.halve() {
 				tried.overflow = true
 				continue
 			}
-			return l.spent(partial)
+			return l.spent()
 		case llm.StopToolError:
 			if forced || tried.toolError {
-				return l.spent(partial)
+				return l.spent()
 			}
 			tried.toolError = true
 		default:
-			return l.spent(partial)
+			return l.spent()
 		}
 	}
 }
@@ -238,13 +255,17 @@ const maxInt = int(^uint(0) >> 1)
 // body is the model's own text as the answer.
 func (l *loop) body(text string) loopEnd { return loopEnd{body: text, kind: kindModel} }
 
-// spent ends a loop whose budget is spent: the model's partial text, if
-// it wrote any, else on_budget_text.
-func (l *loop) spent(partial string) loopEnd {
-	if partial != "" {
-		return l.body(partial)
-	}
+// spent ends a loop whose budget is spent with no text of the model's:
+// on_budget_text.
+func (l *loop) spent() loopEnd {
 	return loopEnd{body: l.c.eff.Prompt.OnBudgetText, kind: kindBudget}
+}
+
+// refused ends a loop the model refused, or its provider's filter stopped:
+// on_refusal_text. A refusal's tool calls, if any, were removed, and none
+// is run.
+func (l *loop) refused() loopEnd {
+	return loopEnd{body: l.c.eff.Prompt.OnRefusalText, kind: kindRefusal}
 }
 
 // spentOn names the budget spent, or "". The output tokens count as spent
@@ -275,18 +296,25 @@ func (l *loop) exhaust(why string) bool {
 // outLeft is the output tokens the answer may still use.
 func (l *loop) outLeft() int64 { return l.b.OutputTokens - l.stats.Out }
 
-// request is the next turn's request.
+// request is the next turn's request; or, while an answer is continued,
+// the continuation's: the turns, the answer so far as the model's own, and
+// the word to go on, with no tools, within the continuation's room.
 func (l *loop) request(forced bool) *llm.Request {
-	msgs := make([]llm.Message, 0, len(l.history)+len(l.turns))
+	msgs := make([]llm.Message, 0, len(l.history)+len(l.turns)+2)
 	msgs = append(msgs, l.history...)
 	msgs = append(msgs, l.turns...)
+	limit := int(min(int64(l.cap), l.outLeft()))
+	if c := l.cont; c != nil {
+		msgs = append(msgs, llm.Message{Role: llm.RoleAssistant, Parts: []llm.Part{llm.Text(c.text)}}, llm.UserText(prompt.Continue(c.last, c.room)))
+		forced, limit = true, min(c.room, limit)
+	}
 	mode := llm.ToolAuto
 	if forced {
 		mode = llm.ToolNone
 	}
 	return &llm.Request{
 		System: l.system, Messages: msgs, Tools: l.decls, ToolMode: mode,
-		Limits: llm.Limits{MaxOutputTokens: int(min(int64(l.cap), l.outLeft()))},
+		Limits: llm.Limits{MaxOutputTokens: limit},
 	}
 }
 
@@ -378,11 +406,11 @@ func (l *loop) onText() llm.TextFunc {
 	return l.d.text
 }
 
-// timeout is a model call's: min(60 s, the wall clock left). A last turn
-// forced by a spent wall clock is given a grace of its own, a sixth of the
-// wall clock and at most 15 s, within the claim's own deadline. While a
-// fallback remains, the model gets two thirds of what is left, so that a
-// provider that hangs leaves its fallback time to answer.
+// timeout is a model call's: min(maxCallTimeout, the wall clock left). A
+// last turn forced by a spent wall clock is given a grace of its own, a
+// sixth of the wall clock and at most 15 s, within the claim's own
+// deadline. While a fallback remains, the model gets two thirds of what is
+// left, so that a provider that hangs leaves its fallback time to answer.
 func (l *loop) timeout(ctx context.Context, forced bool) time.Duration {
 	left := l.deadline.Sub(l.c.a.now())
 	if forced {
@@ -418,8 +446,9 @@ func modelLabel(cfg *config.Agent, prices *pricing.Table, ad llm.Adapter, at tim
 	return otherModel
 }
 
-// account counts a model call: its turn and tokens, its cost at the day's
-// prices, a ledger row with ids and numbers, and the metrics.
+// account counts a model call: its turn (a continuation is none) and
+// tokens, its cost at the day's prices, a ledger row with ids and numbers,
+// and the metrics.
 func (l *loop) account(resp *llm.Response, err error, took time.Duration) {
 	a, ad := l.c.a, l.m.ad
 	prices, now := a.s.priceTable(), a.now()
@@ -434,7 +463,10 @@ func (l *loop) account(resp *llm.Response, err error, took time.Duration) {
 	if resp == nil {
 		return
 	}
-	l.stats.Turns++
+	l.lastTook, l.lastUsage = took, resp.Usage
+	if l.cont == nil {
+		l.stats.Turns++
+	}
 	l.stats.KeySource = l.m.keySource
 	l.stats.In += resp.Usage.Input
 	l.stats.Out += resp.Usage.Output

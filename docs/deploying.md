@@ -157,6 +157,14 @@ its model is offered (its reads, and the writes its owner's conversations
 are offered besides), and tries each model key with one call. A
 `core.base_url` must be within `CORE_BASE_URL_ALLOWLIST`.
 
+`check` also shows, as `deprecated:`, what an agent's settings hold that
+the runtime takes but no longer does as they say, and `run` logs it when it
+puts the configuration in force. The runtime closes no conversation: a
+question whose attempts are spent waits until the next day. So
+`answer.on_attempts_exhausted: close` is done as `skip`, the default, and
+`prompt.close_reason_text` is unused; leave both out when next editing the
+file.
+
 An agent's model reads the course as far as its seat's permissions allow.
 It may also change the course, as far as they allow (writing a document, a
 grade, an assignment: Core decides each change at the seat's level, and
@@ -593,6 +601,10 @@ machine's loopback, should `HTTP_ADDR` listen wider).
   `failed` (after one retry, or refused);
   a steady `failed` is Core refusing them, which `/status` also shows per
   agent (`drafts`, `draft_writes`). They never hold an answer back.
+  `budget_exhausted_total{budget}` counts the budgets answers ran into, and
+  `truncated` the answers posted cut short, with `on_truncated_text` after
+  them: many of those call for a higher `budgets.per_answer.output_tokens`
+  or `wall_clock_s`.
   A hosted agent's model calls are counted under the model's name as the
   price table gives it, or `other` when the table does not price it: the
   model its owner typed is never a label.

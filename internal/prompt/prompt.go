@@ -221,6 +221,28 @@ func noteSentence(n store.Note) string {
 	return ""
 }
 
+// Continue is what the model is told after its answer so far, when the
+// output cap of one call cut the answer off: to go on from exactly where it
+// stops, in the answer's language (this word is in English, whatever the
+// answer's), repeating nothing, as what it writes is joined to the answer
+// as it stands. When last, there is room for only about room more tokens:
+// it is told so, to bring the answer to a close within them, and, if it
+// cannot, to end with one short sentence in the answer's language saying
+// that the answer was cut short and that the person asking can reply
+// "continue" for the rest.
+func Continue(last bool, room int) string {
+	const stopped = "[Your answer above stopped at the length limit of one reply. "
+	const join = "Continue it from exactly where it stops, in its language, as if nothing had interrupted it: what you write is joined to it as it stands, " +
+		"so finish the word, sentence or table row it breaks off in and go on from there. Repeat nothing and start nothing over."
+	if !last {
+		return stopped + join + " Do not mention the interruption.]"
+	}
+	return stopped + fmt.Sprintf("There is room for only about %d more tokens (a token is roughly three quarters of an English word, "+
+		"or one Chinese character). ", room) + join +
+		" Bring the answer to a close within that room. If it cannot be finished there, end with one short sentence, in the language of the answer, " +
+		"saying that the answer was cut short here and that they can reply \"continue\" (in that language) for the rest.]"
+}
+
 // Retracted is how a retracted message appears to the model.
 const Retracted = "[message retracted]"
 

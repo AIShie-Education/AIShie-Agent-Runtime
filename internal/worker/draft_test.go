@@ -220,6 +220,40 @@ func TestDrafterSteps(t *testing.T) {
 	}
 }
 
+// A round that continues the answer shows it, and what the round writes
+// after it: a try made again starts again from the answer so far, and
+// the next turn's round from nothing.
+func TestDrafterContinues(t *testing.T) {
+	c := &draftCore{}
+	d, _, _ := testDrafter(t, c, time.Millisecond)
+	text := func(want string) {
+		t.Helper()
+		eventually(t, "the text "+want, func() bool {
+			last, ok := lastWrite(c)
+			return ok && last.Text != nil && *last.Text == want
+		})
+	}
+	d.begin()
+	d.round()
+	d.text("The answer")
+	text("The answer")
+	d.continues("The answer")
+	d.text(" goes on")
+	text("The answer goes on")
+	d.again()
+	text("The answer")
+	d.text(" goes on,")
+	d.continues("The answer goes on,")
+	d.text(" and ends.")
+	text("The answer goes on, and ends.")
+	last, _ := lastWrite(c)
+	if n := len(last.Steps); n != 2 || last.Steps[1].Kind != core.StepWriting || last.Steps[1].State != core.StepRunning {
+		t.Errorf("the steps of an answer continued: %+v", last.Steps)
+	}
+	d.round()
+	text("")
+}
+
 // The latest twenty steps are kept, as Core takes no more.
 func TestDraftStepsAreCapped(t *testing.T) {
 	var c attemptDraft
