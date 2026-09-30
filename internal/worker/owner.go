@@ -54,7 +54,7 @@ func (p *OwnerProblem) Error() string { return p.Detail }
 // the two apart; the catalogue can, since only a Core that says it
 // describes owner_actor_id. On an older Core the owner cannot be verified,
 // and holding the token is not taken as proof of it (the product owner's
-// D5 allows that only while connecting, as a stopgap on staging): the
+// D5 allows that only while connecting, as a stopgap on edge): the
 // agent does not run, in state error, which says that Core must be
 // upgraded. Running it would put a model, and its owner's key, at the
 // service of whoever holds the token now, which is what the check is for.

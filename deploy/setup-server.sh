@@ -4,10 +4,11 @@
 # on its own. Run as root with this directory copied to the server
 # (docs/deploying.md):
 #
-#   sh deploy/setup-server.sh lms-staging.example.edu staging [https://lms-staging.example.edu]
+#   sh deploy/setup-server.sh lms-test.example.edu edge [https://lms-test.example.edu]
 #
 # The name is this server's, as the Deploy workflow reaches it over SSH. The
-# environment, staging or production, names the GitHub settings it prints.
+# environment, edge or stable, names the GitHub settings it prints; its old
+# names, staging and production, are taken for them until a later release.
 # The URL is the Core the agents here may connect to
 # (CORE_BASE_URL_ALLOWLIST), and the one hosted agents connect to
 # (CORE_BASE_URL); on a server that runs Core it defaults to Core's
@@ -39,13 +40,22 @@ HOST=${1:-}
 ENVIRONMENT=${2:-}
 CORE_URL=${3:-}
 usage() {
-  echo "usage: setup-server.sh HOSTNAME staging|production [CORE_URL], e.g. lms-staging.example.edu staging https://lms-staging.example.edu" >&2
+  echo "usage: setup-server.sh HOSTNAME edge|stable [CORE_URL], e.g. lms-test.example.edu edge https://lms-test.example.edu" >&2
   exit 2
 }
 case $HOST in '' | *[!A-Za-z0-9.-]* | .* | -*) usage ;; esac
 # It names the GitHub settings this server needs; guessing would name the
 # other environment's.
-case $ENVIRONMENT in staging | production) ;; *) usage ;; esac
+case $ENVIRONMENT in
+  edge | stable) ;;
+  # Compatibility: the names edge and stable had before, until a later release.
+  staging | production)
+    old=$ENVIRONMENT
+    if [ "$old" = staging ]; then ENVIRONMENT=edge; else ENVIRONMENT=stable; fi
+    echo "notice: $old is called $ENVIRONMENT now: setting this server up for $ENVIRONMENT (README.md, Renaming the settings)" >&2
+    ;;
+  *) usage ;;
+esac
 [ "$(id -u)" = 0 ] || { echo "run this as root (sudo -i)" >&2; exit 1; }
 here=$(cd "$(dirname "$0")" && pwd)
 ETC=/etc/aishie-runtime
@@ -69,12 +79,12 @@ if [ -z "$CORE_URL" ] && [ -r "$CORE_ENV_FILE" ]; then
   CORE_URL=$(sed -n 's/^PUBLIC_URL=//p' "$CORE_ENV_FILE" | tail -n 1)
   [ -z "$CORE_URL" ] || echo "Core on this server is $CORE_URL ($CORE_ENV_FILE)"
 fi
-bad_url() { echo "the Core's URL is an origin, like https://lms-staging.example.edu: https, no path, no / at the end (not $CORE_URL)" >&2; exit 2; }
+bad_url() { echo "the Core's URL is an origin, like https://lms-test.example.edu: https, no path, no / at the end (not $CORE_URL)" >&2; exit 2; }
 if [ -n "$CORE_URL" ]; then
   case $CORE_URL in https://* | http://localhost:* | http://127.0.0.1:*) ;; *) bad_url ;; esac
   case ${CORE_URL#*://} in '' | */* | *[!A-Za-z0-9.:-]*) bad_url ;; esac
 elif [ ! -e "$ENV_FILE" ]; then
-  echo "name the Core the agents here connect to, e.g. https://lms-staging.example.edu, after the environment" >&2
+  echo "name the Core the agents here connect to, e.g. https://lms-test.example.edu, after the environment" >&2
   usage
 fi
 

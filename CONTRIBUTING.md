@@ -70,10 +70,10 @@ schema as it is. So a migration must leave the previous release working: it
 is additive. Add a column in one release, stop using the old one in the
 next, drop it in the one after.
 
-A migration that has reached `main` has run on staging: never delete,
+A migration that has reached `main` has run on edge: never delete,
 renumber or rewrite it; undo it with a new one. `migrate up` leaves a schema
 that is ahead of the binary as it is, since that is what a rollback looks
-like, so a revert that takes a migration out leaves staging at a version
+like, so a revert that takes a migration out leaves edge at a version
 `main` no longer has, and the next migration to take its number is never
 applied there. If one must go, run `migrate down` with an image that still
 has it before the revert is deployed.
@@ -84,7 +84,7 @@ notes and for the Deploy workflow's summary.
 ## Releasing
 
 A push to `main` goes out by itself once CI passes: its image is pushed to
-GHCR as `:sha-<commit>` and `:edge`, and deployed to `staging`. When pushes
+GHCR as `:sha-<commit>` and `:edge`, and deployed to `edge`. When pushes
 come faster than they are published, one that a newer push overtakes while
 it waits is not published. A release is made by a tag, from `main`:
 
@@ -101,14 +101,15 @@ to the release page, and a multi-architecture image to
 `ghcr.io/aishie-education/aishie-agent-runtime`. The release notes list the
 store's migrations new in the release; for a stable release, new since the
 last stable one, pre-releases included. A tag with a hyphen
-(`v0.1.0-rc.1`) is a pre-release: it leaves `:latest` alone and is deployed
-to staging.
+(`v0.1.0-rc.1`) is a pre-release: it leaves `:latest` and `:stable` alone
+and is deployed to edge. A stable release moves `:stable` to itself when it
+is the highest stable release.
 
-A stable release goes to production when somebody runs **Deploy** for it:
+A stable release goes to stable when somebody runs **Deploy** for it:
 Actions → Deploy → Run workflow, use the workflow from the release's tag, and
-give the environment `production` and the image the release run's summary
+give the environment `stable` and the image the release run's summary
 names (`ghcr.io/aishie-education/aishie-agent-runtime:1.2.3`). That run is the
-decision to deploy and to migrate. For production, Deploy takes nothing else:
+decision to deploy and to migrate. For stable, Deploy takes nothing else:
 run from a branch or a pre-release's tag, or given an image that is not a
 stable release's, it stops before it deploys. To roll back, run Deploy from
 the newest release's tag, whose checks are the current ones, with the image
@@ -135,16 +136,18 @@ Before the first push to `main` after the CD workflows land, in GitHub:
   → Manage Actions access → Add Repository → `AIShie-Agent-Runtime`, role
   **Read**. Until then every pull request's end to end fails at the pull,
   and says so, and so does every release.
-- **Environments** (repository Settings → Environments): `staging` and
-  `production`. Let `staging` take branch `main` and tags `v*`, and
-  `production` tags `v*` only (Deployment branches and tags → Selected
-  branches and tags). Create them first: a run that names an environment
-  that does not exist creates it, with no rules. Required reviewers on a
-  private repository need GitHub Enterprise; where they are there, add them
-  to `production`. On GitHub Free, GitHub's docs say a private repository
-  cannot configure environments: the workflows still run, the environments
-  carry no rules, and only Deploy's own check keeps production to stable
-  releases.
+- **Environments** (repository Settings → Environments): `edge` and
+  `stable`. Let `edge` take branch `main` and tags `v*`, and `stable` tags
+  `v*` only (Deployment branches and tags → Selected branches and tags).
+  Create them first: a run that names an environment that does not exist
+  creates it, with no rules. Required reviewers on a private repository need
+  GitHub Enterprise; where they are there, add them to `stable`. On GitHub
+  Free, GitHub's docs say a private repository cannot configure
+  environments: the workflows still run, the environments carry no rules,
+  and only Deploy's own check keeps the environment `stable` to stable
+  releases. A repository set up when they were called `staging` and
+  `production` needs `edge` and `stable` made as well, with the same rules
+  ([README.md](README.md#renaming-the-settings)).
 - **Packages** (organization Settings → Packages): Package Creation must allow
   Private, and Default Package Settings should keep "Inherit access from
   source repository". The first publish then creates
@@ -164,8 +167,8 @@ Before the first push to `main` after the CD workflows land, in GitHub:
 - **Variables and secrets**, when they apply: `ATTESTATIONS` = `true` where
   artifact attestations are available (a public repository, or GitHub
   Enterprise Cloud). For each environment with a server, the repository
-  variables `DEPLOY_TARGET_STAGING` and `DEPLOY_KNOWN_HOSTS_STAGING` and the
-  repository secret `DEPLOY_SSH_KEY_STAGING` (`_PRODUCTION` for production),
+  variables `DEPLOY_TARGET_EDGE` and `DEPLOY_KNOWN_HOSTS_EDGE` and the
+  repository secret `DEPLOY_SSH_KEY_EDGE` (`_STABLE` for stable),
   which `deploy/setup-server.sh` prints ([docs/deploying.md](docs/deploying.md)).
   They are this repository's, not Core's, and not the environment's: a
   private repository on GitHub Free has no environment variables or secrets.

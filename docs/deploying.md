@@ -1,7 +1,8 @@
 # Deploying the AIshie Agent Runtime
 
-One server per environment, staging first, production when staging has
-earned it. Most likely it is the server Core already runs on, set up with
+One server per environment: edge first, the test site every green push to
+`main` reaches, and stable, the site a school runs on releases, when edge
+has earned it. Most likely it is the server Core already runs on, set up with
 Core's `deploy/setup-server.sh` (AIShie-Core's `docs/deploying.md`): the
 runtime adds one container and one database there, and opens no port.
 
@@ -61,10 +62,10 @@ repository's, not Core's, though Core has scripts of the same kind:
    connect to. On Core's server the Core defaults to Core's own `PUBLIC_URL`.
 
    ```
-   scp -r deploy you@lms-staging.example.edu:aishie-deploy
-   ssh you@lms-staging.example.edu
+   scp -r deploy you@lms-test.example.edu:aishie-deploy
+   ssh you@lms-test.example.edu
    sudo -i
-   sh ~you/aishie-deploy/setup-server.sh lms-staging.example.edu staging https://lms-staging.example.edu
+   sh ~you/aishie-deploy/setup-server.sh lms-test.example.edu edge https://lms-test.example.edu
    ```
 
    It installs Docker and PostgreSQL where they are missing. It creates the
@@ -102,7 +103,7 @@ repository's, not Core's, though Core has scripts of the same kind:
    green push to `main` publishes
    `ghcr.io/aishie-education/aishie-agent-runtime:sha-<commit>`: the CI run's
    `publish / image` job names it, and so does the package's page. A release
-   publishes `:X.Y.Z`. Production takes only releases.
+   publishes `:X.Y.Z`. Stable takes only releases.
 
    ```
    AISHIE_RUNTIME_IMAGE=ghcr.io/aishie-education/aishie-agent-runtime:sha-de4f548 aishie-runtime check --live
@@ -707,29 +708,32 @@ repository's Settings → Secrets and variables → Actions (not Core's):
 
 | Kind | Name | Value |
 | --- | --- | --- |
-| Variable | `DEPLOY_TARGET_STAGING` | `aishie-deploy@lms-staging.example.edu` |
-| Variable | `DEPLOY_KNOWN_HOSTS_STAGING` | the server's host key line, as printed |
-| Secret | `DEPLOY_SSH_KEY_STAGING` | the whole of `/root/aishie-runtime-deploy-key` |
+| Variable | `DEPLOY_TARGET_EDGE` | `aishie-deploy@lms-test.example.edu` |
+| Variable | `DEPLOY_KNOWN_HOSTS_EDGE` | the server's host key line, as printed |
+| Secret | `DEPLOY_SSH_KEY_EDGE` | the whole of `/root/aishie-runtime-deploy-key` |
 
 Then delete `/root/aishie-runtime-deploy-key` from the server. The server
 keeps only the public half, in `~aishie-deploy/.ssh/authorized_keys`.
 
-For production, the names end in `_PRODUCTION`. SSH on a port other than 22
-is `ssh://aishie-deploy@host:2222` in the target and
-`[host]:2222 ssh-ed25519 …` in the host key line.
+For stable, the names end in `_STABLE`. SSH on a port other than 22 is
+`ssh://aishie-deploy@host:2222` in the target and
+`[host]:2222 ssh-ed25519 …` in the host key line. Settings added before edge
+and stable had those names end in `_STAGING` and `_PRODUCTION`: they are
+read, with a warning, until a later release
+([README.md](../README.md#renaming-the-settings)).
 
 The key is this repository's alone, and logs in as a user of its own,
 `aishie-deploy`, not Core's `deploy`: each repository can deploy only its own
 image, and Core's `setup-server.sh` writes `deploy`'s keys whole, so a second
 key there would not last.
 
-From then on, every green push to `main` deploys to staging, and a
+From then on, every green push to `main` deploys to edge, and a
 pre-release tag (`v1.2.3-rc.1`) does too. To try the connection without a
 push, go to Actions → Deploy → Run workflow, from `main`, with environment
-`staging` and image `ghcr.io/aishie-education/aishie-agent-runtime:edge`. That
-is also the way to deploy staging again: re-running the deploy of an older
+`edge` and image `ghcr.io/aishie-education/aishie-agent-runtime:edge`. That
+is also the way to deploy edge again: re-running the deploy of an older
 push to `main` fails once `main` has moved on. (Re-running a pre-release's
-deploy, or a Deploy run by hand, still deploys the image it had.) Production
+deploy, or a Deploy run by hand, still deploys the image it had.) Stable
 is deployed only by running Deploy by hand, from a release's tag
 ([CONTRIBUTING.md](../CONTRIBUTING.md#releasing)).
 
@@ -833,7 +837,7 @@ machine's loopback, should `HTTP_ADDR` listen wider).
 - **Upgrading Core:** the runtime checks Core's tool catalogue at start and
   refuses one whose tools it relies on have gone or changed kind. Each
   runtime release is tested against the Core its `.github/core-image` pins;
-  upgrade Core in staging first, and look at `/status` after. The runtime
+  upgrade Core on edge first, and look at `/status` after. The runtime
   long-polls its agents' inboxes where the catalogue it read at start
   offers `wait_s` (Core 2c1fe1b and later), and polls them on a schedule
   otherwise: restart it after upgrading Core for a question to be noticed
