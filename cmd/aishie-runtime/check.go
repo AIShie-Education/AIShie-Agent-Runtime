@@ -315,11 +315,12 @@ func newLiveClients(env config.Env) (liveClients, error) {
 	return liveClients{egress: egress, hosted: hosted}, nil
 }
 
-// model is the client model m of agent a is called over: a hosted
-// agent's over the hosted-model client, but for an offer of the school's
-// plan, whose endpoint is the operator's.
+// model is the client model m of agent a is called over, as run calls
+// it: a hosted agent's over the hosted-model client, but for an offer of
+// runtime.yaml's plan, whose endpoint is the operator's
+// (config.Agent.OverHostedClient).
 func (c liveClients) model(a *config.Agent, m config.Model) *http.Client {
-	if a.Hosted != nil && m.Offer == "" {
+	if a.OverHostedClient(m) {
 		return c.hosted
 	}
 	return c.egress

@@ -276,3 +276,25 @@ func TestWithSite(t *testing.T) {
 		t.Errorf("no site settings: %+v", none.School)
 	}
 }
+
+// A hosted agent's model is called over the hosted-model client, its
+// owner's and the site's offer's alike, but an offer of runtime.yaml's,
+// whose endpoint is the operator's; a YAML agent's never is.
+func TestOverHostedClient(t *testing.T) {
+	hosted, yaml := &Agent{Hosted: &Hosted{}}, &Agent{}
+	for _, c := range []struct {
+		a    *Agent
+		m    Model
+		want bool
+	}{
+		{hosted, Model{KeySource: KeyOwn, KeyRef: "sealed://sec_k"}, true},
+		{hosted, Model{KeySource: KeySchool, Offer: "fast", KeyRef: "sealed://sec_school"}, true},
+		{hosted, Model{KeySource: KeySchool, Offer: "standard", KeyRef: "secret://school/keys/a"}, false},
+		{yaml, Model{KeySource: KeyOwn, KeyRef: "sealed://sec_k"}, false},
+		{yaml, Model{KeySource: KeySchool, KeyRef: "secret://school/keys/a"}, false},
+	} {
+		if got := c.a.OverHostedClient(c.m); got != c.want {
+			t.Errorf("hosted %v, %+v: %v, want %v", c.a.Hosted != nil, c.m, got, c.want)
+		}
+	}
+}

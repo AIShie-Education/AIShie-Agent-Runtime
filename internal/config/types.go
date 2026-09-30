@@ -14,6 +14,8 @@ package config
 import (
 	"strings"
 	"time"
+
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/secrets"
 )
 
 // Agent is one hosted agent: the `agent:` document of §4, and its courses.
@@ -65,6 +67,16 @@ type Hosted struct {
 	// records it with every state it writes, so that the API tells a
 	// change not yet in force from one that is.
 	Version int
+}
+
+// OverHostedClient reports whether the agent's model m is called over the
+// hosted-model client, which connects to public addresses alone and
+// follows no redirect: a hosted agent's, its owner's own and an offer the
+// site made (its key sealed), each a person's choice through the API; but
+// not an offer of runtime.yaml's, whose endpoint is the operator's, as a
+// YAML agent's is.
+func (a *Agent) OverHostedClient(m Model) bool {
+	return a.Hosted != nil && (m.Offer == "" || strings.HasPrefix(m.KeyRef, secrets.SchemeSealed))
 }
 
 // Core is how the agent reaches Core.

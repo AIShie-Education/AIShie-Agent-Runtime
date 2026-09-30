@@ -16,7 +16,6 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/providers"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/secrets"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolset"
 )
@@ -295,9 +294,7 @@ func (a *Agent) models(ctx context.Context, m config.Model) (*model, *model, err
 // agent's over the hosted-model client (Options.HostedHTTPClient), which
 // connects to public addresses alone and follows no redirect, but for an
 // offer of runtime.yaml's plan, whose endpoint is the operator's, as a
-// YAML agent's is. An offer the site's administrators made, whose key is
-// sealed, is a person's choice as an owner's model is, and goes over the
-// hosted-model client too.
+// YAML agent's is (config.Agent.OverHostedClient).
 func (a *Agent) buildModel(ctx context.Context, m config.Model) (*model, error) {
 	var key string
 	if m.KeyRef != "" {
@@ -307,7 +304,7 @@ func (a *Agent) buildModel(ctx context.Context, m config.Model) (*model, error) 
 		}
 	}
 	client := a.s.o.HTTPClient
-	if a.cfg.Hosted != nil && (m.Offer == "" || strings.HasPrefix(m.KeyRef, secrets.SchemeSealed)) {
+	if a.cfg.OverHostedClient(m) {
 		client = a.s.o.HostedHTTPClient
 	}
 	ad, err := a.s.o.NewAdapter(providers.Config(m, key, client))
