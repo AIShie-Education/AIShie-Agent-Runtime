@@ -1,6 +1,6 @@
 //go:build unix
 
-package ocr
+package sandbox
 
 import (
 	"os/exec"

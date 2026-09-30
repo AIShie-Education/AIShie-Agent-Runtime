@@ -109,7 +109,7 @@ func (e *Engine) Observe(f func(step string, took time.Duration)) { e.observe = 
 
 // limits are what each run of a program is held to.
 func (e *Engine) limits() limits {
-	return limits{memory: int64(e.cfg.MemoryMB) << 20, cpu: e.cfg.PageTimeout, fileMax: 256 << 20}
+	return limits{Memory: int64(e.cfg.MemoryMB) << 20, CPU: e.cfg.PageTimeout, FileSize: 256 << 20}
 }
 
 // Most text kept of one page, and of a file: a page of dense Chinese is a
@@ -264,13 +264,13 @@ func (e *Engine) renderAndRecognize(ctx context.Context, dir, in string, i int) 
 	defer func() { _ = os.Remove(img) }()
 	if err != nil {
 		var pe *programError
-		if errors.As(err, &pe) && pe.status == 99 && strings.Contains(pe.stderr, "Wrong page range") {
+		if errors.As(err, &pe) && pe.Status == 99 && strings.Contains(pe.Stderr, "Wrong page range") {
 			return "", errPastLastPage
 		}
 		return "", err
 	}
 	if _, err := os.Stat(img); err != nil {
-		return "", &programError{name: "pdftoppm", status: 0, stderr: "no image"}
+		return "", &programError{Name: "pdftoppm", Status: 0, Stderr: "no image"}
 	}
 	return e.recognizePage(ctx, dir, img)
 }
