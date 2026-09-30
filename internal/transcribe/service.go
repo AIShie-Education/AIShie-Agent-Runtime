@@ -147,6 +147,22 @@ type Setting struct {
 	Prices *pricing.Table
 }
 
+// SettingOf is the setting in force of the runtime's settings rt, the
+// site's in them (config.Runtime.WithSite): the site's, with the plan's
+// offer it names, none where the plan does not offer it, and the plan's
+// ceiling across the school's key; dir is where runtime.yaml's references
+// resolve, and prices the price table in force.
+func SettingOf(rt config.Runtime, dir string, prices *pricing.Table) Setting {
+	st := Setting{Site: rt.Site.Transcription, Dir: dir, PerDayUSD: rt.School.PerDay.USD, Prices: prices}
+	for _, o := range rt.School.Offers {
+		if o.ID == st.Site.Offer {
+			st.Offer = &o
+			break
+		}
+	}
+	return st
+}
+
 // Status is where the transcriber stands on this worker.
 type Status struct {
 	// Available is whether it may run here, and Reason and Detail why

@@ -196,14 +196,7 @@ func (h *hosting) applyTranscribe(rt config.Runtime, table *pricing.Table) {
 	if h.transcriber == nil {
 		return
 	}
-	st := transcribe.Setting{Site: h.site.Transcription, Dir: h.yaml.Dir, PerDayUSD: rt.School.PerDay.USD, Prices: table}
-	for _, o := range rt.School.Offers {
-		if o.ID == st.Site.Offer {
-			st.Offer = &o
-			break
-		}
-	}
-	h.transcriber.Set(st)
+	h.transcriber.Set(transcribe.SettingOf(rt, h.yaml.Dir, table))
 }
 
 // report logs the hosted agents that run and those that are not run, when
