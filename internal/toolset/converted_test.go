@@ -486,6 +486,40 @@ func TestConversionOff(t *testing.T) {
 	}
 }
 
+// TestConvertedWordOfPictures: a Word file of little but pictures (scanned
+// pages), to a model that takes no files, is read in LibreOffice's PDF of
+// it, and, that having no text, as OCR recognizes the PDF, under a checksum
+// of the runtime's own; a Word file with its text is its text.
+func TestConvertedWordOfPictures(t *testing.T) {
+	scans := doctexttest.DOCX(doctexttest.Doc{Blocks: []doctexttest.Block{{Text: "Scan 1", Image: true}, {Image: true}}})
+	o := &stubOffice{out: map[office.Target]*office.Output{office.ToPDF: {Data: scanned, Pages: 2}}}
+	var gotPDF []byte
+	fo := &fakeOCR{respond: func(_ int, data func(context.Context) ([]byte, error)) ocr.State {
+		gotPDF, _ = data(context.Background())
+		return done("## Page 1\n期中考試範圍", store.OCRSection{N: 1})
+	}}
+	r := officeRunner(t, scans, doctexttest.DOCXType, o)
+	r.OCR = fo
+	c, _ := getDoc(t, r, firstPart)
+	rec := c["file"].(map[string]any)
+	if rec["given_as"] != givenText || rec["extracted_from"] != ExtractedOCR || rec["converted_to"] != "pdf" || c["file_text"] != "## Page 1\n期中考試範圍" ||
+		fo.times() != 1 || fo.asked[0].sum != derivedSum("pdf", checksum(scans), nil) || string(gotPDF) != string(scanned) {
+		t.Errorf("a Word file of scans: %v, OCR asked %+v", rec, fo.asked)
+	}
+	wantNote(t, rec, "LibreOffice's PDF of it has no text to read")
+	// OCR is given the PDF made to read it, which the conversion keeps.
+	if converted, _, _ := o.record(); strings.Trim(strings.ReplaceAll(fmt.Sprint(converted), "docx>pdf", ""), "[ ]") != "" {
+		t.Errorf("converted %v", converted)
+	}
+
+	handout := doctexttest.DOCX(doctexttest.Doc{Blocks: []doctexttest.Block{{Text: strings.Repeat("A lab handout with its own text. ", 10), Image: true}}})
+	r = officeRunner(t, handout, doctexttest.DOCXType, o)
+	c, _ = getDoc(t, r, firstPart)
+	if rec := c["file"].(map[string]any); rec["extracted_from"] != "docx" || rec["converted_to"] != nil {
+		t.Errorf("a Word file with its text: %v", rec)
+	}
+}
+
 // TestConvertedPasswordProtected: a Word file encrypted with a password is
 // given to no model, and not converted.
 func TestConvertedPasswordProtected(t *testing.T) {

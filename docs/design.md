@@ -742,10 +742,12 @@ and a model that takes files sees its pages as they look.
   given without it, `ocr: "in_progress"` and `ask_again` saying to ask
   again; with no OCR here, the note says the text in its pictures is not
   read. A Word document is the runtime's text of it, as before, its
-  headings, lists and tables kept; another document (`.doc`, `.odt`,
-  `.rtf`) the runtime's text of LibreOffice's PDF of it, page by page, and
-  where that has no text to read (a Word file of scanned pages), what OCR
-  recognizes of the PDF, under a checksum of the runtime's own.
+  headings, lists and tables kept, unless it is little but pictures (under
+  200 letters besides them: scanned pages, as a school's often are);
+  that one, and another document (`.doc`, `.odt`, `.rtf`), is the
+  runtime's text of LibreOffice's PDF of it, page by page, and where that
+  has no text to read, what OCR recognizes of the PDF, under a checksum of
+  the runtime's own.
 - *In the background, once* (`office.Service`, the worker's). One file is
   converted at a time, eight wait (each holds its bytes), and past them a
   file is not started (`busy`). A file is known by its checksum, and each
@@ -1666,7 +1668,8 @@ Chinese with a table, overran, and was cut off.
   with no OCR; a PDF past its provider's size its text with OCR; while a
   PDF is made, the text and `ask_again`, OCR not asked; a conversion that
   failed; a PowerPoint 97 deck read in its `.pptx` and its notes beside
-  its PDF, a Word 97 document in its PDF's text, or its OCR, an Excel 97
+  its PDF, a Word 97 document in its PDF's text, or its OCR, and so a
+  Word file of scans, an Excel 97
   workbook in its `.xlsx`, each known by what it holds when Core names no
   type; a file with a password not converted; and with the conversion off,
   every file as before. The fake Core

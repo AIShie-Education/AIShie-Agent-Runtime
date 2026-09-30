@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
@@ -160,35 +161,65 @@ func readTarget(f office.Format) office.Target {
 // readConverted reads the text of an Office file the runtime converts,
 // data, whose checksum is sum: a PowerPoint or Word file's own, and
 // another's in what LibreOffice makes of it (readTarget), converting it
-// now; pdf is LibreOffice's PDF of it, when made. It is nil, with where the
-// conversion stands, when what it needs is not made (yet). What was read
-// is kept under the version (Runner.Texts), unless the reading ran out of
-// time.
+// now; a Word file of little but pictures in its PDF, as another
+// document's. pdf is LibreOffice's PDF of it, when made. It is nil, with
+// where the conversion stands, when what it needs is not made (yet). What
+// was read is kept under the version (Runner.Texts), unless the reading ran
+// out of time.
 func (r Runner) readConverted(ctx context.Context, d *docFile, mt, sum string, data, pdf []byte) (*fileReading, office.State) {
 	f, _ := office.FormatOf(mt)
 	rd := &fileReading{mt: mt, size: int64(len(data)), sum: sum, fam: f.Family}
-	src, format := data, doctext.Format("")
-	switch {
-	case f.OOXML:
-		format, _ = doctext.FormatOf(mt)
-	case f.Family == office.Document && pdf != nil:
-		src, format, rd.of = pdf, doctext.PDF, office.ToPDF
-	default:
-		to := readTarget(f)
-		st := r.Office.Convert(ctx, sum, f, to, data)
-		if st.Status != office.StatusDone {
-			return nil, st
-		}
-		src, rd.of = st.Out.Data, to
-		format = map[office.Target]doctext.Format{office.ToPDF: doctext.PDF, office.ToPPTX: doctext.PPTX, office.ToXLSX: doctext.XLSX}[to]
+	to := office.Target("")
+	if !f.OOXML {
+		to = readTarget(f)
 	}
-	ctx, cancel := context.WithTimeout(ctx, extractTimeout)
-	defer cancel()
-	rd.res, rd.err = doctext.Extract(ctx, src, format, r.DocLimits)
+	for {
+		src, format := data, doctext.Format("")
+		switch {
+		case to == "":
+			format, _ = doctext.FormatOf(mt)
+		case to == office.ToPDF && pdf != nil:
+			src, format = pdf, doctext.PDF
+		default:
+			st := r.Office.Convert(ctx, sum, f, to, data)
+			if st.Status != office.StatusDone {
+				return nil, st
+			}
+			src = st.Out.Data
+			format = map[office.Target]doctext.Format{office.ToPDF: doctext.PDF, office.ToPPTX: doctext.PPTX, office.ToXLSX: doctext.XLSX}[to]
+		}
+		rd.of = to
+		xctx, cancel := context.WithTimeout(ctx, extractTimeout)
+		rd.res, rd.err = doctext.Extract(xctx, src, format, r.DocLimits)
+		cancel()
+		if to != "" || f.Family != office.Document || rd.err != nil || !picturesOnly(rd.res) {
+			break
+		}
+		// A Word file of little but pictures (scanned pages, as a school's
+		// often are): its PDF is read instead, which OCR recognizes where
+		// it has no text.
+		to = office.ToPDF
+	}
 	if !isContextError(rd.err) {
 		r.Texts.put(r.textKey(d), rd)
 	}
 	return rd, office.State{Status: office.StatusDone}
+}
+
+// picturesOnly reports whether a document's text is little but its
+// pictures: some, and fewer than 200 letters or digits besides, as doctext
+// judges a PDF's text that does not read.
+func picturesOnly(res *doctext.Result) bool {
+	if res.Images == 0 {
+		return false
+	}
+	n := 0
+	for _, c := range strings.ReplaceAll(res.Text, "[image]", "") {
+		if unicode.IsLetter(c) || unicode.IsDigit(c) {
+			n++
+		}
+	}
+	return n < 200
 }
 
 // deckReading is the runtime's reading of a deck's slides, for the notes
