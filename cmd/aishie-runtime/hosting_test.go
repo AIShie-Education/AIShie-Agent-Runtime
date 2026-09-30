@@ -394,8 +394,9 @@ func (w *registryWorld) siteOffer(t *testing.T, id, model string) {
 // TestBuildHoldsTheSitesOffersToThePriceTable: with a quota of the plan's
 // in dollars, an agent on an offer of the site's that the price table does
 // not price is not run, and the others are, the site's priced offer's
-// among them; the plan in force keeps the site's offers when the registry
-// cannot be read after.
+// among them; once the site prices its model, it runs too, the price table
+// in force holding the site's row; the plan and the prices in force stay
+// as last read when the registry cannot be read after.
 func TestBuildHoldsTheSitesOffersToThePriceTable(t *testing.T) {
 	w := newRegistryWorld(t)
 	w.siteOffer(t, "priced", "deepseek-chat")
@@ -424,10 +425,29 @@ prices:
 		t.Fatalf("agents %+v, rejected %+v", cfg.Agents, cfg.Rejected)
 	}
 
+	// The site prices the other model: the agent on it runs, priced by the
+	// site's row under the site's version.
+	if _, err := w.st.CreateSitePrice(t.Context(), store.SitePrice{ID: "reasoner", Provider: "deepseek", Model: "deepseek-reasoner",
+		From: time.Date(2025, 9, 29, 0, 0, 0, 0, time.UTC), InputPUSD: 550_000, CacheReadPUSD: 140_000, CacheWritePUSD: 550_000,
+		OutputPUSD: 2_190_000, CreatedBy: "admin"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err = h.build(t.Context())
+	if err != nil || len(cfg.Agents) != 2 || len(cfg.Rejected) != 0 {
+		t.Fatalf("with the site's price: %v, agents %+v, rejected %+v", err, cfg.Agents, cfg.Rejected)
+	}
+	table := h.table()
+	if p, ok := table.Lookup("deepseek", "deepseek-reasoner", time.Now()); !ok || !strings.HasPrefix(p.Version, "site-") || !strings.HasSuffix(p.Version, "/reasoner") {
+		t.Errorf("the price table in force: %q %+v", table.Version, p)
+	}
+	if p, _ := table.Lookup("deepseek", "deepseek-chat", time.Now()); p.Version != "t1/0" {
+		t.Errorf("the file's row: %+v", p)
+	}
+
 	defer func(d time.Duration) { registryTimeout = d }(registryTimeout)
 	registryTimeout = time.Nanosecond
 	last, _, err := h.build(t.Context())
-	if err == nil || len(last.Runtime.School.Offers) != 2 || len(last.Agents) != 1 {
+	if err == nil || len(last.Runtime.School.Offers) != 2 || len(last.Agents) != 2 || h.table() != nil && h.table().Version != table.Version {
 		t.Errorf("the registry not read: %v, %+v", err, last.Runtime.School.Offers)
 	}
 }

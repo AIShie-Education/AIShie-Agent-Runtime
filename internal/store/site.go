@@ -33,9 +33,12 @@ type SiteSetting struct {
 const (
 	// SettingOCR is whether OCR runs, and in which languages.
 	SettingOCR = "ocr"
-	// SettingSchoolQuotas are the school plan's quotas in answers, in
-	// place of runtime.yaml's.
+	// SettingSchoolQuotas are the school plan's quotas, in place of
+	// runtime.yaml's.
 	SettingSchoolQuotas = "school_quotas"
+	// SettingAgentBudgets are the hosted agents' daily budgets by
+	// default, in place of runtime.defaults'.
+	SettingAgentBudgets = "agent_budgets"
 )
 
 // SchoolTenantID is the tenant of the school's keys the site's

@@ -53,7 +53,8 @@ func (h *hosting) YAML() *config.Config {
 	return h.yaml
 }
 
-// Prices is the price table in force, for the API.
+// Prices is the price file's table, for the API, which puts the site's
+// rows over it as it reads them from the store.
 func (h *hosting) Prices() *pricing.Table {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -75,7 +76,8 @@ func (h *hosting) options() registry.Options {
 // the YAML alone, at revision 0, when the registry is off. A hosted agent
 // with a quota in dollars that no price holds is not run. When the
 // registry cannot be read, it is the YAML with the hosted agents as they
-// were last built, and the error. Called with mu held.
+// were last built, and the error. The price table in force (table) is the
+// file's with the site's rows as last read. Called with mu held.
 func (h *hosting) build(ctx context.Context) (*config.Config, int64, error) {
 	if h.pg == nil {
 		return h.yaml, 0, nil
@@ -88,12 +90,14 @@ func (h *hosting) build(ctx context.Context) (*config.Config, int64, error) {
 	}
 	h.site = cfg.Runtime.Site
 	h.applyOCR()
+	table := h.table()
 	kept := cfg.Agents[:0]
 	for _, a := range cfg.Agents {
 		if a.Hosted != nil {
-			// The plan's own offers were held to the price table as the
-			// YAML loaded: of the site's, the agent's own is here.
-			if p := agentsUSDWithoutPrices(&config.Config{Runtime: cfg.Runtime, Agents: []*config.Agent{a}}, h.prices, time.Now()); len(p) > 0 {
+			// runtime.yaml's offers were held to the price file as the
+			// YAML loaded: of the plan in force, the agent's own offer is
+			// held here, with the price table in force.
+			if p := config.AgentsUSDWithoutPrices(&config.Config{Runtime: cfg.Runtime, Agents: []*config.Agent{a}}, table, time.Now()); len(p) > 0 {
 				cfg.Rejected = append(cfg.Rejected, config.Rejection{AgentID: a.ID, Source: registry.SourceName(a.ID), Err: errors.New(p[0]),
 					Reason: store.ReasonSettingsRejected, Version: a.Hosted.Version})
 				continue
@@ -111,6 +115,10 @@ func (h *hosting) build(ctx context.Context) (*config.Config, int64, error) {
 	h.report(cfg)
 	return cfg, rev, nil
 }
+
+// table is the price table in force: the price file's, with the site's
+// rows as last read. Called with mu held.
+func (h *hosting) table() *pricing.Table { return h.site.PriceTable(h.prices) }
 
 // withLastHosted is the YAML with the site's settings and the hosted
 // agents as last read, less any whose id a YAML agent now has. Called with
@@ -197,7 +205,7 @@ func (h *hosting) reload(ctx context.Context, sup *worker.Supervisor) {
 	if err != nil {
 		h.log.Warn("SIGHUP: the registry of hosted agents could not be read; they run as they were", "err", err)
 	}
-	sup.SetPrices(l.prices)
+	sup.SetPrices(h.table())
 	sup.Reload(cfg)
 	h.log.Info("SIGHUP: the configuration was read again", "agents", len(cfg.Agents), "hosted", len(h.hosted), "prices", l.pricesPath)
 	warnNoAgents(h.log, cfg)
@@ -213,6 +221,7 @@ func (h *hosting) update(ctx context.Context, sup *worker.Supervisor) (int64, er
 	if err != nil {
 		return 0, err
 	}
+	sup.SetPrices(h.table())
 	sup.Update(cfg)
 	h.log.Info("the registry of hosted agents changed", "rev", rev, "hosted", len(h.hosted), "not_run", len(cfg.Rejected))
 	return rev, nil

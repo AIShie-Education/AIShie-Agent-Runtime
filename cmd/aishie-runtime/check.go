@@ -19,6 +19,7 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/netguard"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/office"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/probe"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/redact"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/secrets"
@@ -125,11 +126,15 @@ func cmdCheck(ctx context.Context, args []string, getenv func(string) string, st
 	} else {
 		p("pdf parts: %d pages a file part, at most", cmp.Or(env.PDFPartPages, office.DefaultPartPages))
 	}
+	site := cfg.Runtime.Site
 	switch {
 	case l.pricesPath != "":
 		p("prices: %s (version %s)", l.pricesPath, l.prices.Version)
-	default:
+	case len(site.Prices) == 0:
 		p("prices: none; the costs of model calls will be unknown")
+	}
+	if len(site.Prices) > 0 {
+		p("prices: %d rows of the site's (version %s), before the file's", len(site.Prices), pricing.SiteVersion(site.PricesChanged))
 	}
 	describeSchool(p, cfg.Runtime.School)
 	if pg != nil {

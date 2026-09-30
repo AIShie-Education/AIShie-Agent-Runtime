@@ -3,6 +3,9 @@ package config
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 )
 
 // schoolRuntime is baseRuntime with the school's plan: one offer on the
@@ -210,9 +213,8 @@ func TestSchoolOfferSection(t *testing.T) {
 // The site's settings over runtime.yaml's plan (WithSite): the site's
 // offers after runtime.yaml's, but one whose id runtime.yaml's has, or
 // whose model the lists do not allow, which Withheld says why of; and the
-// site's quotas in answers in place of runtime.yaml's, the dollars kept,
-// and per_day null for no ceiling. Applied again, its offers replace
-// those applied before.
+// site's quotas, in answers and dollars, in place of runtime.yaml's, nil
+// for none. Applied again, its offers replace those applied before.
 func TestWithSite(t *testing.T) {
 	ten, two := 10, 2.5
 	rt := Runtime{
@@ -255,8 +257,13 @@ func TestWithSite(t *testing.T) {
 		t.Fatalf("the plan's offers: %+v", got.School.Offers)
 	}
 	sc := got.School
-	if *sc.OwnerQuota().Answers != 50 || *sc.AskerQuota().Answers != 5 || sc.PerDay.Answers != nil || sc.PerOwnerDay.USD == nil || *sc.PerOwnerDay.USD != 2.5 {
+	if *sc.OwnerQuota().Answers != 50 || *sc.AskerQuota().Answers != 5 || sc.PerDay.Answers != nil || sc.PerOwnerDay.USD != nil || sc.USD() {
 		t.Errorf("the plan's quotas: %+v", sc)
+	}
+	one := 1.25
+	withUSD := rt.WithSite(Site{Quotas: &SiteQuotas{PerOwnerDay: 50, PerAskerDay: 5, PerAskerDayUSD: &one}}).School
+	if withUSD.PerAskerDay.USD == nil || *withUSD.PerAskerDay.USD != 1.25 || withUSD.PerOwnerDay.USD != nil || !withUSD.USD() {
+		t.Errorf("the plan's quotas in dollars: %+v", withUSD)
 	}
 	if len(got.Site.Offers) != 3 || got.Site.Quotas == nil {
 		t.Errorf("the site's settings are not kept: %+v", got.Site)
@@ -296,5 +303,61 @@ func TestOverHostedClient(t *testing.T) {
 		if got := c.a.OverHostedClient(c.m); got != c.want {
 			t.Errorf("hosted %v, %+v: %v, want %v", c.a.Hosted != nil, c.m, got, c.want)
 		}
+	}
+}
+
+// The site's money over runtime.yaml's (WithSite): a tenant's quota in
+// place of runtime.tenants' (none where it sets none), the others kept;
+// the agents' daily budgets by default in place of runtime.defaults', none
+// where the site sets none; and the price table in force, the site's rows
+// under their version before the file's.
+func TestWithSiteMoney(t *testing.T) {
+	five, twenty, two := 5, 20, 2.0
+	rt := Runtime{
+		Tenants:  map[string]Tenant{"instr_42": {PerDay: Quota{Answers: &five}}, "dept_a": {PerDay: Quota{USD: &two}}},
+		Defaults: map[string]any{"budgets": map[string]any{"per_agent_day": map[string]any{"answers": 200}, "per_answer": map[string]any{"turns": 4}}},
+	}
+	if a, k := rt.DefaultBudgets(); a.Answers == nil || *a.Answers != 200 || a.USD != nil || k.Answers != nil {
+		t.Errorf("runtime.yaml's budgets: %+v %+v", a, k)
+	}
+	got := rt.WithSite(Site{
+		Tenants: map[string]SiteQuota{"instr_42": {}, "ten_yuki": {Answers: &twenty, USD: &two}},
+		Budgets: &SiteBudgets{PerAgentDay: SiteQuota{USD: &two}, PerAskerDay: SiteQuota{Answers: &five}},
+	})
+	if q := got.Tenants["instr_42"].PerDay; q.Answers != nil || q.USD != nil {
+		t.Errorf("a tenant set to none: %+v", q)
+	}
+	if q := got.Tenants["ten_yuki"].PerDay; q.Answers == nil || *q.Answers != 20 || q.USD == nil || *q.USD != 2 {
+		t.Errorf("a tenant of the site's: %+v", q)
+	}
+	if q := got.Tenants["dept_a"].PerDay; q.USD == nil || *q.USD != 2 {
+		t.Errorf("runtime.yaml's other tenant: %+v", q)
+	}
+	if *rt.Tenants["instr_42"].PerDay.Answers != 5 || len(rt.Tenants) != 2 {
+		t.Error("runtime.yaml's tenants were changed")
+	}
+	a, k := got.DefaultBudgets()
+	if a.Answers != nil || a.USD == nil || *a.USD != 2 || k.Answers == nil || *k.Answers != 5 || k.USD != nil {
+		t.Errorf("the site's budgets: %+v %+v", a, k)
+	}
+	if turns := got.Defaults["budgets"].(map[string]any)["per_answer"].(map[string]any)["turns"]; turns != 4 {
+		t.Errorf("the per-answer budgets: %v", turns)
+	}
+	if a, _ := rt.DefaultBudgets(); a.Answers == nil || *a.Answers != 200 {
+		t.Error("runtime.yaml's defaults were changed")
+	}
+
+	file, err := pricing.Parse([]byte("version: v1\nprices:\n  - {provider: openai, model: o3, from: 2025-01-01, usd_per_mtok: {input: 2, output: 8}}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := Site{Prices: []pricing.Row{{ID: "o3", Provider: "openai", Model: "o3", From: file.Rows()[0].From, In: 1, Out: 4}},
+		PricesChanged: time.Date(2026, 9, 30, 10, 0, 0, 0, time.UTC)}
+	table := s.PriceTable(file)
+	if p, ok := table.Lookup("openai", "o3", time.Now()); !ok || p.Version != "site-20260930T100000Z/o3" || table.Version != "v1+site-20260930T100000Z" {
+		t.Errorf("the price table in force: %q %+v", table.Version, p)
+	}
+	if (Site{}).PriceTable(file) != file {
+		t.Error("with no site's rows, not the file's table")
 	}
 }

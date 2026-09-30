@@ -54,9 +54,6 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 		log.Error("the configuration does not load; see `aishie-runtime check`", "problems", problemsText(err))
 		return exitFailure
 	}
-	if l.prices == nil {
-		log.Warn("no price table (PRICES, or the runtime's prices_ref): the costs of model calls are unknown, and recorded as zero")
-	}
 	client, err := egressClient(env)
 	if err != nil {
 		log.Error("the egress client", "err", err)
@@ -84,10 +81,14 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 	}
 	h.mu.Lock()
 	cfg, rev, err := h.build(ctx)
+	prices := h.table()
 	h.mu.Unlock()
 	if err != nil {
 		log.Error("the registry of hosted agents could not be read: the YAML agents start, and it is read again at the next poll", "err", err)
 		rev = -1
+	}
+	if prices == nil {
+		log.Warn("no price table (PRICES, the runtime's prices_ref, or the site's prices): the costs of model calls are unknown, and recorded as zero")
 	}
 
 	reg := prometheus.NewRegistry()
@@ -120,7 +121,7 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 	defer func() { stopOffice(); converter.Wait() }()
 	sup, err := worker.NewSupervisor(worker.Options{
 		Config: cfg, Env: env, Store: st, Metrics: m, Log: log,
-		Secrets: res, Prices: l.prices, HTTPClient: client, HostedHTTPClient: hostedClient, WorkerID: env.WorkerID,
+		Secrets: res, Prices: prices, HTTPClient: client, HostedHTTPClient: hostedClient, WorkerID: env.WorkerID,
 		OCR: recognizer, Office: converter,
 	})
 	if err != nil {

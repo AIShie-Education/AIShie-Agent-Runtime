@@ -10,8 +10,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/memstore"
 )
@@ -506,14 +508,14 @@ func TestBuildWithoutACore(t *testing.T) {
 // A store that cannot be read is an error, not a configuration without
 // hosted agents: the one in force stays.
 func TestBuildOfAStoreThatFails(t *testing.T) {
-	for _, f := range []failing{{rev: true}, {agents: true}, {courses: true}, {settings: true}, {offers: true}} {
+	for _, f := range []failing{{rev: true}, {agents: true}, {courses: true}, {settings: true}, {offers: true}, {prices: true}, {tenants: true}} {
 		if _, _, err := Build(context.Background(), yamlConfig(t, ""), f, Options{CoreBaseURL: core}); err == nil {
 			t.Errorf("%+v: no error", f)
 		}
 	}
 }
 
-type failing struct{ rev, agents, courses, settings, offers bool }
+type failing struct{ rev, agents, courses, settings, offers, prices, tenants bool }
 
 var errDown = errors.New("the database is down")
 
@@ -547,6 +549,20 @@ func (f failing) SiteSettings(context.Context) ([]store.SiteSetting, error) {
 
 func (f failing) SchoolOffers(context.Context) ([]store.SchoolOffer, error) {
 	if f.offers {
+		return nil, errDown
+	}
+	return nil, nil
+}
+
+func (f failing) SitePrices(context.Context) ([]store.SitePrice, time.Time, error) {
+	if f.prices {
+		return nil, time.Time{}, errDown
+	}
+	return nil, time.Time{}, nil
+}
+
+func (f failing) TenantQuotas(context.Context) ([]store.TenantQuota, error) {
+	if f.tenants {
 		return nil, errDown
 	}
 	return nil, nil
@@ -834,5 +850,57 @@ func TestReadSiteIgnoresASettingItCannotRead(t *testing.T) {
 	}
 	if site.Quotas != nil || site.OCR.Enabled != nil || len(site.Offers) != 0 {
 		t.Errorf("ReadSite = %+v", site)
+	}
+}
+
+// Build puts the site's money in force: its prices are read with when they
+// last changed; a tenant's quota replaces runtime.tenants'; and the
+// agents' daily budgets by default hold every hosted agent that sets none,
+// in place of runtime.defaults', while one that sets its own keeps them,
+// and runtime.yaml's agents keep what they were built with.
+func TestBuildWithTheSitesMoney(t *testing.T) {
+	yaml := yamlConfig(t, "")
+	yaml.Runtime.Defaults["budgets"] = map[string]any{"per_agent_day": map[string]any{"answers": 300}}
+	st := hostedStore(t, []store.HostedAgent{
+		row("agt_default", ownModel),
+		row("agt_own", `{"model": {"adapter": "openai_chat", "model": "gpt-4.1-mini", "key_source": "own"}, "budgets": {"per_agent_day": {"answers": 7}}}`),
+	})
+	from := time.Date(2025, 4, 14, 0, 0, 0, 0, time.UTC)
+	if _, err := st.CreateSitePrice(t.Context(), store.SitePrice{ID: "mini", Provider: "openai", Model: "gpt-4.1-mini", From: from,
+		InputPUSD: 400_000, CacheReadPUSD: 100_000, CacheWritePUSD: 400_000, OutputPUSD: 1_600_000, CreatedBy: "admin"}); err != nil {
+		t.Fatal(err)
+	}
+	ten, cents := 10, int64(500_000_000_000)
+	if err := st.PutTenantQuota(t.Context(), store.TenantQuota{TenantID: "ten_owner", Answers: &ten, USDPUSD: &cents, UpdatedBy: "admin"}); err != nil {
+		t.Fatal(err)
+	}
+	putSetting(t, st, store.SettingAgentBudgets, `{"per_agent_day": {"answers": null, "usd": 1.5}, "per_asker_day": {"answers": 12, "usd": null}}`)
+	cfg, _, err := Build(t.Context(), yaml, st, Options{CoreBaseURL: core})
+	if err != nil {
+		t.Fatal(err)
+	}
+	site := cfg.Runtime.Site
+	if len(site.Prices) != 1 || site.Prices[0].ID != "mini" || site.Prices[0].Out != 1_600_000 || site.PricesChanged.IsZero() {
+		t.Errorf("the site's prices: %+v %s", site.Prices, site.PricesChanged)
+	}
+	if p, ok := site.PriceTable(nil).Lookup("openai", "gpt-4.1-mini", time.Now()); !ok || p.Version != pricing.SiteVersion(site.PricesChanged)+"/mini" {
+		t.Errorf("the price table in force: %+v", p)
+	}
+	if q := cfg.Runtime.Tenants["ten_owner"].PerDay; q.Answers == nil || *q.Answers != 10 || q.USD == nil || *q.USD != 0.5 {
+		t.Errorf("the tenant's quota: %+v", q)
+	}
+	byID := map[string]*config.Agent{}
+	for _, a := range cfg.Agents {
+		byID[a.ID] = a
+	}
+	if b := byID["agt_default"].Budgets; b.PerAgentDay.Answers != nil || b.PerAgentDay.USD == nil || *b.PerAgentDay.USD != 1.5 ||
+		b.PerAskerDay.Answers == nil || *b.PerAskerDay.Answers != 12 || b.PerAskerDay.USD != nil {
+		t.Errorf("the budgets by default: %+v", b)
+	}
+	if b := byID["agt_own"].Budgets; b.PerAgentDay.Answers == nil || *b.PerAgentDay.Answers != 7 {
+		t.Errorf("an agent's own budgets: %+v", b)
+	}
+	if a := cfg.Agents[0]; a.ID != "a1" || a.Budgets.PerAgentDay.USD != nil || a.Budgets.PerAskerDay.Answers != nil {
+		t.Errorf("runtime.yaml's agent, built on runtime.yaml's defaults, took the site's: %+v", a.Budgets)
 	}
 }

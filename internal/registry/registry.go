@@ -64,9 +64,11 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/secrets"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
@@ -90,17 +92,21 @@ type Reader interface {
 	SiteReader
 }
 
-// SiteReader is what ReadSite reads: the store's site settings and the
-// offers of the school's plan the site made.
+// SiteReader is what ReadSite reads: the store's site settings, the
+// offers of the school's plan the site made, its prices and the tenants'
+// quotas it sets.
 type SiteReader interface {
 	SiteSettings(ctx context.Context) ([]store.SiteSetting, error)
 	SchoolOffers(ctx context.Context) ([]store.SchoolOffer, error)
+	SitePrices(ctx context.Context) ([]store.SitePrice, time.Time, error)
+	TenantQuotas(ctx context.Context) ([]store.TenantQuota, error)
 }
 
 // ReadSite reads what the site's administrators set through the API
 // (docs/design.md §11.5): its offers of the school's plan that are turned
-// on, each on its sealed key, and its settings. A setting whose value does
-// not decode as the API writes it (one written by hand) counts as not set.
+// on, each on its sealed key, its prices, the tenants' quotas, and its
+// settings. A setting whose value does not decode as the API writes it
+// (one written by hand) counts as not set.
 func ReadSite(ctx context.Context, r SiteReader) (config.Site, error) {
 	var site config.Site
 	settings, err := r.SiteSettings(ctx)
@@ -110,6 +116,29 @@ func ReadSite(ctx context.Context, r SiteReader) (config.Site, error) {
 	offers, err := r.SchoolOffers(ctx)
 	if err != nil {
 		return site, err
+	}
+	prices, changed, err := r.SitePrices(ctx)
+	if err != nil {
+		return site, err
+	}
+	tenants, err := r.TenantQuotas(ctx)
+	if err != nil {
+		return site, err
+	}
+	site.PricesChanged = changed
+	for _, p := range prices {
+		site.Prices = append(site.Prices, PriceRow(p))
+	}
+	for _, q := range tenants {
+		if site.Tenants == nil {
+			site.Tenants = map[string]config.SiteQuota{}
+		}
+		sq := config.SiteQuota{Answers: q.Answers}
+		if q.USDPUSD != nil {
+			usd := pricing.USD(*q.USDPUSD)
+			sq.USD = &usd
+		}
+		site.Tenants[q.TenantID] = sq
 	}
 	for _, st := range settings {
 		switch st.Name {
@@ -122,6 +151,11 @@ func ReadSite(ctx context.Context, r SiteReader) (config.Site, error) {
 			var q config.SiteQuotas
 			if DecodeSetting(st.Value, &q) {
 				site.Quotas = &q
+			}
+		case store.SettingAgentBudgets:
+			var b config.SiteBudgets
+			if DecodeSetting(st.Value, &b) {
+				site.Budgets = &b
 			}
 		}
 	}
@@ -143,6 +177,12 @@ func DecodeSetting(raw json.RawMessage, v any) bool {
 	}
 	_, err := dec.Token()
 	return errors.Is(err, io.EOF)
+}
+
+// PriceRow is the site's price p as a table holds a row.
+func PriceRow(p store.SitePrice) pricing.Row {
+	return pricing.Row{ID: p.ID, Provider: p.Provider, Model: p.Model, From: p.From, In: p.InputPUSD, CacheRead: p.CacheReadPUSD,
+		CacheWrite: p.CacheWritePUSD, Out: p.OutputPUSD}
 }
 
 // SiteOffer is the site's offer o as the school's plan holds it: a model

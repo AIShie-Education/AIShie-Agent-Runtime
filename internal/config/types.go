@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/secrets"
 )
 
@@ -308,24 +309,63 @@ type Runtime struct {
 // Site is what the site's administrators set through the API
 // (docs/design.md §11.5), within the ceiling the environment and
 // runtime.yaml set: offers of the school's plan beside runtime.yaml's, the
-// plan's quotas in answers in place of runtime.yaml's, and whether OCR
-// runs, in which of the languages installed.
+// plan's quotas in place of runtime.yaml's, whether OCR runs, in which of
+// the languages installed; and the money: the site's price table beside
+// the file's, the tenants' daily quotas and the hosted agents' daily
+// budgets by default, each in place of runtime.yaml's.
 type Site struct {
 	// Offers are the plan's offers the site made and turned on, each on
 	// its sealed key (SchoolOffer.Site).
 	Offers []SchoolOffer
-	// Quotas, when set, are the plan's quotas in answers.
+	// Quotas, when set, are the plan's quotas.
 	Quotas *SiteQuotas
 	OCR    SiteOCR
+	// Prices are the site's price table's rows, and PricesChanged when
+	// they last changed, which names their version (PriceTable).
+	Prices        []pricing.Row
+	PricesChanged time.Time
+	// Tenants are the tenants' daily quotas the site sets, by tenant, in
+	// place of runtime.tenants'.
+	Tenants map[string]SiteQuota
+	// Budgets, when set, are the hosted agents' daily budgets by default,
+	// in place of runtime.defaults'.
+	Budgets *SiteBudgets
 }
 
-// SiteQuotas are the school plan's quotas in answers a UTC day, as the
-// site sets them: per owner and per asker, and across the school, nil for
-// no ceiling. The plan's quotas in dollars are runtime.yaml's alone.
+// SiteQuotas are the school plan's quotas a UTC day, as the site sets
+// them: per owner and per asker, and across the school, in answers and in
+// dollars, each nil (but the first two's answers) for none.
 type SiteQuotas struct {
-	PerOwnerDay int  `json:"per_owner_day"`
-	PerAskerDay int  `json:"per_asker_day"`
-	PerDay      *int `json:"per_day"`
+	PerOwnerDay    int      `json:"per_owner_day"`
+	PerAskerDay    int      `json:"per_asker_day"`
+	PerDay         *int     `json:"per_day"`
+	PerOwnerDayUSD *float64 `json:"per_owner_day_usd"`
+	PerAskerDayUSD *float64 `json:"per_asker_day_usd"`
+	PerDayUSD      *float64 `json:"per_day_usd"`
+}
+
+// SiteQuota is a daily quota as the site sets it: answers and dollars,
+// each nil for none.
+type SiteQuota struct {
+	Answers *int     `json:"answers"`
+	USD     *float64 `json:"usd"`
+}
+
+// Quota is q as the configuration holds a quota.
+func (q SiteQuota) Quota() Quota { return Quota{Answers: q.Answers, USD: q.USD} }
+
+// SiteBudgets are the hosted agents' daily budgets by default, as the
+// site sets them: budgets.per_agent_day and budgets.per_asker_day.
+type SiteBudgets struct {
+	PerAgentDay SiteQuota `json:"per_agent_day"`
+	PerAskerDay SiteQuota `json:"per_asker_day"`
+}
+
+// PriceTable is the price table in force: file's (nil for none) with the
+// site's rows before it (pricing.Table.WithSite), under the site's
+// version.
+func (s Site) PriceTable(file *pricing.Table) *pricing.Table {
+	return file.WithSite(pricing.SiteVersion(s.PricesChanged), s.Prices)
 }
 
 // SiteOCR is whether OCR runs, and in which languages, as the site sets
@@ -432,9 +472,12 @@ func (rt Runtime) Withheld(o SchoolOffer) string {
 
 // WithSite is rt, runtime.yaml's settings as loaded, with the site's
 // settings s in force: the plan offers runtime.yaml's offers, then the
-// site's that Withheld does not hold back; and the site's quotas in
-// answers, when it sets them, stand in place of runtime.yaml's, whose
-// dollars stay.
+// site's that Withheld does not hold back; the site's quotas of the plan,
+// when it sets them, stand in place of runtime.yaml's, in answers and in
+// dollars; a tenant's quota the site sets, in place of runtime.tenants';
+// and the site's daily budgets by default, in place of
+// runtime.defaults', for the agents built on rt after (the registry's;
+// runtime.yaml's agents were built on runtime.yaml's).
 func (rt Runtime) WithSite(s Site) Runtime {
 	sc := rt.School
 	sc.Offers = nil
@@ -451,14 +494,81 @@ func (rt Runtime) WithSite(s Site) Runtime {
 	}
 	if q := s.Quotas; q != nil {
 		owner, asker := q.PerOwnerDay, q.PerAskerDay
-		sc.PerOwnerDay.Answers, sc.PerAskerDay.Answers, sc.PerDay.Answers = &owner, &asker, nil
-		if q.PerDay != nil {
-			day := *q.PerDay
-			sc.PerDay.Answers = &day
+		sc.PerOwnerDay = Quota{Answers: &owner, USD: clonePtr(q.PerOwnerDayUSD)}
+		sc.PerAskerDay = Quota{Answers: &asker, USD: clonePtr(q.PerAskerDayUSD)}
+		sc.PerDay = Quota{Answers: clonePtr(q.PerDay), USD: clonePtr(q.PerDayUSD)}
+	}
+	if len(s.Tenants) > 0 {
+		tenants := make(map[string]Tenant, len(rt.Tenants)+len(s.Tenants))
+		for id, t := range rt.Tenants {
+			tenants[id] = t
 		}
+		for id, q := range s.Tenants {
+			tenants[id] = Tenant{PerDay: Quota{Answers: clonePtr(q.Answers), USD: clonePtr(q.USD)}}
+		}
+		rt.Tenants = tenants
+	}
+	if b := s.Budgets; b != nil {
+		quota := func(q SiteQuota) map[string]any {
+			m := map[string]any{"answers": nil, "usd": nil}
+			if q.Answers != nil {
+				m["answers"] = *q.Answers
+			}
+			if q.USD != nil {
+				m["usd"] = *q.USD
+			}
+			return m
+		}
+		rt.Defaults = merge(rt.Defaults, map[string]any{"budgets": map[string]any{
+			"per_agent_day": quota(b.PerAgentDay), "per_asker_day": quota(b.PerAskerDay)}})
 	}
 	rt.School, rt.Site = sc, s
 	return rt
+}
+
+// clonePtr is a pointer to a copy of *p, nil for nil.
+func clonePtr[T any](p *T) *T {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
+// DefaultBudgets are the daily budgets rt's defaults give an agent that
+// sets none: budgets.per_agent_day and budgets.per_asker_day as
+// runtime.defaults has them, none where it has none.
+func (rt Runtime) DefaultBudgets() (perAgent, perAsker Quota) {
+	b, _ := rt.Defaults["budgets"].(map[string]any)
+	return quotaOf(b["per_agent_day"]), quotaOf(b["per_asker_day"])
+}
+
+// quotaOf reads a quota of runtime.defaults, as generic YAML: answers and
+// usd, a number each, or none.
+func quotaOf(v any) Quota {
+	m, _ := v.(map[string]any)
+	var q Quota
+	switch n := m["answers"].(type) {
+	case int:
+		q.Answers = &n
+	case int64:
+		i := int(n)
+		q.Answers = &i
+	case float64:
+		i := int(n)
+		q.Answers = &i
+	}
+	switch n := m["usd"].(type) {
+	case float64:
+		q.USD = &n
+	case int:
+		f := float64(n)
+		q.USD = &f
+	case int64:
+		f := float64(n)
+		q.USD = &f
+	}
+	return q
 }
 
 // OfferOf is the offer whose id is id.
