@@ -321,3 +321,38 @@ func TestScanReadByOCR(t *testing.T) {
 		t.Errorf("kept %+v %v", kept, err)
 	}
 }
+
+// TestTextVersionReachesTheModel: a version whose text version is done
+// (here the course's staff wrote it) reaches the model as that text, marked
+// as the staff's, in place of the runtime's reading of the file; the
+// worker keeps it, and drops it as Core's event says the text changed, the
+// model then given the new text.
+func TestTextVersionReachesTheModel(t *testing.T) {
+	w := newWorld(t)
+	docID, err := w.fc.AddFile(w.co.ID, "Reading 3", "application/pdf", doctexttest.PDF(doctexttest.PDFPage{Lines: []string{"Reading 3"}}))
+	w.ok(err)
+	w.ok(w.fc.EditText(docID, w.satoSeat.ID, "## 第 1 頁\n\nStable sorts keep equal keys in order."))
+	get := scripted.ToolCall{Name: "document_get", Args: `{"document_id":"` + docID + `"}`}
+	yuki := w.ownAgent("yuki-helper", 0)
+	m := scripted.New(scripted.CallTools(get), scripted.Reply("They keep equal keys in order."), scripted.CallTools(get),
+		scripted.Reply("Now they say otherwise."))
+	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "files", nil, nil)), models{"files": m}, workerOpts{})
+	c1, _ := w.ask(0, yuki, "What do stable sorts do?")
+	w.waitAnswers(c1, 1)
+	res, files := resultsOf(t, m.Requests()[1])
+	if d := res[0]; len(files) != 0 || d.File.GivenAs != "text" || d.FileText != "## 第 1 頁\n\nStable sorts keep equal keys in order." ||
+		!strings.Contains(d.File.Note, "written or corrected by the course's staff") {
+		t.Fatalf("the text version: %+v, %d files", d, len(files))
+	}
+	if st := wk.sup.texts.Stats(); st.Readings != 1 {
+		t.Fatalf("the text version is not kept: %+v", st)
+	}
+	w.ok(w.fc.EditText(docID, w.satoSeat.ID, "## 第 1 頁\n\nStable sorts may reorder equal keys."))
+	eventually(t, "the text kept dropped on the event", func() bool { return wk.sup.texts.Stats().Readings == 0 })
+	c2, _ := w.ask(0, yuki, "Are you sure?")
+	w.waitAnswers(c2, 1)
+	res, _ = resultsOf(t, m.Requests()[3])
+	if d := res[0]; d.FileText != "## 第 1 頁\n\nStable sorts may reorder equal keys." {
+		t.Errorf("the new text: %+v", d)
+	}
+}

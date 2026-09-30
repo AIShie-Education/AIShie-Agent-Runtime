@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -29,6 +30,11 @@ const FilePartTool = "document_get"
 // the file's text to give, from 1.
 const FilePartArg = "file_part"
 
+// FilePagesArg is the runtime's other argument of FilePartTool: pages of
+// the file itself to give, as a PDF of their own, where the version's text
+// version is what the model reads (textversion.go).
+const FilePagesArg = "file_pages"
+
 // filePartProperty is FilePartArg as the model is shown it.
 var filePartProperty = map[string]any{
 	"type":    []any{"null", "integer"},
@@ -37,9 +43,21 @@ var filePartProperty = map[string]any{
 		"pages): file.parts says how many there are and file.next_part is the call that reads the next; omit it for the first",
 }
 
-// withFilePart is Core's input schema of FilePartTool with FilePartArg
-// added, as the model is shown it. Core's schema naming FilePartArg itself
-// is an error: the two would be one argument.
+// filePagesProperty is FilePagesArg as the model is shown it.
+var filePagesProperty = map[string]any{
+	"type": []any{"null", "string"},
+	"description": "pages of the file itself to see, as a PDF of their own, such as \"3\" or \"3-5\" (at most " +
+		strconv.Itoa(maxFilePages) + " at a time): where file.text_source says file_text is the document's text version, to check a " +
+		"page, a figure or a formula against the file; omit it to read the text",
+}
+
+// maxFilePages bounds the pages FilePagesArg asks for at once; so does
+// what the model's provider takes in one file (Runner.partPages).
+const maxFilePages = 10
+
+// withFilePart is Core's input schema of FilePartTool with FilePartArg and
+// FilePagesArg added, as the model is shown it. Core's schema naming
+// either itself is an error: the two would be one argument.
 func withFilePart(schema json.RawMessage) (json.RawMessage, error) {
 	v, err := decodeJSON(schema)
 	if err != nil {
@@ -54,49 +72,111 @@ func withFilePart(schema json.RawMessage) (json.RawMessage, error) {
 		props = map[string]any{}
 		m["properties"] = props
 	}
-	if _, taken := props[FilePartArg]; taken {
-		return nil, fmt.Errorf("toolset: Core's %s now takes %s itself, the argument the runtime adds for reading a file in parts", FilePartTool, FilePartArg)
+	for _, arg := range []string{FilePartArg, FilePagesArg} {
+		if _, taken := props[arg]; taken {
+			return nil, fmt.Errorf("toolset: Core's %s now takes %s itself, an argument the runtime adds for reading a file", FilePartTool, arg)
+		}
 	}
 	props[FilePartArg] = filePartProperty
+	props[FilePagesArg] = filePagesProperty
 	return json.RawMessage(encodeJSON(m)), nil
 }
 
 // errFilePart is a FilePartArg that is not a whole number from 1.
 var errFilePart = errors.New("toolset: " + FilePartArg + " must be a whole number from 1")
 
-// takeFilePart takes FilePartArg out of a call's arguments, which must be
-// a JSON object (or nothing): the part asked for, 0 when none was (null
-// is none), and the arguments without it, for Core.
-func takeFilePart(args json.RawMessage) (int, json.RawMessage, error) {
+// fileArgs are what the model asked of a document's file by the runtime's
+// own arguments: the part of it (FilePartArg), 0 for none, or its pages
+// first to last (FilePagesArg), 0 for none; and the course the call is
+// in, which a text version's parts are read in.
+type fileArgs struct {
+	part        int
+	first, last int
+	courseID    string
+}
+
+// filePagesError is a FilePagesArg that names no pages, or too many.
+type filePagesError struct{ most int }
+
+func (e filePagesError) Error() string {
+	return fmt.Sprintf("toolset: %s names pages of the file, such as \"3\" or \"3-5\", at most %d at a time", FilePagesArg, e.most)
+}
+
+// takeFileArgs takes FilePartArg and FilePagesArg out of a call's
+// arguments, which must be a JSON object (or nothing): the part asked for,
+// or the pages, at most most of them (null is none), and the arguments
+// without them, for Core.
+func takeFileArgs(args json.RawMessage, most int) (fileArgs, json.RawMessage, error) {
+	var fa fileArgs
 	if len(strings.TrimSpace(string(args))) == 0 {
-		return 0, args, nil
+		return fa, args, nil
 	}
 	v, err := decodeJSON(args)
 	if err != nil {
-		return 0, args, nil // prepare says what is wrong with them
+		return fa, args, nil // prepare says what is wrong with them
 	}
 	m, ok := v.(map[string]any)
 	if !ok {
-		return 0, args, nil
+		return fa, args, nil
 	}
-	raw, has := m[FilePartArg]
-	if !has {
-		return 0, args, nil
+	rawPart, hasPart := m[FilePartArg]
+	rawPages, hasPages := m[FilePagesArg]
+	if !hasPart && !hasPages {
+		return fa, args, nil
 	}
 	delete(m, FilePartArg)
+	delete(m, FilePagesArg)
 	out := json.RawMessage(encodeJSON(m))
-	if raw == nil {
-		return 0, out, nil
+	if rawPart != nil {
+		num, ok := rawPart.(json.Number)
+		if !ok {
+			return fa, out, errFilePart
+		}
+		n, err := num.Int64()
+		if err != nil || n < 1 || n > 1<<20 {
+			return fa, out, errFilePart
+		}
+		fa.part = int(n)
 	}
-	num, ok := raw.(json.Number)
-	if !ok {
-		return 0, out, errFilePart
+	if rawPages != nil {
+		s, _ := rawPages.(string)
+		first, last, ok := pageSpan(s)
+		if !ok || last-first+1 > most {
+			return fa, out, filePagesError{most}
+		}
+		fa.first, fa.last = first, last
 	}
-	n, err := num.Int64()
-	if err != nil || n < 1 || n > 1<<20 {
-		return 0, out, errFilePart
+	if fa.part > 0 && fa.first > 0 {
+		return fa, out, errBothFileArgs
 	}
-	return int(n), out, nil
+	return fa, out, nil
+}
+
+// errBothFileArgs is a call that asks for a part of the file's text and
+// pages of the file at once.
+var errBothFileArgs = errors.New("toolset: " + FilePartArg + " and " + FilePagesArg + " are not asked for together")
+
+// pageSpan reads pages as FilePagesArg names them: "3", or "3-5" (with a
+// dash of any kind, and spaces), from 1.
+func pageSpan(s string) (first, last int, ok bool) {
+	s = strings.TrimSpace(s)
+	a, b, span := strings.Cut(s, "-")
+	if !span {
+		for _, dash := range []string{"–", "—", "~", "～"} {
+			if a, b, span = strings.Cut(s, dash); span {
+				break
+			}
+		}
+	}
+	if !span {
+		b = a
+	}
+	first, err1 := strconv.Atoi(strings.TrimSpace(a))
+	last, err2 := strconv.Atoi(strings.TrimSpace(b))
+	if err1 != nil || err2 != nil || first < 1 || last < first || last > 1<<20 {
+		return 0, 0, false
+	}
+	return first, last, true
 }
 
 // textPart is one part of a text: text[start:end].

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
@@ -140,12 +141,17 @@ type fileRecord struct {
 	// OCRUnavailable.
 	OCR      string    `json:"ocr,omitempty"`
 	AskAgain *nextPart `json:"ask_again,omitempty"`
+	// TextSource says whose file_text is where it is the version's text
+	// version, Core's (textversion.go): "AI transcription (<model>)", or
+	// "edited by staff".
+	TextSource string `json:"text_source,omitempty"`
 	// Part and Parts: a text too long for one result is given in parts,
 	// and file_text is part Part of Parts; so is a PDF of more pages than
 	// one file part holds, and the file part is its pages of part Part.
 	// PartHolds says which slides, pages or sheets it holds, and NextPart
 	// is the call that reads the next. All empty when the file is given
-	// whole.
+	// whole. PartHolds alone says which pages are given of those the model
+	// asked for (FilePagesArg).
 	Part      int       `json:"part,omitempty"`
 	Parts     int       `json:"parts,omitempty"`
 	PartHolds string    `json:"part_holds,omitempty"`
@@ -163,6 +169,14 @@ type docFile struct {
 	// version Core gave, as its result does: what a part of its text is
 	// asked for by, and kept under.
 	documentID, versionID, checksum string
+	// text is the version's text version as Core showed it beside the
+	// version, nil where it has none; courseID the course the call is
+	// in, which its parts are read in.
+	text     *core.TextView
+	courseID string
+	// first and last are the pages of the file the model asked for
+	// (FilePagesArg), 0 for none.
+	first, last int
 }
 
 // documentFile finds the file of a document_get result: its version's
@@ -183,6 +197,12 @@ func documentFile(result any) *docFile {
 	d.contentType, _ = version["content_type"].(string)
 	if n, ok := version["byte_size"].(json.Number); ok {
 		d.byteSize, _ = n.Int64()
+	}
+	if t, ok := version["text"].(map[string]any); ok {
+		var tv core.TextView
+		if json.Unmarshal([]byte(encodeJSON(t)), &tv) == nil && tv.Status != "" {
+			d.text = &tv
+		}
 	}
 	return d
 }
@@ -282,6 +302,9 @@ type given struct {
 	// never in parts.
 	aside bool
 	file  *llm.File
+	// pages is the file's pages given as the model asked (FilePagesArg),
+	// or why none are.
+	pages bool
 }
 
 // giveFile fetches a document's file and says how the model gets it (rule
@@ -300,6 +323,15 @@ type given struct {
 func (r Runner) giveFile(ctx context.Context, d *docFile, part int) given {
 	rec := &fileRecord{Name: d.title, ContentType: d.contentType, ByteSize: d.byteSize, GivenAs: givenNot}
 	g := given{rec: rec}
+	// The version's text version first, where it is done, unless the
+	// model asked for pages of the file, which only a model that takes
+	// files is given.
+	if d.first == 0 || !r.FileInput {
+		d.first, d.last = 0, 0
+		if gt, ok := r.giveTextVersion(ctx, g, d); ok {
+			return gt
+		}
+	}
 	mt := mediaType(d.contentType)
 	kind := r.kindOf(mt)
 	if why := r.refusal(mt, kind); why != "" {
@@ -364,11 +396,15 @@ func (r Runner) giveFile(ctx context.Context, d *docFile, part int) given {
 			rec.Note = notePassword
 			return g
 		}
-		if past = r.bytesPast(int64(len(f.Data)), ""); past == "" {
+		// Pages asked for are cut from it, whatever its size.
+		whole := r.bytesPast(int64(len(f.Data)), "")
+		if whole == "" || d.first > 0 {
 			var ok bool
 			if g, ok = r.givePDFFile(ctx, g, d, pdfFile{data: f.Data, sum: checksum(f.Data), pages: pages, unit: doctext.SectionPage}, part); ok {
 				return g
 			}
+		}
+		if past = whole; past == "" {
 			if past = r.pagesPast(pages, ""); past == "" {
 				past = "its pages could not be cut into parts"
 			}
@@ -383,6 +419,20 @@ func (r Runner) giveFile(ctx context.Context, d *docFile, part int) given {
 		}
 	}
 	return r.giveReading(ctx, g, d, rd, past, f.Data)
+}
+
+// noPages says why the pages of a file the model asked for
+// (FilePagesArg) were not given.
+func (r Runner) noPages(rec *fileRecord) string {
+	switch {
+	case !r.FileInput:
+		return "this model does not take files"
+	case rec.GivenAs == givenFile:
+		return "the file is given whole"
+	case rec.GivenAs == givenText:
+		return "the file's pages cannot be given as a PDF here, so its text is given"
+	}
+	return "the file's pages cannot be given here"
 }
 
 // givesFile reports whether a file of media type mt may be given to this

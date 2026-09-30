@@ -85,7 +85,7 @@ func (r Runner) giveConverted(ctx context.Context, g given, d *docFile, mt strin
 		return r.giveConvertedText(ctx, g, d, mt, sum, data, nil, why)
 	}
 	pdf := st.Out
-	if past := r.bytesPast(int64(len(pdf.Data)), "its PDF is"); past != "" {
+	if past := r.bytesPast(int64(len(pdf.Data)), "its PDF is"); past != "" && d.first == 0 {
 		return r.giveConvertedText(ctx, g, d, mt, sum, data, pdf.Data, past)
 	}
 	p := pdfFile{data: pdf.Data, sum: sum + "/pdf", pages: pdf.Pages, unit: doctext.SectionPage, converted: true, capped: pdf.Capped}

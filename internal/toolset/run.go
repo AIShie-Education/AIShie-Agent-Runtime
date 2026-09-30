@@ -391,9 +391,9 @@ type prepared struct {
 	write bool
 	n     int
 	key   string
-	// part is the part of a document's file text the model asked for
-	// (FilePartArg), 0 when it asked for none.
-	part int
+	// file is what the model asked of a document's file by the runtime's
+	// own arguments (FilePartArg, FilePagesArg), and the course.
+	file fileArgs
 }
 
 func refusedCall(res llm.Part, code, msg string) prepared {
@@ -420,10 +420,20 @@ func (s *Set) prepare(r Runner, courseID string, call llm.Part) prepared {
 	}
 	// The runtime's own argument is taken out before Core's schema sees
 	// the call: Core takes no other.
-	callArgs, part := call.Args, 0
+	callArgs, fa := call.Args, fileArgs{courseID: courseID}
 	if call.Name == FilePartTool {
 		var err error
-		if part, callArgs, err = takeFilePart(call.Args); err != nil {
+		fa, callArgs, err = takeFileArgs(call.Args, min(maxFilePages, r.partPages()))
+		fa.courseID = courseID
+		var pe filePagesError
+		switch {
+		case errors.As(err, &pe):
+			return refusedCall(res, core.CodeInvalidArgument, fmt.Sprintf(
+				"%s: %s names pages of the file, such as \"3\" or \"3-5\", at most %d at a time; call it again", call.Name, FilePagesArg, pe.most))
+		case errors.Is(err, errBothFileArgs):
+			return refusedCall(res, core.CodeInvalidArgument, fmt.Sprintf(
+				"%s: ask for %s (a part of the file's text) or %s (pages of the file), not both; call it again", call.Name, FilePartArg, FilePagesArg))
+		case err != nil:
 			return refusedCall(res, core.CodeInvalidArgument, fmt.Sprintf(
 				"%s: %s is the part of the file to read, a whole number from 1 (file.parts says how many there are); call it again", call.Name, FilePartArg))
 		}
@@ -441,7 +451,7 @@ func (s *Set) prepare(r Runner, courseID string, call llm.Part) prepared {
 	if err != nil {
 		return refusedCall(res, core.CodeInvalidArgument, argumentMessage(call.Name, err))
 	}
-	return prepared{res: res, t: t, args: args, write: write, part: part}
+	return prepared{res: res, t: t, args: args, write: write, file: fa}
 }
 
 // bindKey is a write's arguments with its idempotency key, which Core's
@@ -478,7 +488,7 @@ func (s *Set) send(ctx context.Context, r Runner, p prepared) (llm.Part, *llm.Fi
 		return refuse(res, codeUnavailable,
 			"Core could not be reached for this call; answer without it, or try it once more"), nil, nil, nil
 	}
-	content, file := r.render(ctx, res.Name, env, p.part)
+	content, file := r.render(ctx, res.Name, env, p.file)
 	res.Content = content
 	res.IsError = env.Status != core.StatusExecuted && env.Status != core.StatusProposed
 	return res, file, env, nil
@@ -620,9 +630,9 @@ type truncated struct {
 }
 
 // render is the content of Core's answer to a call, and the file to give
-// the model beside it, if any; part is the part of a document's file text
-// the model asked for, 0 for none.
-func (r Runner) render(ctx context.Context, tool string, env *core.Envelope, part int) (string, *llm.File) {
+// the model beside it, if any; fa is what the model asked of a document's
+// file by the runtime's own arguments.
+func (r Runner) render(ctx context.Context, tool string, env *core.Envelope, fa fileArgs) (string, *llm.File) {
 	c := content{Status: env.Status, ActionID: env.ActionID, ReviewState: env.ReviewState,
 		Replayed: env.Replayed, Note: env.Note, Error: env.Error}
 	var doc *docFile
@@ -640,12 +650,16 @@ func (r Runner) render(ctx context.Context, tool string, env *core.Envelope, par
 	if doc == nil {
 		return r.fit(c, nil, given{}, 0), nil
 	}
-	g := r.giveFile(ctx, doc, part)
+	doc.courseID, doc.first, doc.last = fa.courseID, fa.first, fa.last
+	g := r.giveFile(ctx, doc, fa.part)
 	c.File = g.rec
-	if part > 1 && g.rec.GivenAs == givenFile && g.rec.Part == 0 {
+	if fa.part > 1 && g.rec.GivenAs == givenFile && g.rec.Part == 0 {
 		g.rec.Note = strings.TrimPrefix(g.rec.Note+"; ", "; ") + FilePartArg + " does not apply: the file itself is given, whole"
 	}
-	return r.fit(c, doc, g, part), g.file
+	if fa.first > 0 && !g.pages {
+		g.rec.Note = strings.TrimPrefix(g.rec.Note+"; ", "; ") + FilePagesArg + " does not apply: " + r.noPages(g.rec)
+	}
+	return r.fit(c, doc, g, fa.part), g.file
 }
 
 // fit makes c at most MaxResultBytes: the envelope, then a file's text, whole

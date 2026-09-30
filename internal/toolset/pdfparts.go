@@ -64,6 +64,9 @@ type pdfFile struct {
 // it has more pages than the model's provider takes, or its pages could not
 // be cut.
 func (r Runner) givePDFFile(ctx context.Context, g given, d *docFile, p pdfFile, part int) (given, bool) {
+	if d.first > 0 {
+		return r.givePDFPages(ctx, g, d, p)
+	}
 	rec := g.rec
 	per := r.partPages()
 	if p.pages <= per || !r.cuts() {
@@ -130,6 +133,58 @@ func (r Runner) givePDFFile(ctx context.Context, g given, d *docFile, p pdfFile,
 	}
 	rec.GivenAs = givenFile
 	g.file = &llm.File{Name: fileName(d.title+" ("+rec.PartHolds+")", pdfMIME), MIME: pdfMIME, Data: b}
+	notesBeside(&g, p, first, last)
+	return g, true
+}
+
+// givePDFPages gives the pages of p the model asked for (FilePagesArg),
+// d.first to d.last, as a PDF of their own, with a deck's speaker notes of
+// them beside it; the whole PDF where the runner cuts none, and it is
+// within what the model's provider takes. ok is false when they are not
+// given as a file (the caller gives its text).
+func (r Runner) givePDFPages(ctx context.Context, g given, d *docFile, p pdfFile) (given, bool) {
+	rec := g.rec
+	g.pages = true
+	first, last := d.first, d.last
+	if p.pages > 0 && first > p.pages {
+		rec.Note = fmt.Sprintf("the file has %s: there is no %s %d; ask for %s from 1 to %d", plural(p.pages, p.unit), p.unit, first,
+			FilePagesArg, p.pages)
+		return g, true
+	}
+	if p.pages > 0 {
+		last = min(last, p.pages)
+	}
+	var b strings.Builder
+	if p.converted {
+		rec.ConvertedTo = "pdf"
+		b.WriteString("LibreOffice converted it to PDF; ")
+	}
+	if !r.cuts() {
+		if r.pagesPast(p.pages, "") != "" || r.bytesPast(int64(len(p.data)), "") != "" {
+			g.pages = false
+			return g, false
+		}
+		rec.GivenAs = givenFile
+		b.WriteString("its pages cannot be cut here, so the whole PDF is given: see " + pageRange(p.unit, first, last) + " in it")
+		rec.Note = b.String()
+		g.file = &llm.File{Name: fileName(d.title, pdfMIME), MIME: pdfMIME, Data: p.data}
+		notesBeside(&g, p, first, last)
+		return g, true
+	}
+	data, err := r.Office.Range(ctx, p.sum, p.data, first, last)
+	if err != nil {
+		g.pages = false
+		return g, false
+	}
+	rec.PartHolds = pageRange(p.unit, first, last)
+	fmt.Fprintf(&b, "the file's %s are given as a PDF of their own, as they look", rec.PartHolds)
+	rec.Note = b.String()
+	if past := r.bytesPast(int64(len(data)), "they are"); past != "" {
+		rec.Note = notGiven + past + "; ask for fewer pages"
+		return g, true
+	}
+	rec.GivenAs = givenFile
+	g.file = &llm.File{Name: fileName(d.title+" ("+rec.PartHolds+")", pdfMIME), MIME: pdfMIME, Data: data}
 	notesBeside(&g, p, first, last)
 	return g, true
 }
