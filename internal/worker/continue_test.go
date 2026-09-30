@@ -128,7 +128,7 @@ func TestContinuationWritingAgainIsJoinedOnce(t *testing.T) {
 func TestDraftGrowsAcrossAContinuation(t *testing.T) {
 	w := newDraftWorld(t)
 	own := w.ownAgent("yuki-helper", 0)
-	first, then := []string{"HW3 is due", " on Friday"}, []string{" at noon,", " in room 101."}
+	first, then := []string{"HW3 is due", " on Friday"}, []string{" at noon,", " in room 101,", " with your", " lab partner."}
 	model := scripted.New(scripted.StreamedStop(100*time.Millisecond, llm.StopMaxTokens, first...), scripted.Streamed(100*time.Millisecond, then...))
 	w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": model}, draftsEvery(10*time.Millisecond))
 	conv, _ := w.ask(0, own, "When is HW3 due?")
