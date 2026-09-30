@@ -125,19 +125,25 @@ func TestStops(t *testing.T) {
 		{name: "content_filter", steps: []scripted.Step{scripted.Stop(llm.StopContentFilter, "partly")}, want: config.DefaultRefusalText},
 		{name: "content_filter as an error", steps: []scripted.Step{scripted.Fail(&llm.Error{Kind: llm.ErrContentFilter})}, want: config.DefaultRefusalText},
 		{
-			name:  "max_tokens with partial text: once more with twice the cap",
-			steps: []scripted.Step{scripted.Stop(llm.StopMaxTokens, "Part"), scripted.Stop(llm.StopMaxTokens, "Partly longer")},
-			want:  "Partly longer",
+			name:  "max_tokens with text: continued where it stops, not written again",
+			steps: []scripted.Step{scripted.Stop(llm.StopMaxTokens, "Part"), scripted.Reply("ly, and whole.")},
+			want:  "Partly, and whole.",
 			check: func(t *testing.T, reqs []*llm.Request) {
-				if reqs[1].Limits.MaxOutputTokens != 2*reqs[0].Limits.MaxOutputTokens {
-					t.Errorf("caps %d then %d", reqs[0].Limits.MaxOutputTokens, reqs[1].Limits.MaxOutputTokens)
+				if reqs[1].ToolMode != llm.ToolNone || reqs[1].Limits.MaxOutputTokens != reqs[0].Limits.MaxOutputTokens {
+					t.Errorf("the continuation: mode %s, cap %d after %d", reqs[1].ToolMode, reqs[1].Limits.MaxOutputTokens, reqs[0].Limits.MaxOutputTokens)
 				}
 			},
 		},
 		{
-			name:  "max_tokens with no text: once more, then the answer",
+			name:  "max_tokens with no text: once more with twice the cap, then the answer",
 			steps: []scripted.Step{scripted.Stop(llm.StopMaxTokens, ""), scripted.Reply("Whole.")},
 			want:  "Whole.",
+			check: func(t *testing.T, reqs []*llm.Request) {
+				if reqs[1].Limits.MaxOutputTokens != 2*reqs[0].Limits.MaxOutputTokens || len(reqs[1].Messages) != len(reqs[0].Messages) {
+					t.Errorf("caps %d then %d, messages %d then %d", reqs[0].Limits.MaxOutputTokens, reqs[1].Limits.MaxOutputTokens,
+						len(reqs[0].Messages), len(reqs[1].Messages))
+				}
+			},
 		},
 		{
 			name:  "max_tokens with no text twice: on_budget_text",

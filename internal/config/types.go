@@ -141,6 +141,10 @@ type Prompt struct {
 	AnswerLanguage string `yaml:"answer_language"`
 	OnRefusalText  string `yaml:"on_refusal_text"`
 	OnBudgetText   string `yaml:"on_budget_text"`
+	// OnTruncatedText follows, on a line of its own, an answer posted cut
+	// short at its length: the model's output cap cut it off with no room
+	// left in the answer's budgets to continue it.
+	OnTruncatedText string `yaml:"on_truncated_text"`
 	// OnQuotaText is the canned notice posted when the asker, the agent or
 	// the tenant is out of quota.
 	OnQuotaText string `yaml:"on_quota_text"`

@@ -27,6 +27,8 @@ agent:
     answer_language: opener        # opener | fixed:<bcp47>
     on_refusal_text: "I can't help with that here. Please ask your instructor."
     on_budget_text: "I couldn't finish this one. Try a narrower question."
+    # After an answer cut short at its length, with no room left to go on.
+    on_truncated_text: "（回答已達長度上限而中斷，回覆「繼續」可看後續。The answer reached its length limit; reply “continue” for the rest.）"
   tools:
     mode: derived                  # the seat's perms ∩ allow − deny
     allow: [course_get, document_list, document_get, assignment_list, assignment_get]

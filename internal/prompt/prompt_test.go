@@ -273,3 +273,25 @@ func equal(a, b []llm.Message) bool {
 	}
 	return true
 }
+
+// A continuation is told to go on from where the answer stops; the last
+// one, how much room it has, to close within it, and else to say the
+// answer was cut short.
+func TestContinue(t *testing.T) {
+	more := Continue(false, 0)
+	for _, want := range []string{"from exactly where it stops", "joined to it as it stands", "Repeat nothing"} {
+		if !strings.Contains(more, want) {
+			t.Errorf("a continuation is not told %q:\n%s", want, more)
+		}
+	}
+	if strings.Contains(more, "room") || strings.Contains(more, "cut short") {
+		t.Errorf("a continuation with room to spare is told to close:\n%s", more)
+	}
+	last := Continue(true, 850)
+	for _, want := range []string{"only about 850 more tokens", "from exactly where it stops", "Bring the answer to a close within that room",
+		"in the language of the answer", "cut short", `reply "continue"`} {
+		if !strings.Contains(last, want) {
+			t.Errorf("the last continuation is not told %q:\n%s", want, last)
+		}
+	}
+}

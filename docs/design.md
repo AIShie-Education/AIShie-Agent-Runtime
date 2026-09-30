@@ -942,13 +942,15 @@ For an inbox row (conversation X, question M, opener P):
 7. **Loop** (§7.1) with the seat's toolset, its writes only when the
    owner opened X (§4), bounded by `per_answer`; the writes, by
    `max_writes`, each keyed for this attempt. Stop
-   `end` gives the body. `max_tokens` with partial text is tried once more
-   with twice the cap; `content_filter` and `refusal` give
-   `on_refusal_text`; `context_overflow` halves the history and tries once
-   more; `tool_error` retries the turn once. A spent budget takes a last
-   turn with ForceAnswer, and gives `on_budget_text` if that has no text.
+   `end` gives the body. `max_tokens` with text is continued, not written
+   again (below); with none, its thinking or a tool call it did not finish
+   having taken the cap, the turn is tried once more with twice the cap.
+   `content_filter` and `refusal` give `on_refusal_text`;
+   `context_overflow` halves the history and tries once more; `tool_error`
+   retries the turn once. A spent budget takes a last turn with
+   ForceAnswer, and gives `on_budget_text` if that has no text.
    `turns` is a hard cap: the last call it allows is the forced one, and a
-   provider's error is not a turn. The output-token budget forces the last
+   provider's error is not a turn, nor a continuation (below). The output-token budget forces the last
    turn as soon as what is left cannot hold a whole one, and caps it at what
    is left; tool calls past their budget get an error result and never reach
    Core. A last turn forced by the wall clock gets min(wall clock / 6, 15 s)
@@ -961,6 +963,34 @@ For an inbox row (conversation X, question M, opener P):
    leaves its fallback time to answer. If all fail, nothing is posted and
    X is held back for a minute, doubling to ten; after five such failures
    on M (counted in memory), `on_budget_text` is posted.
+
+   An answer the output cap of its call cuts off (`max_tokens` with text,
+   on any turn, a forced one too) is continued where it stops
+   (`worker/continue.go`): the model is given the answer so far as its own
+   message and the runtime's word to go on from exactly there, repeating
+   nothing (`prompt.Continue`), with no tools; what it writes is joined to
+   the answer, less any of the answer's end it writes again, and so on
+   while the cap cuts it off. That is one way for every adapter: an
+   assistant prefill, where an API has one, is refused by the models that
+   think. A continuation is a model call of its own in the ledger but not a
+   turn, as turns bound the rounds of tool calls before the answer; it
+   writes within what is left of the output tokens, starts only before the
+   wall clock is spent and while the input tokens are not, and adds to an
+   answer held to `max_body_chars`, less `on_truncated_text`. Its room is
+   the least of what is left of those, the wall clock's and the body's at
+   the pace, and the characters a token, the answer has been written at so
+   far. One whose room cannot hold a whole cap, or whose input spends the
+   input tokens, is the last: it is told its room, to close the answer
+   within it, and else to end by saying, in the answer's language, that it
+   was cut short and that the asker can reply "continue" for the rest. Like
+   a forced turn, it is given min(wall clock / 6, 15 s) if the wall clock
+   runs out while it writes. An answer still cut off with no room left, or
+   whose continuation fails, is posted as the model's with
+   `on_truncated_text` in a paragraph after it: its text cut, and a code
+   block it leaves open closed, so that the note fits and reads as one. It
+   is counted in `budget_exhausted_total{budget="truncated"}`, and the
+   answer's log line gives its `continuations` and whether it was
+   `truncated`.
 8. **Safety** (`safety.Body`, §7 below): links and images whose URLs carry
    context stripped, cut to `max_body_chars` on a paragraph or sentence.
 9. **Post**, written ahead: the attempt is stored (`sending`, the exact
@@ -1049,8 +1079,11 @@ takes its place.
   kept. Its text is the current model call's text so far (streamed, §3),
   replaced whole with each write, at most 20,000 characters; the next call
   starts it from nothing, and so does a try made again after a stream cut
-  off or a provider's failure, or by the fallback. An adapter that does not
-  stream shows steps alone.
+  off or a provider's failure, or by the fallback. A continuation of an
+  answer the output cap cut off (step 7) shows the answer so far and what
+  it writes after it, its steps left as they were, so that the draft grows
+  through it; a try made again starts again from the answer so far. An
+  adapter that does not stream shows steps alone.
 - It is written through one drafter per conversation (so one write in
   flight per conversation, across the attempts and claims of it): the loop
   only changes the draft's state under a lock and wakes it, and its
@@ -1363,6 +1396,21 @@ question waiting 5 s for it.
   withdraw her question while her agent's model has stalled part way
   through its streamed answer, and sees the model's request cancelled
   within seconds and no answer ever posted.
+- An answer the output cap cuts off, with the scripted model: continued
+  twice, the pieces joined in order and nothing twice (a table row, a
+  sentence or Chinese words written again left out), each continuation
+  given the answer so far, with no tools; the draft growing through it in
+  one attempt; the last continuation, its room less than a cap by the
+  output tokens, by the body at the answer's characters a token, or by
+  the wall clock at its pace, told that room and to close; one still cut
+  off, one whose continuation fails, and a last turn forced by the wall
+  clock, posted with `on_truncated_text`; a last turn forced by the turns
+  continued; and no continuation past the output tokens, the input tokens,
+  the wall clock or the body. The end to end (`long-answer-continued`) has
+  Yuki's agent's model cut off at `finish_reason: length`, and sees the
+  continuation asked with the answer so far and no tools, one answer
+  posted of the two pieces, and, where Core takes drafts, its text growing
+  through the continuation as Yuki watches.
 - `toolschema`: every tool of the pinned catalogue through every dialect and
   back through Core's schema.
 - `doctext`: decks, documents, workbooks and PDFs made byte by byte

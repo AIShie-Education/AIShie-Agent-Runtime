@@ -2,12 +2,16 @@ package config
 
 import "strings"
 
-// Texts the runtime posts or gives when the model's answer cannot be used.
+// Texts the runtime posts or gives when the model's answer cannot be used,
+// and the note it posts after an answer cut short.
 const (
 	DefaultRefusalText = "I can't help with that here. Please ask your instructor."
 	DefaultBudgetText  = "I couldn't finish this one. Try a narrower question."
 	DefaultQuotaText   = "I've answered as many questions as I can today. Please try again tomorrow, or ask your instructor."
 	DefaultCloseReason = "I couldn't produce an answer to this after several tries, so I've closed this conversation. Please ask again, or ask your instructor."
+	// DefaultTruncatedText is in Traditional Chinese and in English, the
+	// school's two: the runtime does not know the answer's language.
+	DefaultTruncatedText = "（回答已達長度上限而中斷，回覆「繼續」可看後續。The answer reached its length limit; reply “continue” for the rest.）"
 )
 
 // The notice posted when a quota of the school plan's is spent and the
@@ -86,6 +90,7 @@ func Defaults() map[string]any {
 			"answer_language":   LanguageOpener,
 			"on_refusal_text":   DefaultRefusalText,
 			"on_budget_text":    DefaultBudgetText,
+			"on_truncated_text": DefaultTruncatedText,
 			"on_quota_text":     DefaultQuotaText,
 			"close_reason_text": DefaultCloseReason,
 		},

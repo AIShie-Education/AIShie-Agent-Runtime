@@ -35,6 +35,7 @@ var scenarios = []scenario{
 	{"long-poll-pickup", longPollPickup},
 	{"drafts-shown", draftsShown},
 	{"stop-cancels-the-answer", stopCancelsTheAnswer},
+	{"long-answer-continued", longAnswerContinued},
 }
 
 // TestRuntimeAgainstCore runs every scenario against the Core under test.

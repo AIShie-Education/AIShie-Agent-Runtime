@@ -39,6 +39,9 @@ const (
 	// MaxPromptAppendText is the most characters a course's
 	// prompt_append_text may have.
 	MaxPromptAppendText = 4000
+	// MaxTruncatedText is the most characters prompt.on_truncated_text
+	// may have: a line after the answer, which takes its place in it.
+	MaxTruncatedText = 500
 )
 
 var (
@@ -467,6 +470,14 @@ func checkPrompt(is *issues, a *Agent) {
 		case n > maxBody:
 			is.add(t.path, "is %d characters; an answer has at most %d (answer.max_body_chars)", n, maxBody)
 		}
+	}
+	switch n := utf8.RuneCountInString(strings.TrimSpace(p.OnTruncatedText)); {
+	case n == 0:
+		is.add("prompt.on_truncated_text", "required: it is posted after an answer cut short, so that none ends mid-sentence unexplained")
+	case n > MaxTruncatedText:
+		is.add("prompt.on_truncated_text", "is %d characters; at most %d: it is a line after the answer, within answer.max_body_chars", n, MaxTruncatedText)
+	case n > maxBody:
+		is.add("prompt.on_truncated_text", "is %d characters; an answer has at most %d (answer.max_body_chars)", n, maxBody)
 	}
 	switch n := utf8.RuneCountInString(strings.TrimSpace(p.CloseReasonText)); {
 	case n == 0:

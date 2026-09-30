@@ -248,11 +248,17 @@ func TextOf(ctx context.Context) llm.TextFunc {
 // apart, as a provider streams it, and stops at the end. A call that is
 // not streamed gets the same answer whole.
 func Streamed(every time.Duration, pieces ...string) Step {
+	return StreamedStop(every, llm.StopEnd, pieces...)
+}
+
+// StreamedStop is Streamed stopping for stop: an answer streamed until the
+// output cap cut it off (max_tokens), …
+func StreamedStop(every time.Duration, stop llm.Stop, pieces ...string) Step {
 	return func(ctx context.Context, req *llm.Request) (*llm.Response, error) {
 		if err := tell(ctx, every, pieces); err != nil {
 			return nil, err
 		}
-		return Reply(strings.Join(pieces, ""))(ctx, req)
+		return Stop(stop, strings.Join(pieces, ""))(ctx, req)
 	}
 }
 

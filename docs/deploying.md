@@ -593,6 +593,10 @@ machine's loopback, should `HTTP_ADDR` listen wider).
   `failed` (after one retry, or refused);
   a steady `failed` is Core refusing them, which `/status` also shows per
   agent (`drafts`, `draft_writes`). They never hold an answer back.
+  `budget_exhausted_total{budget}` counts the budgets answers ran into, and
+  `truncated` the answers posted cut short, with `on_truncated_text` after
+  them: many of those call for a higher `budgets.per_answer.output_tokens`
+  or `wall_clock_s`.
   A hosted agent's model calls are counted under the model's name as the
   price table gives it, or `other` when the table does not price it: the
   model its owner typed is never a label.
