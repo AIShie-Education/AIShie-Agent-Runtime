@@ -459,7 +459,7 @@ func denied(t *testing.T, w *world) {
 	if rt.inboxPolls("tutor") <= polls {
 		t.Error("the answer came without an inbox poll")
 	}
-	if at := rt.attempt("tutor", answerKey(conv, m1, 2)); at == nil || at.State != store.AttemptExecuted || at.PostedMessageID != answer.ID {
+	if at := rt.settled("tutor", answerKey(conv, m1, 2)); at == nil || at.State != store.AttemptExecuted || at.PostedMessageID != answer.ID {
 		t.Errorf("the second attempt is recorded as %s; want it executed, making %s", attemptState(at), answer.ID)
 	}
 	rt.settle("tutor", 3)

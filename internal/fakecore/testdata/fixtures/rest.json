@@ -409,7 +409,7 @@
    "method": "GET",
    "path": "/v1/me",
    "step": "unauthenticated",
-   "www_authenticate": "Bearer realm=\"aishiteru\""
+   "www_authenticate": "Bearer realm=\"aishie\""
   }
  ]
 }

@@ -111,7 +111,7 @@
       "openWorldHint": false,
       "readOnlyHint": false
      },
-     "description_sha256": "1a56af492f8f74068695feff40e8455c986de2fcb837d2b7a6c23adcf689d7a5",
+     "description_sha256": "172f9e4686b6f2f46dde2d77b811499ace550fa64e728c9477c4539f4345cf36",
      "input_schema_sha256": "e13c97a2b5a48c0feb31e86ffc0b138cf316a9dca39a1f8ced2621636d34f5fa",
      "name": "actor_invite_new",
      "output_schema_sha256": "3983b7d22a0c298bcd93e03851703e457ee09ec9a16da234e666e186bad42e0f"
@@ -1123,7 +1123,7 @@
       "openWorldHint": false,
       "readOnlyHint": false
      },
-     "description_sha256": "1db2eddbe5dc524dceb4cfb0bb754896532ffe0c93314686048a9f303f445556",
+     "description_sha256": "acdc991f9c6e4343a9fc889e0edae25f17daa858a31e84d631ecd923ca2d84c6",
      "input_schema_sha256": "ac401ae596bed2e2eaec7146ef8cfb3815d9670a8f26e3014d330b7ed150591f",
      "name": "me_site_chat",
      "output_schema_sha256": "0e54b3e8f7c8a35d62dcba1eff12df8e9b2981ce384e7ab80ad1ff37877bf820"
