@@ -48,6 +48,7 @@ type Store interface {
 	Reports
 	Audit
 	OCRTexts
+	Site
 	Close() error
 }
 
@@ -460,6 +461,10 @@ const (
 	ReasonCoreTooOld           = "core_too_old"
 	ReasonAgentSuspended       = "agent_suspended"
 	ReasonFailing              = "failing"
+	// ReasonOfferWithdrawn: the agent is on an offer of the school's plan
+	// the school no longer offers (removed, or turned off), and no model
+	// of its owner's stands behind it.
+	ReasonOfferWithdrawn = "offer_withdrawn"
 )
 
 // AgentState is what the owner's page shows about one agent.
@@ -545,15 +550,16 @@ type Secrets interface {
 	// is gone, ErrConflict when it was rewrapped since it was read.
 	RewrapSecret(ctx context.Context, id, fromKEKID, kekID string, wrapped []byte) error
 	// DeleteSecret destroys the secret; one that is not there is nothing.
-	// A secret a hosted agent still refers to is refused with ErrInUse:
-	// the agent's secrets go with it (DeleteHostedAgent), or when it is
-	// given new ones (UpdateHostedAgent).
+	// A secret a hosted agent or an offer of the school's plan still
+	// refers to is refused with ErrInUse: the agent's secrets go with it
+	// (DeleteHostedAgent), or when it is given new ones
+	// (UpdateHostedAgent), and an offer's key likewise.
 	DeleteSecret(ctx context.Context, id string) error
 }
 
-// ErrInUse is a secret that cannot be deleted because a hosted agent
-// refers to it.
-var ErrInUse = errors.New("store: a hosted agent refers to it")
+// ErrInUse is a secret that cannot be deleted because a hosted agent, or
+// an offer of the school's plan, refers to it.
+var ErrInUse = errors.New("store: a hosted agent or an offer refers to it")
 
 // CheckSecret refuses a secret a store must not keep: without its id (in
 // the shape IsSecretID gives), tenant, key id or sealed bytes, or of a kind

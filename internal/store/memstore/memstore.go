@@ -50,6 +50,8 @@ type Store struct {
 	audit    []store.AuditEvent
 	auditID  int64
 	ocr      map[string]store.OCRText
+	settings map[string]store.SiteSetting
+	offers   map[string]store.SchoolOffer
 }
 
 type lease struct {
@@ -101,6 +103,8 @@ func New() *Store {
 		hosted:   map[string]store.HostedAgent{},
 		courses:  map[seatKey]store.HostedCourse{},
 		ocr:      map[string]store.OCRText{},
+		settings: map[string]store.SiteSetting{},
+		offers:   map[string]store.SchoolOffer{},
 	}
 }
 
@@ -761,11 +765,16 @@ func (s *Store) DeleteSecret(_ context.Context, id string) error {
 	return nil
 }
 
-// secretInUse refuses to delete a secret a hosted agent refers to. Called
-// with the lock held.
+// secretInUse refuses to delete a secret a hosted agent, or an offer of
+// the school's plan, refers to. Called with the lock held.
 func (s *Store) secretInUse(id string) error {
 	for _, a := range s.hosted {
 		if a.TokenSecretID == id || a.KeySecretID == id {
+			return fmt.Errorf("secret %s: %w", id, store.ErrInUse)
+		}
+	}
+	for _, o := range s.offers {
+		if o.KeySecretID == id {
 			return fmt.Errorf("secret %s: %w", id, store.ErrInUse)
 		}
 	}

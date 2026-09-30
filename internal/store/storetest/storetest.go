@@ -64,6 +64,15 @@
 //     instant keep the order they were written in.
 //   - An audit event's id is the store's, increasing; its detail is a JSON
 //     object, {} for none, and comes back as the same JSON.
+//   - A site setting's name is lower-case letters, digits and '_', and its
+//     value a JSON object, which comes back as the same JSON; unsetting one
+//     not set is nothing. An offer of the school's plan is created at
+//     version 1 with its key, a model_key of the tenant school, and no
+//     other; an update names the version it read, or none; a key replaced
+//     is destroyed with the write, and deleting the offer takes its key.
+//     The registry's revision moves on with every write to a setting or an
+//     offer too, and never with one refused, or with an unset or a delete
+//     of nothing.
 package storetest
 
 import (
@@ -99,6 +108,7 @@ func Run(t *testing.T, open func(t *testing.T) store.Store) {
 		{"Reports", testReports},
 		{"Audit", testAudit},
 		{"OCRTexts", testOCRTexts},
+		{"Site", testSite},
 	} {
 		t.Run(g.name, func(t *testing.T) { g.run(t, open) })
 	}
