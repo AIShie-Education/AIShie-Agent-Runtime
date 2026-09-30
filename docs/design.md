@@ -25,7 +25,9 @@ files, as M1 has it, and, with the store in PostgreSQL, from the registry of
 hosted agents that people connect from AIShie-Frontend (§11): the secret
 store seals their tokens and their owners' keys in the runtime's database,
 and the registry runs them beside the YAML agents. The JSON API the front
-end calls (§11.4) listens apart, on `API_ADDR`. `/status` is the
+end calls (§11.4) listens apart, on `API_ADDR`. A module of its own, off
+unless the site's administrators turn it on, transcribes the course's
+files into their text versions in Core (§12). `/status` is the
 operator's view, read-only, and never served through the API's listener
 or a proxy.
 
@@ -54,6 +56,7 @@ internal/
   registry      hosted agents: each row made the agent document YAML would hold, loaded on its
                 own, merged with YAML; the watcher that reloads on the registry's changes (§11.2)
   pricing       the versioned price table, and cost
+  transcribe    the transcriber: the course's files made text versions in Core, by a model of the school's plan (§12)
   redact        a log handler that removes tokens and keys
   safety        what the model wrote, made safe to post: links, images, length
   prompt        the system prompt and the history the model is given
@@ -426,6 +429,17 @@ by `Run`; each entry has its reason beside it in the code:
   conversation alone (§6): the tools would let the model read what is kept
   about other askers by naming their conversations, and write about
   people.
+- `document_text`, `document_text_*`: a document's text version (Core
+  #43), its file transcribed into Markdown. Reading one is `document_get`'s
+  (its `version.text`). Writing one or asking for it to be transcribed
+  again (`document_text_update`, `document_text_retranscribe`) is the
+  course's staff's, in the front end: a model's text would stand in place
+  of the file for every reader after. The transcription service's queue,
+  file, renew and complete are the site's transcriber's, called with the
+  service's own credential, and Core refuses them to anyone else.
+- `service_*`: the site's service credentials, issued, listed and revoked by
+  its administrators alone; a token issued is a credential in the model's
+  text.
 
 `deny` entries ending in `*` cover every tool they begin. The model sees
 each tool through `toolschema`: bound arguments removed (`course_id`,
@@ -535,6 +549,36 @@ the text holds and leaves out.
   holds, and, where the runtime converts Office files, an older one by the
   stream its container names, an OpenDocument one by its `mimetype`, RTF by
   its first bytes; anything else is not given, with its type named.
+
+**Text versions** (`toolset.giveTextVersion`; Core #43). A version of a
+course's document with a file may have a text version in Core, beside the
+file (`version.text` of `document_get`'s result): the file transcribed into
+Markdown by a model, a page under `## 第 N 頁` (a slide under `## 投影片
+N`) and its pictures described in brackets, by this runtime's transcriber
+(§12) or another's, or what the course's staff wrote or corrected. Where it
+is `done`, the model is given it first, in place of the runtime's own
+reading of the file, which is then not fetched: `file_text` is the text,
+`given_as` `text`, and `text_source` says whose it is, `AI transcription
+(<the offer's label>)` or `edited by staff`; the note says a transcription
+may hold mistakes. A text too long for one result is given in parts as
+any text is (below), cut where its pages begin. Core gives the text whole
+beside the version up to 64 KiB; a longer one is read a part at a time
+(`document_text`, with the caller's own token, which reads the text exactly
+where it reads the version), all at one revision, read again once should
+it change meanwhile; what was read is kept (`Runner.Texts`) under the
+version and its revision, and each worker drops it as Core's text events
+say the version's text changed (`document.text_updated`, `…rubric_…`,
+`…draft_…`, and their `_unreleased` forms). A model that takes files may
+ask for pages of the file itself to check one against the text:
+`file_pages`, the runtime's other argument of `document_get` (`"3"`,
+`"3-5"`; at most 10 at a time, and never more than its provider takes in a
+file), gives those pages as a PDF of their own, cut from the file or from
+LibreOffice's PDF of it, a deck's speaker notes beside them, and no text; a
+model that takes no files is given the text, and told `file_pages` does
+not apply. `file_part` and `file_pages` are not asked for together. A text
+version not done (pending, working, failed, skipped), or none, changes
+nothing: the file is given as above. All of this holds whether or not this
+runtime transcribes.
 
 **Reading in parts.** A result is at most 32 KB, and a lecture's deck of
 38 slides reads as 57 KB of text: cut there, the model would see the
@@ -1456,7 +1500,7 @@ The prompt's hash is kept per answer.
 | `cursor` | (agent, member, kind) → value |
 | `note` | (agent, member, conversation) → kind, text, message id |
 | `seat` | (agent, member) → course, seen_at, gone_at, and the seat as `me_memberships` last showed it: course code, title and section, status, `answers_course`, principal, perms |
-| `llm_call`, `answer` | the ledger: ids and numbers; an answer's row counts the writes its model sent, and how many Core executed, proposed, denied and failed |
+| `llm_call`, `answer` | the ledger: ids and numbers; an answer's row counts the writes its model sent, and how many Core executed, proposed, denied and failed; a call's `kind` is `model_calls`, an answer's, or `transcription`, the transcriber's (§12), which has no agent, tenant, course or asker |
 | `agent_state` | the owner's page's state, and the version of a hosted agent's row it is of: never replaced by a state of an older version |
 | `secret` | sealed secrets (§11.1): id, tenant, kind, the key's id, the wrapped data key, nonce, ciphertext, hint |
 | `person` | who has used the API: Core actor, name, platform role, last seen |
@@ -1465,11 +1509,13 @@ The prompt's hash is kept per answer.
 | `registry_rev` | one row: the revision every write to `hosted_agent` or `hosted_course` moves on, by trigger, with `NOTIFY aishie_registry` |
 | `audit` | the API's audit (§11.4): when, who, with which of Core's sessions, from where, what, to what, the outcome, and a detail of ids, hints, providers, models and results; kept 400 days |
 | `ocr_text` | what OCR recognized of a file (§4, OCR), by the sha256 of its bytes: done or failed, pdf or image, the text (at most 4 MB), pages recognized and of how many, where each begins, notes, why it failed, the engine and how long it took; kept 180 days, a failure a day |
-| `site_setting` | what the runtime's administrators set (§11.5), by name (`ocr`, `school_quotas`, `agent_budgets`): a JSON object, who wrote it, when; every write moves `registry_rev` on |
+| `site_setting` | what the runtime's administrators set (§11.5), by name (`ocr`, `school_quotas`, `agent_budgets`, `transcription`): a JSON object, who wrote it, when; every write moves `registry_rev` on |
 | `school_offer` | the offers of the school's plan the administrators made (§11.5): id, label, adapter, provider, model, base_url, region, output bound, effort, on or off, the school's key (a secret of the tenant `school`, with its hint, and whether it was tried with the model), version, who made and changed it, when; every write moves `registry_rev` on |
 | `site_price` | the site's rows of the price table (§11.5): id, provider, model (exact or a glob), from (a day), the four prices in pUSD a token, version, who made and changed it, when; one row per (provider, model, from); every write moves `registry_rev` on |
 | `site_price_rev` | one row: when the site's prices last changed, to the second and always a second past the last, by trigger, which names their version (`site-<UTC second>`) |
 | `site_tenant_quota` | a tenant's daily quota on the school's key as the site sets it (§11.5), in place of `runtime.tenants`': answers and pUSD, each null for none, who set it, when; every write moves `registry_rev` on |
+| `transcription_credential` | one row: the transcriber's service credential (§12), a `core_token` secret of the tenant `site` with its hint, Core's id of it, whether Core took it when it was given, who gave it and when, when Core last took it and last refused it, and why; giving or forgetting it moves `registry_rev` on |
+| `transcription_job` | what the transcriber did with each claim of a version (§12): id `trj_…` and a sequence it is listed by, the version, document and course, the claim, its status (`working`, `done`, `failed`, `skipped`, `dropped`) and why, whether it was the backfill's, the attempt, the file's type and size, its pages and those sent to the model, the offer and model, the calls, their tokens and cost, the worker, and when it started, was last held and ended; kept 90 days |
 
 Beside the sums quotas are checked against (`Spend`), two reports read the
 ledger for people, ids and numbers only: `Usage(agent, since, until)`, a
@@ -1479,8 +1525,12 @@ until)`, the same per asker, counts only, never what anyone wrote; and
 `CostReport(query)` sums the model calls of a span, as a whole or by UTC
 day, tenant, agent, model (with its key source) or key source, on one key
 source or both, a page of groups (at most 1,000) after a key at a time:
-calls, those no price held, tokens and cost. The API shows an agent's
-seats from the seat rows, and never needs its token to.
+calls, those no price held, tokens and cost, the answers' and the
+transcriber's apart (the latter by agent under the key `transcription`,
+and by tenant under `site`). `Spend` on the school's key counts both: the
+transcriber's calls count against the plan's ceiling across the key
+(`per_day_usd`), and no owner's, tenant's or asker's quota. The API shows
+an agent's seats from the seat rows, and never needs its token to.
 
 `memstore` keeps the same in memory, for one worker and for tests: it loses
 attempts and memory on restart, so a restarted worker may find its keys
@@ -1516,7 +1566,11 @@ per worker up to 32 MiB; OCR on where its programs are, in
 question waiting 5 s for it; presentations and documents converted to PDF
 by LibreOffice where it is, 2 min and 300 pages a file, 2 GiB, one at a
 time per worker and eight waiting, what it made kept in memory up to 64
-MiB; a PDF given as a file in parts of 10 pages where poppler cuts it.
+MiB; a PDF given as a file in parts of 10 pages where poppler cuts it; the
+transcriber off, and once turned on, 2 documents at once, 300 pages a
+document, no daily limit of pages, a claim of 10 minutes renewed every
+third of it, 25 s waits on the queue, 10 pages a call (5 as pictures at
+150 dpi), 3 tries a call, files of at most 64 MiB, jobs kept 90 days.
 The output tokens, a call's and an answer's, and the wall clock are more
 than §4's example (2,000, 4,000 and 90 s), which a long answer, in
 Chinese with a table, overran, and was cut off.
@@ -1546,6 +1600,14 @@ Chinese with a table, overran, and was cut off.
   against a live Core, whose recorder declares each agent's site chat with
   its token); a conformance test holds the fake to them, and Core's own
   client is tested live against the real one.
+- The transcriber (`internal/transcribe`) against `fakecore`, whose text
+  versions, service credential and queue answer as Core #43's do (a
+  claim's lease lost, the text edited by staff meanwhile, a credential
+  revoked): a PDF in ranges of pages, a deck converted with its notes, a
+  model of pictures, the skips and failures, one claiming worker of two,
+  the blocks, the page quota and the plan's dollars; the API's routes,
+  their refusals and audit, on `memstore`; the store's tables on both
+  stores; and the end to end (`transcription`) against the pinned Core.
 - Adapters: golden translations both ways in `testdata/`, every stop reason
   and usage field; `LIVE=1` runs them against the real providers whose keys
   are set, with one request declaring every tool at 16 output tokens, and
@@ -2231,8 +2293,9 @@ operator's, listed read-only; and `allowed_models`, `denied_models`,
 `on_quota_text` and the budgets of one answer (turns, tool calls, tokens,
 time: not money) stay `runtime.yaml`'s.
 
-- **Kept in the store** (migrations 0009 and 0010): `site_setting`, a JSON
-  object by name (`ocr`: `enabled`, `languages`; `school_quotas`:
+- **Kept in the store** (migrations 0009, 0010 and 0011): `site_setting`, a JSON
+  object by name (`ocr`: `enabled`, `languages`; `transcription`:
+  `enabled`, `offer`, `max_pages`, `per_day_pages`, `concurrency`; `school_quotas`:
   `per_owner_day`, `per_asker_day`, `per_day`, and `per_owner_day_usd`,
   `per_asker_day_usd`, `per_day_usd`, null for none; `agent_budgets`:
   `per_agent_day` and `per_asker_day`, each `answers` and `usd`, null for
@@ -2264,7 +2327,9 @@ time: not money) stay `runtime.yaml`'s.
   rows before it (`Site.PriceTable`), put in force at each build and at
   `SIGHUP`. The quotas apply from the next answer; an agent whose offer
   changed (a key replaced is a new secret, so a new reference) restarts.
-  The OCR setting goes to each worker's `ocr.Service` at each build. A
+  The OCR setting goes to each worker's `ocr.Service` at each build, and
+  the transcriber's to its `transcribe.Service`, with the plan's offer it
+  names as the plan in force has it, or none. A
   registry that cannot be read leaves the site's settings as last read in
   force. The API reads the settings in force from the store at each
   request, so that owners see an offer the moment it is made.
@@ -2393,8 +2458,168 @@ time: not money) stay `runtime.yaml`'s.
     `total`, on `school` or `own` alone when asked, a page of at most 500
     groups (100 unless `limit`) after the key `after` names, with the next
     page's cursor. Each sum is a cost in dollars and lines by kind of
-    cost: `model_calls` (calls, those no price held, tokens, cost) today;
-    a cost priced otherwise, such as transcription, will be a line of its
-    own kind, so that a front end shows the lines it knows and the total
-    of all. The ledger has no offer's id on a model call: the offers of a
-    model are those of the plan now.
+    cost: `model_calls` (calls, those no price held, tokens, cost), and
+    `transcription`, the transcriber's model calls (the same measures), a
+    line of its own kind, so that a front end shows the lines it knows and
+    the total of all. By agent, the transcriber's calls are the group
+    `transcription` (`agent_id` null); by tenant, `site` (`tenant_id`
+    null); by key source, the school's. The ledger has no offer's id on a
+    model call: the offers of a model are those of the plan now.
+  - `GET /admin/settings`' `transcription`, and `PATCH` of
+    `{"transcription": {"enabled", "offer", "max_pages", "per_day_pages",
+    "concurrency"}}` by merge-patch (§12): whether the transcriber can run
+    here (`available`, and if not `unavailable_reason`, `operator_off` or
+    `core_too_old`, with `unavailable_detail`), the site's setting or its
+    defaults (off, no offer, 300 pages, no daily limit, 2 at once), where
+    the offer stands in the plan in force (`offer_status`: `ok`,
+    `not_found`, `disabled`, `no_file_input`, or `not_priced`, a warning),
+    the credential (`status`: `none`, `ok`, `untested`, `rejected`; its
+    hint, Core's id of it, who gave it when, when Core last took it, why
+    it refused it), what it does now (`state`: `off`, `running`,
+    `standby`, `blocked`, with `blocked_reason`: `no_credential`,
+    `credential_rejected`, `no_offer`, `offer_unavailable`,
+    `quota_exhausted`), and the UTC day's pages, documents done, failed and
+    skipped, and cost. It is not turned on where it cannot run (422
+    `transcription_unavailable`); an offer the plan has not (runtime.yaml's
+    or the site's, on or off) is `invalid_field`, one whose model takes no
+    files 422 `offer_no_file_input`; `max_pages` is 1 to 5,000,
+    `per_day_pages` 1 to 1,000,000 or null, `concurrency` 1 to 8, null
+    taking the default. A later change of the plan that withdraws the
+    offer is not refused: `offer_status` says so, and the state is
+    `blocked`. Audited as `transcription_settings.update`, with the
+    members changed (a patch of `ocr` and `transcription` records
+    `settings.update` too).
+  - `PUT /admin/transcription/credential`, `{"token", "credential_id"?,
+    "skip_test"?}`: Core's service token (`aissvc_…`, else `invalid_field`
+    at `/token`), tried with Core unless `skip_test` by a call that claims
+    nothing (the renewal of a claim of the nil uuid under a lease of
+    chance, which Core answers 404 or 409 to the service's token): Core's
+    401, or 403 `service_only`, is 422 `credential_rejected` with Core's
+    status in `details.status`; a Core that cannot be reached, 503
+    `core_unavailable`; a Core without the service, or no `CORE_BASE_URL`,
+    422 `transcription_unavailable`; nothing is kept on a refusal. Sealed
+    (§11.1) under the tenant `site`, in place of the one before, which is
+    destroyed; never shown, logged or audited but as its hint. `DELETE`
+    forgets it (the front end revokes it in Core). Both answer the
+    transcription's settings. Audited as `transcription_credential.set`
+    (its hint, Core's id, whether it was tried) and `.delete`.
+  - `GET /admin/transcription/jobs?after=&limit=&status=`: the
+    transcriber's record of its jobs (§12), newest first, a page of at most
+    200 (50 unless `limit`), of one status or all, and the next page's
+    cursor (`next`, the last job's sequence); ids, counts, the offer and
+    model, cost and tokens, never a title or any text.
+  - `GET /info`'s `features.transcription`: this worker's transcriber runs,
+    or stands by, as the site's setting in force turns it on, with nothing
+    blocking it; what the front end shows the text versions' queue for.
+
+## 12. The transcriber
+
+`internal/transcribe` gives every version of a course's documents with a
+file its text version in Core (AIShie-Core #43; §4, Text versions): the
+file transcribed into Markdown by a model of the school's plan. It is a
+module of its own, off unless the site's administrators turn it on
+(§11.5); off, the runtime claims nothing from Core's queue, and nothing
+else in it behaves differently. It is the one place the runtime writes to
+Core as anything but an agent: as the site's transcription service, an
+actor of Core's that is in no course, with a credential that works at the
+service's four REST routes alone (`document_text.queue`, `.file`,
+`.renew`, `.complete`), which an administrator issues in Core and hands to
+the runtime through the API.
+
+- **Where it runs.** The operator's environment is its ceiling:
+  `TRANSCRIBE=auto` (the default) lets it run when the site turns it on;
+  `off` never, whatever the site says (`available: false`,
+  `operator_off`); `on` as `auto`, and `run` and `check` fail where it
+  cannot run. It needs the store in PostgreSQL, the key that seals
+  secrets and `CORE_BASE_URL` (else `operator_off`, saying which), and a
+  Core whose catalogue has the service (else `core_too_old`, the
+  catalogue read again every 10 minutes). `check` says where it stands;
+  `run` starts it, and its start's log line says so.
+- **One claimer.** Every worker runs a `transcribe.Service`; the one that
+  holds the store's lease `transcriber` (a minute, renewed every 20 s)
+  claims, the others stand by, and one takes over within moments of its
+  lapse. N replicas never multiply the concurrency. Turned off, the lease
+  is given up.
+- **What it pays with.** One offer of the school's plan (runtime.yaml's or
+  the site's), which the administrators choose, on the school's key: its
+  model is made as an agent's on it would be, over the runtime's client
+  for runtime.yaml's and the hosted-model client for the site's. Its
+  calls are the ledger's, of their own kind (`transcription`, §8): no
+  agent's, tenant's, course's or asker's, counted against the plan's
+  ceiling across the key (`per_day_usd`) and no other quota, and a line
+  of their own in the cost report. An offer whose model takes no files
+  cannot transcribe: a PDF goes to a model whose API and provider take
+  PDFs (OpenAI's own and Azure's, Anthropic's, Gemini's, OpenAI's
+  Responses, Bedrock's Converse), and to one that takes pictures and no
+  PDFs, each page drawn by pdftocairo at 150 dpi.
+- **The loop.** While it holds the lease and nothing blocks it, it asks
+  the queue for as many versions as it has free slots (`concurrency`),
+  each claim 10 minutes (`lease_s: 600`), the call waiting up to 25 s for
+  one (`wait_s`), and works on each claimed version in the background: it
+  fetches the file from its signed URL, with no credential (a fresh URL
+  from `document_text.file` where it has expired or is refused); knows it
+  by its type or, of no telling type, by what it holds; a text file
+  (`text/plain`, Markdown, CSV) is done with its own text, `model: "text
+  file"`, no model called; an image is one page; a presentation or a
+  document is converted to PDF by LibreOffice (`internal/office`), a deck
+  of PowerPoint's with its speaker notes read beside it and given to the
+  model with its slides; a PDF's pages are counted. It asks the model for
+  a range of pages at a time (`PDF_PART_PAGES`, 10, within what the
+  provider takes; 5 as pictures), each range a PDF of its own cut by the
+  pager (the whole PDF where none cuts, within the provider's pages),
+  halving a range whose text the output bound cut off, and joins the
+  ranges' texts. It renews the claim every third of it meanwhile, and
+  completes the version, under the key Core names by the claim, done with
+  the text, its pages and the offer's label as the model, or failed or
+  skipped with why; a completion Core cannot be reached for is sent again
+  under its key. Failures that may pass (rate limits, overload, the
+  network) are tried three times a range, with backoff; then the version
+  fails (`model_error`).
+- **The prompt** is a constant (`transcribe.Prompt`), the same for every
+  document and range: transcribe faithfully, in the document's own
+  language, nothing summarised, translated or added; each page under
+  exactly `## 第 N 頁`, a slide under `## 投影片 N`, N counting from 1
+  across the whole document; structure kept (headings, lists, Markdown
+  tables, LaTeX, fenced code with its language); each picture, diagram,
+  chart or screenshot one bracketed line, `[圖：…]`, saying what it shows;
+  a slide's speaker notes after it, `> 講者備註：…`; what cannot be read
+  `[無法辨識]`; no preamble, no closing remarks. The headings are Chinese
+  whatever the document's language: the front end and the models'
+  citations find pages by them. A model's code fence around its whole
+  answer is taken off, and a range whose text begins without its first
+  heading is given it.
+- **What is not transcribed**, and Core is told why: a document of more
+  pages than `max_pages` (`too_many_pages`); one whose pages do not fit in
+  what the day's `per_day_pages` leave (`quota_exhausted`); a file that
+  needs a password (`encrypted`); a type not transcribed, a workbook, an
+  Office file where LibreOffice is not (`unsupported_format`); a file of
+  more than 64 MiB (`too_large`); an empty text file (`empty`). A
+  conversion that fails is `conversion_failed`. A text past the 2 MiB
+  Core keeps is cut before the last page heading that fits, and ends with
+  the line `[本文過長，其餘頁面未收錄]`: still done.
+- **Blocked.** It claims nothing, and says why (`blocked_reason`), with no
+  credential, or one Core refused (401, or 403 `service_only`: it is not
+  tried again until another is given); no offer, or one the plan no longer
+  offers or whose model takes no files (`offer_unavailable`); the day's
+  pages all spent, or the plan's dollars across the school's key
+  (`quota_exhausted`, until the next UTC day).
+- **Dropped work.** Core refusing a renewal or the completion because the
+  claim was lost (`lease_lost`: a retranscription broke it, or it lapsed),
+  staff wrote the text meanwhile (`edited_by_staff`), the course or the
+  document was archived, or the version is gone, stops the work, and
+  nothing is written; so does the worker stopping (its claims lapse, and
+  the versions are claimed again). A job a worker left `working` for
+  longer than a claim is ended as `dropped` (`interrupted`) by the next
+  claimer.
+- **Without a restart.** The site's setting and the credential are kept in
+  the store; every write moves `registry_rev` on, and each worker's build
+  puts them in force (`transcribe.Service.Set`), from the next claim: work
+  under way goes on as it began.
+- **What it keeps** (§8): the credential, sealed, and a record of each job
+  for 90 days, pruned by the claimer. **What it counts:**
+  `transcribe_jobs_total{outcome}` (done, failed, skipped, dropped),
+  `transcribe_pages_total` (pages sent to the model),
+  `transcribe_inflight`, `transcribe_claim_errors_total{reason}`
+  (unauthenticated, rate_limited, unreachable, refused), and the model
+  calls' own metrics, on the school's key. It logs ids, counts and codes:
+  never the token, a key, a file's URL or any text.

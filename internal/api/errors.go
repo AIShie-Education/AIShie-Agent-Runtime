@@ -98,6 +98,11 @@ const (
 	ReasonPriceNotFound  = "price_not_found"
 	ReasonPriceExists    = "price_exists"
 	ReasonPriceReadOnly  = "price_read_only"
+	// The transcriber's: turned on where it cannot run, given an offer
+	// whose model takes no files, or a credential Core refuses.
+	ReasonTranscriptionUnavailable = "transcription_unavailable"
+	ReasonOfferNoFileInput         = "offer_no_file_input"
+	ReasonCredentialRejected       = "credential_rejected" // #nosec G101 -- a reason's code, not a credential.
 )
 
 // maxMessage bounds a message, in bytes, as Core's apperr.Clip does.

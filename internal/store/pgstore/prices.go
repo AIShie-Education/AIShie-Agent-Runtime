@@ -221,32 +221,46 @@ func (s *Store) DeleteTenantQuota(ctx context.Context, tenantID string) error {
 }
 
 // costGroups are CostReport's groups: each one's key, as SQL, and the
-// columns it reads beside the sums.
+// columns it reads beside the sums. The transcriber's calls are no
+// tenant's or agent's, and go under keys of their own
+// (store.CostKeySite, store.CostKeyTranscription), naming neither.
 var costGroups = map[string]struct{ key, cols string }{
-	store.CostByTotal:     {`''`, `NULL::timestamptz, '', '', '', '', ''`},
-	store.CostByDay:       {`to_char(at AT TIME ZONE 'UTC', 'YYYY-MM-DD')`, `min(date_trunc('day', at AT TIME ZONE 'UTC')) AT TIME ZONE 'UTC', '', '', '', '', ''`},
-	store.CostByTenant:    {`tenant_id`, `NULL::timestamptz, min(tenant_id), '', '', '', ''`},
-	store.CostByAgent:     {`agent_id`, `NULL::timestamptz, max(tenant_id), min(agent_id), '', '', ''`},
+	store.CostByTotal: {`''`, `NULL::timestamptz, '', '', '', '', ''`},
+	store.CostByDay:   {`to_char(at AT TIME ZONE 'UTC', 'YYYY-MM-DD')`, `min(date_trunc('day', at AT TIME ZONE 'UTC')) AT TIME ZONE 'UTC', '', '', '', '', ''`},
+	store.CostByTenant: {`CASE WHEN kind = 'transcription' THEN '` + store.CostKeySite + `' ELSE tenant_id END`,
+		`NULL::timestamptz, COALESCE(min(tenant_id) FILTER (WHERE kind <> 'transcription'), ''), '', '', '', ''`},
+	store.CostByAgent: {`CASE WHEN kind = 'transcription' THEN '` + store.CostKeyTranscription + `' ELSE agent_id END`,
+		`NULL::timestamptz, COALESCE(max(tenant_id) FILTER (WHERE kind <> 'transcription'), ''),
+		 COALESCE(min(agent_id) FILTER (WHERE kind <> 'transcription'), ''), '', '', ''`},
 	store.CostByModel:     {`key_source || '/' || provider || '/' || model`, `NULL::timestamptz, '', '', min(key_source), min(provider), min(model)`},
 	store.CostByKeySource: {`key_source`, `NULL::timestamptz, '', '', min(key_source), '', ''`},
 }
 
-// CostReport sums the model calls as q says, a row per group, by key.
+// CostReport sums the model calls as q says, a row per group, by key: the
+// answers' and the transcriber's apart.
 func (s *Store) CostReport(ctx context.Context, q store.CostQuery) ([]store.CostRow, error) {
 	if err := store.CheckCostQuery(q); err != nil {
 		return nil, err
 	}
 	g := costGroups[q.Group]
+	// The sums of each kind of call: an answer's (a row of a release
+	// before the kind is one too), and the transcriber's.
+	sums := func(kind string) string {
+		f := ` FILTER (WHERE kind ` + kind + `)`
+		return `(count(*)` + f + `)::int, (count(*) FILTER (WHERE kind ` + kind + ` AND price_version = ''))::int,
+		        COALESCE(sum(input_tokens)` + f + `, 0)::bigint, COALESCE(sum(cache_read_tokens)` + f + `, 0)::bigint,
+		        COALESCE(sum(cache_write_tokens)` + f + `, 0)::bigint, COALESCE(sum(output_tokens)` + f + `, 0)::bigint,
+		        COALESCE(sum(cost_pusd)` + f + `, 0)::bigint`
+	}
 	rows, err := s.pool.Query(ctx, `
-		SELECT k, day, tenant_id, agent_id, key_source, provider, model, calls, unpriced, input, cache_read, cache_write, output, cost
-		  FROM (SELECT `+g.key+` AS k, `+g.cols+`,
-		               count(*)::int, (count(*) FILTER (WHERE price_version = ''))::int, sum(input_tokens)::bigint,
-		               sum(cache_read_tokens)::bigint, sum(cache_write_tokens)::bigint, sum(output_tokens)::bigint,
-		               sum(cost_pusd)::bigint
+		SELECT k, day, tenant_id, agent_id, key_source, provider, model, calls, unpriced, input, cache_read, cache_write, output, cost,
+		       t_calls, t_unpriced, t_input, t_cache_read, t_cache_write, t_output, t_cost
+		  FROM (SELECT `+g.key+` AS k, `+g.cols+`, `+sums(`<> 'transcription'`)+`, `+sums(`= 'transcription'`)+`
 		          FROM llm_call
 		         WHERE at >= $1 AND at < $2 AND ($3::text = '' OR key_source = $3::text)
 		         GROUP BY 1) AS g (k, day, tenant_id, agent_id, key_source, provider, model, calls, unpriced, input, cache_read,
-		                          cache_write, output, cost)
+		                          cache_write, output, cost, t_calls, t_unpriced, t_input, t_cache_read, t_cache_write, t_output,
+		                          t_cost)
 		 WHERE $4::text = '' OR k COLLATE "C" > $4::text
 		 ORDER BY k COLLATE "C"
 		 LIMIT $5`, q.Since, q.Until, q.KeySource, q.After, q.Limit)
@@ -258,8 +272,10 @@ func (s *Store) CostReport(ctx context.Context, q store.CostQuery) ([]store.Cost
 	for rows.Next() {
 		var r store.CostRow
 		var day *time.Time
+		tr := &r.Transcription
 		if err := rows.Scan(&r.Key, &day, &r.TenantID, &r.AgentID, &r.KeySource, &r.Provider, &r.Model, &r.ModelCalls, &r.Unpriced,
-			&r.InputTokens, &r.CacheReadTokens, &r.CacheWriteTokens, &r.OutputTokens, &r.CostPUSD); err != nil {
+			&r.InputTokens, &r.CacheReadTokens, &r.CacheWriteTokens, &r.OutputTokens, &r.CostPUSD, &tr.Calls, &tr.Unpriced,
+			&tr.InputTokens, &tr.CacheReadTokens, &tr.CacheWriteTokens, &tr.OutputTokens, &tr.CostPUSD); err != nil {
 			return nil, fmt.Errorf("store: the cost report: %w", err)
 		}
 		if day != nil {

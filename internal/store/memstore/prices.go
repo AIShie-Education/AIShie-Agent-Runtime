@@ -166,14 +166,21 @@ func (s *Store) CostReport(_ context.Context, q store.CostQuery) ([]store.CostRo
 			continue
 		}
 		var r store.CostRow
+		transcription := c.KindOf() == store.CallTranscription
 		switch q.Group {
 		case store.CostByDay:
 			r.Day = store.UTCDay(c.At)
 			r.Key = r.Day.Format(time.DateOnly)
 		case store.CostByTenant:
 			r.Key, r.TenantID = c.TenantID, c.TenantID
+			if transcription {
+				r.Key, r.TenantID = store.CostKeySite, ""
+			}
 		case store.CostByAgent:
 			r.Key, r.AgentID, r.TenantID = c.AgentID, c.AgentID, c.TenantID
+			if transcription {
+				r.Key, r.AgentID, r.TenantID = store.CostKeyTranscription, "", ""
+			}
 		case store.CostByModel:
 			r.Key, r.KeySource, r.Provider, r.Model = c.KeySource+"/"+c.Provider+"/"+c.Model, c.KeySource, c.Provider, c.Model
 		case store.CostByKeySource:
@@ -184,7 +191,28 @@ func (s *Store) CostReport(_ context.Context, q store.CostQuery) ([]store.CostRo
 			g = &r
 			groups[r.Key] = g
 		}
-		if c.TenantID > g.TenantID && q.Group == store.CostByAgent {
+		if transcription {
+			t := &g.Transcription
+			t.Calls++
+			if c.PriceVersion == "" {
+				t.Unpriced++
+			}
+			t.InputTokens += c.Input
+			t.CacheReadTokens += c.CacheRead
+			t.CacheWriteTokens += c.CacheWrite
+			t.OutputTokens += c.Output
+			t.CostPUSD += c.CostPUSD
+			continue
+		}
+		// A group of an agent or a tenant named as the transcriber's is
+		// the agent's or the tenant's, as pgstore's is.
+		switch q.Group {
+		case store.CostByAgent:
+			g.AgentID = c.AgentID
+			if c.TenantID > g.TenantID {
+				g.TenantID = c.TenantID
+			}
+		case store.CostByTenant:
 			g.TenantID = c.TenantID
 		}
 		g.ModelCalls++

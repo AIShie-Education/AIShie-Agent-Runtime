@@ -79,6 +79,10 @@ func routed(mux *http.ServeMux) http.Handler {
 
 type restCallerKey struct{}
 
+// restCredKey carries a REST call's credential, which the service's
+// claims are held under.
+type restCredKey struct{}
+
 // restAuth checks the bearer token and the rate limit, as Core's
 // authenticated does: after authentication, so the limit is the actor's;
 // before the call, so a refusal records nothing.
@@ -100,7 +104,11 @@ func (c *Core) restAuth(next http.HandlerFunc) http.Handler {
 			c.logRefused(&peek{transport: "rest", actorID: a.id, method: r.Method, tool: c.routeTool(r)}, http.StatusTooManyRequests)
 			return
 		}
-		next(w, r.WithContext(context.WithValue(r.Context(), restCallerKey{}, a.id)))
+		ctx := context.WithValue(r.Context(), restCallerKey{}, a.id)
+		c.mu.Lock()
+		cred := c.tokens[strings.TrimSpace(token)]
+		c.mu.Unlock()
+		next(w, r.WithContext(context.WithValue(ctx, restCredKey{}, cred)))
 	}))
 }
 

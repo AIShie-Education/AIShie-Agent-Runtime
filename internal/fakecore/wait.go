@@ -190,6 +190,13 @@ func withoutWait(raw []byte) ([]byte, error) {
 	found := 0
 	for _, t := range tools {
 		tool, _ := t.(map[string]any)
+		// The transcription service's queue waits too (Core #43), which a
+		// Core from before wait_s did not have at all: only the reads a
+		// seat makes are taken back.
+		name, _ := tool["name"].(string)
+		if _, reads := waitingTools[name]; !reads {
+			continue
+		}
 		in, _ := tool["input_schema"].(map[string]any)
 		props, _ := in["properties"].(map[string]any)
 		if _, ok := props["wait_s"]; ok {

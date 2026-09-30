@@ -30,6 +30,18 @@ func TestFromEnvDefaults(t *testing.T) {
 	if e.Office != (office.Config{}) || e.Office.WithDefaults().Mode != office.ModeAuto || e.PDFPartPages != 0 {
 		t.Fatalf("the conversion's defaults: %+v, %d pages a part", e.Office, e.PDFPartPages)
 	}
+	if e.Transcribe != TranscribeAuto {
+		t.Fatalf("TRANSCRIBE's default: %q", e.Transcribe)
+	}
+}
+
+func TestFromEnvTranscribe(t *testing.T) {
+	for in, want := range map[string]string{"on": TranscribeOn, "OFF": TranscribeOff, "Auto": TranscribeAuto} {
+		e, err := FromEnv(envOf(map[string]string{"TRANSCRIBE": in}))
+		if err != nil || e.Transcribe != want {
+			t.Errorf("TRANSCRIBE=%s: %q, %v", in, e.Transcribe, err)
+		}
+	}
 }
 
 func TestFromEnvOffice(t *testing.T) {
@@ -152,6 +164,7 @@ func TestFromEnvRefuses(t *testing.T) {
 		{"OFFICE_PDF_MEMORY_MB", "128", "OFFICE_PDF: 128 MB is too little"},
 		{"PDF_PART_PAGES", "0", "PDF_PART_PAGES"},
 		{"PDF_PART_PAGES", "ten", "PDF_PART_PAGES"},
+		{"TRANSCRIBE", "yes", `TRANSCRIBE: "yes" is not auto, on or off`},
 	} {
 		t.Run(tc.key+"="+tc.value, func(t *testing.T) {
 			_, err := FromEnv(envOf(map[string]string{tc.key: tc.value}))

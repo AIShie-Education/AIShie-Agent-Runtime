@@ -257,6 +257,20 @@ var BuiltinDeny = []string{
 	// tool would let the model read what it keeps about other askers by
 	// naming their conversations, and write about people.
 	"memory_*",
+	// A document's text version (Core #43): document_get gives it, in
+	// parts that fit a result, and the runtime reads document_text itself
+	// for a text longer than document_get holds (design §4, Text
+	// versions). Writing one, or asking for one to be transcribed again,
+	// is the course's staff's, in the front end: a model's text would
+	// stand in place of the file for every reader after. The rest,
+	// document_text_queue, _file, _renew and _complete, are the
+	// transcription service's, which the runtime's transcriber calls with
+	// the service's own credential, and Core refuses to any other.
+	"document_text", "document_text_*",
+	// The site's service credentials (the transcriber's): issued, listed
+	// and revoked by the platform's administrators alone, and a token
+	// issued is a credential in the model's text.
+	"service_*",
 }
 
 // BuiltinDenied reports whether name is on the built-in deny list.

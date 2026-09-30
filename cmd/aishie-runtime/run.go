@@ -20,6 +20,7 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/netguard"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/pgstore"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/transcribe"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/version"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/webauth"
@@ -35,8 +36,10 @@ const stopMargin = 5 * time.Second
 // SHUTDOWN_GRACE (and a second SIGINT or SIGTERM stops it at once). It runs
 // the YAML agents and, with the store in PostgreSQL, the registry's hosted
 // agents, put in force again whenever the registry changes (LISTEN
-// aishie_registry, and a poll). SIGHUP reads the YAML again; a
-// configuration that does not load is logged, and the one running stays.
+// aishie_registry, and a poll), and the transcriber, as the site's
+// settings and TRANSCRIBE say (package transcribe). SIGHUP reads the YAML
+// again; a configuration that does not load is logged, and the one running
+// stays.
 func cmdRun(ctx context.Context, args []string, getenv func(string) string, stderr io.Writer, sigs <-chan os.Signal) int {
 	if len(args) > 0 {
 		return usageError(stderr, "run takes no arguments; it is configured by its environment")
@@ -128,12 +131,20 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 		log.Error("the worker", "err", err)
 		return exitFailure
 	}
+	transcriber, err := newTranscriber(ctx, env, transcribe.Options{Store: st, Keeps: h.pg != nil && v != nil, CoreHTTP: client,
+		Secrets: res, ModelHTTP: client, HostedHTTP: hostedClient, Office: converter, Metrics: m, Log: log, Holder: sup.WorkerID()})
+	if err != nil {
+		log.Error("TRANSCRIBE=on, and the transcriber cannot run here", "err", err)
+		return exitFailure
+	}
+	h.setTranscriber(transcriber)
 	srv := httpserver.New(env.HTTPAddr, sup, reg, st, log)
 	if err := srv.Listen(); err != nil {
 		log.Error("HTTP_ADDR cannot be listened on", "addr", env.HTTPAddr, "err", err)
 		return exitFailure
 	}
-	apiSrv, err := newAPI(env, apiDeps{client: client, models: hostedClient, st: st, vault: v, actors: sup, hosting: h, ocr: recognizer}, reg, log)
+	apiSrv, err := newAPI(env, apiDeps{client: client, models: hostedClient, st: st, vault: v, actors: sup, hosting: h, ocr: recognizer,
+		transcriber: transcriber}, reg, log)
 	if err != nil {
 		log.Error("the API", "err", err)
 		return exitFailure
@@ -148,7 +159,8 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 	}
 	log.Info("aishie-runtime started", "version", version.Version, "commit", version.Commit, "worker", sup.WorkerID(),
 		"addr", srv.Addr(), "api", apiAddr, "agents", len(cfg.Agents), "hosted", len(h.hosted), "registry", h.pg != nil,
-		"store", kind, "prices", l.pricesPath, "kek", kekID(v), "ocr", recognizer.String(), "office", converter.String())
+		"store", kind, "prices", l.pricesPath, "kek", kekID(v), "ocr", recognizer.String(), "office", converter.String(),
+		"transcriber", transcriberState(transcriber.Status()))
 	warnNoAgents(log, cfg)
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -160,6 +172,10 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 			log.Error("the worker stopped", "err", err)
 		}
 	}()
+	// The transcriber's jobs end as the worker stops: their claims lapse
+	// in Core, and the versions are claimed again.
+	trDone := make(chan struct{})
+	go func() { defer close(trDone); transcriber.Run(ctx) }()
 	srvDone := make(chan error, 1)
 	go func() { srvDone <- srv.Serve(ctx) }()
 	apiDone := make(chan error, 1)
@@ -204,12 +220,14 @@ wait:
 	stopOffice()
 	deadline := time.NewTimer(env.ShutdownGrace + stopMargin)
 	defer deadline.Stop()
-	for supDone != nil || watchDone != nil {
+	for supDone != nil || watchDone != nil || trDone != nil {
 		select {
 		case <-supDone:
 			supDone = nil
 		case <-watchDone:
 			watchDone = nil
+		case <-trDone:
+			trDone = nil
 		case sig := <-sigs:
 			if sig == syscall.SIGHUP {
 				continue
@@ -239,15 +257,17 @@ wait:
 
 // apiDeps are what the API shares with the worker: the egress client (for
 // Core), the hosted-model client (for keys/test), the store, the vault,
-// the supervisor, the configuration in force, and the worker's OCR.
+// the supervisor, the configuration in force, and the worker's OCR and
+// transcriber.
 type apiDeps struct {
-	client  *http.Client
-	models  *http.Client
-	st      store.Store
-	vault   *vault.Vault
-	actors  api.Actors
-	hosting api.Hosting
-	ocr     api.OCR
+	client      *http.Client
+	models      *http.Client
+	st          store.Store
+	vault       *vault.Vault
+	actors      api.Actors
+	hosting     api.Hosting
+	ocr         api.OCR
+	transcriber api.Transcriber
 }
 
 // newAPI is the JSON API for the front end (docs/design.md §11.4), or nil
@@ -283,6 +303,7 @@ func newAPI(env config.Env, d apiDeps, reg prometheus.Registerer, log *slog.Logg
 		Actors:         d.actors,
 		Hosting:        d.hosting,
 		OCR:            d.ocr,
+		Transcriber:    d.transcriber,
 		Allowlist:      env.CoreBaseURLAllowlist,
 		ModelHTTP:      d.models,
 		AdminActorIDs:  env.AdminActorIDs,

@@ -30,7 +30,16 @@ says what an agent may do and how. This repository meets it:
   image, to a model that takes no files as the text the runtime's OCR
   recognizes, in Chinese and English, marked as such. Every file is read
   as a hostile one, within fixed limits, and LibreOffice and the OCR's
-  programs run apart, held in memory, time and what they see.
+  programs run apart, held in memory, time and what they see. Where Core
+  has a file's text version (文字版), the model reads that first, marked as
+  an AI transcription or the staff's, and may ask to see pages of the file
+  to check one.
+- **Text versions of the course's files.** A module of its own, off until
+  the site's administrators turn it on: one worker at a time claims the
+  files waiting in Core's queue, has a model of the school's plan
+  transcribe each into Markdown, page by page, with its pictures
+  described, and writes the text back to Core, on the school's key, its
+  costs a line of their own.
 - **Five model APIs.** OpenAI Chat, which also covers the compatible servers
   (DeepSeek, Azure OpenAI, Ollama, vLLM…), OpenAI Responses, Anthropic,
   Gemini and Bedrock Converse. Each agent can have a fallback model.
@@ -95,7 +104,8 @@ One `runtime:` document holds the process's own settings: tenants' quotas,
 the price table, the models the school's key may use, and the school's AI
 plan, the models the school offers hosted agents on its own key with the
 quotas that hold them. The runtime's administrators also turn OCR off and
-on, choose its languages, make offers of the school's plan, set its quotas,
+on, choose its languages, turn the transcriber on and hand it Core's
+service credential, make offers of the school's plan, set its quotas,
 the tenants' and the hosted agents' budgets, add prices beside the price
 file's, and read what things cost, from the front end, within what the
 environment and `runtime.yaml` allow

@@ -64,8 +64,9 @@ func TestRuntimeAgainstCore(t *testing.T) {
 }
 
 var (
-	// coreTokenRe is a Core token or invitation in any form.
-	coreTokenRe = regexp.MustCompile(`ais(?:inv)?_[A-Za-z0-9_-]+`)
+	// coreTokenRe is a Core token, invitation or service credential in
+	// any form.
+	coreTokenRe = regexp.MustCompile(`ais(?:inv|svc)?_[A-Za-z0-9_-]+`)
 	// providerKeyRe is a provider key of the sk- shape, as the tests' is.
 	providerKeyRe = regexp.MustCompile(`(^|[^A-Za-z0-9])sk-[A-Za-z0-9_-]{8,}`)
 )
@@ -115,9 +116,10 @@ func noTokenInAnyLog(t *testing.T, worlds []*world) {
 	t.Logf("searched %d logs, %d lines, for %d secrets", logs, lines, len(secrets))
 }
 
-// hintRe is a token's hint, what the API shows of one (vault.Hint): ais_,
-// its public prefix, and an ellipsis.
-var hintRe = regexp.MustCompile(`^ais_[a-z2-7]{12}…`)
+// hintRe is a token's hint, what the API shows of one (vault.Hint): ais_
+// (aissvc_ of the transcription service's), its public prefix, and an
+// ellipsis.
+var hintRe = regexp.MustCompile(`^ais(?:svc)?_[a-z2-7]{12}…`)
 
 // holdsToken reports whether line holds a Core token: an ais_… that is not
 // a token's hint.
@@ -131,16 +133,18 @@ func holdsToken(line string) bool {
 }
 
 // secretParts are what of a secret must not be found: all of it, and for a
-// Core token (ais_, a public prefix of 12, _, the secret) its secret part
-// on its own.
+// Core token (ais_, or the service's aissvc_, a public prefix of 12, _, the
+// secret) its secret part on its own.
 func secretParts(v string) []string {
 	if v == "" {
 		return nil
 	}
 	parts := []string{v}
-	const public = len("ais_") + 12 + len("_")
-	if strings.HasPrefix(v, "ais_") && len(v) > public+8 {
-		parts = append(parts, v[public:])
+	for _, scheme := range []string{"ais_", "aissvc_"} {
+		public := len(scheme) + 12 + len("_")
+		if strings.HasPrefix(v, scheme) && len(v) > public+8 {
+			parts = append(parts, v[public:])
+		}
 	}
 	return parts
 }
@@ -196,7 +200,9 @@ func TestHoldsToken(t *testing.T) {
 		`{"token":"ais_k7v2m4qhx3ab_9Jx2abcdefghijklmnopqrstuvwxyz0123456789ABC"}`: true,
 		`ais_k7v2m4qhx3ab… then ais_other_token`:                                   true,
 		`ais_K7V2M4QHX3AB…`:                                                        true,
-		`nothing here`:                                                             false,
+		`{"hint":"aissvc_k7v2m4qhx3ab…"}`:                                          false,
+		`aissvc_k7v2m4qhx3ab_9Jx2abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG`:      true,
+		`nothing here`: false,
 	} {
 		if holdsToken(line) != want {
 			t.Errorf("holdsToken(%q) = %v", line, !want)

@@ -143,6 +143,25 @@ func TestConvertRealPresentations(t *testing.T) {
 	if _, err := p.Range(t.Context(), out.Data, 4, 5); !errors.Is(err, ErrMalformed) {
 		t.Errorf("pages past the last: %v", err)
 	}
+	// Drawn as pictures, for a model that takes no PDFs: one a page, of a
+	// slide's size at the resolution asked for, never past 150 dpi.
+	pics, err := p.Images(t.Context(), out.Data, 2, 3, 600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pics) != 2 {
+		t.Fatalf("%d pictures of pages 2 to 3", len(pics))
+	}
+	for i, b := range pics {
+		img, err := png.DecodeConfig(bytes.NewReader(b))
+		// A slide of 10 inches at 150 dpi.
+		if err != nil || img.Width < 1000 || img.Width > 2200 {
+			t.Errorf("picture %d: %+v, %v", i+1, img, err)
+		}
+	}
+	if _, err := p.Images(t.Context(), out.Data, 4, 5, 150); !errors.Is(err, ErrMalformed) {
+		t.Errorf("pictures past the last page: %v", err)
+	}
 	picked, err := p.Pick(t.Context(), out.Data, []int{3, 1})
 	if err != nil {
 		t.Fatal(err)

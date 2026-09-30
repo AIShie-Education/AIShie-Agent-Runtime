@@ -89,8 +89,8 @@ func TestCatalogueSnapshot(t *testing.T) {
 			reads++
 		}
 	}
-	if len(cat.tools) != 135 || reads != 49 || writes != 85 || ephemeral != 1 {
-		t.Errorf("%d tools, %d reads, %d writes, %d ephemeral; the snapshot holds 135, 49, 85, 1", len(cat.tools), reads, writes, ephemeral)
+	if len(cat.tools) != 145 || reads != 52 || writes != 90 || ephemeral != 3 {
+		t.Errorf("%d tools, %d reads, %d writes, %d ephemeral; the snapshot holds 145, 52, 90, 3", len(cat.tools), reads, writes, ephemeral)
 	}
 	older, err := catalogueOf(Options{WithoutSiteChat: true})
 	if err != nil {
@@ -1490,7 +1490,7 @@ func TestOwners(t *testing.T) {
 					} `json:"tools"`
 				} `json:"result"`
 			}
-			if err != nil || json.Unmarshal(l.Body, &list) != nil || len(list.Result.Tools) != 135 {
+			if err != nil || json.Unmarshal(l.Body, &list) != nil || len(list.Result.Tools) != 141 {
 				t.Fatalf("tools/list: %v %d", err, l.Status)
 			}
 			for _, tl := range list.Result.Tools {

@@ -309,6 +309,36 @@ func (s *Service) Range(ctx context.Context, sum string, pdf []byte, first, last
 	return b, nil
 }
 
+// imaging is a Paging that also draws pages as pictures: a *Pager.
+type imaging interface {
+	Images(ctx context.Context, pdf []byte, first, last, dpi int) ([][]byte, error)
+}
+
+// Draws reports whether s draws pages as pictures (Images).
+func (s *Service) Draws() bool {
+	if s == nil || s.pager == nil {
+		return false
+	}
+	_, ok := s.pager.(imaging)
+	return ok
+}
+
+// Images are pages first to last of pdf drawn as PNG pictures (Pager.
+// Images), in their turn among the cuts, never kept; ErrUnavailable when
+// s draws none.
+func (s *Service) Images(ctx context.Context, pdf []byte, first, last, dpi int) ([][]byte, error) {
+	if !s.Draws() {
+		return nil, ErrUnavailable
+	}
+	var out [][]byte
+	_, err := s.cut(ctx, "images", func() ([]byte, error) {
+		var err error
+		out, err = s.pager.(imaging).Images(ctx, pdf, first, last, dpi)
+		return nil, err
+	})
+	return out, err
+}
+
 // Pick is the pages of pdf given, in order, as a PDF of their own, for
 // OCR: cut now, never kept, as OCR keeps what it reads of them.
 func (s *Service) Pick(ctx context.Context, pdf []byte, pages []int) ([]byte, error) {

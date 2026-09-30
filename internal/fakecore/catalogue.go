@@ -42,6 +42,10 @@ type toolDef struct {
 	// ephemeral: a change that is no action (conversation.draft): no
 	// idempotency key, authorized as a write, carried out at once.
 	ephemeral bool
+	// restOnly: a tool Core serves at its REST route alone, and never
+	// lists or takes over MCP: the transcription service's
+	// (document_text.*), which no agent's token may call.
+	restOnly bool
 	// schema is the tool's own input schema, resolved for validation: what
 	// a REST body, or MCP arguments without the key, are judged by.
 	schema *jsonschema.Resolved
@@ -125,8 +129,13 @@ func withoutOwners(raw []byte) ([]byte, error) {
 	return json.Marshal(doc)
 }
 
+// restOnlyPrefix begins the names of the tools Core serves over REST
+// alone: the transcription service's queue, file, renew and complete.
+const restOnlyPrefix = "document_text."
+
 func (t *toolDef) prepare() error {
 	t.mcpName = mcpName(t.Name)
+	t.restOnly = strings.HasPrefix(t.Name, restOnlyPrefix)
 	switch t.Kind {
 	case "read":
 	case "write":

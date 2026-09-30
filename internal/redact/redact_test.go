@@ -10,11 +10,13 @@ import (
 const (
 	coreToken   = "ais_k7v2m4qhx3ab_9Jx2abcDEFghiJKLmnoPQRstuVWXyz0123456789_-abcd"
 	inviteToken = "aisinv_q2w3e4r5t6y7_ZZxxYYwwVVuuTTssRRqqPPooNNmmLLkkJJiiHHggFFe"
-	openaiKey   = "sk-proj-Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4z"
-	anthropic   = "sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCd"
-	googleKey   = "AIzaSyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q"
-	awsKey      = "AKIAIOSFODNN7EXAMPLE"
-	awsTempKey  = "ASIAY34FZKBOKMUTVV7A"
+	// serviceToken is a service credential's, the transcriber's.
+	serviceToken = "aissvc_ixgrh7nbgpyd_Qm9vYmFyYmF6cXV4cXV1eHF1dXhxdXV4cXV1eHF1dXg"
+	openaiKey    = "sk-proj-Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4z"
+	anthropic    = "sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCd"
+	googleKey    = "AIzaSyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q"
+	awsKey       = "AKIAIOSFODNN7EXAMPLE"
+	awsTempKey   = "ASIAY34FZKBOKMUTVV7A"
 	// jwt is an assertion as Core mints them for the runtime's API: EdDSA,
 	// with an issuer, an audience, a subject and an expiry.
 	jwt = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCIsImtpZCI6ImsxIn0." +
@@ -30,6 +32,7 @@ func TestString(t *testing.T) {
 	}{
 		{"core token", "token " + coreToken + " refused", "token [redacted] refused"},
 		{"invitation", "invite=" + inviteToken, "invite=[redacted]"},
+		{"service credential", `{"token":"` + serviceToken + `"}`, `{"token":"[redacted]"}`},
 		{"openai key", "key " + openaiKey + ".", "key [redacted]."},
 		{"anthropic key in JSON", `{"key":"` + anthropic + `"}`, `{"key":"[redacted]"}`},
 		{"google key in a query", "https://generativelanguage.googleapis.com/v1beta/models?key=" + googleKey, "https://generativelanguage.googleapis.com/v1beta/models?key=[redacted]"},

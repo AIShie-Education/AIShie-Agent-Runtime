@@ -110,6 +110,8 @@ var visibility = map[string][]string{
 	"member.removed": {permMemberRead}, "member.rescoped": {permMemberRead},
 	"course.created": {permDocumentRead}, "course.updated": {permDocumentRead},
 	"course.activated": {permDocumentRead}, "course.archived": {permDocumentRead},
+	"document.text_updated": {permDocumentRead}, "document.rubric_text_updated": {permRubricRead},
+	"document.draft_text_updated": {permDocumentReadDraft},
 }
 
 func (c *Core) visible(e *event, m *member) bool {
@@ -440,6 +442,9 @@ type versionView struct {
 	AuthorMemberID string    `json:"author_member_id"`
 	CreatedAt      time.Time `json:"created_at"`
 	Published      bool      `json:"published"`
+	// Text is the version's text version, for a version with a file of a
+	// course's document (text.go).
+	Text *textView `json:"text,omitempty"`
 }
 
 func (c *Core) findDocument(co *course, id uuid.UUID) *document {
@@ -499,6 +504,9 @@ func documentGet() *impl {
 				n := int64(len(doc.file))
 				url := rc.base + blobPath + doc.fileToken
 				v.ByteSize, v.DownloadURL = &n, &url
+			}
+			if doc.text != nil && v != nil {
+				v.Text = doc.text.view(true)
 			}
 			out := struct {
 				documentSummary

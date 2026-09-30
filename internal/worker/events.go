@@ -208,10 +208,20 @@ var errSendUnderWay = errors.New("a decision on an action not yet stored, while 
 
 // onEvent acts on one event. Only what concerns an attempt the store
 // holds, the agent's own conversations, or its answers is acted on, so
-// that a seat reading its whole history on its first read does no harm.
-// Its error is the store failing, or errSendUnderWay, when the event must
-// be read again.
+// that a seat reading its whole history on its first read does no harm;
+// and a version's text changed drops what the worker keeps of it. Its
+// error is the store failing, or errSendUnderWay, when the event must be
+// read again.
 func (s *Seat) onEvent(ctx context.Context, ev core.Event, acts *actionLookup) error {
+	if core.IsTextEvent(ev.Type) {
+		var p struct {
+			VersionID string `json:"version_id"`
+		}
+		if json.Unmarshal(ev.Payload, &p) == nil {
+			s.a.s.texts.DropText(p.VersionID)
+		}
+		return nil
+	}
 	switch ev.Type {
 	case core.EventActionApproved, core.EventActionRejected, core.EventActionCancelled:
 		if ev.ActionID == nil {

@@ -204,6 +204,9 @@ type document struct {
 	submission       *submission
 	grade            *grade
 	versionCreatedAt time.Time
+	// text is the version's text version (text.go): a version with a file
+	// of a course's material, instructions or rubric has one.
+	text *textVersion
 }
 
 type submission struct {

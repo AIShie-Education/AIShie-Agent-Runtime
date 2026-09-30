@@ -17,7 +17,7 @@ import (
 // RecordLLMCall records c, once: a call already recorded under its agent
 // and id is left as it is, so that a retried write never counts twice.
 func (s *Store) RecordLLMCall(ctx context.Context, c store.LLMCall) error {
-	if err := required("id", c.ID, "agent_id", c.AgentID); err != nil {
+	if err := store.CheckCall(c); err != nil {
 		return err
 	}
 	// Checked here as memstore checks it, rather than in the database's
@@ -33,14 +33,14 @@ func (s *Store) RecordLLMCall(ctx context.Context, c store.LLMCall) error {
 		INSERT INTO llm_call (agent_id, id, at, tenant_id, course_id, member_id, conversation_id, message_id,
 		                      opener_member_id, adapter, provider, model, stop, raw_stop,
 		                      input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, reasoning_tokens,
-		                      estimated, raw_usage, price_version, cost_pusd, key_source, latency_ms)
+		                      estimated, raw_usage, price_version, cost_pusd, key_source, latency_ms, kind)
 		VALUES ($1, $2, COALESCE($3::timestamptz, now()), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-		        $15, $16, $17, $18, $19, $20, $21::jsonb, $22, $23, $24, $25)
+		        $15, $16, $17, $18, $19, $20, $21::jsonb, $22, $23, $24, $25, $26)
 		ON CONFLICT (agent_id, id) DO NOTHING`,
 		c.AgentID, c.ID, orNow(c.At), c.TenantID, c.CourseID, c.MemberID, c.ConversationID, c.MessageID,
 		c.OpenerMemberID, c.Adapter, c.Provider, c.Model, c.Stop, c.RawStop,
 		c.Input, c.CacheRead, c.CacheWrite, c.Output, c.Reasoning,
-		c.Estimated, raw, c.PriceVersion, c.CostPUSD, c.KeySource, c.LatencyMS)
+		c.Estimated, raw, c.PriceVersion, c.CostPUSD, c.KeySource, c.LatencyMS, c.KindOf())
 	if err != nil {
 		return fmt.Errorf("store: record llm call %s: %w", c.ID, err)
 	}

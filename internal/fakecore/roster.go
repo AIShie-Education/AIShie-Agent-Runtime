@@ -107,6 +107,8 @@ type versionSummary struct {
 	AuthorMemberID string    `json:"author_member_id"`
 	CreatedAt      time.Time `json:"created_at"`
 	Published      bool      `json:"published"`
+	// Text is the version's text version, never its body.
+	Text *textView `json:"text,omitempty"`
 }
 
 // documentVersions is Core's document.versions: every version of a
@@ -138,6 +140,9 @@ func documentVersions() *impl {
 				if doc.file != nil {
 					n := int64(len(doc.file))
 					v.ByteSize = &n
+				}
+				if doc.text != nil {
+					v.Text = doc.text.view(false)
 				}
 				out.Versions = append(out.Versions, v)
 			}

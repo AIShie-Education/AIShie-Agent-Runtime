@@ -39,6 +39,9 @@ const (
 	// SettingAgentBudgets are the hosted agents' daily budgets by
 	// default, in place of runtime.defaults'.
 	SettingAgentBudgets = "agent_budgets"
+	// SettingTranscription is the transcriber's (package transcribe): on
+	// or off, the plan's offer it transcribes with, and its limits.
+	SettingTranscription = "transcription"
 )
 
 // SchoolTenantID is the tenant of the school's keys the site's

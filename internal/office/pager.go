@@ -77,6 +77,64 @@ func (p *Pager) Pick(ctx context.Context, pdf []byte, pages []int) ([]byte, erro
 	})
 }
 
+// MaxImageDPI bounds the resolution pages are drawn at for a model that
+// takes pictures: 150 dpi reads a slide's smallest print, and keeps a page
+// to a few hundred kilobytes.
+const MaxImageDPI = 150
+
+// Images are pages first to last of pdf drawn as PNG pictures, one a page,
+// in order, at dpi (at most MaxImageDPI), by pdftocairo: what a model that
+// takes pictures, and no PDFs, is given of a page. Pages past the last are
+// not there.
+func (p *Pager) Images(ctx context.Context, pdf []byte, first, last, dpi int) ([][]byte, error) {
+	if first < 1 || last < first {
+		return nil, fmt.Errorf("office: pages %d to %d are no range", first, last)
+	}
+	dpi = min(max(dpi, 36), MaxImageDPI)
+	dir, err := os.MkdirTemp(p.cfg.TempDir, "aishie-pages-")
+	if err != nil {
+		return nil, fmt.Errorf("office: a private directory: %w", err)
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	in := filepath.Join(dir, "in.pdf")
+	if err := os.WriteFile(in, pdf, 0o600); err != nil {
+		return nil, fmt.Errorf("office: writing the file: %w", err)
+	}
+	err = p.run(ctx, dir, p.pdftocairo, "-png", "-r", strconv.Itoa(dpi), "-f", strconv.Itoa(first), "-l", strconv.Itoa(last), in,
+		filepath.Join(dir, "page"))
+	var pe *sandbox.ProgramError
+	switch {
+	case err != nil && ctx.Err() != nil:
+		return nil, ctx.Err()
+	case errors.Is(err, sandbox.ErrTimeout):
+		return nil, ErrTimeout
+	case errors.As(err, &pe):
+		return nil, fmt.Errorf("%w: %s ended with status %d", ErrMalformed, filepath.Base(pe.Name), pe.Status)
+	case err != nil:
+		return nil, err
+	}
+	// pdftocairo names each page page-N.png, N zero-padded to the width
+	// of the last page's number: sorted by name, they are in order.
+	names, err := filepath.Glob(filepath.Join(dir, "page-*.png"))
+	if err != nil || len(names) == 0 {
+		return nil, fmt.Errorf("%w: its pages made nothing", ErrMalformed)
+	}
+	slices.Sort(names)
+	var out [][]byte
+	total := int64(0)
+	for _, n := range names {
+		b, err := os.ReadFile(n) //nolint:gosec // a path of the pager's own making.
+		if err != nil {
+			return nil, err
+		}
+		if total += int64(len(b)); total > maxOutput {
+			return nil, ErrTooLarge
+		}
+		out = append(out, b)
+	}
+	return out, nil
+}
+
 // cut writes pdf to a private directory, has make cut it there, and reads
 // what it made.
 func (p *Pager) cut(ctx context.Context, pdf []byte, make func(dir, in string) (string, error)) ([]byte, error) {

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -23,18 +24,19 @@ func readCatalogue(t *testing.T) []byte {
 	return b
 }
 
-// TestCatalogueSnapshot holds the pinned catalogue to what it is: 135
-// tools, 49 reads, 85 writes and one ephemeral write (conversation.draft),
-// every name within [a-z_]+ and at most 27 characters, which every
-// provider takes (§1.2 counts an earlier Core's).
+// TestCatalogueSnapshot holds the pinned catalogue to what it is: 145
+// tools, 52 reads, 90 writes and three ephemeral writes (conversation.draft,
+// and the transcription service's document_text.queue and .renew), every
+// name within [a-z_]+ and at most 27 characters, which every provider
+// takes (§1.2 counts an earlier Core's).
 func TestCatalogueSnapshot(t *testing.T) {
 	c, err := ParseCatalogue(readCatalogue(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	tools := c.Tools()
-	if len(tools) != 135 || c.Len() != 135 {
-		t.Fatalf("%d tools, want 135", len(tools))
+	if len(tools) != 145 || c.Len() != 145 {
+		t.Fatalf("%d tools, want 145", len(tools))
 	}
 	name := regexp.MustCompile(`^[a-z_]+$`)
 	reads, writes, ephemeral, longest := 0, 0, 0, 0
@@ -52,7 +54,7 @@ func TestCatalogueSnapshot(t *testing.T) {
 			}
 		case KindEphemeral:
 			ephemeral++
-			if tl.Method != http.MethodPost || tl.Read() || tl.MCPName != ToolDraft {
+			if tl.Method != http.MethodPost || tl.Read() || !slices.Contains([]string{ToolDraft, "document_text_queue", "document_text_renew"}, tl.MCPName) {
 				t.Errorf("%s is an ephemeral write at %s", tl.Name, tl.Method)
 			}
 		default:
@@ -69,8 +71,8 @@ func TestCatalogueSnapshot(t *testing.T) {
 		}
 		longest = max(longest, len(tl.MCPName))
 	}
-	if reads != 49 || writes != 85 || ephemeral != 1 || longest != 27 {
-		t.Fatalf("%d reads, %d writes, %d ephemeral, the longest name %d; want 49, 85, 1, 27", reads, writes, ephemeral, longest)
+	if reads != 52 || writes != 90 || ephemeral != 3 || longest != 27 {
+		t.Fatalf("%d reads, %d writes, %d ephemeral, the longest name %d; want 52, 90, 3, 27", reads, writes, ephemeral, longest)
 	}
 	if !sort.SliceIsSorted(tools, func(i, j int) bool { return tools[i].MCPName < tools[j].MCPName }) {
 		t.Error("Tools is not sorted by MCP name")
@@ -306,7 +308,7 @@ func TestFetchCatalogue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Hash() != want.Hash() || c.Len() != 135 {
+	if c.Hash() != want.Hash() || c.Len() != 145 {
 		t.Fatalf("fetched %d tools, hash %s", c.Len(), c.Hash())
 	}
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/office"
 )
@@ -65,6 +66,9 @@ type fileReading struct {
 	// form.
 	fam office.Family
 	of  office.Target
+	// text is the version's text version this is (textversion.go), nil
+	// for a reading of the file.
+	text *core.TextView
 }
 
 type cachedReading struct {

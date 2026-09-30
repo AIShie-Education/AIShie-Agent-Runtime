@@ -25,7 +25,7 @@ func TestCoreCatalogue(t *testing.T) {
 		t.Fatalf("the snapshot fails: %v", err)
 	}
 	view := FromCore(cat)
-	if view.Hash != cat.Hash() || len(view.Tools) != 135 {
+	if view.Hash != cat.Hash() || len(view.Tools) != 145 {
 		t.Fatalf("FromCore: hash %q, %d tools", view.Hash, len(view.Tools))
 	}
 	if got := view.Tools["course_get"]; got.Kind != KindRead || got.Name != "course_get" || len(got.InputSchema) == 0 || got.Description == "" {

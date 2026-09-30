@@ -49,6 +49,8 @@ type auditing struct {
 	targetType, targetID string
 	detail               map[string]any
 	skip                 bool
+	// action, when set, is the event's action in place of the route's.
+	action string
 }
 
 // target names what the request is about.
@@ -80,7 +82,11 @@ func (s *Server) audited(action string, h func(http.ResponseWriter, *http.Reques
 		if err != nil {
 			detail = []byte(`{}`)
 		}
-		s.Audit(r.Context(), r, store.AuditEvent{Action: action, TargetType: au.targetType, TargetID: au.targetID, Outcome: outcome,
+		act := action
+		if au.action != "" {
+			act = au.action
+		}
+		s.Audit(r.Context(), r, store.AuditEvent{Action: act, TargetType: au.targetType, TargetID: au.targetID, Outcome: outcome,
 			Detail: detail})
 	}
 }

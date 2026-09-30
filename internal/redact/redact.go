@@ -42,8 +42,10 @@ var builtin = []rule{
 	{re: regexp.MustCompile(`(?i)\b((?:(?:x-goog-|x-)?api[-_]?key|x-amz-security-token|(?:aws[-_]?)?secret[-_]?access[-_]?key|(?:aws[-_]?)?session[-_]?token)["']?\s*[:=]\s*["']?)` + headerValue("")), keep: 1},
 	// Bearer <token>.
 	{re: regexp.MustCompile(`(?i)\b(bearer\s+)[A-Za-z0-9._~+/=-]+`), keep: 1},
-	// Core's API tokens and invitations.
+	// Core's API tokens and invitations, and its service credentials
+	// (the transcriber's).
 	{re: regexp.MustCompile(`aisinv_[A-Za-z0-9_-]+`)},
+	{re: regexp.MustCompile(`aissvc_[A-Za-z0-9_-]+`)},
 	{re: regexp.MustCompile(`ais_[A-Za-z0-9_-]+`)},
 	// OpenAI, Anthropic, DeepSeek and most compatible providers' keys
 	// (sk-, sk-proj-, sk-ant-, …). The letter or digit before is excluded

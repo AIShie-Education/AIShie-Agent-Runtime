@@ -50,6 +50,7 @@ type Store interface {
 	OCRTexts
 	Site
 	SitePrices
+	Transcription
 	Close() error
 }
 
@@ -310,7 +311,11 @@ type Seats interface {
 // LLMCall is one model call, for the ledger (§5.3). It holds ids and
 // numbers, never text.
 type LLMCall struct {
-	ID             string          `json:"id"`
+	ID string `json:"id"`
+	// Kind is what the call was for: an agent's answer (CallAnswer, or
+	// ""), or the transcriber's (CallTranscription), which is of no agent,
+	// tenant, course or asker.
+	Kind           string          `json:"kind,omitempty"`
 	At             time.Time       `json:"at"`
 	TenantID       string          `json:"tenant_id"`
 	AgentID        string          `json:"agent_id"`
@@ -407,7 +412,9 @@ func (w *WriteCounts) Add(o WriteCounts) {
 }
 
 // SpendScope filters Spend. Empty fields do not filter; at least one must
-// be set.
+// be set. The transcriber's calls (CallTranscription) are of no agent,
+// tenant, course or asker, so that only a scope of the key source alone
+// counts them: the plan's ceiling across the school's key.
 type SpendScope struct {
 	AgentID        string
 	TenantID       string
@@ -1054,9 +1061,11 @@ const MaxCostRows = 1000
 
 // CostRow is one group's model calls: its key (the tenant's or the
 // agent's id, key_source/provider/model, the key source, the day as
-// YYYY-MM-DD, or "" for the total), what it is grouped by, and the calls,
-// those no price held (their cost unknown, recorded as nothing), the
-// tokens and the cost. Ids and numbers, never text.
+// YYYY-MM-DD, or "" for the total), what it is grouped by, and the
+// answers' calls, those no price held (their cost unknown, recorded as
+// nothing), the tokens and the cost; and the transcriber's calls apart
+// (Transcription), which are grouped under the key CostKeyTranscription
+// by agent and CostKeySite by tenant. Ids and numbers, never text.
 type CostRow struct {
 	Key string `json:"key"`
 	// Day is the UTC day's start, by day.
@@ -1076,7 +1085,28 @@ type CostRow struct {
 	CacheWriteTokens int64  `json:"cache_write_tokens"`
 	OutputTokens     int64  `json:"output_tokens"`
 	CostPUSD         int64  `json:"cost_pusd"`
+	// Transcription are the group's calls of the transcriber's.
+	Transcription CostCalls `json:"transcription"`
 }
+
+// CostCalls are some model calls summed: how many, those no price held,
+// their tokens and their cost.
+type CostCalls struct {
+	Calls            int   `json:"calls"`
+	Unpriced         int   `json:"unpriced"`
+	InputTokens      int64 `json:"input_tokens"`
+	CacheReadTokens  int64 `json:"cache_read_tokens"`
+	CacheWriteTokens int64 `json:"cache_write_tokens"`
+	OutputTokens     int64 `json:"output_tokens"`
+	CostPUSD         int64 `json:"cost_pusd"`
+}
+
+// The keys the transcriber's calls are grouped under, by agent and by
+// tenant: they are of neither.
+const (
+	CostKeyTranscription = "transcription"
+	CostKeySite          = "site"
+)
 
 // CheckCostQuery refuses a cost report's query whose span is empty or
 // backwards, whose group is not one of CostReport's, or whose limit is not
@@ -1107,7 +1137,8 @@ type Reports interface {
 	AskerUsage(ctx context.Context, agentID, courseID string, since, until time.Time) ([]AskerUsage, error)
 	// TenantUsage is the use on keySource (the school's key, for the
 	// school's plan) in [since, until): a row per tenant that recorded
-	// anything on it, by tenant id.
+	// anything on it, by tenant id. The transcriber's calls are no
+	// tenant's, and are not in it.
 	TenantUsage(ctx context.Context, keySource string, since, until time.Time) ([]TenantUsage, error)
 	// CostReport sums the model calls as q says, a row per group, by key.
 	CostReport(ctx context.Context, q CostQuery) ([]CostRow, error)

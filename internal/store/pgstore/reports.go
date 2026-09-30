@@ -194,7 +194,7 @@ func (s *Store) TenantUsage(ctx context.Context, keySource string, since, until 
 	calls, err := s.pool.Query(ctx, `
 		SELECT tenant_id, count(*), sum(cost_pusd)::bigint
 		  FROM llm_call
-		 WHERE key_source = $1 AND at >= $2 AND at < $3
+		 WHERE key_source = $1 AND at >= $2 AND at < $3 AND kind = 'model_calls'
 		 GROUP BY 1`, keySource, since, until)
 	if err != nil {
 		return nil, fmt.Errorf("store: use of the %s key: %w", keySource, err)
