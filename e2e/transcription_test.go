@@ -145,9 +145,19 @@ func textReader(req fakellm.ChatRequest) fakellm.ChatResponse {
 			GivenAs    string `json:"given_as"`
 			TextSource string `json:"text_source"`
 		} `json:"file"`
-		FileText string `json:"file_text"`
+		FileText string         `json:"file_text"`
+		Files    []versionEntry `json:"files"`
 	}
 	_ = json.Unmarshal([]byte(results[len(results)-1]), &got)
+	if len(got.Files) > 0 {
+		// A version of several files: each, in order.
+		var said []string
+		for _, e := range got.Files {
+			page, _, _ := strings.Cut(e.FileText, "\n\n[圖")
+			said = append(said, fmt.Sprintf("%s given as %s, %s: %s", e.Name, e.GivenAs, e.TextSource, strings.TrimSpace(page)))
+		}
+		return fakellm.Reply(strings.Join(said, " | "))
+	}
 	page, _, _ := strings.Cut(got.FileText, "\n\n[圖")
 	return fakellm.Reply(fmt.Sprintf("Given as %s, %s: %s", got.File.GivenAs, got.File.TextSource, page))
 }
@@ -214,16 +224,12 @@ func transcription(t *testing.T, w *world) {
 	a := w.startAPI(t, st, audience, func(o *api.Options) {
 		o.Vault, o.Hosting, o.Transcriber = v, staticHosting{yaml: yaml}, tr
 	})
-	type answer struct {
-		code int
-		body []byte
-	}
-	asAdmin := func(method, path, body string) answer {
+	asAdmin := func(method, path, body string) adminAnswer {
 		t.Helper()
 		code, _, raw := a.do(t, method, "/runtime/api/v1/"+path, w.assertion(t, w.admin.token, "", audience), body)
-		return answer{code, raw}
+		return adminAnswer{code, raw}
 	}
-	decodeAs := func(an answer, want int, v any) {
+	decodeAs := func(an adminAnswer, want int, v any) {
 		t.Helper()
 		if an.code != want {
 			t.Fatalf("%d, want %d: %s", an.code, want, an.body)
@@ -352,6 +358,17 @@ func transcription(t *testing.T, w *world) {
 		t.Errorf("GET /info: %+v, %v", info.Features, err)
 	}
 
+	// A lecture of three files in one version (AIShie-Core #49): each file
+	// is claimed and transcribed on its own, and completed naming it; the
+	// text file as it is, the PDF and the Word file by the model, page by
+	// page (a Word file only where LibreOffice converts it); each job says
+	// which file it was. Yuki's agent reads each file's text first.
+	if files, _ := core.FetchCatalogue(t.Context(), w.api.hc, w.api.base); files != nil {
+		if _, ok := files.Tool(core.ToolDocumentFile); ok {
+			lectureFiles(t, w, conv, asAdmin)
+		}
+	}
+
 	// Yuki's agent reads the handout's text version first.
 	asked, msg := w.ask(t, w.yuki, w.own.member, textQuestionPrefix+handout+" say?")
 	ans := w.waitAnswer(t, w.yuki, asked, w.own.member)
@@ -383,6 +400,81 @@ func transcription(t *testing.T, w *world) {
 		if strings.Contains(text, issued.Token) || strings.Contains(text, issued.Token[len("aissvc_")+13:]) {
 			t.Errorf("%s hold the service's token", what)
 		}
+	}
+}
+
+// adminAnswer is what the runtime's API answered the site's administrator.
+type adminAnswer struct {
+	code int
+	body []byte
+}
+
+// lectureFiles is the part of transcription of a version of several
+// files: Sato puts up week7Files as one version; each file's text version
+// is done in Core, the text file's as it is (model "text file"), the
+// PDF's by the offer's model, page by page, the Word file's where conv
+// converts it, and skipped as unsupported where it does not; the jobs
+// done name each file by its id and place; and Yuki's agent, asked, is
+// given each file's text, in order, marked as the AI transcription it is.
+func lectureFiles(t *testing.T, w *world, conv *office.Service, asAdmin func(method, path, body string) adminAnswer) {
+	t.Helper()
+	doc, ids := w.uploadFiles(t, w.sato, lectureWeek7, "Read the PDF first.", week7Files...)
+	fileText := func(id string) core.TextPart {
+		t.Helper()
+		return result[core.TextPart](t, w.api, w.yuki.token, "GET", w.path("/documents/"+doc+"/text?file_id="+id), nil)
+	}
+	texts := make([]core.TextPart, len(ids))
+	for i, id := range ids {
+		eventually(t, answerWait, "the text of "+week7Files[i].name, func() bool {
+			texts[i] = fileText(id)
+			return texts[i].Text.Status != core.TextPending && texts[i].Text.Status != core.TextWorking
+		})
+		if texts[i].FileID != id || texts[i].Filename != week7Files[i].name || texts[i].Position != i+1 {
+			t.Errorf("the text of file %d is of %s, %q, %d", i+1, texts[i].FileID, texts[i].Filename, texts[i].Position)
+		}
+	}
+	if tv := texts[0].Text; tv.Status != core.TextDone || tv.Model != transcriberLabel || tv.Pages != 2 || tv.Body == nil ||
+		!strings.HasPrefix(*tv.Body, "## 第 1 頁\n\nE2E transcription of page 1.") {
+		t.Errorf("the PDF's text: %+v", tv)
+	}
+	if tv := texts[1].Text; conv != nil && (tv.Status != core.TextDone || tv.Body == nil || !strings.HasPrefix(*tv.Body, "## 第 1 頁")) ||
+		conv == nil && (tv.Status != core.TextSkipped || tv.Reason != "unsupported_format") {
+		t.Errorf("the Word file's text: %+v", tv)
+	}
+	if tv := texts[2].Text; tv.Status != core.TextDone || tv.Model != "text file" || tv.Body == nil || *tv.Body != string(week7Program) {
+		t.Errorf("the text file's text: %+v", tv)
+	}
+	eventually(t, answerWait, "a job of each file", func() bool {
+		an := asAdmin("GET", "admin/transcription/jobs?limit=200", "")
+		var jobs api.JobList
+		if an.code != 200 || json.Unmarshal(an.body, &jobs) != nil {
+			return false
+		}
+		seen := map[string]int{}
+		for _, j := range jobs.Jobs {
+			if j.DocumentID == doc && j.FileID != nil && j.Position != nil && j.Status != "working" {
+				seen[*j.FileID] = *j.Position
+			}
+		}
+		for i, id := range ids {
+			if seen[id] != i+1 {
+				return false
+			}
+		}
+		return true
+	})
+	t.Logf("the lecture's %d files were claimed, transcribed and completed each on its own, by its file_id", len(ids))
+	if conv == nil {
+		return
+	}
+	asked, msg := w.ask(t, w.yuki, w.own.member, textQuestionPrefix+lectureWeek7+" say?")
+	ans := w.waitAnswer(t, w.yuki, asked, w.own.member)
+	source := "AI transcription (" + transcriberLabel + ")"
+	want := "reading.pdf given as text, " + source + ": ## 第 1 頁\n\nE2E transcription of page 1. | " +
+		"handout.docx given as text, " + source + ": ## 第 1 頁\n\nE2E transcription of page 1. | " +
+		"loops.txt given as text, AI transcription (text file): " + strings.TrimSpace(string(week7Program))
+	if ans.text() != want || ans.replyTo() != msg {
+		t.Errorf("Yuki's answer is %q; want %q", ans.text(), want)
 	}
 }
 

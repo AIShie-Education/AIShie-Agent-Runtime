@@ -1800,14 +1800,40 @@ Chinese with a table, overran, and was cut off.
   uploads an essay and a deck with a question as the front end does, and
   sees each model given what it takes, LibreOffice's PDF of the deck to the
   one that takes files, and the answers posted.
+- A version's files (§4, A version's files; AIShie-Core #49): a version of
+  a PDF, a Word file and notes given file by file, in order, under their
+  names, to a model that takes files and to one that takes none, no URL in
+  the result; each file's text version first, from its body or read in
+  parts by its `file_id`, kept by the file and dropped by it alone; the
+  bounds, a long file's first part with `next_part` naming the file, a
+  file past the room named and a PDF past the pages not fetched; `file_id`
+  reading one file in parts, an id of no file, a part naming no file of
+  several, an id that is none refused; a version of one file given as it
+  always was, whichever Core lists it; a lapsed URL fetched again from
+  `document_file`. The fake Core holds a version's files as #49 does (listed
+  in order, each served under its name, `document_file`, a text version
+  and a claim of each, a text event naming its file), and, with
+  `WithoutFiles`, answers as a Core before it; the worker is given the
+  files' texts and drops one file's on its event, against either. The end
+  to end (`files-of-a-version`) has Sato put up a lecture of a PDF, a Word
+  file and a program in one version, as the front end does, and sees the
+  tutor's model, which takes files, given the PDF and LibreOffice's PDF of
+  the Word file as files and the program as text, and a text-only model
+  the text of each.
 - The transcriber (`internal/transcribe`) against `fakecore`, whose text
   versions, service credential and queue answer as Core #43's do (a
   claim's lease lost, the text edited by staff meanwhile, a credential
   revoked): a PDF in ranges of pages, a deck converted with its notes, a
   model of pictures, the skips and failures, one claiming worker of two,
-  the blocks, the page quota and the plan's dollars; the API's routes,
-  their refusals and audit, on `memstore`; the store's tables on both
-  stores; and the end to end (`transcription`) against the pinned Core.
+  the blocks, the page quota and the plan's dollars; a version of three
+  files transcribed file by file, every call naming its file and each
+  completion keyed by it, one file's claim lost and another's text
+  written by staff while the third is done, and nothing naming a file
+  against a Core of one file a version; the API's routes, their refusals
+  and audit, on `memstore`; the store's tables on both stores; and the end
+  to end (`transcription`) against the pinned Core, where a lecture of
+  three files in one version is transcribed file by file too, each job
+  naming its file, and read back file by file.
 - Adapters: golden translations both ways in `testdata/`, every stop reason
   and usage field; `LIVE=1` runs them against the real providers whose keys
   are set, with one request declaring every tool at 16 output tokens, and
