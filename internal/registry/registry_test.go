@@ -904,3 +904,42 @@ func TestBuildWithTheSitesMoney(t *testing.T) {
 		t.Errorf("runtime.yaml's agent, built on runtime.yaml's defaults, took the site's: %+v", a.Budgets)
 	}
 }
+
+// BuildWith builds with the site's settings given in place of the store's,
+// which it does not read, and writes nothing; CheckPriced holds a hosted
+// agent's quota in dollars to the price table in force, as run does.
+func TestBuildWithAndCheckPriced(t *testing.T) {
+	yaml := yamlConfig(t, "")
+	st := hostedStore(t, []store.HostedAgent{row("agt_default", ownModel)})
+	putSetting(t, st, store.SettingAgentBudgets, `{"per_agent_day": {"answers": 5, "usd": null}, "per_asker_day": {"answers": null, "usd": null}}`)
+	usd := 2.0
+	site := config.Site{Budgets: &config.SiteBudgets{PerAgentDay: config.SiteQuota{USD: &usd}}}
+	cfg, err := BuildWith(t.Context(), yaml, site, st, Options{CoreBaseURL: core})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := cfg.Agents[1].Budgets.PerAgentDay; b.Answers != nil || b.USD == nil || *b.USD != 2 {
+		t.Errorf("the budgets given: %+v", b)
+	}
+	stored, _, err := Build(t.Context(), yaml, st, Options{CoreBaseURL: core})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := stored.Agents[1].Budgets.PerAgentDay; b.Answers == nil || *b.Answers != 5 || b.USD != nil {
+		t.Errorf("the store's budgets: %+v", b)
+	}
+
+	withUSD := WithSite(yaml, site)
+	err = CheckPriced(t.Context(), withUSD, row("agt_default", ownModel), nil, Options{CoreBaseURL: core}, nil, time.Now())
+	if err == nil || !strings.Contains(err.Error(), "quota in dollars") {
+		t.Errorf("with no price: %v", err)
+	}
+	table := config.Site{Prices: []pricing.Row{{ID: "mini", Provider: "openai", Model: "gpt-4.1-mini",
+		From: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC), In: 1, Out: 1}}}.PriceTable(nil)
+	if err := CheckPriced(t.Context(), withUSD, row("agt_default", ownModel), nil, Options{CoreBaseURL: core}, table, time.Now()); err != nil {
+		t.Errorf("priced: %v", err)
+	}
+	if err := CheckPriced(t.Context(), yaml, row("agt_default", ownModel), nil, Options{CoreBaseURL: core}, nil, time.Now()); err != nil {
+		t.Errorf("no quota in dollars: %v", err)
+	}
+}

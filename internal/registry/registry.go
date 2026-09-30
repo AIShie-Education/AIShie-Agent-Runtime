@@ -220,6 +220,20 @@ func SourceName(agentID string) string { return "registry:" + agentID }
 // the site's settings were read, so that a change made meanwhile is seen
 // as one. yaml is not changed.
 func Build(ctx context.Context, yaml *config.Config, r Reader, o Options) (*config.Config, int64, error) {
+	return build(ctx, yaml, nil, r, o)
+}
+
+// BuildWith is Build with the site's settings site in place of the
+// store's: what the configuration would be were they so. The API tries a
+// change of the site's with it before it writes one.
+func BuildWith(ctx context.Context, yaml *config.Config, site config.Site, r Reader, o Options) (*config.Config, error) {
+	cfg, _, err := build(ctx, yaml, &site, r, o)
+	return cfg, err
+}
+
+// build is Build, with the site's settings site when it is not nil, and
+// else the store's.
+func build(ctx context.Context, yaml *config.Config, site *config.Site, r Reader, o Options) (*config.Config, int64, error) {
 	rev, err := r.RegistryRev(ctx)
 	if err != nil {
 		return nil, 0, err
@@ -232,11 +246,14 @@ func Build(ctx context.Context, yaml *config.Config, r Reader, o Options) (*conf
 	if err != nil {
 		return nil, 0, err
 	}
-	site, err := ReadSite(ctx, r)
-	if err != nil {
-		return nil, 0, err
+	if site == nil {
+		read, err := ReadSite(ctx, r)
+		if err != nil {
+			return nil, 0, err
+		}
+		site = &read
 	}
-	yaml = WithSite(yaml, site)
+	yaml = WithSite(yaml, *site)
 	courses := map[string][]store.HostedCourse{}
 	for _, c := range all {
 		courses[c.AgentID] = append(courses[c.AgentID], c)
@@ -308,27 +325,51 @@ func Build(ctx context.Context, yaml *config.Config, r Reader, o Options) (*conf
 // and writes nothing: the API tries a change with it before it writes one.
 // The error is why it would not run, as a Rejection's Detail words it.
 func Check(_ context.Context, yaml *config.Config, row store.HostedAgent, courses []store.HostedCourse, o Options) error {
-	for _, a := range yaml.Agents {
-		if a.ID == row.ID {
-			return errors.New("a YAML agent has this id, and the operator's configuration wins")
-		}
-	}
-	if err := checkCoreBaseURL(o); err != nil {
-		return err
-	}
-	src, err := Document(row, courses, o.CoreBaseURL, defaultKeySource(yaml), yaml.Runtime.School)
+	_, err := check(yaml, row, courses, o)
+	return err
+}
+
+// CheckPriced is Check, and the agent's quotas in dollars held to the
+// price table in force, prices, at at, as run holds a hosted agent's: one
+// whose model, or fallback, no row prices is not run.
+func CheckPriced(_ context.Context, yaml *config.Config, row store.HostedAgent, courses []store.HostedCourse, o Options, prices *pricing.Table,
+	at time.Time) error {
+	a, err := check(yaml, row, courses, o)
 	if err != nil {
 		return err
 	}
+	if p := config.AgentsUSDWithoutPrices(&config.Config{Runtime: yaml.Runtime, Agents: []*config.Agent{a}}, prices, at); len(p) > 0 {
+		return errors.New(strings.Join(p, "; "))
+	}
+	return nil
+}
+
+// check is Check, and the agent it would run.
+func check(yaml *config.Config, row store.HostedAgent, courses []store.HostedCourse, o Options) (*config.Agent, error) {
+	for _, a := range yaml.Agents {
+		if a.ID == row.ID {
+			return nil, errors.New("a YAML agent has this id, and the operator's configuration wins")
+		}
+	}
+	if err := checkCoreBaseURL(o); err != nil {
+		return nil, err
+	}
+	src, err := Document(row, courses, o.CoreBaseURL, defaultKeySource(yaml), yaml.Runtime.School)
+	if err != nil {
+		return nil, err
+	}
 	agents, rejected := config.LoadDocuments(yaml, o.Allowlist, src)
 	if len(rejected) > 0 {
-		return rejected[0].Err
+		return nil, rejected[0].Err
 	}
 	key := ""
 	if row.KeySecretID != "" {
 		key = secrets.SchemeSealed + row.KeySecretID
 	}
-	return checkModels(agents[0], key, yaml.Runtime.School)
+	if err := checkModels(agents[0], key, yaml.Runtime.School); err != nil {
+		return nil, err
+	}
+	return agents[0], nil
 }
 
 // checkCoreBaseURL refuses a CORE_BASE_URL no hosted agent can use: none.
