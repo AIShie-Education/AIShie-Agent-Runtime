@@ -67,19 +67,23 @@ func (s *Seat) inboxWait(now time.Time) time.Duration {
 }
 
 // eventsWait is how long the seat's next read of events may wait for news
-// at now: while one of its answers is being written, its course's
-// long_poll_wait_s, at most what Core offers; while the follow-ups' window
-// after a proposal is open, that, and no longer than until it closes; 0
-// otherwise, while it falls back, and while the agent is slowed after a
-// 429.
+// at now: while one of its answers is being written, and its inbox has not
+// gone back to its schedule, its course's long_poll_wait_s, at most what
+// Core offers; while the follow-ups' window after a proposal is open, that,
+// and no longer than until it closes; 0 otherwise, while it falls back, and
+// while the agent is slowed after a 429.
 func (s *Seat) eventsWait(now time.Time) time.Duration {
 	s.mu.Lock()
 	left, fallback, p, writing := s.followUntil.Sub(now), now.Before(s.eventsFallbackUntil), s.eff.Polling, s.writing > 0
+	inboxFallback := now.Before(s.fallbackUntil)
 	s.mu.Unlock()
 	switch {
 	case fallback || s.a.slow():
 		return 0
-	case writing:
+	case writing && !inboxFallback:
+		// A seat whose inbox went back to its schedule (a long poll cut
+		// short, refused, or not waited on) would find the same of its
+		// events: while it writes, they are read on their schedule too.
 		return longPollWait(p, s.a.eventsMaxWait)
 	case left < time.Second:
 		return 0
