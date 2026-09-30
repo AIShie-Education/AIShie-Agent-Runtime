@@ -430,9 +430,10 @@ agent with none stops, saying the school withdrew its offer
 read today's use per owner at `GET
 /runtime/api/v1/admin/school-plan/usage`.
 
-The runtime's administrators also make offers of their own and set the
-quotas from the front end ([below](#what-the-sites-administrators-change)):
-the plan owners see is `school:`'s offers and the site's.
+The runtime's administrators also make offers of their own, set the
+quotas, in answers and in dollars, and add the prices those need from the
+front end ([below](#what-the-sites-administrators-change)): the plan
+owners see is `school:`'s offers and the site's.
 
 ## The API for the front end
 
@@ -502,8 +503,24 @@ change in force within moments, with no restart and no SIGHUP:
   at its own endpoint with a key of the school's, which is tried with the
   model before it is kept, sealed in the database like an owner's key,
   and shown only as its hint (`sk-…3f9a`); an offer turned off, changed or
-  deleted; and the quotas in answers a day per owner, per asker, and
-  across the school.
+  deleted; and the quotas a day per owner, per asker, and across the
+  school, in answers and in dollars.
+- **Prices:** rows of the site's own beside the price file's, which the
+  front end lists read-only: a model the file does not price, or a price
+  that has changed. A site's row of the same provider, model and `from`
+  as a file's stands before it. The site's rows are a table of their own,
+  versioned by the second they last changed (`site-20260930T101500Z`):
+  the ledger names each cost's version and row, so that a cost recorded
+  before a change keeps the price it was recorded at.
+- **Tenants' quotas:** a tenant's daily quota on the school's key, in
+  answers, dollars or both, in place of `runtime.tenants`', and a hosted
+  agents' owner's (`ten_<their Core actor id>`) beside the plan's.
+- **Hosted agents' daily budgets by default:** per agent and per asker, in
+  answers and dollars, in place of `runtime.defaults`' `budgets.per_agent_day`
+  and `budgets.per_asker_day` for the hosted agents. `runtime.yaml`'s
+  agents keep the budgets `runtime.yaml` gives them.
+- **What things cost:** the ledger's model calls in dollars, by day,
+  tenant, agent, model or key, over at most a year at a time.
 
 What stays the operator's, in the env file and `runtime.yaml`:
 
@@ -516,16 +533,25 @@ What stays the operator's, in the env file and `runtime.yaml`:
   Ollama) is offered here alone: the site offers a provider's own
   endpoints, as owners choose them.
 - **`allowed_models` and `denied_models`**, which hold the site's offers
-  too (an offer they no longer allow is held back from owners), the
-  quotas in dollars, `on_quota_text` and the price table. With a quota in
-  dollars, the site cannot make an offer the price table does not price.
+  too (an offer they no longer allow is held back from owners),
+  `on_quota_text`, and the budgets of one answer (turns, tool calls,
+  tokens, time).
+- **The defaults the site's settings stand in place of:** the price file
+  (`PRICES` or `prices_ref`), `school:`'s quotas, `runtime.tenants` and
+  `runtime.defaults`' daily budgets. A site's setting reset in the front
+  end takes the operator's again. `runtime.yaml`'s own agents and offers
+  are held to the price file alone as the configuration loads: a quota in
+  dollars of theirs needs a price in the file, not the site's.
 - **`KMS_KEY_ID`**, the key that seals the site's keys as it seals the
   owners': `keys check` and `keys rewrap` cover them, and a backup of the
   database is no use without it ([below](#the-key-that-seals-secrets)).
 
-The site's quotas stand in place of `school:`'s answers until an
-administrator resets them to `school:`'s, which the front end shows beside
-them. An offer turned off or deleted is withdrawn as one taken out of
+The site's quotas stand in place of `school:`'s, answers and dollars,
+until an administrator resets them to `school:`'s, which the front end
+shows beside them. A quota in dollars needs a price for every model it
+holds: the site cannot set one while an offer, or a hosted agent's model,
+has none today, nor delete the price one needs, and is told which to
+price. An offer turned off or deleted is withdrawn as one taken out of
 `school:` is (above). Every change is in the audit, with who made it; a
 key never is, but its hint.
 

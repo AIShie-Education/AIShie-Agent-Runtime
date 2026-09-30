@@ -1465,15 +1465,22 @@ The prompt's hash is kept per answer.
 | `registry_rev` | one row: the revision every write to `hosted_agent` or `hosted_course` moves on, by trigger, with `NOTIFY aishie_registry` |
 | `audit` | the API's audit (§11.4): when, who, with which of Core's sessions, from where, what, to what, the outcome, and a detail of ids, hints, providers, models and results; kept 400 days |
 | `ocr_text` | what OCR recognized of a file (§4, OCR), by the sha256 of its bytes: done or failed, pdf or image, the text (at most 4 MB), pages recognized and of how many, where each begins, notes, why it failed, the engine and how long it took; kept 180 days, a failure a day |
-| `site_setting` | what the runtime's administrators set (§11.5), by name (`ocr`, `school_quotas`): a JSON object, who wrote it, when; every write moves `registry_rev` on |
+| `site_setting` | what the runtime's administrators set (§11.5), by name (`ocr`, `school_quotas`, `agent_budgets`): a JSON object, who wrote it, when; every write moves `registry_rev` on |
 | `school_offer` | the offers of the school's plan the administrators made (§11.5): id, label, adapter, provider, model, base_url, region, output bound, effort, on or off, the school's key (a secret of the tenant `school`, with its hint, and whether it was tried with the model), version, who made and changed it, when; every write moves `registry_rev` on |
+| `site_price` | the site's rows of the price table (§11.5): id, provider, model (exact or a glob), from (a day), the four prices in pUSD a token, version, who made and changed it, when; one row per (provider, model, from); every write moves `registry_rev` on |
+| `site_price_rev` | one row: when the site's prices last changed, to the second and always a second past the last, by trigger, which names their version (`site-<UTC second>`) |
+| `site_tenant_quota` | a tenant's daily quota on the school's key as the site sets it (§11.5), in place of `runtime.tenants`': answers and pUSD, each null for none, who set it, when; every write moves `registry_rev` on |
 
 Beside the sums quotas are checked against (`Spend`), two reports read the
 ledger for people, ids and numbers only: `Usage(agent, since, until)`, a
 row per UTC day and course (billable answers, every answer by outcome,
 model calls, tokens and cost), and `AskerUsage(agent, course, since,
-until)`, the same per asker, counts only, never what anyone wrote. The API
-shows an agent's seats from the seat rows, and never needs its token to.
+until)`, the same per asker, counts only, never what anyone wrote; and
+`CostReport(query)` sums the model calls of a span, as a whole or by UTC
+day, tenant, agent, model (with its key source) or key source, on one key
+source or both, a page of groups (at most 1,000) after a key at a time:
+calls, those no price held, tokens and cost. The API shows an agent's
+seats from the seat rows, and never needs its token to.
 
 `memstore` keeps the same in memory, for one worker and for tests: it loses
 attempts and memory on restart, so a restarted worker may find its keys
@@ -2066,8 +2073,9 @@ The API needs `CORE_BASE_URL`, `API_AUDIENCE`, `DATABASE_URL` and
   /admin/school-plan/usage`: today's use of the school's key (the
   store's `Reports.TenantUsage`), the plan's quotas, the total, and a row
   per tenant, a hosted agent's owner's with their actor id and the name
-  the runtime last saw; and reads and changes the site's settings and the
-  school's plan (§11.5). Anyone else is 403 `not_admin`.
+  the runtime last saw; reads and changes the site's settings, the
+  school's plan and the money; and reads what the ledger recorded (§11.5).
+  Anyone else is 403 `not_admin`.
 - **Every request**, in order: one log line and metrics
   (`aishie_api_requests_total{route,code}`,
   `aishie_api_request_seconds{route}`): method, route, status, reason,
@@ -2086,7 +2094,9 @@ The API needs `CORE_BASE_URL`, `API_AUDIENCE`, `DATABASE_URL` and
   and for the routes that take a token 10 a minute, bursts of 5, and
   `keys/test` 6 a minute, bursts of 3, and 100 a UTC day), answered 429
   with `Retry-After`; the assertion; a query (none is taken, but
-  `DELETE`'s `revoke_token`: a route that reads a body refuses one too)
+  `DELETE`'s `revoke_token`, and the parameters of the administrators'
+  `GET /admin/tenants` and `GET /admin/costs`, each once, any other
+  `unknown_parameter`: a route that reads a body refuses one too)
   and a body (JSON only, at most 64 KB, no key twice, in one case or in
   two, no member the route does not take by exactly its name, since
   `encoding/json` alone reads a member into a field whose name it matches
@@ -2207,40 +2217,83 @@ The API needs `CORE_BASE_URL`, `API_AUDIENCE`, `DATABASE_URL` and
 
 ### 11.5 What the site's administrators change
 
-The runtime's administrators (§11.4, D4) change two things from the front
-end that were the operator's alone: whether OCR runs, and in which
-languages (§4, OCR); and the school's AI plan (§11.2's key pool), its
-offers and its quotas. The operator's environment and `runtime.yaml` stay
-the ceiling: `OCR=off`, or OCR's programs missing, is off whatever the site
-says; `runtime.school`'s offers are the operator's, listed read-only; and
-`allowed_models`, `denied_models`, the quotas in dollars, `on_quota_text`
-and the price table stay `runtime.yaml`'s.
+The runtime's administrators (§11.4, D4) change from the front end what
+was the operator's alone: whether OCR runs, and in which languages (§4,
+OCR); the school's AI plan (§11.2's key pool), its offers and its quotas,
+in answers and in dollars; and the rest of the money: the price table's
+rows, the tenants' daily quotas, and the hosted agents' daily budgets by
+default. They read what the ledger recorded, in dollars. The operator's
+environment stays the ceiling, and `runtime.yaml` and the price file
+(`PRICES`, or `runtime.prices_ref`) the defaults the site's settings
+stand in place of: `OCR=off`, or OCR's programs missing, is off whatever
+the site says; `runtime.school`'s offers and the price file's rows are the
+operator's, listed read-only; and `allowed_models`, `denied_models`,
+`on_quota_text` and the budgets of one answer (turns, tool calls, tokens,
+time: not money) stay `runtime.yaml`'s.
 
-- **Kept in the store** (migration 0009): `site_setting`, a JSON object by
-  name (`ocr`: `enabled`, `languages`; `school_quotas`: `per_owner_day`,
-  `per_asker_day`, `per_day`, null for none), and `school_offer`, an offer
+- **Kept in the store** (migrations 0009 and 0010): `site_setting`, a JSON
+  object by name (`ocr`: `enabled`, `languages`; `school_quotas`:
+  `per_owner_day`, `per_asker_day`, `per_day`, and `per_owner_day_usd`,
+  `per_asker_day_usd`, `per_day_usd`, null for none; `agent_budgets`:
+  `per_agent_day` and `per_asker_day`, each `answers` and `usd`, null for
+  none); `site_price`, the site's rows of the price table; and
+  `site_tenant_quota`, a tenant's quota; and `school_offer`, an offer
   made as an owner's own model is chosen (a provider of `GET /models`, its
   adapter, the model, the endpoint, resource or region its offer takes,
   the output bound and the effort), at the provider's own endpoint, with
   the school's key sealed (§11.1) under the tenant `school`, a `model_key`
   that goes with the offer: replaced, the one before is destroyed in the
   same transaction, and deleted with it. Only its hint is ever shown.
-- **Put in force without a restart.** Every statement that writes either
-  table moves `registry_rev` on and notifies `aishie_registry`, by 0003's
-  trigger function, so each worker rebuilds as it does for a hosted
+- **Put in force without a restart.** Every statement that writes any of
+  these tables moves `registry_rev` on and notifies `aishie_registry`, by
+  0003's trigger function, so each worker rebuilds as it does for a hosted
   agent's change (§11.2), within moments, or at the next poll.
   `registry.Build` reads the site with the hosted agents, after the
   revision, and `config.Runtime.WithSite` makes the plan in force:
   `runtime.school`'s offers, then the site's that are turned on, but one
   whose id `runtime.school` has (`id_taken`: the operator's wins) or whose
   model the lists do not allow (`model_not_allowed`); and the site's
-  quotas in answers in place of `runtime.school`'s, whose dollars stay.
-  The quotas apply from the next answer; an agent whose offer changed (a
-  key replaced is a new secret, so a new reference) restarts. The OCR
-  setting goes to each worker's `ocr.Service` at each build. A registry
-  that cannot be read leaves the site's settings as last read in force.
-  The API reads the plan in force from the store at each request, so
-  that owners see an offer the moment it is made.
+  quotas, in answers and in dollars, in place of `runtime.school`'s. A
+  tenant's quota the site sets stands in place of `runtime.tenants`'
+  (the whole quota: answers and dollars). The site's budgets stand in
+  place of `runtime.defaults`' `budgets.per_agent_day` and
+  `budgets.per_asker_day` for the hosted agents, which are built on them
+  at each build; an agent's own settings still win, and `runtime.yaml`'s
+  agents keep what they were built with when the YAML loaded. The price
+  table the worker costs each call by is the price file's with the site's
+  rows before it (`Site.PriceTable`), put in force at each build and at
+  `SIGHUP`. The quotas apply from the next answer; an agent whose offer
+  changed (a key replaced is a new secret, so a new reference) restarts.
+  The OCR setting goes to each worker's `ocr.Service` at each build. A
+  registry that cannot be read leaves the site's settings as last read in
+  force. The API reads the settings in force from the store at each
+  request, so that owners see an offer the moment it is made.
+- **The price table's versions.** The site's rows are a table of their
+  own, versioned by when they last changed, to the second:
+  `site-<UTC second>`, such as `site-20260930T101500Z`. Every write to
+  `site_price` moves `site_price_rev` on, by trigger, to the second and at
+  least a second past the last, so that every change is a new version.
+  The ledger names each cost's table version and row, `2026-09-27/sonnet-4`
+  of the file's, `site-20260930T101500Z/haiku-4-5` of the site's, and keeps
+  the name with the cost: a cost recorded before a change keeps the
+  version it was priced by, and nothing is priced again. The table in
+  force takes `Lookup`'s rules across both (a model priced exactly beats
+  every glob, then the latest `from`, then the most specific glob), and of
+  a site's row and a file's otherwise alike (the same provider, model and
+  `from`), the site's; its version is the file's and the site's joined by
+  `+`.
+- **A quota in dollars needs a price.** As `run` holds them, an agent with
+  a quota in dollars (its own budgets or the site's, its tenant's on the
+  school's key, the plan's on an offer) whose model, or fallback, no row
+  prices today is not run; and with a quota of the plan's in dollars,
+  every offer must be priced. The API refuses a change of the site's that
+  would leave one of either where there was none: it builds the
+  configuration as the registry would, before and after the change
+  (`registry.BuildWith`), and answers 422 `offer_not_priced` (the offers'
+  ids in `details.offers`) or `model_not_priced` (what is wrong, naming
+  the agents and models, in `details.problems`). Adding a price resolves
+  either; so does a quota in answers alone. An owner's change of their
+  agent's model is held to the same (`settings_rejected`).
 - **The site's offers are an owner's model**: the registry holds an agent
   on one to what it holds an owner's model to (a provider's own endpoint
   over https, a key, no headers), and the worker calls it over the
@@ -2286,6 +2339,62 @@ and the price table stay `runtime.yaml`'s.
     `offer_not_found`. Audited as `school_offer.create`, `.update` and
     `.delete`, with the key's hint and the trial's result.
   - `PUT /admin/school-plan/quotas` sets every quota, in answers a UTC day
-    from 1 to 1,000,000, `per_day` null for none; `DELETE` takes
-    `runtime.school`'s again. Both answer the plan. Audited as
-    `school_quotas.update` and `.reset`.
+    from 1 to 1,000,000, `per_day` null for none, and in dollars
+    (`per_owner_day_usd`, `per_asker_day_usd`, `per_day_usd`: a decimal
+    string or number, more than 0, at most 1,000,000, to six places; null
+    for none; left out, as in force); `DELETE` takes `runtime.school`'s
+    again. Both answer the plan, whose quotas carry the dollars as
+    decimals with six places. Audited as `school_quotas.update` and
+    `.reset`.
+  - `GET /admin/prices`: the table in force, its version, the file's and
+    the site's, when the site's last changed; every row, the site's first
+    (`source: "site"`) then the file's (`"file"`), each with its id (a
+    file's row without one by its index), provider, model, whether it is a
+    glob, `from`, its prices in dollars per million tokens as exact
+    decimals, and the version a cost it prices is recorded under; of a
+    file's row, whether a site's row stands before it (`overridden`); of a
+    site's, its version (an ETag), and who made and changed it; and the
+    plan's offers, on or off, no row prices today (`unpriced_offers`).
+    `GET /admin/prices/{id}` is one. `POST /admin/prices` adds a site's
+    row, held to what the price file's rows are held to (an id of
+    letters, digits, `.`, `_` and `-` beginning with a letter or digit, a
+    provider as the ledger names it, a model of no spaces, a day, input
+    and output prices, the cache's the input's unless given, to six
+    places); an id or a provider, model and `from` the site's rows have is
+    409 `price_exists`. `PATCH …/prices/{id}` changes one by merge-patch,
+    but its id, which names it in the ledger; `DELETE` destroys one and
+    answers the table. Both take `If-Match`; the file's rows are
+    `price_read_only` (403), an id of none `price_not_found`. A change that
+    moves a row off a model, or deletes it, is held to the quotas in
+    dollars (above). Audited as `price.create`, `.update` and `.delete`.
+  - `GET /admin/tenants?after=&limit=`: the tenants the runtime knows
+    (`runtime.tenants`', the site's, and its agents'), by id, at most 500
+    a page (100 unless `limit`), each with, where it is a hosted agents'
+    owner (`ten_<actor id>`), their actor id and name as last seen; the
+    quota in force and where it comes from (`site`, `config`, `none`),
+    `runtime.tenants`' beside it, and how many agents are its. `GET
+    /admin/tenants/{tenant_id}` is one. `PUT` sets the site's quota,
+    `{"per_day": {"answers", "usd"}}`, both given, each null for none but
+    not both; `DELETE` takes `runtime.tenants`' again. Audited as
+    `tenant_quota.update` and `.reset`.
+  - `GET /admin/agent-budgets`: the hosted agents' daily budgets by
+    default in force, per agent and per asker, each `answers` and `usd`,
+    `runtime.defaults`' beside them, and whether the site sets them. `PUT`
+    sets both, each given, null for none; `DELETE` takes
+    `runtime.defaults`' again. Audited as `agent_budgets.update` and
+    `.reset`.
+  - `GET /admin/costs?since=&until=&group=&key_source=&limit=&after=`:
+    what the ledger recorded in a span of UTC days (`since` to `until`,
+    both counted; the last 30 days to today unless given; at most 366),
+    as a whole and by `day`, `tenant` (a person's with their name),
+    `agent` (with its name while it is configured), `model` (key source,
+    provider and model, with the plan's offers of that model now, on the
+    school's key), `key_source` (the school's key or the owners' own) or
+    `total`, on `school` or `own` alone when asked, a page of at most 500
+    groups (100 unless `limit`) after the key `after` names, with the next
+    page's cursor. Each sum is a cost in dollars and lines by kind of
+    cost: `model_calls` (calls, those no price held, tokens, cost) today;
+    a cost priced otherwise, such as transcription, will be a line of its
+    own kind, so that a front end shows the lines it knows and the total
+    of all. The ledger has no offer's id on a model call: the offers of a
+    model are those of the plan now.

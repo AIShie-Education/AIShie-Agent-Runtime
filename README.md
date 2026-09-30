@@ -95,9 +95,11 @@ One `runtime:` document holds the process's own settings: tenants' quotas,
 the price table, the models the school's key may use, and the school's AI
 plan, the models the school offers hosted agents on its own key with the
 quotas that hold them. The runtime's administrators also turn OCR off and
-on, choose its languages, and make offers of the school's plan and set its
-quotas from the front end, within what the environment and `runtime.yaml`
-allow ([`docs/deploying.md`](docs/deploying.md#what-the-sites-administrators-change)).
+on, choose its languages, make offers of the school's plan, set its quotas,
+the tenants' and the hosted agents' budgets, add prices beside the price
+file's, and read what things cost, from the front end, within what the
+environment and `runtime.yaml` allow
+([`docs/deploying.md`](docs/deploying.md#what-the-sites-administrators-change)).
 See [`examples/`](examples):
 
 - [`agents/delegate.yaml`](examples/agents/delegate.yaml): a student's own
