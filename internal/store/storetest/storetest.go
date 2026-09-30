@@ -73,6 +73,15 @@
 //     The registry's revision moves on with every write to a setting or an
 //     offer too, and never with one refused, or with an unset or a delete
 //     of nothing.
+//   - A row of the site's prices is keyed on its id, and on its provider,
+//     model and day, each once; its day comes back as midnight UTC. When
+//     the site's prices last changed moves on with every write to them, a
+//     second at least, and is kept to the second; it is zero in a store
+//     where they never have. A tenant's quota is replaced whole; one of
+//     none is kept, as none.
+//   - The cost report groups model calls by key, bytewise, pages after a
+//     key, and counts the calls recorded with no price version as
+//     unpriced.
 package storetest
 
 import (
@@ -109,6 +118,8 @@ func Run(t *testing.T, open func(t *testing.T) store.Store) {
 		{"Audit", testAudit},
 		{"OCRTexts", testOCRTexts},
 		{"Site", testSite},
+		{"SitePrices", testSitePrices},
+		{"CostReport", testCostReport},
 	} {
 		t.Run(g.name, func(t *testing.T) { g.run(t, open) })
 	}

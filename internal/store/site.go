@@ -177,3 +177,127 @@ func CheckOfferKey(o SchoolOffer, key Secret) error {
 	}
 	return nil
 }
+
+// SitePrice is one row of the site's price table (package pricing), which
+// the runtime's administrators keep beside the file's: its id, which
+// names it in versions, the provider, the model (exact, or a glob), the
+// day it starts from, and its prices in pUSD a token.
+type SitePrice struct {
+	ID       string `json:"id"`
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	// From is midnight UTC of the day the price starts.
+	From time.Time `json:"from"`
+	// InputPUSD to OutputPUSD are pUSD a token.
+	InputPUSD      int64 `json:"input_pusd"`
+	CacheReadPUSD  int64 `json:"cache_read_pusd"`
+	CacheWritePUSD int64 `json:"cache_write_pusd"`
+	OutputPUSD     int64 `json:"output_pusd"`
+	// Version moves on with every write of the row.
+	Version   int       `json:"version"`
+	CreatedBy string    `json:"created_by"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedBy string    `json:"updated_by"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// TenantQuota is a tenant's daily quota on the school's key as the site
+// sets it, in place of runtime.yaml's runtime.tenants: answers and pUSD,
+// each nil for none.
+type TenantQuota struct {
+	TenantID  string    `json:"tenant_id"`
+	Answers   *int      `json:"answers"`
+	USDPUSD   *int64    `json:"usd_pusd"`
+	UpdatedBy string    `json:"updated_by"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// SitePrices are the site's price table and the tenants' quotas it sets.
+// Every write moves the registry's revision on, as Site's do; a write to
+// the site's prices also moves on when they last changed, a second at
+// least past the time before, which names their version
+// (pricing.SiteVersion).
+type SitePrices interface {
+	// SitePrices lists the site's rows, by id, and when they last
+	// changed: zero when they never have.
+	SitePrices(ctx context.Context) ([]SitePrice, time.Time, error)
+	// CreateSitePrice stores p at version 1: an id taken, or a row of the
+	// same provider, model and from, is ErrExists. A zero CreatedAt is the
+	// store's now.
+	CreateSitePrice(ctx context.Context, p SitePrice) (*SitePrice, error)
+	// UpdateSitePrice writes p over the row of its id, but its creation,
+	// at the next version: whatever its version when p.Version is 0, and
+	// otherwise only at p.Version, ErrConflict when it has moved on;
+	// ErrNotFound when it is gone; ErrExists when another row has its
+	// provider, model and from.
+	UpdateSitePrice(ctx context.Context, p SitePrice) (*SitePrice, error)
+	// DeleteSitePrice destroys the row, at version when it is not 0
+	// (ErrConflict otherwise); ErrNotFound when it is not there.
+	DeleteSitePrice(ctx context.Context, id string, version int) error
+
+	// TenantQuotas lists the tenants' quotas the site sets, by tenant.
+	TenantQuotas(ctx context.Context) ([]TenantQuota, error)
+	// PutTenantQuota sets q, in place of what was set for its tenant. A
+	// zero UpdatedAt is the store's now.
+	PutTenantQuota(ctx context.Context, q TenantQuota) error
+	// DeleteTenantQuota unsets the tenant's quota; one not set is
+	// nothing.
+	DeleteTenantQuota(ctx context.Context, tenantID string) error
+}
+
+var (
+	priceIDRe       = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
+	priceProviderRe = regexp.MustCompile(`^[a-z0-9_]+$`)
+	tenantIDRe      = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+)
+
+// CheckSitePrice refuses a row a store must not keep: without its id,
+// provider or model, or its day, or with a negative price. It returns the
+// row with its day at midnight UTC.
+func CheckSitePrice(p SitePrice) (SitePrice, error) {
+	var bad []string
+	if !priceIDRe.MatchString(p.ID) {
+		bad = append(bad, "id (letters, digits, '.', '_' and '-', at most 64)")
+	}
+	if !priceProviderRe.MatchString(p.Provider) {
+		bad = append(bad, "provider")
+	}
+	if strings.TrimSpace(p.Model) == "" {
+		bad = append(bad, "model")
+	}
+	if p.From.IsZero() {
+		bad = append(bad, "from")
+	}
+	if p.InputPUSD < 0 || p.CacheReadPUSD < 0 || p.CacheWritePUSD < 0 || p.OutputPUSD < 0 {
+		bad = append(bad, "prices of zero or more")
+	}
+	if len(bad) > 0 {
+		return p, fmt.Errorf("store: site price: %s required", strings.Join(bad, ", "))
+	}
+	y, m, d := p.From.UTC().Date()
+	p.From = time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
+	return p, nil
+}
+
+// CheckTenantQuota refuses a tenant's quota a store must not keep: a
+// tenant not of letters, digits, '_' and '-', or a quota not above zero.
+func CheckTenantQuota(q TenantQuota) error {
+	switch {
+	case !tenantIDRe.MatchString(q.TenantID):
+		return errors.New("store: tenant quota: a tenant of letters, digits, '_' and '-', at most 64, required")
+	case q.Answers != nil && *q.Answers < 1, q.USDPUSD != nil && *q.USDPUSD < 1:
+		return fmt.Errorf("store: tenant quota %s: a quota is more than zero, or none", q.TenantID)
+	}
+	return nil
+}
+
+// NextPricesChange is when the site's prices change, at now, having last
+// changed at last: now to the second, and a second past last at least, so
+// that every change names a version of its own.
+func NextPricesChange(last, now time.Time) time.Time {
+	t := now.UTC().Truncate(time.Second)
+	if !last.IsZero() && !t.After(last) {
+		t = last.UTC().Truncate(time.Second).Add(time.Second)
+	}
+	return t
+}

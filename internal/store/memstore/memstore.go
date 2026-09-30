@@ -52,6 +52,10 @@ type Store struct {
 	ocr      map[string]store.OCRText
 	settings map[string]store.SiteSetting
 	offers   map[string]store.SchoolOffer
+	prices   map[string]store.SitePrice
+	// pricesAt is when the site's prices last changed.
+	pricesAt time.Time
+	tenants  map[string]store.TenantQuota
 }
 
 type lease struct {
@@ -105,6 +109,8 @@ func New() *Store {
 		ocr:      map[string]store.OCRText{},
 		settings: map[string]store.SiteSetting{},
 		offers:   map[string]store.SchoolOffer{},
+		prices:   map[string]store.SitePrice{},
+		tenants:  map[string]store.TenantQuota{},
 	}
 }
 

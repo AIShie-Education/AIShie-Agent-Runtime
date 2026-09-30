@@ -49,6 +49,7 @@ type Store interface {
 	Audit
 	OCRTexts
 	Site
+	SitePrices
 	Close() error
 }
 
@@ -1027,6 +1028,74 @@ type TenantUsage struct {
 	CostPUSD   int64 `json:"cost_pusd"`
 }
 
+// How CostReport groups the model calls.
+const (
+	CostByTotal     = "total"
+	CostByDay       = "day"
+	CostByTenant    = "tenant"
+	CostByAgent     = "agent"
+	CostByModel     = "model"
+	CostByKeySource = "key_source"
+)
+
+// CostQuery is what CostReport sums: the model calls recorded in [Since,
+// Until), on KeySource alone when it is not "", grouped by Group, the
+// groups whose key sorts after After (bytewise), at most Limit of them.
+type CostQuery struct {
+	Since, Until time.Time
+	Group        string
+	KeySource    string
+	After        string
+	Limit        int
+}
+
+// MaxCostRows bounds CostQuery.Limit.
+const MaxCostRows = 1000
+
+// CostRow is one group's model calls: its key (the tenant's or the
+// agent's id, key_source/provider/model, the key source, the day as
+// YYYY-MM-DD, or "" for the total), what it is grouped by, and the calls,
+// those no price held (their cost unknown, recorded as nothing), the
+// tokens and the cost. Ids and numbers, never text.
+type CostRow struct {
+	Key string `json:"key"`
+	// Day is the UTC day's start, by day.
+	Day time.Time `json:"day"`
+	// TenantID is by tenant, and the agent's by agent.
+	TenantID string `json:"tenant_id"`
+	AgentID  string `json:"agent_id"`
+	// KeySource is by key source and by model; Provider and Model by
+	// model.
+	KeySource        string `json:"key_source"`
+	Provider         string `json:"provider"`
+	Model            string `json:"model"`
+	ModelCalls       int    `json:"model_calls"`
+	Unpriced         int    `json:"unpriced"`
+	InputTokens      int64  `json:"input_tokens"`
+	CacheReadTokens  int64  `json:"cache_read_tokens"`
+	CacheWriteTokens int64  `json:"cache_write_tokens"`
+	OutputTokens     int64  `json:"output_tokens"`
+	CostPUSD         int64  `json:"cost_pusd"`
+}
+
+// CheckCostQuery refuses a cost report's query whose span is empty or
+// backwards, whose group is not one of CostReport's, or whose limit is not
+// from 1 to MaxCostRows.
+func CheckCostQuery(q CostQuery) error {
+	switch q.Group {
+	case CostByTotal, CostByDay, CostByTenant, CostByAgent, CostByModel, CostByKeySource:
+	default:
+		return fmt.Errorf("store: a cost report by %q", q.Group)
+	}
+	if !q.Until.After(q.Since) {
+		return errors.New("store: a report's span must end after it begins")
+	}
+	if q.Limit < 1 || q.Limit > MaxCostRows {
+		return fmt.Errorf("store: a cost report of 1 to %d rows", MaxCostRows)
+	}
+	return nil
+}
+
 // Reports sum the ledger for people to read: an agent's use by day and
 // course, a course's by asker, and a key's by tenant.
 type Reports interface {
@@ -1040,6 +1109,8 @@ type Reports interface {
 	// school's plan) in [since, until): a row per tenant that recorded
 	// anything on it, by tenant id.
 	TenantUsage(ctx context.Context, keySource string, since, until time.Time) ([]TenantUsage, error)
+	// CostReport sums the model calls as q says, a row per group, by key.
+	CostReport(ctx context.Context, q CostQuery) ([]CostRow, error)
 }
 
 // CheckKeySpan refuses a report of a key's use whose span is empty or
