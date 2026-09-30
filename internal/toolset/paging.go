@@ -337,9 +337,9 @@ func (r Runner) pageText(rec *fileRecord, d *docFile, text string, sections []do
 	if k > len(parts) {
 		rec.GivenAs, rec.ExtractedFrom = givenNot, ""
 		if len(parts) == 1 {
-			rec.Note = fmt.Sprintf("the file's text is one part: there is no part %d; call %s without %s to read it", k, FilePartTool, FilePartArg)
+			rec.Note = fmt.Sprintf("the file's text is one part: there is no part %d; call %s without %s to read it", k, d.tool(), d.partArg())
 		} else {
-			rec.Note = fmt.Sprintf("the file's text has %d parts: there is no part %d; ask for %s from 1 to %d", len(parts), k, FilePartArg, len(parts))
+			rec.Note = fmt.Sprintf("the file's text has %d parts: there is no part %d; ask for %s from 1 to %d", len(parts), k, d.partArg(), len(parts))
 		}
 		return ""
 	}
@@ -363,12 +363,8 @@ func (r Runner) pageText(rec *fileRecord, d *docFile, text string, sections []do
 		b.WriteString("; of the others, " + strings.Join(rest, ", "))
 	}
 	if k < len(parts) {
-		args := map[string]any{"document_id": d.documentID, FilePartArg: k + 1}
-		if d.versionID != "" {
-			args["version_id"] = d.versionID
-		}
-		rec.NextPart = &nextPart{Tool: FilePartTool, Arguments: args}
-		fmt.Fprintf(&b, "; to read part %d, call %s with next_part's arguments, which name this version", k+1, FilePartTool)
+		rec.NextPart = d.again(k + 1)
+		b.WriteString(d.readNext(k + 1))
 	} else {
 		b.WriteString("; it is the last")
 	}

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
@@ -27,6 +28,10 @@ type TextCache struct {
 	size  int64
 	lru   *list.List // of *cachedReading, the most recently used first
 	byKey map[string]*list.Element
+	// byTag are the keys of the readings kept for each tag: a file a
+	// message of a conversation carries, and its message, whose readings
+	// go when the message is retracted (Drop).
+	byTag map[string]map[string]struct{}
 	hits  uint64
 	miss  uint64
 }
@@ -40,7 +45,7 @@ func NewTextCache(maxBytes int64) *TextCache {
 	if maxBytes <= 0 {
 		maxBytes = DefaultTextCacheBytes
 	}
-	return &TextCache{max: maxBytes, lru: list.New(), byKey: map[string]*list.Element{}}
+	return &TextCache{max: maxBytes, lru: list.New(), byKey: map[string]*list.Element{}, byTag: map[string]map[string]struct{}{}}
 }
 
 // fileReading is what the runtime made of a file's bytes for a model given
@@ -75,6 +80,7 @@ type cachedReading struct {
 	key  string
 	r    *fileReading
 	cost int64
+	tags []string
 }
 
 // cost is what a reading is counted as in the cache's bound.
@@ -89,8 +95,9 @@ func (r *fileReading) cost() int64 {
 	return n
 }
 
-// get is the reading kept under key, nil when there is none.
-func (c *TextCache) get(key string) *fileReading {
+// get is the reading kept under key, nil when there is none; one found is
+// tagged with tags besides the tags it has (put).
+func (c *TextCache) get(key string, tags ...string) *fileReading {
 	if c == nil || key == "" {
 		return nil
 	}
@@ -103,12 +110,15 @@ func (c *TextCache) get(key string) *fileReading {
 	}
 	c.hits++
 	c.lru.MoveToFront(e)
-	return e.Value.(*cachedReading).r
+	cr := e.Value.(*cachedReading)
+	c.tagLocked(cr, tags)
+	return cr.r
 }
 
-// put keeps r under key, and lets go of the readings used least recently
-// past the bound. One larger than the whole bound is not kept.
-func (c *TextCache) put(key string, r *fileReading) {
+// put keeps r under key, tagged with tags (Drop), and lets go of the
+// readings used least recently past the bound. One larger than the whole
+// bound is not kept.
+func (c *TextCache) put(key string, r *fileReading, tags ...string) {
 	if c == nil || key == "" || r == nil {
 		return
 	}
@@ -119,19 +129,66 @@ func (c *TextCache) put(key string, r *fileReading) {
 		return
 	}
 	if e, ok := c.byKey[key]; ok {
-		c.size -= e.Value.(*cachedReading).cost
-		c.lru.Remove(e)
-		delete(c.byKey, key)
+		// Read again: kept for whatever it was kept for before, too.
+		tags = append(slices.Clone(e.Value.(*cachedReading).tags), tags...)
+		c.removeLocked(e)
 	}
-	c.byKey[key] = c.lru.PushFront(&cachedReading{key: key, r: r, cost: cost})
+	cr := &cachedReading{key: key, r: r, cost: cost}
+	c.byKey[key] = c.lru.PushFront(cr)
 	c.size += cost
+	c.tagLocked(cr, tags)
 	for c.size > c.max {
-		last := c.lru.Back()
-		old := last.Value.(*cachedReading)
-		c.lru.Remove(last)
-		delete(c.byKey, old.key)
-		c.size -= old.cost
+		c.removeLocked(c.lru.Back())
 	}
+}
+
+// tagLocked tags cr with tags it has not yet.
+func (c *TextCache) tagLocked(cr *cachedReading, tags []string) {
+	for _, tag := range tags {
+		if tag == "" || slices.Contains(cr.tags, tag) {
+			continue
+		}
+		cr.tags = append(cr.tags, tag)
+		keys := c.byTag[tag]
+		if keys == nil {
+			keys = map[string]struct{}{}
+			c.byTag[tag] = keys
+		}
+		keys[cr.key] = struct{}{}
+	}
+}
+
+// removeLocked lets go of one reading, and of its tags.
+func (c *TextCache) removeLocked(e *list.Element) {
+	cr := e.Value.(*cachedReading)
+	c.lru.Remove(e)
+	delete(c.byKey, cr.key)
+	c.size -= cr.cost
+	for _, tag := range cr.tags {
+		if keys := c.byTag[tag]; keys != nil {
+			delete(keys, cr.key)
+			if len(keys) == 0 {
+				delete(c.byTag, tag)
+			}
+		}
+	}
+}
+
+// Drop lets go of every reading tagged tag: the worker drops those of a
+// retracted message's files by the message's id, and the files'
+// readings are gone with them, whatever else they were kept for.
+func (c *TextCache) Drop(tag string) {
+	if c == nil || tag == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key := range c.byTag[tag] {
+		if e, ok := c.byKey[key]; ok {
+			c.removeLocked(e)
+		}
+	}
+	delete(c.byTag, tag)
 }
 
 // TextCacheStats are a cache's counts.
@@ -155,6 +212,9 @@ func (c *TextCache) Stats() TextCacheStats {
 // Core names it, with the checksum Core gave, and the limits it is read
 // within. "" (nothing kept) when Core named no version.
 func (r Runner) textKey(d *docFile) string {
+	if d.attachmentID != "" {
+		return r.attachmentKey(d)
+	}
 	if d.versionID == "" {
 		return ""
 	}
@@ -167,3 +227,12 @@ func checksum(data []byte) string {
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
+
+// kept is the reading kept under key, nil when there is none; one found is
+// tagged with the runner's tags, as keep tags one.
+func (r Runner) kept(key string) *fileReading { return r.Texts.get(key, r.tags...) }
+
+// keep keeps rd under key, tagged with the runner's tags: a file a message
+// carries is kept tagged with its id and its message's (attachments.go), so
+// that what was read of it goes when the message is retracted.
+func (r Runner) keep(key string, rd *fileReading) { r.Texts.put(key, rd, r.tags...) }

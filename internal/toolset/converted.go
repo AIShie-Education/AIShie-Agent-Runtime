@@ -125,7 +125,7 @@ func (r Runner) giveConvertedText(ctx context.Context, g given, d *docFile, mt, 
 	rec := g.rec
 	f, _ := office.FormatOf(mt)
 	key := r.textKey(d)
-	rd := r.Texts.get(key)
+	rd := r.kept(key)
 	if rd == nil || rd.fam == "" || rd.sum != sum {
 		var st office.State
 		rd, st = r.readConverted(ctx, d, mt, sum, data, pdf)
@@ -201,7 +201,7 @@ func (r Runner) readConverted(ctx context.Context, d *docFile, mt, sum string, d
 		to = office.ToPDF
 	}
 	if !isContextError(rd.err) {
-		r.Texts.put(r.textKey(d), rd)
+		r.keep(r.textKey(d), rd)
 	}
 	return rd, office.State{Status: office.StatusDone}
 }
@@ -227,7 +227,7 @@ func picturesOnly(res *doctext.Result) bool {
 // LibreOffice's PowerPoint form of it. nil, with where the conversion
 // stands, when that form is not made (yet).
 func (r Runner) deckReading(ctx context.Context, d *docFile, mt, sum string, data []byte) (*fileReading, office.State) {
-	if rd := r.Texts.get(r.textKey(d)); rd != nil && rd.fam == office.Slides && rd.sum == sum {
+	if rd := r.kept(r.textKey(d)); rd != nil && rd.fam == office.Slides && rd.sum == sum {
 		return rd, office.State{Status: office.StatusDone}
 	}
 	return r.readConverted(ctx, d, mt, sum, data, nil)
@@ -291,7 +291,7 @@ func (r Runner) giveDocumentPDFText(ctx context.Context, g given, d *docFile, rd
 			why = notGiven + why
 		}
 		return r.giveOCR(ctx, g, rd, ocrFile{kind: ocr.PDF, pages: res.Of, why: why, ask: askSelectable,
-			sum: derivedSum("pdf", rd.sum, nil), data: r.convertedPDF(d, rd, data, nil), again: askAgain(d)})
+			sum: derivedSum("pdf", rd.sum, nil), data: r.convertedPDF(d, rd, data, nil), again: d.again(0)})
 	}
 	g = r.extracted(g, res)
 	g.rec.Note = "LibreOffice converted it to PDF: " + g.rec.Note
@@ -327,7 +327,7 @@ func (r Runner) giveSlides(ctx context.Context, g given, d *docFile, rd *fileRea
 		shown = shown[:maxPictured]
 	}
 	which := slidesWords(shown)
-	f := ocrFile{kind: ocr.PDF, pages: len(shown), sum: derivedSum("slides", rd.sum, shown), again: askAgain(d),
+	f := ocrFile{kind: ocr.PDF, pages: len(shown), sum: derivedSum("slides", rd.sum, shown), again: d.again(0),
 		data: r.convertedPDF(d, rd, data, shown)}
 	read, st := r.recognize(ctx, rd, f)
 	if read != nil {
@@ -341,12 +341,12 @@ func (r Runner) giveSlides(ctx context.Context, g given, d *docFile, rd *fileRea
 	switch st.Status {
 	case ocr.StatusPending:
 		rec.OCR, rec.AskAgain = OCRInProgress, f.again
-		rec.Note += "; the runtime is reading the text in the pictures and charts of " + which + cut + " now (OCR): to have it too, call " +
-			FilePartTool + " again with ask_again's arguments in a minute or so"
+		rec.Note += "; the runtime is reading the text in the pictures and charts of " + which + cut + " now (OCR): to have it too, " +
+			callAgain(f.again, "in a minute or so")
 	case ocr.StatusBusy:
 		rec.OCR, rec.AskAgain = OCRBusy, f.again
 		rec.Note += "; the runtime could not start reading the text in the pictures and charts of " + which + " (OCR) just now: " + st.Why +
-			"; call " + FilePartTool + " again with ask_again's arguments in a few minutes to try again"
+			"; " + callAgain(f.again, "in a few minutes to try again")
 	case ocr.StatusFailed:
 		rec.OCR = OCRFailed
 		rec.Note += "; the runtime's OCR could not read the text in its pictures and charts: " + st.Why
@@ -461,10 +461,10 @@ func (r Runner) conversionNote(rec *fileRecord, d *docFile, st office.State, to 
 	what := targetWords[to]
 	switch st.Status {
 	case office.StatusPending:
-		rec.Conversion, rec.AskAgain = ConversionInProgress, askAgain(d)
+		rec.Conversion, rec.AskAgain = ConversionInProgress, d.again(0)
 		return "the runtime is converting it to " + what + " now (LibreOffice)"
 	case office.StatusBusy:
-		rec.Conversion, rec.AskAgain = ConversionBusy, askAgain(d)
+		rec.Conversion, rec.AskAgain = ConversionBusy, d.again(0)
 		return "the runtime could not start converting it to " + what + " just now: " + st.Why
 	case office.StatusFailed:
 		rec.Conversion = ConversionFailed
@@ -478,9 +478,9 @@ func (r Runner) conversionNote(rec *fileRecord, d *docFile, st office.State, to 
 func askLater(rec *fileRecord) string {
 	switch rec.Conversion {
 	case ConversionInProgress:
-		return "; call " + FilePartTool + " again with ask_again's arguments in a minute or so"
+		return "; " + callAgain(rec.AskAgain, "in a minute or so")
 	case ConversionBusy:
-		return "; call " + FilePartTool + " again with ask_again's arguments in a few minutes to try again"
+		return "; " + callAgain(rec.AskAgain, "in a few minutes to try again")
 	}
 	return ""
 }

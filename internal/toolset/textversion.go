@@ -194,9 +194,7 @@ func (c *TextCache) DropText(versionID string) {
 	defer c.mu.Unlock()
 	for key, e := range c.byKey {
 		if strings.HasPrefix(key, prefix) {
-			c.size -= e.Value.(*cachedReading).cost
-			c.lru.Remove(e)
-			delete(c.byKey, key)
+			c.removeLocked(e)
 		}
 	}
 }
