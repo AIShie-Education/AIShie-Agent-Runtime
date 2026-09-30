@@ -94,8 +94,11 @@ Each document holds the agent, and overrides per course if it has any.
 One `runtime:` document holds the process's own settings: tenants' quotas,
 the price table, the models the school's key may use, and the school's AI
 plan, the models the school offers hosted agents on its own key with the
-quotas that hold them. See
-[`examples/`](examples):
+quotas that hold them. The runtime's administrators also turn OCR off and
+on, choose its languages, and make offers of the school's plan and set its
+quotas from the front end, within what the environment and `runtime.yaml`
+allow ([`docs/deploying.md`](docs/deploying.md#what-the-sites-administrators-change)).
+See [`examples/`](examples):
 
 - [`agents/delegate.yaml`](examples/agents/delegate.yaml): a student's own
   agent, on the student's own DeepSeek key.

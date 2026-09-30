@@ -694,6 +694,20 @@ of the pages beats tesseract's, and the runtime spends nothing on it.
   with a warning at the start saying what is missing, where they are not;
   `OCR=on` refuses to start (and `check` fails) without them; `OCR=off` is
   off. The start's log line and `check` say which.
+- *The site's setting* (§11.5). Where the environment lets OCR run, the
+  runtime's administrators turn it off and on and choose its languages
+  among those tesseract lists (`--list-langs` as the engine starts, but
+  `osd`), `OCR_LANGUAGES` by default; the environment is the ceiling, and
+  with `OCR=off` or the programs missing the setting changes nothing.
+  Each worker puts it in force as it reads the registry again
+  (`ocr.Service.Set`): off, no file is recognized and no kept text read,
+  as with `OCR=off`; in other languages, a text kept of a file (its
+  `engine` names the languages it was recognized in) or held in the
+  `TextCache` (under the checksum and the languages) is not given, and
+  the file is recognized again, in them, and kept in its place. A job
+  already running finishes in the languages it began in. Languages a
+  worker has not got (another image) are logged there, once, and change
+  nothing on it.
 - *Counted*: `ocr_requests_total{result}` (a question's outcome: `done`,
   `failed`, `in_progress`, `started`, `busy`, `off`),
   `ocr_jobs_total{kind,outcome}` (`done`, `empty`, `too_large`, `timeout`,
@@ -1451,6 +1465,8 @@ The prompt's hash is kept per answer.
 | `registry_rev` | one row: the revision every write to `hosted_agent` or `hosted_course` moves on, by trigger, with `NOTIFY aishie_registry` |
 | `audit` | the API's audit (§11.4): when, who, with which of Core's sessions, from where, what, to what, the outcome, and a detail of ids, hints, providers, models and results; kept 400 days |
 | `ocr_text` | what OCR recognized of a file (§4, OCR), by the sha256 of its bytes: done or failed, pdf or image, the text (at most 4 MB), pages recognized and of how many, where each begins, notes, why it failed, the engine and how long it took; kept 180 days, a failure a day |
+| `site_setting` | what the runtime's administrators set (§11.5), by name (`ocr`, `school_quotas`): a JSON object, who wrote it, when; every write moves `registry_rev` on |
+| `school_offer` | the offers of the school's plan the administrators made (§11.5): id, label, adapter, provider, model, base_url, region, output bound, effort, on or off, the school's key (a secret of the tenant `school`, with its hint, and whether it was tried with the model), version, who made and changed it, when; every write moves `registry_rev` on |
 
 Beside the sums quotas are checked against (`Spend`), two reports read the
 ledger for people, ids and numbers only: `Usage(agent, since, until)`, a
@@ -1828,7 +1844,8 @@ Chinese with a table, overran, and was cut off.
 M2 lets people connect their own agents from AIShie-Frontend instead of
 an operator writing YAML. The runtime's side is built in steps: the secret
 store (§11.1), the registry of hosted agents that runs them beside the YAML
-agents (§11.2), and a versioned JSON API for the front end (§11.4).
+agents (§11.2), a versioned JSON API for the front end (§11.4), and what
+the site's administrators change through it (§11.5).
 
 ### 11.1 The secret store
 
@@ -1922,7 +1939,9 @@ document a YAML file would hold, and runs it beside the YAML agents:
   runtime under `amazonaws.com`, not a bucket or function anyone can
   name there); and it sends no extra headers (D9). An offer's endpoint
   and settings are the operator's, and its calls go over the runtime's
-  own client, as a YAML agent's do.
+  own client, as a YAML agent's do; but an offer the site's
+  administrators made is held to these rules too, and called over the
+  hosted-model client (§11.5).
 - **YAML ∪ registry.** `registry.Build` is the YAML configuration, then
   every hosted agent that passes; the rest are in `Config.Rejected`, which
   the supervisor shows in state `error`. A hosted agent whose id is a YAML
@@ -1971,6 +1990,14 @@ document a YAML file would hold, and runs it beside the YAML agents:
   to the owner's model when the offer's provider cannot be reached, and,
   when a quota of the school's is spent (§5.3 step 4), answers on the
   owner's key; without an owner's model, the plan's notice is posted.
+  Beside `runtime.school`, the runtime's administrators make offers and
+  set the quotas in answers through the API (§11.5); the plan in force is
+  both, rebuilt with the registry. An offer the school withdraws (taken
+  out of `runtime.school`, or the site's turned off, deleted, or held
+  back) leaves the agents on it on their owners' models behind it, on
+  their keys, as a quota spent does; an agent with none is not run, in
+  state `error` with the reason `offer_withdrawn`, until the offer is back
+  or its owner chooses another.
 - `check`, with `DATABASE_URL`, reads the registry as `run` does, lists
   the hosted agents it would run and those it would not, with why, and
   passes: they keep no other from running. A registry it cannot read (a
@@ -2036,10 +2063,11 @@ The API needs `CORE_BASE_URL`, `API_AUDIENCE`, `DATABASE_URL` and
   in Core reaches the runtime within the assertion's lifetime (five
   minutes by default, fifteen at most). `GET /me` says whether they are
   one. Beside an owner's routes, an administrator reads `GET
-  /admin/school-plan/usage` alone: today's use of the school's key (the
+  /admin/school-plan/usage`: today's use of the school's key (the
   store's `Reports.TenantUsage`), the plan's quotas, the total, and a row
   per tenant, a hosted agent's owner's with their actor id and the name
-  the runtime last saw; anyone else is 403 `not_admin`.
+  the runtime last saw; and reads and changes the site's settings and the
+  school's plan (§11.5). Anyone else is 403 `not_admin`.
 - **Every request**, in order: one log line and metrics
   (`aishie_api_requests_total{route,code}`,
   `aishie_api_request_seconds{route}`): method, route, status, reason,
@@ -2176,3 +2204,88 @@ The API needs `CORE_BASE_URL`, `API_AUDIENCE`, `DATABASE_URL` and
   (`aishie_api_audit_failures_total`), and fails nothing. Refused
   assertions are counted, not audited. Housekeeping destroys events older
   than 400 days.
+
+### 11.5 What the site's administrators change
+
+The runtime's administrators (§11.4, D4) change two things from the front
+end that were the operator's alone: whether OCR runs, and in which
+languages (§4, OCR); and the school's AI plan (§11.2's key pool), its
+offers and its quotas. The operator's environment and `runtime.yaml` stay
+the ceiling: `OCR=off`, or OCR's programs missing, is off whatever the site
+says; `runtime.school`'s offers are the operator's, listed read-only; and
+`allowed_models`, `denied_models`, the quotas in dollars, `on_quota_text`
+and the price table stay `runtime.yaml`'s.
+
+- **Kept in the store** (migration 0009): `site_setting`, a JSON object by
+  name (`ocr`: `enabled`, `languages`; `school_quotas`: `per_owner_day`,
+  `per_asker_day`, `per_day`, null for none), and `school_offer`, an offer
+  made as an owner's own model is chosen (a provider of `GET /models`, its
+  adapter, the model, the endpoint, resource or region its offer takes,
+  the output bound and the effort), at the provider's own endpoint, with
+  the school's key sealed (§11.1) under the tenant `school`, a `model_key`
+  that goes with the offer: replaced, the one before is destroyed in the
+  same transaction, and deleted with it. Only its hint is ever shown.
+- **Put in force without a restart.** Every statement that writes either
+  table moves `registry_rev` on and notifies `aishie_registry`, by 0003's
+  trigger function, so each worker rebuilds as it does for a hosted
+  agent's change (§11.2), within moments, or at the next poll.
+  `registry.Build` reads the site with the hosted agents, after the
+  revision, and `config.Runtime.WithSite` makes the plan in force:
+  `runtime.school`'s offers, then the site's that are turned on, but one
+  whose id `runtime.school` has (`id_taken`: the operator's wins) or whose
+  model the lists do not allow (`model_not_allowed`); and the site's
+  quotas in answers in place of `runtime.school`'s, whose dollars stay.
+  The quotas apply from the next answer; an agent whose offer changed (a
+  key replaced is a new secret, so a new reference) restarts. The OCR
+  setting goes to each worker's `ocr.Service` at each build. A registry
+  that cannot be read leaves the site's settings as last read in force.
+  The API reads the plan in force from the store at each request, so
+  that owners see an offer the moment it is made.
+- **The site's offers are an owner's model**: the registry holds an agent
+  on one to what it holds an owner's model to (a provider's own endpoint
+  over https, a key, no headers), and the worker calls it over the
+  hosted-model client (`internal/netguard`), where `runtime.school`'s
+  offers, whose endpoints are the operator's, go over the runtime's own.
+  With a quota of the plan's in dollars, an agent on a site's offer the
+  price table does not price is not run; the API refuses to make one.
+- **Withdrawn.** An offer turned off, deleted, or held back leaves each
+  agent on it on its owner's model behind it, on the owner's key, and with
+  none, not run, in state `error` with the reason `offer_withdrawn`; the
+  row keeps the offer's id, so an offer turned on again, or made again
+  with its id, takes its agents back.
+- **The API** (§11.4's rules: an administrator alone, else 403
+  `not_admin`; every write audited, ids and hints alone; refusals in
+  Core's envelope):
+  - `GET /admin/settings`, and `PATCH` of `{"ocr": {"enabled", "languages"}}`
+    by merge-patch: whether OCR can run here (`available`, and if not
+    `unavailable_reason`, `operator_off` or `not_installed`), the site's
+    setting or its defaults, the environment's languages and those
+    installed. Where OCR cannot run it is not turned on, nor given
+    languages (422 `ocr_unavailable`); a language not installed, or twice,
+    is `invalid_field` at its pointer. Audited as `settings.update`.
+  - `GET /admin/school-plan`: every offer, `runtime.school`'s (`source:
+    "config"`) then the site's (`"site"`), each with its status in the
+    plan, whether it is priced, how many hosted agents are on it, and, of
+    the site's, its key's hint, whether the key was tried with its model,
+    its version (an ETag), and who made and changed it; the quotas in
+    force and `runtime.school`'s beside them. `GET
+    /admin/school-plan/offers/{id}` is one.
+  - `POST /admin/school-plan/offers` makes an offer: an id no offer of the
+    plan has (409 `offer_exists`), a label, the model, and the key, tried
+    with the model as `keys/test` tries one, within its allowance (422
+    `key_test_failed` with the provider's status and code, unless
+    `skip_key_test`, which leaves the key untried); a model the lists do
+    not allow is `model_denied`, one the price table does not price under
+    a quota in dollars `offer_not_priced`. `PATCH …/offers/{id}` changes
+    its label, whether it is on, its model (the key then untried with it,
+    unless a key is given), and its key (tried and sealed, the one before
+    destroyed); another provider's model needs a key (`key_required`).
+    `DELETE …/offers/{id}` destroys it with its key, and says how many
+    agents were on it. Both take `If-Match` (412 at another version).
+    `runtime.school`'s offers are `offer_read_only` (403); an id of none,
+    `offer_not_found`. Audited as `school_offer.create`, `.update` and
+    `.delete`, with the key's hint and the trial's result.
+  - `PUT /admin/school-plan/quotas` sets every quota, in answers a UTC day
+    from 1 to 1,000,000, `per_day` null for none; `DELETE` takes
+    `runtime.school`'s again. Both answer the plan. Audited as
+    `school_quotas.update` and `.reset`.
