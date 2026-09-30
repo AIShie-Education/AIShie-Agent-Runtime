@@ -1809,7 +1809,11 @@ Chinese with a table, overran, and was cut off.
   his week's slides as a `.pptx` through Core's upload URL, and Yuki's
   hosted helper, asked about a slide, reads it with `document_get` and
   answers from the runtime's text of it, the download URL never reaching
-  its model.
+  its model; and where LibreOffice is installed (skipped where it is not,
+  never with `OFFICE_PDF_REQUIRED=1`), Sato uploads a lecture of twelve
+  slides, and Yuki's own agent, whose model takes files, is given its
+  first ten slides as a PDF of ten pages, the notes beside them, and told
+  there is a second part.
 
 ## 11. Hosted agents
 
