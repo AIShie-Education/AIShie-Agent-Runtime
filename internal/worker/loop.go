@@ -141,6 +141,11 @@ func (l *loop) run(ctx context.Context) loopEnd {
 	forced := false
 	partial := ""
 	for {
+		if err := ctx.Err(); err != nil {
+			// The claim's time ran out, the agent is stopping, or the
+			// question was withdrawn: no more turns.
+			return loopEnd{fatal: err}
+		}
 		if l.stats.Turns >= l.b.Turns {
 			return l.spent(partial)
 		}

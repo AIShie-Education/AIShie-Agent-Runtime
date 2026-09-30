@@ -48,6 +48,10 @@ const (
 	maxProviderFailures = 5
 	// memoryNotes is how many notes of a conversation the prompt is given.
 	memoryNotes = 20
+	// recentMessages is how many of a conversation's newest messages are
+	// read to see whether it still waits for an answer (stillWaiting): the
+	// opener's latest message is among them, as only its answer follows it.
+	recentMessages = 10
 )
 
 // claim is one inbox row being answered: from the conversation's lease to
@@ -100,6 +104,9 @@ type passResult struct {
 	next     then
 	moveTo   string
 	shorter  bool
+	// withdrawn: the question was withdrawn (questionWithdrawn), and
+	// nothing more is tried at it.
+	withdrawn bool
 }
 
 // answer answers one inbox row, holding its slot of the scheduler until it
@@ -224,6 +231,9 @@ func (c *claim) pass(ctx context.Context, msgID string, shorter bool) passResult
 		if err != nil {
 			return c.readFailed(ctx, r, err)
 		}
+		if questionWithdrawn(read) {
+			return c.withdrawn(r, "it is not answered")
+		}
 		latest := deref(read.Conversation.LatestOpenerMessageID)
 		if latest != "" && latest != msgID && switched < maxMoves {
 			msgID = latest
@@ -277,8 +287,19 @@ func (c *claim) generate(ctx context.Context, r passResult, read *core.Messages,
 		c.d.end(false)
 		return c.failedHere(r, "the toolset could not be built", err)
 	}
-	end := l.run(ctx)
+	// Written under a context the question's withdrawal cancels, while the
+	// seat watches its events for it (withdraw.go).
+	u, wctx := c.a.writing(ctx, c.s.course, c.conv, r.msg, c.d)
+	over := c.s.writingBegins()
+	end := l.run(wctx)
+	over()
+	withdrawn, seen := c.a.written(u)
 	r.stats = l.stats
+	if withdrawn {
+		// Its draft went with the question: nothing more is sent.
+		c.d.end(false)
+		return c.withdrawn(r, "the answer being written to it stops, and nothing is posted", "seen", seen)
+	}
 	if end.fatal != nil || end.failed {
 		// Given up: the attempt's draft goes.
 		c.d.end(false)
@@ -299,6 +320,11 @@ func (c *claim) generate(ctx context.Context, r passResult, read *core.Messages,
 	}
 	c.s.providerRecovered(r.msg)
 	r = c.post(ctx, r, end.body, end.kind)
+	if r.withdrawn {
+		// Refused, its question withdrawn as it was sent: its draft went
+		// with the question.
+		c.d.withdraw()
+	}
 	// Posted or proposed, the answer took the draft's place; otherwise the
 	// attempt is over, and its draft goes.
 	c.d.end(r.posted)
@@ -496,7 +522,7 @@ func (c *claim) act(ctx context.Context, r passResult, d Decision, rep safety.Re
 			r.next, r.shorter = thenAgain, true
 		}
 	case NextAttempt:
-		r.next, r.moveTo = c.stillWaiting(ctx, r.msg)
+		r = c.stillWaiting(ctx, r)
 	case NextRetryLater:
 		c.s.holdBack(c.conv, c.a.now().Add(c.a.s.o.Timing.RetryLater), "Core could not be reached")
 	case NextStopAgent:
@@ -522,25 +548,60 @@ func postedOutcome(kind string) string {
 	return store.OutcomePosted
 }
 
-// stillWaiting says what follows an attempt that posted nothing: another
-// attempt, if the conversation still waits for an answer to msg; the newer
-// message, if the opener wrote again; else nothing.
-func (c *claim) stillWaiting(ctx context.Context, msg string) (then, string) {
-	cv, err := c.a.client.Conversation(ctx, c.s.course, c.conv)
+// stillWaiting says what follows an attempt at r.msg that posted nothing:
+// another attempt, if the conversation still waits for an answer to it; the
+// newer message, if the opener wrote again; else nothing. Nothing, too,
+// when the opener withdrew what they asked last, which the pinned Core's
+// state does not say: it reads the conversation's newest messages, which
+// show the question retracted, as Core's moved_on naming no message means.
+func (c *claim) stillWaiting(ctx context.Context, r passResult) passResult {
+	read, err := c.a.client.Messages(ctx, c.s.course, c.conv, core.MessagesQuery{Limit: recentMessages})
 	if err != nil {
 		if isUnauthenticated(err) {
 			c.a.stop(core.ErrUnauthenticated)
 		}
-		return thenStop, ""
+		return r
 	}
-	latest := deref(cv.LatestOpenerMessageID)
+	latest := deref(read.Conversation.LatestOpenerMessageID)
 	switch {
-	case cv.State != core.StateAwaitingAnswer:
-		return thenStop, ""
-	case latest != "" && latest != msg:
-		return thenMoved, latest
+	case questionWithdrawn(read):
+		r.withdrawn = true
+		c.s.log.Info("the question was withdrawn: it is not answered again", "conversation", c.conv, "message", latest)
+	case read.Conversation.State != core.StateAwaitingAnswer:
+	case latest != "" && latest != r.msg:
+		r.next, r.moveTo = thenMoved, latest
+	default:
+		r.next = thenAgain
 	}
-	return thenAgain, ""
+	return r
+}
+
+// questionWithdrawn reports whether the conversation read waits for no
+// answer because its opener withdrew what they asked last: their latest
+// message is retracted ("stop" in the chat). The inbox leaves such a
+// conversation out. A Core since AIShie-Core #42 says it is answered, and
+// refuses an answer to it; a Core before it (b0eb848 and older) says it
+// still waits for one, and would post it.
+func questionWithdrawn(read *core.Messages) bool {
+	latest := deref(read.Conversation.LatestOpenerMessageID)
+	if latest == "" {
+		return false
+	}
+	for _, m := range read.Messages {
+		if m.ID == latest {
+			return m.Retracted != nil
+		}
+	}
+	return false
+}
+
+// withdrawn ends a pass at a question its opener withdrew: nothing is
+// posted, and nothing more is tried at it. Its log line says what, and
+// attrs.
+func (c *claim) withdrawn(r passResult, what string, attrs ...any) passResult {
+	c.s.log.Info("the question was withdrawn: "+what, append([]any{"conversation", c.conv, "message", r.msg}, attrs...)...)
+	r.outcome, r.next, r.withdrawn = store.OutcomeDropped, thenStop, true
+	return r
 }
 
 // noteAnswered remembers, in the conversation's memory, that an answer was

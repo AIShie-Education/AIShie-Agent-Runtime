@@ -1367,7 +1367,7 @@
      "details": {
       "reason": "conversation_not_awaiting"
      },
-     "message": "the conversation waits for no answer now: it is answered, an answer waits for approval, or it is closed; a draft is written only while it waits"
+     "message": "the conversation waits for no answer now: it is answered, its question withdrawn, an answer waits for approval, or it is closed; a draft is written only while it waits"
     },
     "status": "error"
    },
@@ -1428,7 +1428,7 @@
      "details": {
       "reason": "conversation_not_awaiting"
      },
-     "message": "the conversation waits for no answer now: it is answered, an answer waits for approval, or it is closed; a draft is written only while it waits"
+     "message": "the conversation waits for no answer now: it is answered, its question withdrawn, an answer waits for approval, or it is closed; a draft is written only while it waits"
     }
    },
    "content_type": "application/json",

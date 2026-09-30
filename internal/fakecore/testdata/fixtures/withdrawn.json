@@ -1,0 +1,362 @@
+{
+ "scenario": "withdrawn",
+ "steps": [
+  {
+   "args": {
+    "attempt": "a1",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "steps": [
+     {
+      "kind": "writing",
+      "state": "running"
+     }
+    ],
+    "text": "The lab is",
+    "version": 1
+   },
+   "envelope": {
+    "result": {
+     "stored": true,
+     "version": 1
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "draft",
+   "text_is_envelope": true,
+   "tool": "conversation_draft"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "created_at": "<time>",
+     "draft": {
+      "attempt": "a1",
+      "steps": [
+       {
+        "kind": "writing",
+        "state": "running"
+       }
+      ],
+      "text": "The lab is",
+      "updated_at": "<time>",
+      "version": 1
+     },
+     "id": "<id:1>",
+     "last_author_member_id": "<id:3>",
+     "last_message_at": "<time>",
+     "last_retracted_at": "<time>",
+     "latest_opener_message_id": "<id:4>",
+     "opener": {
+      "display_name": "Yuki",
+      "kind": "human",
+      "member_id": "<id:3>"
+     },
+     "respondent": {
+      "answer_level": "autonomous",
+      "display_name": "CS101 Tutor",
+      "is_delegate_of_opener": false,
+      "kind": "agent",
+      "last_seen_at": "<time>",
+      "member_id": "<id:5>",
+      "owner_name": "Sato",
+      "role": "assistant",
+      "seat_status": "active"
+     },
+     "state": "awaiting_answer",
+     "status": "open",
+     "unread": false,
+     "visible_to": [
+      "participants",
+      "overseers",
+      "action_record",
+      "respondent_answers_others"
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "an_older_message_withdrawn",
+   "text_is_envelope": true,
+   "tool": "conversation_get"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "created_at": "<time>",
+     "draft": null,
+     "id": "<id:1>",
+     "last_author_member_id": "<id:3>",
+     "last_message_at": "<time>",
+     "last_retracted_at": "<time>",
+     "latest_opener_message_id": "<id:4>",
+     "opener": {
+      "display_name": "Yuki",
+      "kind": "human",
+      "member_id": "<id:3>"
+     },
+     "respondent": {
+      "answer_level": "autonomous",
+      "display_name": "CS101 Tutor",
+      "is_delegate_of_opener": false,
+      "kind": "agent",
+      "last_seen_at": "<time>",
+      "member_id": "<id:5>",
+      "owner_name": "Sato",
+      "role": "assistant",
+      "seat_status": "active"
+     },
+     "state": "answered",
+     "status": "open",
+     "unread": false,
+     "visible_to": [
+      "participants",
+      "overseers",
+      "action_record",
+      "respondent_answers_others"
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "the_question_withdrawn",
+   "text_is_envelope": true,
+   "tool": "conversation_get"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "conversation": {
+      "created_at": "<time>",
+      "id": "<id:1>",
+      "last_author_member_id": "<id:3>",
+      "last_message_at": "<time>",
+      "last_retracted_at": "<time>",
+      "latest_opener_message_id": "<id:4>",
+      "opener": {
+       "display_name": "Yuki",
+       "kind": "human",
+       "member_id": "<id:3>"
+      },
+      "respondent": {
+       "answer_level": "autonomous",
+       "display_name": "CS101 Tutor",
+       "is_delegate_of_opener": false,
+       "kind": "agent",
+       "last_seen_at": "<time>",
+       "member_id": "<id:5>",
+       "owner_name": "Sato",
+       "role": "assistant",
+       "seat_status": "active"
+      },
+      "state": "answered",
+      "status": "open"
+     },
+     "draft": null,
+     "messages": [
+      {
+       "author_member_id": "<id:3>",
+       "created_at": "<time>",
+       "id": "<id:6>",
+       "retracted": {
+        "at": "<time>",
+        "by_member_id": "<id:3>"
+       },
+       "seq": 1
+      },
+      {
+       "author_member_id": "<id:3>",
+       "created_at": "<time>",
+       "id": "<id:4>",
+       "retracted": {
+        "at": "<time>",
+        "by_member_id": "<id:3>",
+        "reason": "Never mind"
+       },
+       "seq": 2
+      }
+     ],
+     "more": false
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "the_respondent_reads_it",
+   "text_is_envelope": true,
+   "tool": "conversation_messages"
+  },
+  {
+   "args": {
+    "attempt": "a1",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "text": "The lab is open",
+    "version": 2
+   },
+   "envelope": {
+    "error": {
+     "code": "conflict",
+     "details": {
+      "reason": "conversation_not_awaiting"
+     },
+     "message": "the conversation waits for no answer now: it is answered, its question withdrawn, an answer waits for approval, or it is closed; a draft is written only while it waits"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "a_draft_after",
+   "text_is_envelope": true,
+   "tool": "conversation_draft"
+  },
+  {
+   "args": {
+    "body": "It is closed on holidays.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:4>:1",
+    "in_reply_to_message_id": "<id:4>"
+   },
+   "envelope": {
+    "action_id": "<id:7>",
+    "error": {
+     "code": "conflict",
+     "details": {
+      "reason": "moved_on"
+     },
+     "message": "the question was withdrawn: nothing waits for an answer now"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "an_answer_to_it",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "conversations": []
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "inbox",
+   "text_is_envelope": true,
+   "tool": "conversation_inbox"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "created_at": "<time>",
+     "draft": null,
+     "id": "<id:1>",
+     "last_author_member_id": "<id:3>",
+     "last_message_at": "<time>",
+     "last_retracted_at": "<time>",
+     "latest_opener_message_id": "<id:8>",
+     "opener": {
+      "display_name": "Yuki",
+      "kind": "human",
+      "member_id": "<id:3>"
+     },
+     "respondent": {
+      "answer_level": "autonomous",
+      "display_name": "CS101 Tutor",
+      "is_delegate_of_opener": false,
+      "kind": "agent",
+      "last_seen_at": "<time>",
+      "member_id": "<id:5>",
+      "owner_name": "Sato",
+      "role": "assistant",
+      "seat_status": "active"
+     },
+     "state": "awaiting_answer",
+     "status": "open",
+     "unread": true,
+     "visible_to": [
+      "participants",
+      "overseers",
+      "action_record",
+      "respondent_answers_others"
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "asked_again",
+   "text_is_envelope": true,
+   "tool": "conversation_get"
+  },
+  {
+   "args": {
+    "attempt": "a2",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "version": 1
+   },
+   "envelope": {
+    "result": {
+     "stored": true,
+     "version": 1
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "a_draft_again",
+   "text_is_envelope": true,
+   "tool": "conversation_draft"
+  },
+  {
+   "args": {
+    "body": "Yes, from nine.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:8>:1",
+    "in_reply_to_message_id": "<id:8>"
+   },
+   "envelope": {
+    "action_id": "<id:9>",
+    "result": {
+     "message_id": "<id:10>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "the_answer",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  }
+ ]
+}

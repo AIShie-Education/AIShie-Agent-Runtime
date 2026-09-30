@@ -26,7 +26,8 @@ import (
 // of another attempt, unless it ends an attempt that is not the one kept;
 // of the same attempt not ended, a higher version, or for its end, one not
 // lower. Text and steps left out keep the attempt's. Posting or proposing
-// the answer, closing the conversation, and done clear it; one not written
+// the answer, the opener withdrawing the question (retracting their latest
+// message), closing the conversation, and done clear it; one not written
 // for 120 seconds is none.
 //
 // Options.WithoutDraft answers as a Core from before it, as 2c1fe1b, the
@@ -47,8 +48,8 @@ var (
 
 	errNotTheRespondent = forbid("only the member a conversation is addressed to writes its answer's draft").
 				with("reason", "not_the_respondent")
-	errNotAwaiting = conflicts("the conversation waits for no answer now: it is answered, an answer waits for approval, "+
-		"or it is closed; a draft is written only while it waits").with("reason", "conversation_not_awaiting")
+	errNotAwaiting = conflicts("the conversation waits for no answer now: it is answered, its question withdrawn, an "+
+		"answer waits for approval, or it is closed; a draft is written only while it waits").with("reason", "conversation_not_awaiting")
 )
 
 // kindEphemeral is the catalogue's kind of a tool that changes state that
@@ -259,8 +260,8 @@ func (c *Core) draftOf(cv *conversation) *draft {
 	return d
 }
 
-// clearDraft is what posting or proposing the answer, or closing the
-// conversation, does to its draft.
+// clearDraft is what posting or proposing the answer, withdrawing the
+// question, or closing the conversation, does to its draft.
 func (cv *conversation) clearDraft() { cv.draft = nil }
 
 // kindDraftNews is the news of a draft written (Core's wake.KindDraft),

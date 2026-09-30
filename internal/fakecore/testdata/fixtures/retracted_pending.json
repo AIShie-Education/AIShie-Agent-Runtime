@@ -56,7 +56,6 @@
       "kind": "human",
       "member_id": "<id:5>"
      },
-     "pending_reply_action_id": "<id:4>",
      "respondent": {
       "answer_level": "confirm_required",
       "display_name": "CS101 Tutor",
@@ -68,7 +67,7 @@
       "role": "assistant",
       "seat_status": "active"
      },
-     "state": "reply_pending_approval",
+     "state": "answered",
      "status": "open",
      "unread": false,
      "visible_to": [
@@ -96,15 +95,19 @@
    },
    "envelope": {
     "action_id": "<id:4>",
-    "replayed": true,
-    "result": {
-     "message_id": "<id:7>"
+    "error": {
+     "code": "conflict",
+     "details": {
+      "reason": "moved_on"
+     },
+     "message": "the question was withdrawn: nothing waits for an answer now"
     },
+    "replayed": true,
     "review_state": "none",
-    "status": "executed"
+    "status": "failed"
    },
    "http_status": 200,
-   "is_error": false,
+   "is_error": true,
    "step": "replay",
    "text_is_envelope": true,
    "tool": "conversation_answer"
@@ -119,7 +122,7 @@
      "conversation": {
       "created_at": "<time>",
       "id": "<id:1>",
-      "last_author_member_id": "<id:6>",
+      "last_author_member_id": "<id:5>",
       "last_message_at": "<time>",
       "last_retracted_at": "<time>",
       "latest_opener_message_id": "<id:3>",
@@ -154,14 +157,6 @@
         "reason": "Found it in the syllabus"
        },
        "seq": 1
-      },
-      {
-       "author_member_id": "<id:6>",
-       "body": "One sheet of notes.",
-       "created_at": "<time>",
-       "id": "<id:7>",
-       "in_reply_to_message_id": "<id:3>",
-       "seq": 2
       }
      ],
      "more": false

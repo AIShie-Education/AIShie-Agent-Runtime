@@ -131,6 +131,10 @@ type ChatResponse struct {
 	// Every is the pause between the pieces of a streamed answer; the
 	// server's StreamEvery when zero.
 	Every time.Duration `json:"-"`
+	// Stall holds a streamed answer back after its first piece of text, a
+	// model stopping part way through, and one not streamed before it is
+	// sent: that long, or until the caller gives up.
+	Stall time.Duration `json:"-"`
 }
 
 // Choice is one completion.
@@ -169,6 +173,8 @@ type Server struct {
 	requests []ChatRequest
 	served   int
 	ts       *httptest.Server
+	// gaveUp are when callers went away from answers not yet whole.
+	gaveUp []time.Time
 }
 
 // New serves with r once the script is spent; nil r answers only from the
@@ -215,6 +221,30 @@ func (s *Server) Requests() []ChatRequest {
 		out[i] = r
 	}
 	return out
+}
+
+// GaveUp are when callers went away from answers not yet whole, in order:
+// one held back (Delay, Stall), or a stream between its pieces.
+func (s *Server) GaveUp() []time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]time.Time(nil), s.gaveUp...)
+}
+
+// wait waits d, or until r's caller gives up, which it notes, and reports
+// as false.
+func (s *Server) wait(r *http.Request, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return true
+	case <-r.Context().Done():
+		s.mu.Lock()
+		s.gaveUp = append(s.gaveUp, time.Now())
+		s.mu.Unlock()
+		return false
+	}
 }
 
 // StreamEvery sets the pause between the pieces of a streamed answer
@@ -308,14 +338,8 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, Error{Message: "fakellm: the script is spent and there is no responder", Type: "server_error"})
 		return
 	}
-	if resp.Delay > 0 {
-		t := time.NewTimer(resp.Delay)
-		select {
-		case <-t.C:
-		case <-r.Context().Done():
-			t.Stop()
-			return
-		}
+	if resp.Delay > 0 && !s.wait(r, resp.Delay) {
+		return
 	}
 	for k, v := range resp.Header {
 		w.Header()[k] = v
@@ -330,6 +354,9 @@ func (s *Server) complete(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Stream {
 		s.stream(w, r, req, resp)
+		return
+	}
+	if resp.Stall > 0 && !s.wait(r, resp.Stall) {
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)

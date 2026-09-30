@@ -114,12 +114,28 @@ func (cv *conversation) latestOpenerMessage() *message {
 	return nil
 }
 
+// errWithdrawn refuses an answer once the opener's latest message is
+// retracted: nothing waits for an answer, so it names no message to answer.
+var errWithdrawn = conflicts("the question was withdrawn: nothing waits for an answer now").with("reason", "moved_on")
+
+// withdrawn reports whether cv's opener has withdrawn what they asked last,
+// retracting their latest message: then nothing waits for an answer in it,
+// but with Options.WithdrawnWaits.
+func (c *Core) withdrawn(cv *conversation) bool {
+	latest := cv.latestOpenerMessage()
+	return latest != nil && latest.retraction != nil && !c.opts.WithdrawnWaits
+}
+
 // newerQuestion refuses an answer to anything but the opener's latest
-// message, and to that message once it is answered.
-func newerQuestion(cv *conversation, answered string) error {
+// message, and to that message once it is answered or retracted: whoever
+// answers answers what was last asked, once, while it is still asked.
+func (c *Core) newerQuestion(cv *conversation, answered string) error {
 	latest := cv.latestOpenerMessage()
 	if latest == nil {
 		return invalid("in_reply_to_message_id must name a message of the opener's in this conversation")
+	}
+	if c.withdrawn(cv) {
+		return errWithdrawn
 	}
 	if latest.id != answered {
 		return conflicts("the conversation moved on; answer the latest message").
@@ -197,7 +213,7 @@ func conversationAnswer() *impl {
 			if err := c.checkAnswer(m, cv, in); err != nil {
 				return err
 			}
-			if err := newerQuestion(cv, in.InReplyToMessageID.String()); err != nil {
+			if err := c.newerQuestion(cv, in.InReplyToMessageID.String()); err != nil {
 				return err
 			}
 			if c.pendingAnswer(cv, m, in.InReplyToMessageID.String()) != nil {
@@ -219,7 +235,7 @@ func conversationAnswer() *impl {
 				return nil, err
 			}
 			answered := in.InReplyToMessageID.String()
-			id, err := c.post(ec, cv, &answered, in.Body, func() error { return newerQuestion(cv, answered) })
+			id, err := c.post(ec, cv, &answered, in.Body, func() error { return c.newerQuestion(cv, answered) })
 			if err != nil {
 				return nil, err
 			}
@@ -322,7 +338,10 @@ func conversationRetract() *impl {
 }
 
 // retractMessage is conversation_retract's execution: its author may, and so
-// may whoever oversees the conversation's opener.
+// may whoever oversees the conversation's opener. Retracting the opener's
+// latest message withdraws the question: nothing waits for an answer in the
+// conversation (withdrawn), and the answer's draft goes with it; an older
+// message retracted leaves the draft as it is.
 func (c *Core) retractMessage(ec *execCtx, msg *message, why *string) (any, error) {
 	if msg.author != ec.member && !oversees(ec.member, msg.conv.opener) {
 		return nil, forbid("only its author, or someone who decides actions for the conversation's opener, retracts a message")
@@ -336,6 +355,9 @@ func (c *Core) retractMessage(ec *execCtx, msg *message, why *string) (any, erro
 	}
 	msg.retraction = &retraction{at: ec.now, by: ec.member, reason: reason}
 	cv := msg.conv
+	if c.withdrawn(cv) && cv.latestOpenerMessage() == msg {
+		cv.clearDraft()
+	}
 	ec.emit(&event{typ: "conversation.message_retracted", course: cv.course, subjectType: "conversation", subjectID: &cv.id,
 		payload: mustJSON(map[string]any{"conversation_id": cv.id, "message_id": msg.id, "by_member_id": ec.member.id})})
 	return map[string]bool{"ok": true}, nil
@@ -421,12 +443,14 @@ func (c *Core) view(cv *conversation) conversationView {
 		v.LastAuthorMemberID = &id
 	}
 	latest := cv.latestOpenerMessage()
+	withdrawn := c.withdrawn(cv)
 	if latest != nil {
 		id := latest.id
 		v.LatestOpenerMessageID = &id
-		// A reply waits only if it answers the opener's newest message:
-		// approving one to an older message can only fail.
-		if p := c.pendingAnswer(cv, r, latest.id); p != nil {
+		// A reply waits only if it answers the opener's newest message,
+		// and that message is not withdrawn: approving one to an older
+		// message, or to one retracted, can only fail.
+		if p := c.pendingAnswer(cv, r, latest.id); p != nil && !withdrawn {
 			pid := p.id
 			v.PendingReplyActionID = &pid
 		}
@@ -440,6 +464,9 @@ func (c *Core) view(cv *conversation) conversationView {
 	switch {
 	case cv.status == stateClosed:
 		v.State = stateClosed
+	case withdrawn:
+		// The question is withdrawn, and nothing waits for an answer.
+		v.State = stateAnswered
 	case v.PendingReplyActionID != nil:
 		v.State = stateReplyPendingApproval
 	case cv.lastAuthor != nil && cv.lastAuthor == cv.opener:

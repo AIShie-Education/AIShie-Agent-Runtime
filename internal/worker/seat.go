@@ -87,6 +87,8 @@ type Seat struct {
 	// (holdEvents).
 	sends      int
 	eventsHeld bool
+	// writing counts the seat's answers being written (writingBegins).
+	writing int
 }
 
 type seatHold struct {
@@ -446,6 +448,22 @@ func (s *Seat) sendBegins() (over func()) {
 		if again {
 			s.eventsAtOnce()
 		}
+	}
+}
+
+// writingBegins marks one of the seat's answers as being written, until
+// the func it returns is called. Meanwhile its events are read at once, and
+// then long-polled where they can be (eventsWait): a retraction of the
+// question it answers stops it at once (withdraw.go).
+func (s *Seat) writingBegins() (over func()) {
+	s.mu.Lock()
+	s.writing++
+	s.mu.Unlock()
+	s.eventsAtOnce()
+	return func() {
+		s.mu.Lock()
+		s.writing--
+		s.mu.Unlock()
 	}
 }
 

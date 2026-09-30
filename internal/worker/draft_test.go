@@ -21,12 +21,15 @@ import (
 )
 
 // draftCore is a Caller that takes conversation_draft calls as Core would,
-// or as answer says, keeps each, and counts those in flight at once.
+// or as answer says, keeps each, and counts those in flight at once; and
+// answers conversation_messages as read says, counting them.
 type draftCore struct {
 	mu       sync.Mutex
 	writes   []core.DraftArgs
 	ctxs     []context.Context
 	answer   func(n int, args core.DraftArgs) (*core.Envelope, error)
+	read     func() (*core.Envelope, error)
+	reads    atomic.Int32
 	hold     time.Duration
 	inFlight atomic.Int32
 	most     atomic.Int32
@@ -34,6 +37,10 @@ type draftCore struct {
 }
 
 func (d *draftCore) Call(ctx context.Context, tool string, raw json.RawMessage) (*core.Envelope, error) {
+	if tool == "conversation_messages" && d.read != nil {
+		d.reads.Add(1)
+		return d.read()
+	}
 	if tool != core.ToolDraft {
 		return nil, errors.New("not a draft")
 	}
@@ -80,7 +87,7 @@ func (d *draftCore) sent() []core.DraftArgs {
 func testDrafter(t *testing.T, c core.Caller, every time.Duration) (*drafter, *Agent, *prometheus.Registry) {
 	t.Helper()
 	reg := prometheus.NewRegistry()
-	s := &Supervisor{o: Options{Metrics: metrics.New(reg), Timing: Timing{DraftEvery: every}}}
+	s := &Supervisor{o: Options{Metrics: metrics.New(reg), Timing: Timing{DraftEvery: every}, Now: time.Now}}
 	ctx, cancel := context.WithCancel(context.Background())
 	a := &Agent{s: s, id: "tutor", log: slog.New(slog.NewTextHandler(io.Discard, nil)), client: core.NewClient(c), drafts: true, answerCtx: ctx}
 	t.Cleanup(func() {
@@ -349,6 +356,61 @@ func TestDrafterStopsWhenRefused(t *testing.T) {
 		if a.draftCounts.failed.Load()+a.draftCounts.dropped.Load() != 1 {
 			t.Errorf("%s: counted %d failed, %d dropped", env.Reason(), a.draftCounts.failed.Load(), a.draftCounts.dropped.Load())
 		}
+	}
+}
+
+// A draft refused as the conversation waiting for no answer, while its
+// attempt is being written, has the conversation read, once, and the
+// answer being written stopped, its question withdrawn, with nothing more
+// of its draft sent, not even its end. Refused as its answer is being
+// posted (hold), it has nothing read.
+func TestDrafterRefusedWhileWriting(t *testing.T) {
+	notAwaiting := func(int, core.DraftArgs) (*core.Envelope, error) {
+		return &core.Envelope{Status: core.StatusError, Error: &core.Error{Code: core.CodeConflict,
+			Details: map[string]any{"reason": reasonNotAwaiting}}}, nil
+	}
+	withdrawn, err := json.Marshal(map[string]any{
+		"conversation": map[string]any{"id": "conv-1", "state": "answered", "latest_opener_message_id": "q1"},
+		"messages": []any{map[string]any{"id": "q1", "seq": 1, "author_member_id": "p", "created_at": "2026-09-29T09:00:00Z",
+			"retracted": map[string]any{"at": "2026-09-29T09:00:05Z"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := &draftCore{answer: notAwaiting, read: func() (*core.Envelope, error) {
+		return &core.Envelope{Status: core.StatusExecuted, Result: withdrawn}, nil
+	}}
+	d, a, _ := testDrafter(t, c, time.Millisecond)
+	u, ctx := a.writing(context.Background(), "course-1", "conv-1", "q1", d)
+	d.begin()
+	d.round()
+	eventually(t, "the answer stopped", func() bool { return ctx.Err() != nil })
+	if cause := context.Cause(ctx); !errors.Is(cause, errWithdrawn) {
+		t.Errorf("stopped for %v", cause)
+	}
+	d.text("more")
+	d.end(false)
+	if stopped, seen := a.written(u); !stopped || seen != "draft" {
+		t.Errorf("written: withdrawn %v, seen %q", stopped, seen)
+	}
+	time.Sleep(20 * time.Millisecond)
+	if n := len(c.sent()); n != 1 || c.reads.Load() != 1 {
+		t.Errorf("%d writes and %d reads; want the one refused, and one read", n, c.reads.Load())
+	}
+
+	held := &draftCore{answer: notAwaiting, hold: 30 * time.Millisecond, read: func() (*core.Envelope, error) {
+		t.Error("the conversation was read for a draft refused as its answer was being posted")
+		return nil, errors.New("no")
+	}}
+	d, a, _ = testDrafter(t, held, time.Millisecond)
+	u, ctx = a.writing(context.Background(), "course-1", "conv-1", "q2", d)
+	d.begin()
+	d.round()
+	eventually(t, "a write in flight", func() bool { return held.inFlight.Load() == 1 })
+	d.hold()
+	eventually(t, "the write refused", func() bool { return a.draftCounts.dropped.Load() == 1 })
+	if stopped, _ := a.written(u); stopped || !errors.Is(context.Cause(ctx), context.Canceled) {
+		t.Errorf("an answer being posted was stopped: %v", context.Cause(ctx))
 	}
 }
 

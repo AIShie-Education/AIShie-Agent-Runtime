@@ -589,7 +589,8 @@ machine's loopback, should `HTTP_ADDR` listen wider).
   back, `refused` when Core is older than its catalogue said.
   `draft_writes_total{agent, outcome}` counts the drafts of answers being
   written sent to a Core that takes them: `sent`, `dropped` (too soon, or
-  the answer had just gone in) and `failed` (after one retry, or refused);
+  the answer had just gone in, or its question been withdrawn) and
+  `failed` (after one retry, or refused);
   a steady `failed` is Core refusing them, which `/status` also shows per
   agent (`drafts`, `draft_writes`). They never hold an answer back.
   A hosted agent's model calls are counted under the model's name as the

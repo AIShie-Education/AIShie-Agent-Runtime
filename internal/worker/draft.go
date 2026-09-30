@@ -30,12 +30,16 @@ import (
 // write at a time: a state that changes again before it is sent is sent
 // once, as it stands then. A write Core refuses as too soon is dropped, as
 // is one it refuses because the conversation no longer waits for the
-// answer (the answer just went in); one that failed on the way is sent
-// once more, with the state as it stands then, and then given up; any
-// other refusal stops the attempt's drafts. An attempt that ends without
-// its answer posted or proposed (the providers failed, the claim's time
-// ran out, Core took another path) is ended with done, which deletes its
-// draft.
+// answer (the answer just went in), and the attempt writes no more; one so
+// refused while the attempt is still being written, its answer not yet
+// being posted, has the conversation read, for its question may have been
+// withdrawn (withdraw.go). One that failed on the way is sent once more,
+// with the state as it stands then, and then given up; any other refusal
+// stops the attempt's drafts. An attempt that ends without its answer
+// posted or proposed (the providers failed, the claim's time ran out, Core
+// took another path) is ended with done, which deletes its draft; one
+// whose question was withdrawn is not, as Core deleted its draft with the
+// question.
 //
 // A draft carries the model's own text, which Core shows the asker only
 // where the answer would be posted without anyone's confirmation, and
@@ -296,9 +300,23 @@ func (d *drafter) hold() {
 	d.mu.Unlock()
 }
 
+// withdraw stops the attempt's writes, its end included: its question was
+// withdrawn, which deletes its draft in Core (a Core before AIShie-Core
+// #42 keeps it until it goes stale).
+func (d *drafter) withdraw() {
+	if d == nil {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if c := d.cur; c != nil {
+		c.held, c.refused = true, true
+	}
+}
+
 // end ends the attempt. Its answer posted or proposed, Core has cleared
 // its draft; otherwise the draft is ended with done, when any of it was
-// sent.
+// sent and Core has not refused it for good.
 func (d *drafter) end(posted bool) {
 	if d == nil {
 		return
@@ -417,8 +435,10 @@ func (d *drafter) write(ctx context.Context, args core.DraftArgs) {
 	switch outcome {
 	case draftSent, draftDropped:
 		d.retrying = false
-		if code == reasonNotAwaiting {
-			d.refuse(args.Attempt)
+		if code == reasonNotAwaiting && d.refuse(args.Attempt) {
+			// Refused while its attempt was being written, not for its
+			// answer going in: its question may have been withdrawn.
+			d.a.draftRefused(d.conv)
 		}
 	case "retry":
 		if !d.retrying {
@@ -451,13 +471,16 @@ func (d *drafter) retry(args core.DraftArgs) {
 }
 
 // refuse stops an attempt Core refused for good: nothing more of it is
-// sent, not even its end.
-func (d *drafter) refuse(attempt string) {
+// sent, not even its end. It reports whether the attempt was still being
+// written, its answer not being posted (hold).
+func (d *drafter) refuse(attempt string) (writing bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if c := d.cur; c != nil && c.id == attempt {
+		writing = !c.held
 		c.held, c.refused = true, true
 	}
+	return writing
 }
 
 // reasonNotAwaiting is Core's refusal of a draft for a conversation that

@@ -882,11 +882,14 @@ Per seat (§7.2):
   (`pollEventsOnce`): each read waits for news until the window closes, and
   the next begins at once but no sooner than `inbox_hot_s` after the last,
   so that a busy feed is not read without pause; a decision made in the
-  window is settled within milliseconds. The background read every
-  `events_s` stays at 45 s: the inbox's long poll sees the decisions that
-  put a question back (rejected, cancelled, failed), but only the feed
-  tells a proposal approved and posted after the window, and a message
-  retracted, whose memory is to be forgotten promptly (§6.3). The cursor
+  window is settled within milliseconds. So are they, read at once and then
+  long-polled, while one of the seat's answers is being written (§5.3's
+  step 7), for a retraction of its question, which stops it (§5.3, A
+  question withdrawn). The background read every `events_s` stays at
+  45 s: the inbox's long poll sees the decisions that put a question back
+  (rejected, cancelled, failed), but only the feed tells a proposal
+  approved and posted after the window, and a message retracted, whose
+  memory is to be forgotten promptly (§6.3). The cursor
   (`next_seq`) is kept in the store per seat, and moves past a page only
   when every event on it was recorded; a store that fails on one has the
   page read again. The real Core does not move `next_seq` over events the
@@ -930,7 +933,9 @@ For an inbox row (conversation X, question M, opener P):
    skip until tomorrow (`silent`). An answer is on the key of the model
    that wrote it.
 5. **Read** X: `conversation_messages` (the newest `history_messages`). If
-   the opener's newest message is no longer M, answer that one instead.
+   the opener's newest message is retracted, the question is withdrawn
+   (below): it is not answered, and the pass is recorded `dropped`. If it
+   is no longer M, answer that one instead.
 6. **Prompt**: the system prompt (§6 below), the seat's facts, X's memory,
    and the history as turns: the opener's messages as `user`, the agent's as
    `assistant`, retracted ones as `[message retracted]`.
@@ -967,12 +972,12 @@ For an inbox row (conversation X, question M, opener P):
 | `executed` (any review state) | record; course hot; memory note `answered` |
 | `proposed` | keep the action id (state `proposed`); events polled now, +5, +15, +45 s, or long-polled for those 45 s (§5.2) |
 | `denied` | hold the seat until `me_memberships` changes; agent detail says so |
-| `failed conflict moved_on` | back to 5 for `details.latest_opener_message_id` (at most 3 times per claim) |
+| `failed conflict moved_on` | back to 5 for `details.latest_opener_message_id` (at most 3 times per claim); naming no message, the question was withdrawn: as `idempotency_conflict`, which finds it so |
 | `failed conflict already_answered`, `answer_pending` | leave it |
 | `failed conflict closed` | drop it |
 | `failed forbidden not_addressable` | drop it; read memberships again |
 | `failed invalid_argument` | if safety had cut or stripped the body, written again once, shorter and without links, under the next attempt; else failed |
-| `error idempotency_conflict` | never resend under that key; next attempt if X still waits on M (`conversation_get`) |
+| `error idempotency_conflict` | never resend under that key; next attempt if X still waits on M and M is not retracted (its newest messages, `conversation_messages`), the newer message if the opener wrote again, else nothing |
 | `error not_found` | drop it |
 | replayed | treated as its stored status |
 | replayed `rejected`, `cancelled` | next attempt, with the reason in the prompt |
@@ -983,6 +988,44 @@ For an inbox row (conversation X, question M, opener P):
 
 Every claimed message ends answered, proposed, closed, or with a recorded
 outcome.
+
+**A question withdrawn.** The opener withdraws what they asked ("stop" in
+the chat) by retracting their newest message, and from then nothing waits
+for an answer in X until they write again. A Core since AIShie-Core #42
+says so: X is `answered`, its draft is deleted with the retraction, and an
+answer to M is refused as `moved_on` naming no message, whether it is
+proposed, approved or posted. A Core before it (b0eb848 and older) still
+says `awaiting_answer`, keeps the draft and would post the answer; the inbox
+leaves X out on both. So the runtime goes by the messages, which show M
+retracted on both: step 5 answers no question whose newest message is
+retracted, and after an attempt that posted nothing it reads X's ten
+newest messages (`conversation_messages`), not its state alone, before
+trying again.
+
+The answer being written when M is withdrawn stops at once
+(`worker/withdraw.go`): its model call is cancelled, so that a provider
+streaming it stops too, and the tool calls it is making with it; nothing
+more of its draft is written, not even `done`, since Core deletes the
+draft with the retraction (the pinned Core keeps it until it goes stale,
+120 s); nothing is posted, and nothing more is tried at M. The pass is
+recorded `dropped`, with a log line that says how the withdrawal was seen.
+
+- The retraction comes as `conversation.message_retracted` for M, read by
+  the seat's events, which are long-polled while it writes an answer
+  (§5.2); a retraction read a moment before the loop begins, by a claim
+  that read X just before it, stops the loop as it begins. A retraction
+  of any other message, an older question or an answer of the agent's,
+  stops nothing.
+- A draft refused as `conversation_not_awaiting` while its attempt is
+  still being written, not as its answer goes in, is the same news come
+  another way, where the event is late or missed: X's newest messages are
+  read, once per answer, and the answer stopped if its question is
+  withdrawn. X closed, and refused for that, stops nothing: the answer
+  goes on, and is dropped when Core refuses it as `closed`, as before.
+- An answer already being sent is left to Core, which orders the two: sent
+  before the retraction, it is posted; after it, a Core since #42 refuses
+  it (`moved_on` naming no message, then as above), and a Core before #42
+  posts it.
 
 **Drafts.** Where the catalogue offers `conversation_draft` (§2.3), the asker
 watches the answer come, as in Claude Code: while the loop of step 7 works,
@@ -1018,15 +1061,18 @@ takes its place.
 - Best effort: a write Core refuses as too soon (its 429, `draft_rate`) is
   dropped, not sent again; one refused because the conversation no longer
   waits for an answer (the answer just went in) is dropped too, and the
-  attempt writes no more; one that failed on the way (a 5xx, a timeout of
-  its own 5 s) is sent once more, with the state as it stands then, and
-  then given up; any other refusal stops the attempt's drafts. None of it
-  fails, holds back or slows the answer, or slows the agent's polling.
+  attempt writes no more, and X is read for a question withdrawn if its
+  answer was not yet being sent (§5.3); one that failed on the way (a 5xx,
+  a timeout of its own 5 s) is sent once more, with the state as it stands
+  then, and then given up; any other refusal stops the attempt's drafts.
+  None of it fails, holds back or slows the answer, or slows the agent's
+  polling.
 - Its end: when the answer is to be posted (step 9), nothing more of the
   draft is sent, and Core clears it as it posts or proposes the answer. An
   attempt that ends otherwise (the providers failed, the claim's time ran
   out, the post did not go in, the opener moved on) is ended with `done`,
-  which deletes the draft, when any of it was sent.
+  which deletes the draft, when any of it was sent; one whose question was
+  withdrawn is not, as Core deleted its draft with the question.
 - A draft carries the model's own text, before step 8's safety pass: Core
   shows it to the asker only where the answer would post without anyone's
   confirmation (`conversation_answer` autonomous), and otherwise to those
@@ -1049,8 +1095,9 @@ The events poller reads `event_list` from the seat's cursor:
   `action_list_mine` (the proposal's `result.decision.reason`, paged from the
   seat's `actions` cursor) into X's memory, for the next attempt's prompt.
 - `action.cancelled`: settled as cancelled, `payload.reason` noted.
-- `conversation.message_retracted`: notes about that message forgotten; if
-  it was the agent's own answer, a note not to repeat it.
+- `conversation.message_retracted`: the answer being written to that
+  message, the opener's question withdrawn, stops (§5.3); notes about it
+  forgotten; if it was the agent's own answer, a note not to repeat it.
 - `conversation.message_posted` by an opener: the course is hot.
 
 Core makes a proposal's action during the call that sends the attempt, and
@@ -1254,8 +1301,13 @@ question waiting 5 s for it.
   filters let through, within Core's bounds on calls waiting, and a Core
   from before them (`WithoutWait`); the drafts of answers
   (`conversation_draft`, an ephemeral write) and the views that show them,
-  and a Core from before them (`WithoutDraft`); each seat's ceilings, as Core works
-  them out; an agent's owner
+  and a Core from before them (`WithoutDraft`); a question its opener
+  withdraws, retracting their latest message, which waits for no answer:
+  the views say `answered`, its draft goes, and a draft or an answer to it
+  is refused (`conversation_not_awaiting`, `moved_on` naming no message),
+  as AIShie-Core #42 has it, and a Core before it, whose withdrawn question
+  still waits and takes an answer (`WithdrawnWaits`); each seat's
+  ceilings, as Core works them out; an agent's owner
   deciding and reviewing what it did where they could do it themselves;
   and no question to an agent that has not declared it answers in the site
   (the worker's tests wait for the runtime's declaration, or, asking
@@ -1295,6 +1347,22 @@ question waiting 5 s for it.
   hold the answer back. The end to end (`drafts-shown`, skipped against a
   Core without the tool) watches them as the site does, by long polls with
   `seen_draft_version`.
+- A question withdrawn, against the fake as #42 has it and as a Core
+  before it (`WithdrawnWaits`): withdrawn while the model is part way through
+  its answer, with events read every 30 s, its call is cancelled within
+  moments for that cause, nothing is posted, no `done` is sent, the ledger
+  says `dropped` and the question is not tried again; withdrawn as the
+  claim reads it, the model is never asked; refused as `moved_on` naming no
+  message, it is sent once and not tried again; an older question or the
+  agent's answer retracted stops nothing; with the events unreadable, a
+  draft refused has the conversation read and the answer stopped, and one
+  refused for a conversation closed stops nothing; and on a Core before
+  #42 an answer already being sent is posted. The end to end
+  (`stop-cancels-the-answer`, against the pinned Core, and run by hand
+  against b0eb848's) has Yuki
+  withdraw her question while her agent's model has stalled part way
+  through its streamed answer, and sees the model's request cancelled
+  within seconds and no answer ever posted.
 - `toolschema`: every tool of the pinned catalogue through every dialect and
   back through Core's schema.
 - `doctext`: decks, documents, workbooks and PDFs made byte by byte

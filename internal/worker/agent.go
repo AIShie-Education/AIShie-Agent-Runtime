@@ -53,6 +53,13 @@ type Agent struct {
 	drafters    map[string]*drafter
 	draftCounts struct{ sent, dropped, failed atomic.Int64 }
 
+	// underWay are the answers being written now, by conversation, for a
+	// withdrawal of their question to stop, and retracted the messages
+	// whose retraction was read lately, by id, when (withdraw.go).
+	wayMu     sync.Mutex
+	underWay  map[string]*underWay
+	retracted map[string]time.Time
+
 	fail          context.CancelCauseFunc
 	answerCtx     context.Context
 	cancelAnswers context.CancelCauseFunc
