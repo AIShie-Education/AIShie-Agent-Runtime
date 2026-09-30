@@ -561,7 +561,9 @@ func TestBuiltinDenied(t *testing.T) {
 		"course_archive", "course_activate", "course_move", "course_seat_instructor", "course_list", "term_list", "department_list",
 		"department_list_tree", "department_add_admin", "department_move", "document_upload_url", "document_purge",
 		"course_join_link_create", "memory_search", "memory_list", "memory_get", "memory_write", "memory_update", "memory_forget",
-		"action_list_mine", "event_list"}
+		"action_list_mine", "event_list", "document_text", "document_text_update", "document_text_retranscribe", "document_text_queue",
+		"document_text_file", "document_text_renew", "document_text_complete", "service_issue_credential", "service_list_credentials",
+		"service_revoke_credential"}
 	for _, name := range denied {
 		if !BuiltinDenied(name) {
 			t.Errorf("%s is not denied", name)

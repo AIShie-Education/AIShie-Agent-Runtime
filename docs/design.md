@@ -426,6 +426,17 @@ by `Run`; each entry has its reason beside it in the code:
   conversation alone (§6): the tools would let the model read what is kept
   about other askers by naming their conversations, and write about
   people.
+- `document_text`, `document_text_*`: a document's text version (Core
+  #43), its file transcribed into Markdown. Reading one is `document_get`'s
+  (its `version.text`). Writing one or asking for it to be transcribed
+  again (`document_text_update`, `document_text_retranscribe`) is the
+  course's staff's, in the front end: a model's text would stand in place
+  of the file for every reader after. The transcription service's queue,
+  file, renew and complete are the site's transcriber's, called with the
+  service's own credential, and Core refuses them to anyone else.
+- `service_*`: the site's service credentials, issued, listed and revoked by
+  its administrators alone; a token issued is a credential in the model's
+  text.
 
 `deny` entries ending in `*` cover every tool they begin. The model sees
 each tool through `toolschema`: bound arguments removed (`course_id`,

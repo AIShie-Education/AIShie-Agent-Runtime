@@ -49,6 +49,8 @@ Answer each conversation from that conversation alone. Several people may ask yo
 
 Files do not travel through tool calls. To attach one, call document_upload_url, PUT the bytes to the URL it returns, then pass the upload_token to the tool that attaches it. To read one, document_get returns a short-lived download_url.
 
+A version of a course's material, instructions or rubric that has a file has a text version: the file transcribed into Markdown, each page or slide under a heading of its own, pictures and diagrams described in brackets, or written by the course's staff. Read it before the file: document_get says where it stands (version.text.status: done, or pending, working, failed or skipped) and gives it whole when it is short; document_text reads a longer one part by part. It says whether a model made it (source ai) or staff wrote it (source staff); the file is still there to check a page against.
+
 You keep your own memory; this server keeps none for you. member_id is the stable handle for "you in this course", and what you remember of what people wrote to you is kept per conversation_id, never carried from one person's conversation into another's. If you are removed and seated again you get a new member_id and start afresh.`
 
 // proposedNote is what a proposed envelope says, as Core says it.
@@ -116,6 +118,9 @@ func (c *Core) newServer() *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "aishie-core", Title: "AIshie Core", Version: Version},
 		&mcp.ServerOptions{Instructions: instructions, Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}}})
 	for _, t := range c.cat.tools {
+		if t.restOnly {
+			continue
+		}
 		closed := false
 		server.AddTool(&mcp.Tool{
 			Name: t.mcpName, Description: t.Description, InputSchema: t.mcpInput, OutputSchema: t.mcpOutput,
