@@ -483,7 +483,7 @@ is never made twice. `document_get`'s `download_url` never reaches the
 model: the runtime fetches the file (below).
 
 **Files** (`toolset.giveFile`, rule 6). The runtime fetches a document's
-file (at most 10 MB, a presigned URL through the egress proxy) and gives it
+file (at most 50 MB, a presigned URL through the egress proxy) and gives it
 to the model by what it is, whatever the model; what became of it goes in
 the result as `file`: its name, type and size, `given_as` (`file`, `text`
 in `file_text`, or `not_given`), `extracted_from` when the text is the
@@ -1406,7 +1406,7 @@ model:
   takes files, what OCR reads of it where OCR is on, and otherwise not
   given, the note saying this model cannot see images; anything else is
   not given, the note saying what it is (`audio/mpeg files are not read
-  here`). A file past `MaxFileBytes` (10 MiB, as for documents) is not
+  here`). A file past `MaxFileBytes` (50 MiB, as for documents, the most Core takes of an attachment) is not
   fetched, and says so; the costs of OCR and of a model's file parts are
   held as a document's are.
 - *The rest, by the model's own call.* Where a message up to the
@@ -1681,7 +1681,7 @@ long-polled for 25 s (`long_poll_wait_s`), at most 12 calls of an agent's
 waiting at once (`long_poll_max`); where Core takes drafts, each answer's
 draft written at most every 300 ms, one write in flight per conversation, a
 write given 5 s and one retry; memory on, purged 30 days after a seat goes;
-files of at most 10 MB, read within `doctext.DefaultLimits` and 20 s, their
+files of at most 50 MB, read within `doctext.DefaultLimits` and 20 s, their
 text given in parts of 24 KB within results of 32 KB, what was read kept
 per worker up to 32 MiB; OCR on where its programs are, in
 `chi_sim+chi_tra+eng`, 40 pages at 300 dpi, 90 s a page and 15 min a file,

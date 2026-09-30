@@ -210,7 +210,7 @@ takes files, and as its text otherwise
 text for every model; a PDF as a file where the model takes files (and
 its provider a PDF of its size), in parts of ten pages when it has more,
 and as its text otherwise; an image as a file where the model takes
-files. The runtime reads files of at most 10 MB, from memory and within
+files. The runtime reads files of at most 50 MB (as large as Core takes an upload), from memory and within
 fixed limits. Text too long for one result (32 KB) is given in parts,
 which the model asks for one after another; each worker keeps what it
 read of a file (at most 32 MiB in all), so that the file is fetched and

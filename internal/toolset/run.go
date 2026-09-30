@@ -81,7 +81,7 @@ type Runner struct {
 const (
 	DefaultMaxParallel    = 4
 	DefaultMaxResultBytes = 32 << 10
-	DefaultMaxFileBytes   = 10 << 20
+	DefaultMaxFileBytes   = 50 << 20
 	// minResultBytes leaves room for the status, the error and the
 	// truncation mark whatever the configuration says.
 	minResultBytes = 1 << 10
