@@ -43,6 +43,10 @@ internal/
   llm/fakellm   an OpenAI Chat server that plays a script, for end-to-end tests
   toolschema    the sanitiser (§3.8): bind, common transform, dialects, reverse map, validation
   toolset       which tools a seat's model is offered (§4), and running the model's calls
+  doctext       the text of .pptx, .docx, .xlsx and PDF files, read from memory within fixed limits (§4, Files)
+  ocr           the text of scans and images, recognized by tesseract (§4, OCR)
+  office        Office files converted by LibreOffice, and PDFs cut into ranges of pages (§4, Office files)
+  sandbox       how the programs of OCR and the conversions are held: prlimit, a timeout, nothing of the runtime's environment
   config        the YAML, its defaults and precedence, validation
   secrets       secret://, env://, file:// and sealed:// references
   vault         envelope encryption of the secrets kept in the store: a data key per secret,
@@ -628,7 +632,8 @@ of the pages beats tesseract's, and the runtime spends nothing on it.
   runs) is refused. Text is kept valid UTF-8 without controls, at most
   64 KB a page and 2 MB a file.
 - *Every file is taken to be hostile.* Each program runs as a subprocess
-  of the worker, never in it, and is held from its first instruction by
+  of the worker, never in it (package `sandbox`, which LibreOffice runs
+  under too), and is held from its first instruction by
   `prlimit` (util-linux), which sets the limits on itself and execs it:
   its address space (1 GiB: tesseract with three languages peaks near
   200 MB on a dense page), CPU seconds (the page's timeout), the size of
