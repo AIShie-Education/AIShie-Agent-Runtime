@@ -282,6 +282,8 @@ type message struct {
 	createdAt  time.Time
 	actionID   string
 	retraction *retraction
+	// attachments are the files it carries, in order (attachments.go).
+	attachments []*attachment
 }
 
 type retraction struct {

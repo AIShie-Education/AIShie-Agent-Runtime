@@ -12,7 +12,11 @@
 //   - GET /healthz, and the files document_get's download_url points at.
 //
 // The transcription service's four tools, and a document's text versions
-// (text.go), are carried out as Core #43 has them.
+// (text.go), are carried out as Core #43 has them; so are the files a
+// message carries (attachments.go): uploaded with conversation_upload_url
+// and a PUT to the fake itself, named in conversation_open, _ask and
+// _answer, listed by conversation_messages and served through
+// conversation_attachment's download URL.
 //
 // The tools the runtime calls (me_*, conversation_*, event_list,
 // action_list_mine, and credential_list and credential_revoke, with which
@@ -131,8 +135,16 @@ type Core struct {
 	keys             map[actorKey]*action
 	seq              int64
 	blobs            map[string]*document
-	calls            []Call
-	nextKey          int
+	// uploads are the files uploaded for messages, by upload token, and
+	// putURLs the same by the secret of their upload URL; attachments the
+	// files messages carry, by id, and downloads the download URLs handed
+	// out for them, by their secret (attachments.go).
+	uploads     map[string]*upload
+	putURLs     map[string]*upload
+	attachments map[string]*attachment
+	downloads   map[string]download
+	calls       []Call
+	nextKey     int
 	// siteChat is each actor's last me.site_chat.
 	siteChat map[string]bool
 	// draftWrites are the conversation_draft calls carried out, in order.
@@ -161,43 +173,45 @@ type Core struct {
 // registry name.
 func implemented() map[string]*impl {
 	return map[string]*impl{
-		"me.get":                meGet(),
-		"me.memberships":        meMemberships(),
-		"conversation.inbox":    conversationInbox(),
-		"conversation.messages": conversationMessages(),
-		"conversation.get":      conversationGet(),
-		"conversation.answer":   conversationAnswer(),
-		"conversation.close":    conversationClose(),
-		"conversation.retract":  conversationRetract(),
-		"conversation.open":     conversationOpen(),
-		"conversation.ask":      conversationAsk(),
-		"action.decide":         actionDecide(),
-		"action.review":         actionReview(),
-		"action.list_mine":      actionListMine(),
-		"event.list":            eventList(),
-		"course.get":            courseGet(),
-		"document.list":         documentList(),
-		"document.get":          documentGet(),
-		"document.create":       documentCreate(),
-		"assignment.list":       assignmentList(),
-		"assignment.get":        assignmentGet(),
-		"submission.list":       submissionList(),
-		"submission.get":        submissionGet(),
-		"grade.list":            gradeList(),
-		"grade.get":             gradeGet(),
-		"component.tree":        componentTree(),
-		"gradebook.get":         gradebookGet(),
-		"credential.list":       credentialList(),
-		"credential.revoke":     credentialRevoke(),
-		"me.site_chat":          meSiteChat(),
-		"member.list":           memberList(),
-		"member.get":            memberGet(),
-		"member.lookup_actor":   memberLookupActor(),
-		"member.add":            memberAdd(),
-		"submission.roster":     submissionRoster(),
-		"document.versions":     documentVersions(),
-		"conversation.draft":    conversationDraft(),
-		"document.text":         documentText(),
+		"me.get":                  meGet(),
+		"me.memberships":          meMemberships(),
+		"conversation.inbox":      conversationInbox(),
+		"conversation.messages":   conversationMessages(),
+		"conversation.get":        conversationGet(),
+		"conversation.answer":     conversationAnswer(),
+		"conversation.close":      conversationClose(),
+		"conversation.retract":    conversationRetract(),
+		"conversation.open":       conversationOpen(),
+		"conversation.ask":        conversationAsk(),
+		"action.decide":           actionDecide(),
+		"action.review":           actionReview(),
+		"action.list_mine":        actionListMine(),
+		"event.list":              eventList(),
+		"course.get":              courseGet(),
+		"document.list":           documentList(),
+		"document.get":            documentGet(),
+		"document.create":         documentCreate(),
+		"assignment.list":         assignmentList(),
+		"assignment.get":          assignmentGet(),
+		"submission.list":         submissionList(),
+		"submission.get":          submissionGet(),
+		"grade.list":              gradeList(),
+		"grade.get":               gradeGet(),
+		"component.tree":          componentTree(),
+		"gradebook.get":           gradebookGet(),
+		"credential.list":         credentialList(),
+		"credential.revoke":       credentialRevoke(),
+		"me.site_chat":            meSiteChat(),
+		"member.list":             memberList(),
+		"member.get":              memberGet(),
+		"member.lookup_actor":     memberLookupActor(),
+		"member.add":              memberAdd(),
+		"submission.roster":       submissionRoster(),
+		"document.versions":       documentVersions(),
+		"conversation.draft":      conversationDraft(),
+		"document.text":           documentText(),
+		"conversation.upload_url": conversationUploadURL(),
+		"conversation.attachment": conversationAttachment(),
 	}
 }
 
@@ -283,6 +297,7 @@ func New(o Options) *Core {
 		actors: map[string]*actor{}, tokens: map[string]*credential{}, courses: map[string]*course{},
 		members: map[string]*member{}, conversations: map[string]*conversation{}, messages: map[string]*message{},
 		actions: map[string]*action{}, keys: map[actorKey]*action{}, blobs: map[string]*document{},
+		uploads: map[string]*upload{}, putURLs: map[string]*upload{}, attachments: map[string]*attachment{}, downloads: map[string]download{},
 		siteChat: map[string]bool{}, presetIDs: map[string]string{}, serviceCreds: map[string]*credential{},
 		waiters: map[*waiter]struct{}{}, shutdown: make(chan struct{}),
 	}

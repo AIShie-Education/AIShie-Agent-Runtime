@@ -1,0 +1,1056 @@
+{
+ "scenario": "attachments",
+ "steps": [
+  {
+   "args": {
+    "content_type": "text/plain; charset=utf-8",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "expires_at": "<time>",
+     "headers": {
+      "Content-Type": "text/plain; charset=utf-8"
+     },
+     "max_bytes": 52428800,
+     "max_conversation_bytes": 524288000,
+     "max_files": 10,
+     "upload_token": "<upload_token>",
+     "upload_url": "<upload_url>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "upload_url_notes",
+   "text_is_envelope": true,
+   "tool": "conversation_upload_url"
+  },
+  {
+   "body": {
+    "byte_size": 33,
+    "checksum": "sha256:ba9b08e08417725fbf678940488197b8d94a530edca2c483edf7a8996187f162"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "step": "put_notes"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "conflict",
+     "message": "this URL has been uploaded to already; a file is written once"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 409,
+   "step": "put_again"
+  },
+  {
+   "args": {
+    "content_type": "application/pdf",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "expires_at": "<time>",
+     "headers": {
+      "Content-Type": "application/pdf"
+     },
+     "max_bytes": 52428800,
+     "max_conversation_bytes": 524288000,
+     "max_files": 10,
+     "upload_token": "<upload_token>",
+     "upload_url": "<upload_url>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "upload_url_essay",
+   "text_is_envelope": true,
+   "tool": "conversation_upload_url"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "this URL takes Content-Type \"application/pdf\", not \"text/html\""
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "step": "put_wrong_type"
+  },
+  {
+   "body": {
+    "byte_size": 20,
+    "checksum": "sha256:9df8c99012f9ebf3c8f1db533b766c500576e541cd4c332090f681c360cc0f44"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "step": "put_essay"
+  },
+  {
+   "args": {
+    "content_type": "application/pdf",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "expires_at": "<time>",
+     "headers": {
+      "Content-Type": "application/pdf"
+     },
+     "max_bytes": 52428800,
+     "max_conversation_bytes": 524288000,
+     "max_files": 10,
+     "upload_token": "<upload_token>",
+     "upload_url": "<upload_url>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "upload_url_never_put",
+   "text_is_envelope": true,
+   "tool": "conversation_upload_url"
+  },
+  {
+   "args": {
+    "attachments": [
+     {
+      "filename": "notes.txt",
+      "upload_token": "<upload_token>"
+     }
+    ],
+    "course_id": "<id:1>",
+    "idempotency_key": "files:files_without_body:<id:1>",
+    "respondent_member_id": "<id:2>"
+   },
+   "envelope": {
+    "action_id": "<id:3>",
+    "error": {
+     "code": "invalid_argument",
+     "details": {
+      "reason": "attachments_need_body"
+     },
+     "message": "files come with a message: give body as well as attachments"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "files_without_body",
+   "text_is_envelope": true,
+   "tool": "conversation_open"
+  },
+  {
+   "args": {
+    "attachments": [
+     {
+      "filename": "notes.txt",
+      "upload_token": "<upload_token>"
+     }
+    ],
+    "body": "Read this.",
+    "course_id": "<id:1>",
+    "idempotency_key": "files:bad_upload_token:<id:1>",
+    "respondent_member_id": "<id:2>"
+   },
+   "envelope": {
+    "action_id": "<id:4>",
+    "error": {
+     "code": "invalid_argument",
+     "details": {
+      "reason": "bad_upload_token"
+     },
+     "message": "upload_token is not valid"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "bad_upload_token",
+   "text_is_envelope": true,
+   "tool": "conversation_open"
+  },
+  {
+   "args": {
+    "attachments": [
+     {
+      "filename": "../notes.txt",
+      "upload_token": "<upload_token>"
+     }
+    ],
+    "body": "Read this.",
+    "course_id": "<id:1>",
+    "idempotency_key": "files:bad_filename:<id:1>",
+    "respondent_member_id": "<id:2>"
+   },
+   "envelope": {
+    "action_id": "<id:5>",
+    "error": {
+     "code": "invalid_argument",
+     "details": {
+      "reason": "bad_filename"
+     },
+     "message": "a file's name is 1 to 255 characters on one line, a name and not a path"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "bad_filename",
+   "text_is_envelope": true,
+   "tool": "conversation_open"
+  },
+  {
+   "args": {
+    "attachments": [
+     {
+      "filename": "a.txt",
+      "upload_token": "<upload_token>"
+     },
+     {
+      "filename": "b.txt",
+      "upload_token": "<upload_token>"
+     }
+    ],
+    "body": "Read this.",
+    "course_id": "<id:1>",
+    "idempotency_key": "files:duplicate_attachment:<id:1>",
+    "respondent_member_id": "<id:2>"
+   },
+   "envelope": {
+    "action_id": "<id:6>",
+    "error": {
+     "code": "invalid_argument",
+     "details": {
+      "reason": "duplicate_attachment"
+     },
+     "message": "the same upload is named twice"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "duplicate_attachment",
+   "text_is_envelope": true,
+   "tool": "conversation_open"
+  },
+  {
+   "args": {
+    "attachments": [
+     {
+      "filename": "empty.pdf",
+      "upload_token": "<upload_token>"
+     }
+    ],
+    "body": "Read this.",
+    "course_id": "<id:1>",
+    "idempotency_key": "files:not_uploaded:<id:1>",
+    "respondent_member_id": "<id:2>"
+   },
+   "envelope": {
+    "action_id": "<id:7>",
+    "error": {
+     "code": "failed_precondition",
+     "details": {
+      "reason": "not_uploaded"
+     },
+     "message": "nothing has been uploaded to that URL yet"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "not_uploaded",
+   "text_is_envelope": true,
+   "tool": "conversation_open"
+  },
+  {
+   "args": {
+    "attachments": [
+     {
+      "filename": "notes.txt",
+      "upload_token": "<upload_token>"
+     }
+    ],
+    "body": "Mine.",
+    "course_id": "<id:1>",
+    "idempotency_key": "files:not_yours:<id:1>",
+    "respondent_member_id": "<id:2>"
+   },
+   "envelope": {
+    "action_id": "<id:8>",
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "not_your_upload"
+     },
+     "message": "that upload was issued to someone else, or for something else"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "not_your_upload",
+   "text_is_envelope": true,
+   "tool": "conversation_open"
+  },
+  {
+   "args": {
+    "attachments": [
+     {
+      "filename": "筆記 1.txt",
+      "upload_token": "<upload_token>"
+     },
+     {
+      "filename": "essay.pdf",
+      "upload_token": "<upload_token>"
+     }
+    ],
+    "body": "Please read my notes and my essay.",
+    "course_id": "<id:1>",
+    "idempotency_key": "files:open_with_files:<id:1>",
+    "respondent_member_id": "<id:2>"
+   },
+   "envelope": {
+    "action_id": "<id:9>",
+    "result": {
+     "conversation_id": "<id:10>",
+     "message_id": "<id:11>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "open_with_files",
+   "text_is_envelope": true,
+   "tool": "conversation_open"
+  },
+  {
+   "args": {
+    "attachments": [
+     {
+      "filename": "notes.txt",
+      "upload_token": "<upload_token>"
+     }
+    ],
+    "body": "Again.",
+    "course_id": "<id:1>",
+    "idempotency_key": "files:already_attached:<id:1>",
+    "respondent_member_id": "<id:2>"
+   },
+   "envelope": {
+    "action_id": "<id:12>",
+    "error": {
+     "code": "conflict",
+     "details": {
+      "reason": "already_attached"
+     },
+     "message": "that upload is already attached to a message"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "already_attached",
+   "text_is_envelope": true,
+   "tool": "conversation_open"
+  },
+  {
+   "args": {
+    "content_type": "image/png",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "expires_at": "<time>",
+     "headers": {
+      "Content-Type": "image/png"
+     },
+     "max_bytes": 52428800,
+     "max_conversation_bytes": 524288000,
+     "max_files": 10,
+     "upload_token": "<upload_token>",
+     "upload_url": "<upload_url>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "upload_url_graph",
+   "text_is_envelope": true,
+   "tool": "conversation_upload_url"
+  },
+  {
+   "body": {
+    "byte_size": 28,
+    "checksum": "sha256:a010b05bd441d6c7d4c3ce317e81256e100141aaeef4b648f47b4986a51594af"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "step": "put_graph"
+  },
+  {
+   "args": {
+    "attachments": [
+     {
+      "filename": "graph.png",
+      "upload_token": "<upload_token>"
+     }
+    ],
+    "body": "And my graph.",
+    "conversation_id": "<id:10>",
+    "course_id": "<id:1>",
+    "idempotency_key": "files:ask:<id:1>"
+   },
+   "envelope": {
+    "action_id": "<id:13>",
+    "result": {
+     "message_id": "<id:14>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "ask_with_file",
+   "text_is_envelope": true,
+   "tool": "conversation_ask"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:10>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "conversation": {
+      "created_at": "<time>",
+      "id": "<id:10>",
+      "last_author_member_id": "<id:15>",
+      "last_message_at": "<time>",
+      "latest_opener_message_id": "<id:14>",
+      "opener": {
+       "display_name": "Yuki",
+       "kind": "human",
+       "member_id": "<id:15>"
+      },
+      "respondent": {
+       "answer_level": "autonomous",
+       "display_name": "CS101 Tutor",
+       "is_delegate_of_opener": false,
+       "kind": "agent",
+       "last_seen_at": "<time>",
+       "member_id": "<id:2>",
+       "owner_name": "Sato",
+       "role": "assistant",
+       "seat_status": "active"
+      },
+      "state": "awaiting_answer",
+      "status": "open"
+     },
+     "draft": null,
+     "messages": [
+      {
+       "attachments": [
+        {
+         "byte_size": 33,
+         "checksum": "sha256:ba9b08e08417725fbf678940488197b8d94a530edca2c483edf7a8996187f162",
+         "content_type": "text/plain; charset=utf-8",
+         "created_at": "<time>",
+         "filename": "筆記 1.txt",
+         "id": "<id:16>"
+        },
+        {
+         "byte_size": 20,
+         "checksum": "sha256:9df8c99012f9ebf3c8f1db533b766c500576e541cd4c332090f681c360cc0f44",
+         "content_type": "application/pdf",
+         "created_at": "<time>",
+         "filename": "essay.pdf",
+         "id": "<id:17>"
+        }
+       ],
+       "author_member_id": "<id:15>",
+       "body": "Please read my notes and my essay.",
+       "created_at": "<time>",
+       "id": "<id:11>",
+       "seq": 1
+      },
+      {
+       "attachments": [
+        {
+         "byte_size": 28,
+         "checksum": "sha256:a010b05bd441d6c7d4c3ce317e81256e100141aaeef4b648f47b4986a51594af",
+         "content_type": "image/png",
+         "created_at": "<time>",
+         "filename": "graph.png",
+         "id": "<id:18>"
+        }
+       ],
+       "author_member_id": "<id:15>",
+       "body": "And my graph.",
+       "created_at": "<time>",
+       "id": "<id:14>",
+       "seq": 2
+      }
+     ],
+     "more": false
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "messages",
+   "text_is_envelope": true,
+   "tool": "conversation_messages"
+  },
+  {
+   "args": {
+    "attachment_id": "<id:16>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "author_member_id": "<id:15>",
+     "byte_size": 33,
+     "checksum": "sha256:ba9b08e08417725fbf678940488197b8d94a530edca2c483edf7a8996187f162",
+     "content_type": "text/plain; charset=utf-8",
+     "conversation_id": "<id:10>",
+     "created_at": "<time>",
+     "download_url": "<download_url>",
+     "expires_at": "<time>",
+     "filename": "筆記 1.txt",
+     "id": "<id:16>",
+     "message_id": "<id:11>",
+     "message_seq": 1
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "attachment",
+   "text_is_envelope": true,
+   "tool": "conversation_attachment"
+  },
+  {
+   "body_bytes": 33,
+   "body_sha256": "ba9b08e08417725fbf678940488197b8d94a530edca2c483edf7a8996187f162",
+   "cache-control": "private, no-store",
+   "content-disposition": "attachment; filename*=utf-8''%E7%AD%86%E8%A8%98%201.txt",
+   "content-length": "33",
+   "content-security-policy": "default-src 'none'; sandbox",
+   "content-type": "text/plain; charset=utf-8",
+   "http_status": 200,
+   "step": "download",
+   "x-content-type-options": "nosniff"
+  },
+  {
+   "args": {
+    "attachment_id": "<id:17>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "author_member_id": "<id:15>",
+     "byte_size": 20,
+     "checksum": "sha256:9df8c99012f9ebf3c8f1db533b766c500576e541cd4c332090f681c360cc0f44",
+     "content_type": "application/pdf",
+     "conversation_id": "<id:10>",
+     "created_at": "<time>",
+     "download_url": "<download_url>",
+     "expires_at": "<time>",
+     "filename": "essay.pdf",
+     "id": "<id:17>",
+     "message_id": "<id:11>",
+     "message_seq": 1
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "attachment_pdf",
+   "text_is_envelope": true,
+   "tool": "conversation_attachment"
+  },
+  {
+   "args": {
+    "attachment_id": "<id:18>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "author_member_id": "<id:15>",
+     "byte_size": 28,
+     "checksum": "sha256:a010b05bd441d6c7d4c3ce317e81256e100141aaeef4b648f47b4986a51594af",
+     "content_type": "image/png",
+     "conversation_id": "<id:10>",
+     "created_at": "<time>",
+     "download_url": "<download_url>",
+     "expires_at": "<time>",
+     "filename": "graph.png",
+     "id": "<id:18>",
+     "message_id": "<id:14>",
+     "message_seq": 2
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "attachment_by_its_uploader",
+   "text_is_envelope": true,
+   "tool": "conversation_attachment"
+  },
+  {
+   "args": {
+    "attachment_id": "<id:19>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "message": "no such attachment in this course"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "attachment_that_is_none",
+   "text_is_envelope": true,
+   "tool": "conversation_attachment"
+  },
+  {
+   "args": {
+    "content_type": "text/plain",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "expires_at": "<time>",
+     "headers": {
+      "Content-Type": "text/plain"
+     },
+     "max_bytes": 52428800,
+     "max_conversation_bytes": 524288000,
+     "max_files": 10,
+     "upload_token": "<upload_token>",
+     "upload_url": "<upload_url>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "upload_url_kens",
+   "text_is_envelope": true,
+   "tool": "conversation_upload_url"
+  },
+  {
+   "body": {
+    "byte_size": 12,
+    "checksum": "sha256:a13beda25455a2c102845e0816167dcbf4cb85fc6d4fc9f460a16055b5a654b2"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "step": "put_kens"
+  },
+  {
+   "args": {
+    "attachments": [
+     {
+      "filename": "work.txt",
+      "upload_token": "<upload_token>"
+     }
+    ],
+    "body": "Is this right?",
+    "course_id": "<id:1>",
+    "idempotency_key": "files:ken:<id:1>",
+    "respondent_member_id": "<id:2>"
+   },
+   "envelope": {
+    "action_id": "<id:20>",
+    "result": {
+     "conversation_id": "<id:21>",
+     "message_id": "<id:22>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "ken_opens_with_file",
+   "text_is_envelope": true,
+   "tool": "conversation_open"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:21>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "conversation": {
+      "created_at": "<time>",
+      "id": "<id:21>",
+      "last_author_member_id": "<id:23>",
+      "last_message_at": "<time>",
+      "latest_opener_message_id": "<id:22>",
+      "opener": {
+       "display_name": "Ken",
+       "kind": "human",
+       "member_id": "<id:23>"
+      },
+      "respondent": {
+       "answer_level": "autonomous",
+       "display_name": "CS101 Tutor",
+       "is_delegate_of_opener": false,
+       "kind": "agent",
+       "last_seen_at": "<time>",
+       "member_id": "<id:2>",
+       "owner_name": "Sato",
+       "role": "assistant",
+       "seat_status": "active"
+      },
+      "state": "awaiting_answer",
+      "status": "open"
+     },
+     "draft": null,
+     "messages": [
+      {
+       "attachments": [
+        {
+         "byte_size": 12,
+         "checksum": "sha256:a13beda25455a2c102845e0816167dcbf4cb85fc6d4fc9f460a16055b5a654b2",
+         "content_type": "text/plain",
+         "created_at": "<time>",
+         "filename": "work.txt",
+         "id": "<id:24>"
+        }
+       ],
+       "author_member_id": "<id:23>",
+       "body": "Is this right?",
+       "created_at": "<time>",
+       "id": "<id:22>",
+       "seq": 1
+      }
+     ],
+     "more": false
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "kens_messages",
+   "text_is_envelope": true,
+   "tool": "conversation_messages"
+  },
+  {
+   "args": {
+    "attachment_id": "<id:24>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "author_member_id": "<id:23>",
+     "byte_size": 12,
+     "checksum": "sha256:a13beda25455a2c102845e0816167dcbf4cb85fc6d4fc9f460a16055b5a654b2",
+     "content_type": "text/plain",
+     "conversation_id": "<id:21>",
+     "created_at": "<time>",
+     "download_url": "<download_url>",
+     "expires_at": "<time>",
+     "filename": "work.txt",
+     "id": "<id:24>",
+     "message_id": "<id:22>",
+     "message_seq": 1
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "tutor_reads_kens_file",
+   "text_is_envelope": true,
+   "tool": "conversation_attachment"
+  },
+  {
+   "args": {
+    "attachment_id": "<id:24>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "message": "no such attachment in this course"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "yuki_reads_kens_file",
+   "text_is_envelope": true,
+   "tool": "conversation_attachment"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "idempotency_key": "files:retract:<id:1>",
+    "message_id": "<id:14>"
+   },
+   "envelope": {
+    "action_id": "<id:25>",
+    "result": {
+     "ok": true
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "retract_follow_up",
+   "text_is_envelope": true,
+   "tool": "conversation_retract"
+  },
+  {
+   "args": {
+    "attachment_id": "<id:18>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "details": {
+      "reason": "retracted"
+     },
+     "message": "the message that carried this file was retracted; its files are withheld, as its text is"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "attachment_of_a_retracted_message",
+   "text_is_envelope": true,
+   "tool": "conversation_attachment"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:10>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "conversation": {
+      "created_at": "<time>",
+      "id": "<id:10>",
+      "last_author_member_id": "<id:15>",
+      "last_message_at": "<time>",
+      "last_retracted_at": "<time>",
+      "latest_opener_message_id": "<id:14>",
+      "opener": {
+       "display_name": "Yuki",
+       "kind": "human",
+       "member_id": "<id:15>"
+      },
+      "respondent": {
+       "answer_level": "autonomous",
+       "display_name": "CS101 Tutor",
+       "is_delegate_of_opener": false,
+       "kind": "agent",
+       "last_seen_at": "<time>",
+       "member_id": "<id:2>",
+       "owner_name": "Sato",
+       "role": "assistant",
+       "seat_status": "active"
+      },
+      "state": "answered",
+      "status": "open"
+     },
+     "draft": null,
+     "messages": [
+      {
+       "attachments": [
+        {
+         "byte_size": 33,
+         "checksum": "sha256:ba9b08e08417725fbf678940488197b8d94a530edca2c483edf7a8996187f162",
+         "content_type": "text/plain; charset=utf-8",
+         "created_at": "<time>",
+         "filename": "筆記 1.txt",
+         "id": "<id:16>"
+        },
+        {
+         "byte_size": 20,
+         "checksum": "sha256:9df8c99012f9ebf3c8f1db533b766c500576e541cd4c332090f681c360cc0f44",
+         "content_type": "application/pdf",
+         "created_at": "<time>",
+         "filename": "essay.pdf",
+         "id": "<id:17>"
+        }
+       ],
+       "author_member_id": "<id:15>",
+       "body": "Please read my notes and my essay.",
+       "created_at": "<time>",
+       "id": "<id:11>",
+       "seq": 1
+      },
+      {
+       "author_member_id": "<id:15>",
+       "created_at": "<time>",
+       "id": "<id:14>",
+       "retracted": {
+        "at": "<time>",
+        "by_member_id": "<id:15>"
+       },
+       "seq": 2
+      }
+     ],
+     "more": false
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "messages_after_the_retraction",
+   "text_is_envelope": true,
+   "tool": "conversation_messages"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "since_seq": 0
+   },
+   "envelope": {
+    "conversation_events": [
+     {
+      "action_id": "<id:9>",
+      "occurred_at": "<time>",
+      "payload": {
+       "conversation_id": "<id:10>",
+       "opener_member_id": "<id:15>",
+       "respondent_member_id": "<id:2>"
+      },
+      "seq": "<seq:1>",
+      "subject_id": "<id:10>",
+      "subject_type": "conversation",
+      "type": "conversation.opened"
+     },
+     {
+      "action_id": "<id:9>",
+      "occurred_at": "<time>",
+      "payload": {
+       "attachments": [
+        {
+         "byte_size": 33,
+         "content_type": "text/plain; charset=utf-8",
+         "filename": "筆記 1.txt",
+         "id": "<id:16>"
+        },
+        {
+         "byte_size": 20,
+         "content_type": "application/pdf",
+         "filename": "essay.pdf",
+         "id": "<id:17>"
+        }
+       ],
+       "author_member_id": "<id:15>",
+       "conversation_id": "<id:10>",
+       "message_id": "<id:11>",
+       "opener_member_id": "<id:15>",
+       "respondent_member_id": "<id:2>"
+      },
+      "seq": "<seq:2>",
+      "subject_id": "<id:10>",
+      "subject_type": "conversation",
+      "type": "conversation.message_posted"
+     },
+     {
+      "action_id": "<id:13>",
+      "occurred_at": "<time>",
+      "payload": {
+       "attachments": [
+        {
+         "byte_size": 28,
+         "content_type": "image/png",
+         "filename": "graph.png",
+         "id": "<id:18>"
+        }
+       ],
+       "author_member_id": "<id:15>",
+       "conversation_id": "<id:10>",
+       "message_id": "<id:14>",
+       "opener_member_id": "<id:15>",
+       "respondent_member_id": "<id:2>"
+      },
+      "seq": "<seq:3>",
+      "subject_id": "<id:10>",
+      "subject_type": "conversation",
+      "type": "conversation.message_posted"
+     },
+     {
+      "action_id": "<id:20>",
+      "occurred_at": "<time>",
+      "payload": {
+       "conversation_id": "<id:21>",
+       "opener_member_id": "<id:23>",
+       "respondent_member_id": "<id:2>"
+      },
+      "seq": "<seq:4>",
+      "subject_id": "<id:21>",
+      "subject_type": "conversation",
+      "type": "conversation.opened"
+     },
+     {
+      "action_id": "<id:20>",
+      "occurred_at": "<time>",
+      "payload": {
+       "attachments": [
+        {
+         "byte_size": 12,
+         "content_type": "text/plain",
+         "filename": "work.txt",
+         "id": "<id:24>"
+        }
+       ],
+       "author_member_id": "<id:23>",
+       "conversation_id": "<id:21>",
+       "message_id": "<id:22>",
+       "opener_member_id": "<id:23>",
+       "respondent_member_id": "<id:2>"
+      },
+      "seq": "<seq:5>",
+      "subject_id": "<id:21>",
+      "subject_type": "conversation",
+      "type": "conversation.message_posted"
+     },
+     {
+      "action_id": "<id:25>",
+      "occurred_at": "<time>",
+      "payload": {
+       "by_member_id": "<id:15>",
+       "conversation_id": "<id:10>",
+       "message_id": "<id:14>"
+      },
+      "seq": "<seq:6>",
+      "subject_id": "<id:10>",
+      "subject_type": "conversation",
+      "type": "conversation.message_retracted"
+     }
+    ],
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "events",
+   "text_is_envelope": true,
+   "tool": "event_list"
+  }
+ ]
+}

@@ -54,6 +54,7 @@ func (c *Core) routes() http.Handler {
 	}
 	mux.Handle("/mcp", c.mcpHandler())
 	mux.HandleFunc("GET "+blobPath+"{token}", c.serveBlob)
+	mux.HandleFunc("PUT "+blobPath+"{token}", c.putBlob)
 	return routed(mux)
 }
 
@@ -328,11 +329,15 @@ func coerce(s *jsonschema.Schema, values []string) any {
 	return v
 }
 
-// serveBlob serves a file document_get pointed at, as a download.
+// serveBlob serves a file document_get or conversation_attachment pointed
+// at, as a download.
 func (c *Core) serveBlob(w http.ResponseWriter, r *http.Request) {
 	c.mu.Lock()
 	doc := c.blobs[r.PathValue("token")]
 	c.mu.Unlock()
+	if doc == nil && c.serveAttachment(w, r.PathValue("token")) {
+		return
+	}
 	if doc == nil {
 		writeError(w, forbid("the download URL is not valid, or has expired"))
 		return

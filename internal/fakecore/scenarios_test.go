@@ -998,6 +998,7 @@ var scenarios = []scenario{
 	waitCap,
 	drafts,
 	withdrawn,
+	attachments,
 }
 
 // modelWrites is a write a model makes through its seat's perms (the

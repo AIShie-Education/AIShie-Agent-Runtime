@@ -151,7 +151,8 @@ type Retraction struct {
 	Reason     *string `json:"reason,omitempty"`
 }
 
-// Message is one message of a conversation. A retracted one has no Body.
+// Message is one message of a conversation. A retracted one has no Body,
+// and lists no Attachments: Core withholds its files with its text.
 type Message struct {
 	ID                 string      `json:"id"`
 	Seq                int64       `json:"seq"`
@@ -160,6 +161,9 @@ type Message struct {
 	Body               *string     `json:"body,omitempty"`
 	CreatedAt          string      `json:"created_at"`
 	Retracted          *Retraction `json:"retracted,omitempty"`
+	// Attachments are the files the message carries, in order
+	// (attachments.go).
+	Attachments []Attachment `json:"attachments,omitempty"`
 }
 
 // Inbox is conversation_inbox's result: longest waiting first.

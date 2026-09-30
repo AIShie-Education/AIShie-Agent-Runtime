@@ -165,9 +165,10 @@ const toolConversationAnswer = "conversation.answer"
 
 type answerIn struct {
 	inCourse
-	ConversationID     uuid.UUID `json:"conversation_id"`
-	InReplyToMessageID uuid.UUID `json:"in_reply_to_message_id"`
-	Body               string    `json:"body"`
+	ConversationID     uuid.UUID      `json:"conversation_id"`
+	InReplyToMessageID uuid.UUID      `json:"in_reply_to_message_id"`
+	Body               string         `json:"body"`
+	Attachments        []attachmentIn `json:"attachments,omitempty"`
 }
 
 // checkAnswer is conversation_answer's rule, all but newerQuestion: the
@@ -219,6 +220,9 @@ func conversationAnswer() *impl {
 			if c.pendingAnswer(cv, m, in.InReplyToMessageID.String()) != nil {
 				return conflicts("an answer of yours to that message already waits for a decision").with("reason", "answer_pending")
 			}
+			if err := c.checkProposedFiles(m, cv, in.Attachments); err != nil {
+				return err
+			}
 			// Proposed, the answer takes its draft's place.
 			cv.clearDraft()
 			return nil
@@ -234,8 +238,12 @@ func conversationAnswer() *impl {
 			if err := c.checkAnswer(ec.member, cv, in); err != nil {
 				return nil, err
 			}
+			files, names, err := c.checkFiles(ec.member, in.Attachments, false)
+			if err != nil {
+				return nil, err
+			}
 			answered := in.InReplyToMessageID.String()
-			id, err := c.post(ec, cv, &answered, in.Body, func() error { return c.newerQuestion(cv, answered) })
+			id, err := c.post(ec, cv, &answered, in.Body, func() error { return c.newerQuestion(cv, answered) }, files, names)
 			if err != nil {
 				return nil, err
 			}
@@ -246,9 +254,11 @@ func conversationAnswer() *impl {
 	})
 }
 
-// post writes a message in cv as ec's member, after check, if given, has
-// passed: Core asks it under the conversation's lock, just before writing.
-func (c *Core) post(ec *execCtx, cv *conversation, inReplyTo *string, body string, check func() error) (string, error) {
+// post writes a message in cv as ec's member, with the files it carries
+// (checked already: checkFiles) under their names, after check, if given,
+// has passed: Core asks it under the conversation's lock, just before
+// writing, and then whether the conversation has room for the files.
+func (c *Core) post(ec *execCtx, cv *conversation, inReplyTo *string, body string, check func() error, files []*upload, names []string) (string, error) {
 	if cv.status != "open" {
 		return "", errClosed
 	}
@@ -257,15 +267,23 @@ func (c *Core) post(ec *execCtx, cv *conversation, inReplyTo *string, body strin
 			return "", err
 		}
 	}
+	if err := roomFor(cv, sizeOfUploads(files)); err != nil {
+		return "", err
+	}
 	msg := &message{id: newID(), conv: cv, seq: int32(len(cv.messages) + 1), author: ec.member, inReplyTo: inReplyTo,
 		body: body, createdAt: ec.now, actionID: ec.actionID}
 	cv.messages = append(cv.messages, msg)
 	c.messages[msg.id] = msg
+	news := c.attach(msg, files, names)
 	at := ec.now
 	cv.lastAt, cv.lastAuthor = &at, ec.member
+	payload := map[string]any{"conversation_id": cv.id, "message_id": msg.id, "author_member_id": ec.member.id,
+		"opener_member_id": cv.opener.id, "respondent_member_id": cv.respondent.id}
+	if len(news) > 0 {
+		payload["attachments"] = news
+	}
 	ec.emit(&event{typ: "conversation.message_posted", course: cv.course, subjectType: "conversation", subjectID: &cv.id,
-		payload: mustJSON(map[string]any{"conversation_id": cv.id, "message_id": msg.id, "author_member_id": ec.member.id,
-			"opener_member_id": cv.opener.id, "respondent_member_id": cv.respondent.id})})
+		payload: mustJSON(payload)})
 	return msg.id, nil
 }
 
@@ -567,6 +585,9 @@ type messageView struct {
 	Body               *string         `json:"body,omitempty"`
 	CreatedAt          time.Time       `json:"created_at"`
 	Retracted          *retractionView `json:"retracted,omitempty"`
+	// Attachments are withheld with the body once the message is
+	// retracted.
+	Attachments []attachmentView `json:"attachments,omitempty"`
 }
 
 // pageLimit is Core's page size: 50 by default, at most 200.
@@ -650,6 +671,9 @@ func viewMessage(m *message) messageView {
 	}
 	body := m.body
 	v.Body = &body
+	for _, a := range m.attachments {
+		v.Attachments = append(v.Attachments, viewAttachment(a))
+	}
 	return v
 }
 
