@@ -19,13 +19,14 @@ import (
 // GET and PATCH /admin/settings: the site's settings, which the runtime's
 // administrators alone read and change (D4; docs/design.md §11.5), within
 // the ceiling the operator's environment sets: whether OCR runs, and in
-// which of the languages installed. A change is kept in the store, and
-// every worker puts it in force as it reads the registry again, without a
-// restart.
+// which of the languages installed; and whether the transcriber runs, and
+// how (transcription.go). A change is kept in the store, and every worker
+// puts it in force as it reads the registry again, without a restart.
 
 // Settings is the answer of GET and PATCH /admin/settings.
 type Settings struct {
-	OCR OCRSettings `json:"ocr"`
+	OCR           OCRSettings           `json:"ocr"`
+	Transcription TranscriptionSettings `json:"transcription"`
 }
 
 // OCRSettings are OCR as the site sets it. Available is whether the
@@ -91,8 +92,20 @@ func (s *Server) storedOCR(ctx context.Context) (config.SiteOCR, *store.SiteSett
 	return o, row, nil
 }
 
-// settingsView is the site's settings as its administrators read them.
-func (s *Server) settingsView(o config.SiteOCR, row *store.SiteSetting) Settings {
+// settingsView is the site's settings as its administrators read them:
+// OCR's o, as the row stored it, and the transcriber's t, as its row
+// trow stored it.
+func (s *Server) settingsView(ctx context.Context, o config.SiteOCR, row *store.SiteSetting, t config.SiteTranscription,
+	trow *store.SiteSetting) (Settings, error) {
+	tv, err := s.transcriptionView(ctx, t, trow)
+	if err != nil {
+		return Settings{}, err
+	}
+	return Settings{OCR: s.ocrView(o, row), Transcription: tv}, nil
+}
+
+// ocrView is OCR's setting as its administrators read it.
+func (s *Server) ocrView(o config.SiteOCR, row *store.SiteSetting) OCRSettings {
 	c := s.ocrCapability()
 	v := OCRSettings{Available: c.Available, Enabled: o.Enabled == nil || *o.Enabled, Languages: o.Languages,
 		DefaultLanguages: nonNil(c.Default), AvailableLanguages: nonNil(c.Installed)}
@@ -110,7 +123,7 @@ func (s *Server) settingsView(o config.SiteOCR, row *store.SiteSetting) Settings
 		at := row.UpdatedAt.UTC()
 		v.UpdatedAt, v.UpdatedBy = &at, strPtr(row.UpdatedBy)
 	}
-	return Settings{OCR: v}
+	return v
 }
 
 // nonNil is xs, or an empty list for none, as JSON's [] rather than null.
@@ -134,20 +147,37 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request, c *Caller) 
 		WriteError(w, errNotAdmin)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), storeTimeout)
+	ctx, cancel := context.WithTimeout(r.Context(), 2*storeTimeout)
 	defer cancel()
 	o, row, err := s.storedOCR(ctx)
 	if err != nil {
 		s.storeUnavailable(w, "the site's settings", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.settingsView(o, row))
+	t, trow, err := s.storedTranscription(ctx)
+	if err != nil {
+		s.storeUnavailable(w, "the site's settings", err)
+		return
+	}
+	s.writeSettings(ctx, w, o, row, t, trow)
+}
+
+// writeSettings answers the site's settings.
+func (s *Server) writeSettings(ctx context.Context, w http.ResponseWriter, o config.SiteOCR, row *store.SiteSetting,
+	t config.SiteTranscription, trow *store.SiteSetting) {
+	v, err := s.settingsView(ctx, o, row, t, trow)
+	if err != nil {
+		s.storeUnavailable(w, "the site's settings", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
 }
 
 // settingsPatch is PATCH /admin/settings' body, a merge-patch: a member
 // left out is kept as it is.
 type settingsPatch struct {
-	OCR json.RawMessage `json:"ocr"`
+	OCR           json.RawMessage `json:"ocr"`
+	Transcription json.RawMessage `json:"transcription"`
 }
 
 // ocrPatch is its ocr: enabled true or false; languages, those installed
@@ -157,7 +187,9 @@ type ocrPatch struct {
 	Languages json.RawMessage `json:"languages"`
 }
 
-// patchSettings is PATCH /admin/settings.
+// patchSettings is PATCH /admin/settings: OCR's setting, audited as
+// settings.update, and the transcriber's, as transcription_settings.update
+// (the route's own event, where the patch has no ocr).
 func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request, c *Caller, au *auditing) {
 	au.target("site_setting", store.SettingOCR)
 	if !c.IsAdmin {
@@ -168,9 +200,18 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request, c *Caller
 	if !readBody(w, r, &req) {
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 2*storeTimeout)
+	if req.OCR == nil && req.Transcription != nil {
+		au.action = "transcription_settings.update"
+		au.target("site_setting", store.SettingTranscription)
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*storeTimeout)
 	defer cancel()
 	cur, row, err := s.storedOCR(ctx)
+	if err != nil {
+		s.storeUnavailable(w, "the site's settings", err)
+		return
+	}
+	tcur, trow, err := s.storedTranscription(ctx)
 	if err != nil {
 		s.storeUnavailable(w, "the site's settings", err)
 		return
@@ -180,25 +221,60 @@ func (s *Server) patchSettings(w http.ResponseWriter, r *http.Request, c *Caller
 		WriteError(w, *e)
 		return
 	}
-	if len(changed) == 0 {
-		au.skip = true
-		writeJSON(w, http.StatusOK, s.settingsView(cur, row))
+	tnext, tchanged, e, err := s.readTranscriptionPatch(ctx, req.Transcription, tcur)
+	switch {
+	case err != nil:
+		s.storeUnavailable(w, "the school's plan", err)
+		return
+	case e != nil:
+		WriteError(w, *e)
 		return
 	}
-	value, err := json.Marshal(next)
+	if len(changed) > 0 {
+		put, ok := s.putSetting(ctx, w, c, store.SettingOCR, next)
+		if !ok {
+			return
+		}
+		cur, row = next, put
+		au.detail["changed"] = changed
+		au.detail["enabled"] = next.Enabled == nil || *next.Enabled
+		au.detail["languages"] = next.Languages
+	}
+	if len(tchanged) > 0 {
+		put, ok := s.putSetting(ctx, w, c, store.SettingTranscription, tnext)
+		if !ok {
+			return
+		}
+		tcur, trow = tnext, put
+		detail := map[string]any{"changed": tchanged, "enabled": tnext.Enabled, "offer": tnext.Offer, "max_pages": tnext.Pages(),
+			"per_day_pages": tnext.PerDayPages, "concurrency": tnext.Slots()}
+		if au.action != "" {
+			au.detail = detail
+		} else {
+			s.Audit(ctx, r, store.AuditEvent{Action: "transcription_settings.update", TargetType: "site_setting",
+				TargetID: store.SettingTranscription, Outcome: "ok", Detail: mustJSON(detail)})
+		}
+	}
+	// The route's own event is of OCR's change, or of the transcriber's
+	// where the patch has no ocr: none where it changed nothing.
+	au.skip = len(changed) == 0 && (au.action == "" || len(tchanged) == 0)
+	s.writeSettings(ctx, w, cur, row, tcur, trow)
+}
+
+// putSetting keeps the site's setting name as value, written by c now,
+// answering when it cannot be.
+func (s *Server) putSetting(ctx context.Context, w http.ResponseWriter, c *Caller, name string, value any) (*store.SiteSetting, bool) {
+	b, err := json.Marshal(value)
 	if err != nil {
 		WriteError(w, Error{Code: CodeInternal, Reason: ReasonInternal, Message: "the setting could not be written"})
-		return
+		return nil, false
 	}
-	put := store.SiteSetting{Name: store.SettingOCR, Value: value, UpdatedBy: c.ActorID, UpdatedAt: s.o.Now().UTC()}
+	put := store.SiteSetting{Name: name, Value: b, UpdatedBy: c.ActorID, UpdatedAt: s.o.Now().UTC()}
 	if err := s.o.Store.PutSiteSetting(ctx, put); err != nil {
 		s.storeUnavailable(w, "the site's settings written", err)
-		return
+		return nil, false
 	}
-	au.detail["changed"] = changed
-	au.detail["enabled"] = next.Enabled == nil || *next.Enabled
-	au.detail["languages"] = next.Languages
-	writeJSON(w, http.StatusOK, s.settingsView(next, &put))
+	return &put, true
 }
 
 // readOCRPatch is the OCR setting cur with the patch raw over it, and the

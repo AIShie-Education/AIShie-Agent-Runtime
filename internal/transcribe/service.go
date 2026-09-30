@@ -559,14 +559,11 @@ func (s *Service) blockedBy(ctx context.Context, st Setting) (*store.Transcripti
 	return cred, ""
 }
 
-// Blocked is why the transcriber, turned on, claims nothing now (a
-// Blocked… reason), or "" when nothing stops it, or it is off.
-func (s *Service) Blocked(ctx context.Context) string {
-	if s == nil || s.o.Store == nil {
-		return ""
-	}
-	st, _ := s.snapshot()
-	if !st.Site.Enabled {
+// Blocked is why the transcriber, turned on with the setting st (the one
+// in force, Setting, or one about to be), would claim nothing now (a
+// Blocked… reason), or "" when nothing stops it, or st turns it off.
+func (s *Service) Blocked(ctx context.Context, st Setting) string {
+	if s == nil || s.o.Store == nil || !st.Site.Enabled {
 		return ""
 	}
 	_, why := s.blockedBy(ctx, st)

@@ -16,16 +16,22 @@ import (
 // days, summed as a whole and by one of day, tenant (its owner's name
 // where it is a person), agent, model (with its key source), or key
 // source (the school's key or the owners' own), on one key source or both,
-// a page of groups at a time. Each sum is lines by kind of cost: the model
-// calls' today; what else comes to be priced (transcription) will be a
-// line of its own kind beside it, so that a front end shows the lines it
-// knows and a total of them all. Counts, tokens and costs, never what
-// anyone wrote. A cost is what the price table in force priced the call
+// a page of groups at a time. Each sum is lines by kind of cost: the
+// answers' model calls, and the transcriber's, a line of their own kind
+// (transcription), so that a front end shows the lines it knows and a
+// total of them all. The transcriber's calls are of no agent and no
+// tenant: by agent, they are the group transcription, and by tenant the
+// group site, each with a null id; by key source, the school's. Counts,
+// tokens and costs, never what anyone wrote. A cost is what the price table in force priced the call
 // at when it was made, and stays so whatever the table becomes; a call no
 // price held counts as unpriced, at nothing.
 
-// CostKindModelCalls is the line of the model calls' costs.
-const CostKindModelCalls = "model_calls"
+// The kinds of cost, each a line: the answers' model calls, and the
+// transcriber's.
+const (
+	CostKindModelCalls    = "model_calls"
+	CostKindTranscription = "transcription"
+)
 
 // Bounds of GET /admin/costs: the span, in days, the page.
 const (
@@ -101,11 +107,21 @@ type CostGroup struct {
 	CostSum
 }
 
-// costSum is a row of the ledger's sums as lines.
+// costSum is a row of the ledger's sums as lines: the model calls' (but
+// in a group of the transcriber's calls alone), and the transcriber's
+// where it has any.
 func costSum(r store.CostRow) CostSum {
-	line := CostLine{Kind: CostKindModelCalls, Calls: r.ModelCalls, UnpricedCalls: r.Unpriced, CostUSD: costUSD(r.CostPUSD),
-		Tokens: &CostTokens{Input: r.InputTokens, CacheRead: r.CacheReadTokens, CacheWrite: r.CacheWriteTokens, Output: r.OutputTokens}}
-	return CostSum{CostUSD: costUSD(r.CostPUSD), Lines: []CostLine{line}}
+	t := r.Transcription
+	sum := CostSum{CostUSD: costUSD(r.CostPUSD + t.CostPUSD), Lines: []CostLine{}}
+	if r.ModelCalls > 0 || t.Calls == 0 {
+		sum.Lines = append(sum.Lines, CostLine{Kind: CostKindModelCalls, Calls: r.ModelCalls, UnpricedCalls: r.Unpriced, CostUSD: costUSD(r.CostPUSD),
+			Tokens: &CostTokens{Input: r.InputTokens, CacheRead: r.CacheReadTokens, CacheWrite: r.CacheWriteTokens, Output: r.OutputTokens}})
+	}
+	if t.Calls > 0 {
+		sum.Lines = append(sum.Lines, CostLine{Kind: CostKindTranscription, Calls: t.Calls, UnpricedCalls: t.Unpriced, CostUSD: costUSD(t.CostPUSD),
+			Tokens: &CostTokens{Input: t.InputTokens, CacheRead: t.CacheReadTokens, CacheWrite: t.CacheWriteTokens, Output: t.OutputTokens}})
+	}
+	return sum
 }
 
 // costQuery reads GET /admin/costs' parameters, answering a refusal:

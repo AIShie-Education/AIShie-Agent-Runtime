@@ -143,7 +143,8 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 		log.Error("HTTP_ADDR cannot be listened on", "addr", env.HTTPAddr, "err", err)
 		return exitFailure
 	}
-	apiSrv, err := newAPI(env, apiDeps{client: client, models: hostedClient, st: st, vault: v, actors: sup, hosting: h, ocr: recognizer}, reg, log)
+	apiSrv, err := newAPI(env, apiDeps{client: client, models: hostedClient, st: st, vault: v, actors: sup, hosting: h, ocr: recognizer,
+		transcriber: transcriber}, reg, log)
 	if err != nil {
 		log.Error("the API", "err", err)
 		return exitFailure
@@ -256,15 +257,17 @@ wait:
 
 // apiDeps are what the API shares with the worker: the egress client (for
 // Core), the hosted-model client (for keys/test), the store, the vault,
-// the supervisor, the configuration in force, and the worker's OCR.
+// the supervisor, the configuration in force, and the worker's OCR and
+// transcriber.
 type apiDeps struct {
-	client  *http.Client
-	models  *http.Client
-	st      store.Store
-	vault   *vault.Vault
-	actors  api.Actors
-	hosting api.Hosting
-	ocr     api.OCR
+	client      *http.Client
+	models      *http.Client
+	st          store.Store
+	vault       *vault.Vault
+	actors      api.Actors
+	hosting     api.Hosting
+	ocr         api.OCR
+	transcriber api.Transcriber
 }
 
 // newAPI is the JSON API for the front end (docs/design.md §11.4), or nil
@@ -300,6 +303,7 @@ func newAPI(env config.Env, d apiDeps, reg prometheus.Registerer, log *slog.Logg
 		Actors:         d.actors,
 		Hosting:        d.hosting,
 		OCR:            d.ocr,
+		Transcriber:    d.transcriber,
 		Allowlist:      env.CoreBaseURLAllowlist,
 		ModelHTTP:      d.models,
 		AdminActorIDs:  env.AdminActorIDs,

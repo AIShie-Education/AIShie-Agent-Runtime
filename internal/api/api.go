@@ -73,6 +73,10 @@ type Options struct {
 	// OCR is the worker's OCR, which the site's settings turn off and on
 	// and give its languages (admin/settings); nil is none here.
 	OCR OCR
+	// Transcriber is the worker's transcriber, which the site's settings
+	// turn on and off (admin/settings) and whose credential and jobs the
+	// administrators manage (admin/transcription); nil is none here.
+	Transcriber Transcriber
 	// Allowlist is CORE_BASE_URL_ALLOWLIST, which a change's dry run holds
 	// CORE_BASE_URL to, as the registry does.
 	Allowlist []string
@@ -209,6 +213,9 @@ func New(o Options) *Server {
 	s.mux.Handle("PUT "+Prefix+"admin/agent-budgets", s.authedBody(s.audited("agent_budgets.update", s.putAgentBudgets)))
 	s.mux.Handle("DELETE "+Prefix+"admin/agent-budgets", s.authed(s.audited("agent_budgets.reset", s.resetAgentBudgets)))
 	s.mux.Handle("GET "+Prefix+"admin/costs", s.authedBody(s.costs))
+	s.mux.Handle("PUT "+Prefix+"admin/transcription/credential", s.authedBody(s.audited("transcription_credential.set", s.putCredential)))
+	s.mux.Handle("DELETE "+Prefix+"admin/transcription/credential", s.authed(s.audited("transcription_credential.delete", s.deleteCredential)))
+	s.mux.Handle("GET "+Prefix+"admin/transcription/jobs", s.authedBody(s.jobs))
 
 	guard := http.NewCrossOriginProtection()
 	guard.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

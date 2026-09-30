@@ -187,14 +187,6 @@ func (h *hosting) setTranscriber(t *transcribe.Service) {
 	h.applyTranscribe(h.yaml.Runtime.WithSite(h.site), h.table())
 }
 
-// Transcriber is the worker's transcriber, for the API: nil where run
-// made none.
-func (h *hosting) Transcriber() *transcribe.Service {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.transcriber
-}
-
 // applyTranscribe puts the site's transcription setting in force in the
 // worker's transcriber, with the offer of the plan in force rt it names
 // (none when the plan no longer offers it), the plan's ceiling in dollars

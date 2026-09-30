@@ -745,7 +745,7 @@ func TestBlocked(t *testing.T) {
 			if rec, _ := r.fc.Text(doc); rec.Status != core.TextPending || rec.Attempts != 0 {
 				t.Errorf("claimed: %+v", rec)
 			}
-			if why := r.svc.Blocked(t.Context()); why != c.why {
+			if why := r.svc.Blocked(t.Context(), r.svc.Setting()); why != c.why {
 				t.Errorf("blocked by %q, want %q", why, c.why)
 			}
 		})
@@ -753,12 +753,12 @@ func TestBlocked(t *testing.T) {
 	r := newRig(t)
 	r.credential()
 	r.svc.Set(r.setting)
-	if why := r.svc.Blocked(t.Context()); why != "" {
+	if why := r.svc.Blocked(t.Context(), r.svc.Setting()); why != "" {
 		t.Errorf("nothing stops it, and it is blocked by %q", why)
 	}
 	r.setting.Site.Enabled = false
 	r.svc.Set(r.setting)
-	if why := r.svc.Blocked(t.Context()); why != "" {
+	if why := r.svc.Blocked(t.Context(), r.svc.Setting()); why != "" {
 		t.Errorf("off, and blocked by %q", why)
 	}
 }
