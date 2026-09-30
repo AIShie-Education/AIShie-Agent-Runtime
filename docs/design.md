@@ -464,15 +464,32 @@ file (at most 10 MB, a presigned URL through the egress proxy) and gives it
 to the model by what it is, whatever the model; what became of it goes in
 the result as `file`: its name, type and size, `given_as` (`file`, `text`
 in `file_text`, or `not_given`), `extracted_from` when the text is the
-runtime's reading of the file (`ocr` when its OCR recognized it), and a
-`note` saying why it was not given or what the text holds and leaves out.
+runtime's reading of the file (`ocr` when its OCR recognized it),
+`converted_to` when what is given is of what LibreOffice made of it
+(Office files, below), and a `note` saying why it was not given or what
+the text holds and leaves out.
 
 - Text (`text/*`, JSON, Markdown) is its text, to any model.
 - An image is a file part where the adapter takes files, and otherwise
   what the runtime's OCR recognizes of it (OCR, below).
-- A PowerPoint, Word or Excel file (Office Open XML: `.pptx`, `.docx`,
-  `.xlsx`, and their macro-enabled and template forms) is the runtime's text
-  of it (`internal/doctext`), to every model: a deck's slides in the order
+- A presentation or a document (PowerPoint's `.pptx`, `.ppt`, `.ppsx`,
+  `.potx` and their kinds, OpenDocument's `.odp`; Word's `.docx`, `.doc`
+  and their kinds, OpenDocument's `.odt`, RTF) is converted to PDF by
+  LibreOffice where the runtime converts Office files (`OFFICE_PDF`), for
+  every model, and goes the way a PDF does: a file part where the model
+  takes files and its provider a PDF of its size, in parts of its pages
+  when it has more than a part holds (Reading in parts), a deck's speaker
+  notes beside it in `file_text`, which the PDF does not show; and
+  otherwise its text, with what OCR reads of the slides that show pictures
+  (Office files, below). A workbook is always its text, as below, an
+  `.xls` or `.ods` one as LibreOffice converts it to `.xlsx`: a spreadsheet
+  reads better as its rows than as pages.
+- Without the conversion (`OFFICE_PDF=off`, or LibreOffice not
+  installed), a PowerPoint, Word or Excel file (Office Open XML: `.pptx`,
+  `.docx`, `.xlsx`, and their macro-enabled and template forms) is the
+  runtime's text of it (`internal/doctext`), to every model; so is a
+  workbook, and a Word document to a model that takes no files, with the
+  conversion: a deck's slides in the order
   the presentation lists them, each `## Slide N: title`, its paragraphs a
   line each, the body's bulleted by level, tables in Markdown, SmartArt as
   its points, pictures and charts only named (`[image]`, `[chart: title]`)
@@ -486,9 +503,11 @@ runtime's reading of the file (`ocr` when its OCR recognized it), and a
 - A PDF is a file part where the adapter takes files and its provider takes
   a PDF of its size and pages (`llm.FileLimiter`: OpenAI's 32 MB and 100
   pages, Anthropic's 100 pages within what a request's files may take,
-  Gemini's 1,000 pages, Converse's 4.5 MB); past them, or for a model that
-  takes no files, it is the runtime's text of it, page by page (`## Page
-  N`), where that reads as text. A PDF that needs a password to open is
+  Gemini's 1,000 pages, Converse's 4.5 MB), in parts of its pages when it
+  has more than a part holds, which the provider's pages bound (Reading in
+  parts); past its size, or past its pages where the runtime cuts no PDF,
+  or for a model that takes no files, it is the runtime's text of it, page
+  by page (`## Page N`), where that reads as text. A PDF that needs a password to open is
   given to no model. The text is judged over the whole file
   (`doctext.Result.Unreadable`): no text at all, or text on under a tenth
   of its pages and under 200 letters in all (a scan); more than a fifth of
@@ -503,11 +522,15 @@ runtime's reading of the file (`ocr` when its OCR recognized it), and a
   OCR recognizes of it (below), and where there is none, it is not given,
   and the note says it looks scanned, or that its fonts do not map to
   text, and to ask for a version with selectable text.
-- An older binary Office file (`.doc`, `.ppt`, `.xls`) is not given: the
-  note asks for `.pptx`, `.docx` or `.xlsx`, or a PDF; one encrypted with a
-  password, in the same container, is not given either. A file of no type,
-  or of one that says nothing (an octet stream, a zip archive), is known by
-  what it holds; anything else is not given, with its type named.
+- An older binary Office file (`.doc`, `.ppt`, `.xls`), and an
+  OpenDocument one, is converted as above; without the conversion it is
+  not given: the note asks for `.pptx`, `.docx` or `.xlsx`, or a PDF. An
+  Office Open XML file encrypted with a password, in the same container, is
+  given to no model, and not converted. A file of no type, or of one that
+  says nothing (an octet stream, a zip archive), is known by what it
+  holds, and, where the runtime converts Office files, an older one by the
+  stream its container names, an OpenDocument one by its `mimetype`, RTF by
+  its first bytes; anything else is not given, with its type named.
 
 **Reading in parts.** A result is at most 32 KB, and a lecture's deck of
 38 slides reads as 57 KB of text: cut there, the model would see the
@@ -547,11 +570,32 @@ the version the first part was of, which Core gives any caller who read
 it (a student the published version, by its id), so the parts of one
 reading are of one version even when a new one is added meanwhile. A part
 past the last, or asked of a text given whole, is not given, and the note
-says which there are; `file_part` of a file given as a file part (a PDF
-to a model that takes it, an image) is noted and does nothing. Only when
+says which there are; `file_part` of a file given whole as a file part
+(an image, a PDF of no more pages than a part holds) is noted and does
+nothing. Only when
 Core's own result leaves a part too little room (a document whose own
 text, `body_md`, is kilobytes long besides its file) is the part cut, and
 the note says so.
+
+A PDF given as a file part is its pages as pictures and text to the
+model's provider: a slide of a lecture some two thousand input tokens,
+sent again at every later turn of the answer (a deck of 38 slides, near
+100,000 of an answer's 150,000). So a PDF, the course's own or LibreOffice's of a deck
+or a document, of more pages than a part holds (`PDF_PART_PAGES`, 10, and
+never more than its provider takes in one file) is given in parts of its
+pages (`toolset.givePDFFile`): part k is pages (k−1)·10+1 to k·10, a PDF
+of its own, which poppler's `pdftocairo` draws again, text as text,
+pictures as they were, each font once (`pdfseparate` and `pdfunite` would
+put every font of the file in every page: ten slides of a lecture, eleven
+times the whole deck), kept in the worker's memory with the conversions
+(Office files, below). Its record is a text part's: `part`, `parts`,
+`part_holds` (`slides 11–20`), `next_part`, the first part saying what the
+others hold, and a deck's speaker notes of those slides alone in
+`file_text`. A PDF past its provider's pages, which was its text, is now a
+file in parts of them where the runtime cuts PDFs; one past its provider's
+size is still its text, and one of pages that could not be cut is its
+text, saying so. Where poppler's programs are not installed, a PDF is
+given whole, as before.
 
 What was read of a file is kept per worker (`toolset.TextCache`), so that
 the file is fetched and read once, not once a part: keyed by the version
@@ -653,6 +697,107 @@ of the pages beats tesseract's, and the runtime spends nothing on it.
   `recognize`), and the gauges `ocr_jobs_running` and `ocr_jobs_waiting`;
   and one log line a file, with the start of its checksum, its kind, the
   outcome, pages, characters and time, never its text.
+
+**Office files** (`internal/office`, `toolset.giveConverted`). The
+runtime's text of a deck leaves out what a lecture's slides are much made
+of, screenshots of code, diagrams, charts and formulas, which it only
+names (`[image]`, `[chart: title]`), and it read no older Office file at
+all. So a presentation or a document is converted to PDF by LibreOffice,
+and a model that takes files sees its pages as they look.
+
+- *What converts, to what* (`office.Converter`). `.pptx`, `.ppt`, `.ppsx`,
+  `.potx`, `.odp` and their kinds, and `.docx`, `.doc`, `.odt`, `.rtf` and
+  their kinds, to PDF (`soffice --headless --convert-to pdf`): a page a
+  slide, hidden slides too, so that its pages are numbered as the runtime's
+  text numbers the slides, and no notes pages; at most `OFFICE_PDF_MAX_PAGES`
+  (300) pages, the note saying the file may have more; its pictures
+  brought down to 300 dpi where they have more. `.ppt` and `.odp` to
+  `.pptx` as well, whose slides and notes `doctext` reads; `.xls` and `.ods`
+  to `.xlsx`, read as any workbook. A file that is not held as an Office
+  file is (a zip, a Compound File Binary file, RTF) never reaches
+  LibreOffice, which would take it for text or a web page and make a PDF
+  of that.
+- *To a model that takes files*: LibreOffice's PDF, as a PDF is given (its
+  size held to its provider's, in parts of its pages), `converted_to:
+  "pdf"`, the note saying what it is; a deck's speaker notes of the slides
+  given in `file_text`, each `## Slide N` and `Notes:` as the runtime's
+  text has them. A deck of `.ppt` or `.odp` has its notes from its `.pptx`.
+- *To a model that takes none*, or past its provider's size: a deck is the
+  runtime's text of its PowerPoint form (the file's own, or LibreOffice's),
+  which keeps titles, bullets, tables and notes as a PDF's text would not
+  (it has the master's footer on every page, a table as runs of words); and
+  the slides that show pictures or charts (`doctext.Result.Slides`, at
+  most 40) are picked out of its PDF (`pdfseparate`, `pdfunite`) and read by
+  OCR, once, in the background, as a scan is, under a checksum of the
+  runtime's own made from the deck's (`derivedSum`), so that every copy of
+  the deck and every conversion of it is read once. What OCR read of each
+  slide follows the slide's own text, before its notes, after `[OCR of the
+  slide as drawn]`, and the note says it may hold recognition errors and
+  holds the slide's own text again. While OCR reads them the slides are
+  given without it, `ocr: "in_progress"` and `ask_again` saying to ask
+  again; with no OCR here, the note says the text in its pictures is not
+  read. A Word document is the runtime's text of it, as before, its
+  headings, lists and tables kept; another document (`.doc`, `.odt`,
+  `.rtf`) the runtime's text of LibreOffice's PDF of it, page by page, and
+  where that has no text to read (a Word file of scanned pages), what OCR
+  recognizes of the PDF, under a checksum of the runtime's own.
+- *In the background, once* (`office.Service`, the worker's). One file is
+  converted at a time, eight wait (each holds its bytes), and past them a
+  file is not started (`busy`). A file is known by its checksum, and each
+  conversion of it is made once for every agent of the worker; a question
+  waits for it at most `OFFICE_PDF_TIMEOUT` (2 min), never past half the
+  answer's time left. Most take seconds (a lecture of 38 slides and 4.7 MB,
+  4.6 s; LibreOffice's start, 1.5 s of it); one that takes longer is left
+  to its job, and meanwhile a PowerPoint or Word file is given as its
+  text, `conversion: "in_progress"` and `ask_again` saying to call again in
+  a minute to see its pages, and a file read only through LibreOffice is
+  not given yet, and says so. A file LibreOffice cannot open (damaged,
+  protected by a password, not what it says it is) or convert in time is
+  said so (`conversion: "failed"`): a PowerPoint or Word file is still its
+  text, another not given.
+- *Kept in memory.* What LibreOffice made, and the ranges of pages cut
+  from it, are kept in the worker's memory by the file's checksum (64 MiB
+  in all, the least recently used going first), and a failure for an hour;
+  not in the store, as OCR's text is: a PDF is megabytes, which PostgreSQL
+  would keep, back up and replicate for every deck, while making it again
+  takes seconds, once a worker; nor on disk, which the container may not
+  keep or have room on. The text read of it is kept in `TextCache`, as any.
+- *Held in.* LibreOffice runs as OCR's programs do (package `sandbox`,
+  which both use): prlimit's limits from its first instruction (2 GiB of
+  address space, `OFFICE_PDF_MEMORY_MB`; twice its time in CPU, for its
+  threads; 256 MB a file; 1,024 open files, for its fonts and libraries;
+  no core dump), a hard timeout whose end kills its process group, niceness
+  10, nothing of the runtime's environment (`PATH`, `LC_ALL=C`, `HOME` and
+  `TMPDIR` in its private directory, `SAL_USE_VCLPLUGIN=svp` for drawing
+  with no display), the directory removed whatever happens. It starts each
+  time from a fresh profile made there, whose settings keep a hostile file
+  from reaching outside itself: every link out of a document is blocked
+  (`BlockUntrustedRefererLinks`; LibreOffice otherwise fetches a picture a
+  document links on a web server as it opens it, which a test saw it do),
+  its proxy is one nothing listens at, should anything try, and active
+  content (OLE objects, DDE links) and macros are off; a section linked to
+  a local file keeps the text the document holds, a conversion answering
+  no to LibreOffice's asking whether to update it. The integration tests
+  hold documents to each: a picture on a server of the test's is never
+  asked for, a secret in a local file never reaches the PDF. There is no
+  network namespace, as for OCR.
+- *Off.* `OFFICE_PDF=auto` (the default) is on where `soffice` and prlimit
+  are installed, as they are in the image, and off, with a warning at the
+  start, where they are not; `OFFICE_PDF=on` refuses to start (and `check`
+  fails) without them; `OFFICE_PDF=off` is off. Off, files are given as
+  they were before it: a PowerPoint, Word or Excel file as the runtime's
+  text, an older or OpenDocument one not at all. PDFs are cut into parts
+  wherever poppler's programs are, whatever `OFFICE_PDF` says. The start's
+  log line and `check` say which.
+- *Counted*: `office_requests_total{result}` (`cached`, `failed`,
+  `started`, `in_progress`, `busy`, `off`),
+  `office_conversions_total{to,outcome}` (`done`, `failed`, `timeout`,
+  `too_large`, `cancelled`), `office_conversion_seconds{to}`,
+  `pdf_cuts_total{op,outcome}` and `pdf_cut_seconds{op}` (`range`: a
+  file part's pages; `pick`: the slides OCR reads), and the gauges
+  `office_conversions_running` and `office_conversions_waiting`; one log
+  line a conversion, with the start of the file's checksum, its format
+  and target, the outcome, pages, bytes and time.
 
 `internal/doctext` reads every file as hostile, from memory,
 never touching the filesystem nor following a relationship outside the
@@ -1338,9 +1483,13 @@ text given in parts of 24 KB within results of 32 KB, what was read kept
 per worker up to 32 MiB; OCR on where its programs are, in
 `chi_sim+chi_tra+eng`, 40 pages at 300 dpi, 90 s a page and 15 min a file,
 1 GiB a program, one file at a time per worker and eight waiting, the first
-question waiting 5 s for it. The output tokens, a call's and an answer's,
-and the wall clock are more than §4's example (2,000, 4,000 and 90 s),
-which a long answer, in Chinese with a table, overran, and was cut off.
+question waiting 5 s for it; presentations and documents converted to PDF
+by LibreOffice where it is, 2 min and 300 pages a file, 2 GiB, one at a
+time per worker and eight waiting, what it made kept in memory up to 64
+MiB; a PDF given as a file in parts of 10 pages where poppler cuts it.
+The output tokens, a call's and an answer's, and the wall clock are more
+than §4's example (2,000, 4,000 and 90 s), which a long answer, in
+Chinese with a table, overran, and was cut off.
 
 ## 10. Tests
 
@@ -1497,7 +1646,25 @@ which a long answer, in Chinese with a table, overran, and was cut off.
   saying which end of it it holds; a part past the last, a part of a text
   given whole, and one of a file given as a file are said so, and a
   `file_part` that is no whole number from 1 reaches nobody. `splitText`
-  holds random texts of every escape to its promises. The fake Core
+  holds random texts of every escape to its promises. With Office files
+  converted (a stub of LibreOffice's, `stubOffice`), and the same table
+  with the conversion on beside the cases with it off: a deck to a model
+  that takes files is LibreOffice's PDF, whole with its notes, or in parts
+  of ten slides, each with its own slides' notes, `next_part` to the last,
+  a part past it said so, a provider's limit on pages making the parts
+  smaller; a PDF of the course's own in parts of its pages too, now a file
+  where its pages were past its provider's, and whole where nothing cuts
+  it; to a model that takes none, the deck's text with what OCR read of
+  its slides with pictures after each one's text and before its notes, OCR
+  asked once, for those slides alone, by a checksum of the runtime's own,
+  the text given without it while OCR reads them, and the note saying so
+  with no OCR; a PDF past its provider's size its text with OCR; while a
+  PDF is made, the text and `ask_again`, OCR not asked; a conversion that
+  failed; a PowerPoint 97 deck read in its `.pptx` and its notes beside
+  its PDF, a Word 97 document in its PDF's text, or its OCR, an Excel 97
+  workbook in its `.xlsx`, each known by what it holds when Core names no
+  type; a file with a password not converted; and with the conversion off,
+  every file as before. The fake Core
   carries out `document_create` through its pipeline, held to the
   `model_writes` fixture recorded from Core; `member_add`, `member_get`,
   `member_list` and `member_lookup_actor`, held to `member_writes`; and
@@ -1523,8 +1690,40 @@ which a long answer, in Chinese with a table, overran, and was cut off.
   in a PDF that `doctext` judges `no_text`, recognized page by page with
   its blank page said so, and as an image; and their limits.
   `scripts/image_test.sh` (`make docker-test`, in CI) runs the built image
-  as the deploy does (65532:65532, no network), `check` with `OCR=on` in
-  it, and the same real tests against the programs in the image.
+  as the deploy does (65532:65532, no network), `check` with `OCR=on` and
+  `OFFICE_PDF=on` in it, and the same real tests, OCR's and the
+  conversion's, against the programs in the image.
+- `sandbox`: a program's environment (nothing of the runtime's), its
+  limits, its output kept to its bound, its failure's status and errors,
+  and its kill with its children at its timeout.
+- `office`: the converter against a soffice of the test's own under the
+  real prlimit: the filter and options each target has, the file given
+  under its format's extension, the profile's settings, the pages of a PDF
+  made counted and capped, LibreOffice making nothing (it ends well all the
+  same) or failing, its timeout killing its process group, the
+  environment, limits and niceness it has, and its private directory
+  removed; a file that is not held as an Office file refused before it.
+  The service: a file converted once for questions at once, then kept; a
+  question waiting half its time left at most, the conversion going on; a
+  failure kept its hour, then tried again; turns and a full queue; nothing
+  kept when the process stops; ranges cut once and kept, picked pages cut
+  every time. `Sniff` knows each older format by its stream, an
+  OpenDocument file by its `mimetype`, RTF by its first bytes. With the
+  real programs (skipped only where they are not installed, and never with
+  `OFFICE_PDF_REQUIRED=1`): a deck in Chinese with a picture, a hidden
+  slide and a chart makes a PDF of a page a slide whose text reads, the
+  picture drawn, no notes pages; ranges and picked pages are PDFs of those
+  pages; the deck saved as `.ppt` and `.odp` converts back to `.pptx` with
+  its notes; a Word document, and the same as `.doc`, `.odt` and `.rtf`,
+  make PDFs whose Chinese reads; a workbook as `.xls` and `.ods` converts to
+  `.xlsx`; an OpenDocument text with a section linked to a local secret
+  and a picture on a server of the test's, and a deck with a linked
+  picture, convert without the secret and without the server asked. The
+  toolset's own (`TestRealDeckToModels`): a deck of twelve Chinese slides,
+  one with a screenshot of code, reaches a model that takes files as PDFs
+  of ten slides and two whose Chinese reads, with the notes, and one that
+  takes none as its text, with the code OCR read from the screenshot's
+  slide.
 - `storetest`: one suite, run against memstore and against Postgres
   (`TEST_DATABASE_URL`).
 - `vault`: a secret sealed and opened; every field and byte of it tampered

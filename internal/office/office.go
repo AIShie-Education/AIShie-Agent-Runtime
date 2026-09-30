@@ -122,6 +122,12 @@ func (c Config) Check() error {
 	return errors.Join(errs...)
 }
 
+// DefaultPartPages is how many pages of a PDF a model is given as one file
+// part, when it has more (PDF_PART_PAGES): ten slides of a lecture are some
+// twenty to thirty thousand input tokens, a fifth of an answer's budget,
+// which every later turn of the answer sends again.
+const DefaultPartPages = 10
+
 // Target is what a file is converted to.
 type Target string
 

@@ -15,6 +15,7 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/office"
 )
 
 // FileFetcher fetches a document's file from the short-lived URL Core gave
@@ -124,6 +125,15 @@ type fileRecord struct {
 	// docx, xlsx or pdf) when the text is not the file's own but the
 	// runtime's reading of it; ExtractedOCR when its OCR recognized it.
 	ExtractedFrom string `json:"extracted_from,omitempty"`
+	// ConvertedTo is what LibreOffice converted the file to (pdf, pptx or
+	// xlsx) when what is given is of that: the PDF as a file part, or the
+	// runtime's text of what was made.
+	ConvertedTo string `json:"converted_to,omitempty"`
+	// Conversion says where the file's conversion stands, when what it is
+	// converted to is not given (yet): ConversionInProgress or
+	// ConversionBusy, and AskAgain is the call that asks for it again;
+	// ConversionFailed.
+	Conversion string `json:"conversion,omitempty"`
 	// OCR says where the runtime's OCR of a file with no text of its own
 	// stands, when it gives none of it (yet): OCRInProgress or OCRBusy,
 	// and AskAgain is the call that asks for it again; OCRFailed or
@@ -131,9 +141,11 @@ type fileRecord struct {
 	OCR      string    `json:"ocr,omitempty"`
 	AskAgain *nextPart `json:"ask_again,omitempty"`
 	// Part and Parts: a text too long for one result is given in parts,
-	// and file_text is part Part of Parts; PartHolds says which slides,
-	// pages or sheets it holds, and NextPart is the call that reads the
-	// next. All empty when the text is given whole.
+	// and file_text is part Part of Parts; so is a PDF of more pages than
+	// one file part holds, and the file part is its pages of part Part.
+	// PartHolds says which slides, pages or sheets it holds, and NextPart
+	// is the call that reads the next. All empty when the file is given
+	// whole.
 	Part      int       `json:"part,omitempty"`
 	Parts     int       `json:"parts,omitempty"`
 	PartHolds string    `json:"part_holds,omitempty"`
@@ -197,6 +209,11 @@ const (
 	// kindUnknown is a file of no type, or of one that says nothing (an
 	// octet stream, a zip archive): fetched, and known by what it holds.
 	kindUnknown
+	// kindConvert is an Office file the runtime has LibreOffice convert
+	// (Runner.Office): a presentation or a document, whose PDF is what a
+	// model that takes files sees, and a workbook the runtime reads only
+	// as LibreOffice converts it (.xls, .ods).
+	kindConvert
 )
 
 func classify(mediaType string) fileKind {
@@ -260,24 +277,31 @@ type given struct {
 	// pages or sheets begin: the result gives it whole or a part of it.
 	text     string
 	sections []doctext.Section
-	file     *llm.File
+	// aside is text given beside a file part (a deck's speaker notes,
+	// which its PDF does not show): whole, cut short should it not fit,
+	// never in parts.
+	aside bool
+	file  *llm.File
 }
 
 // giveFile fetches a document's file and says how the model gets it (rule
 // 6): text as text; an image as a file part, to a model that takes files;
-// a PowerPoint, Word or Excel file as the text the runtime reads from it;
-// a PDF as a file part to a model that takes files and whose provider
-// takes one of its size and pages, and otherwise as its text, when that
-// reads as text. A file of no type, or of one that says nothing, is known
-// by what it holds. Anything else is not given, with a note saying why.
-// What was read for a model given the text is kept (Runner.Texts), and a
-// later call for the same version, a later part of it, reads it there
-// without fetching the file again.
-func (r Runner) giveFile(ctx context.Context, d *docFile) given {
+// a presentation or a document converted to PDF by LibreOffice where the
+// runtime converts them (giveConverted), and otherwise a PowerPoint, Word
+// or Excel file as the text the runtime reads from it; a PDF as a file
+// part to a model that takes files and whose provider takes one of its
+// size, in parts of its pages when it has more than a part holds, and
+// otherwise as its text, when that reads as text. A file of no type, or of
+// one that says nothing, is known by what it holds. Anything else is not
+// given, with a note saying why. part is the part the model asked for, 0
+// for none. What was read for a model given the text is kept
+// (Runner.Texts), and a later call for the same version, a later part of
+// it, reads it there without fetching the file again.
+func (r Runner) giveFile(ctx context.Context, d *docFile, part int) given {
 	rec := &fileRecord{Name: d.title, ContentType: d.contentType, ByteSize: d.byteSize, GivenAs: givenNot}
 	g := given{rec: rec}
 	mt := mediaType(d.contentType)
-	kind := classify(mt)
+	kind := r.kindOf(mt)
 	if why := r.refusal(mt, kind); why != "" {
 		rec.Note = why
 		return g
@@ -291,7 +315,7 @@ func (r Runner) giveFile(ctx context.Context, d *docFile) given {
 		return g
 	}
 	key := r.textKey(d)
-	if kept := r.Texts.get(key); kept != nil && !r.givesFile(classify(kept.mt)) {
+	if kept := r.Texts.get(key); kept != nil && !r.givesFile(kept.mt) {
 		if kind == kindUnknown {
 			rec.ContentType = kept.mt
 		}
@@ -309,7 +333,7 @@ func (r Runner) giveFile(ctx context.Context, d *docFile) given {
 	rec.ByteSize = int64(len(f.Data))
 	if kind == kindUnknown {
 		var why string
-		mt, kind, why = sniff(f)
+		mt, kind, why = r.sniff(f)
 		rec.ContentType = mt
 		if why == "" {
 			why = r.refusal(mt, kind)
@@ -325,22 +349,29 @@ func (r Runner) giveFile(ctx context.Context, d *docFile) given {
 		rec.GivenAs = givenFile
 		g.file = &llm.File{Name: fileName(d.title, mt), MIME: mt, Data: f.Data}
 		return g
+	case kind == kindConvert:
+		return r.giveConverted(ctx, g, d, mt, f.Data, part)
 	case kind == kindPDF && r.FileInput:
 		// A PDF is a file part where the model takes files and its
-		// provider takes a PDF of its size and pages; one that needs a
+		// provider takes a PDF of its size and pages, in parts of its
+		// pages where it has more than a part holds; one that needs a
 		// password to open is given to no model, as no provider reads it
 		// either.
-		ctx, cancel := context.WithTimeout(ctx, extractTimeout)
-		past, err = r.pastLimits(ctx, f.Data)
+		pctx, cancel := context.WithTimeout(ctx, extractTimeout)
+		pages, err := doctext.PDFPages(pctx, f.Data, r.DocLimits)
 		cancel()
 		if errors.Is(err, doctext.ErrEncrypted) {
 			rec.Note = notePassword
 			return g
 		}
-		if past == "" {
-			rec.GivenAs = givenFile
-			g.file = &llm.File{Name: fileName(d.title, "application/pdf"), MIME: "application/pdf", Data: f.Data}
-			return g
+		if past = r.bytesPast(int64(len(f.Data)), ""); past == "" {
+			var ok bool
+			if g, ok = r.givePDFFile(ctx, g, d, pdfFile{data: f.Data, sum: checksum(f.Data), pages: pages, unit: doctext.SectionPage}, part); ok {
+				return g
+			}
+			if past = r.pagesPast(pages, ""); past == "" {
+				past = "its pages could not be cut into parts"
+			}
 		}
 	}
 	rd := r.Texts.get(key)
@@ -354,11 +385,19 @@ func (r Runner) giveFile(ctx context.Context, d *docFile) given {
 	return r.giveReading(ctx, g, d, rd, past, f.Data)
 }
 
-// givesFile reports whether a file of kind may be given to this model as
-// a file part, which takes its bytes, not its text: an image or a PDF, to
-// a model that takes files.
-func (r Runner) givesFile(kind fileKind) bool {
-	return (kind == kindImage || kind == kindPDF) && r.FileInput
+// givesFile reports whether a file of media type mt may be given to this
+// model as a file part, which takes its bytes, not its text: an image or a
+// PDF, or a presentation or document the runtime converts to one, to a
+// model that takes files.
+func (r Runner) givesFile(mt string) bool {
+	switch r.kindOf(mt) {
+	case kindImage, kindPDF:
+		return r.FileInput
+	case kindConvert:
+		f, _ := office.FormatOf(mt)
+		return r.FileInput && f.Family != office.Workbook
+	}
+	return false
 }
 
 // read reads the text of a file of media type mt, of kind (text, a PDF or
@@ -397,10 +436,13 @@ func (r Runner) read(ctx context.Context, mt string, kind fileKind, data []byte)
 func (r Runner) giveReading(ctx context.Context, g given, d *docFile, rd *fileReading, past string, data []byte) given {
 	rec := g.rec
 	rec.ByteSize = rd.size
+	if rd.fam != "" {
+		return r.giveConvertedReading(ctx, g, d, rd, past, data)
+	}
 	kind := classify(rd.mt)
 	switch {
 	case kind == kindImage:
-		return r.giveOCR(ctx, g, d, rd, ocrFile{kind: ocr.Image, why: noteNoFiles}, data)
+		return r.giveOCR(ctx, g, rd, ocrFile{kind: ocr.Image, why: noteNoFiles, sum: rd.sum, data: r.refetch(d, rd, data), again: askAgain(d)})
 	case kind == kindText && rd.res != nil:
 		if rd.res.Text == "" {
 			rec.Note = "the file is empty"
@@ -441,7 +483,7 @@ func (r Runner) givePDFText(ctx context.Context, g given, d *docFile, rd *fileRe
 		} else {
 			why = noteNoFiles + ", and " + why
 		}
-		return r.giveOCR(ctx, g, d, rd, ocrFile{kind: ocr.PDF, pages: res.Of, why: why, ask: askSelectable}, data)
+		return r.giveOCR(ctx, g, rd, ocrFile{kind: ocr.PDF, pages: res.Of, why: why, ask: askSelectable, sum: rd.sum, data: r.refetch(d, rd, data), again: askAgain(d)})
 	}
 	g = r.extracted(g, res)
 	if past != "" {
@@ -451,28 +493,63 @@ func (r Runner) givePDFText(ctx context.Context, g given, d *docFile, rd *fileRe
 }
 
 // sniff is what a fetched file of no telling type is: by its first bytes
-// and the package it holds (PDF, Office Open XML, an older Office file);
-// then by what the file server said; then by Go's sniffing. why is set
-// when that alone says it is not given.
-func sniff(f *FetchedFile) (mt string, kind fileKind, why string) {
+// and the package it holds (PDF, Office Open XML, an older Office file,
+// and, where the runtime converts them, which older Office file, an
+// OpenDocument file or RTF); then by what the file server said; then by
+// Go's sniffing. why is set when that alone says it is not given.
+func (r Runner) sniff(f *FetchedFile) (mt string, kind fileKind, why string) {
 	format, err := doctext.Sniff(f.Data)
 	switch {
 	case errors.Is(err, doctext.ErrEncrypted):
 		return "application/x-ole-storage", kindOldOffice, notePassword
 	case errors.Is(err, doctext.ErrOldFormat):
+		if mt := office.Sniff(f.Data); mt != "" && r.kindOf(mt) == kindConvert {
+			return mt, kindConvert, ""
+		}
 		return "application/x-ole-storage", kindOldOffice, noteOldOffice
 	case format != "":
 		mt = format.MediaType()
-		return mt, classify(mt), ""
+		return mt, r.kindOf(mt), ""
 	}
-	if mt = mediaType(f.ContentType); classify(mt) != kindUnknown {
-		return mt, classify(mt), ""
+	if mt := office.Sniff(f.Data); mt != "" && r.converts() {
+		return mt, kindConvert, ""
+	}
+	if mt = mediaType(f.ContentType); r.kindOf(mt) != kindUnknown {
+		return mt, r.kindOf(mt), ""
 	}
 	mt = mediaType(http.DetectContentType(f.Data))
-	if classify(mt) == kindUnknown {
+	if r.kindOf(mt) == kindUnknown {
 		return mt, kindOther, ""
 	}
-	return mt, classify(mt), ""
+	return mt, r.kindOf(mt), ""
+}
+
+// kindOf is what the runner makes of a file of media type mt: its kind
+// (classify), but for an Office file the runtime converts (Runner.Office),
+// which is kindConvert: a presentation or a document, and a workbook of a
+// format but Excel's own; and an older Office file of no telling type,
+// which is fetched to know which it is.
+func (r Runner) kindOf(mt string) fileKind {
+	if !r.converts() {
+		return classify(mt)
+	}
+	if f, ok := office.FormatOf(mt); ok && (f.Family != office.Workbook || !f.OOXML) {
+		return kindConvert
+	}
+	if doctext.OldOffice(mt) {
+		return kindUnknown
+	}
+	return classify(mt)
+}
+
+// converts reports whether this runner has LibreOffice convert Office
+// files.
+func (r Runner) converts() bool {
+	if r.Office == nil {
+		return false
+	}
+	ok, _ := r.Office.Available()
+	return ok
 }
 
 // refusal says why a file of media type mt, of kind, cannot be given to
@@ -492,26 +569,31 @@ func (r Runner) refusal(mt string, kind fileKind) string {
 	return ""
 }
 
-// pastLimits says why a PDF is past what the model's provider takes as a
-// file (r.PDFLimits), or "" when it is not. Its pages are counted only
-// when there is a limit on them; a PDF whose pages cannot be counted is
-// taken to be within it, as the provider may yet read it.
-func (r Runner) pastLimits(ctx context.Context, data []byte) (string, error) {
-	lim := r.PDFLimits
-	if lim.PDFBytes > 0 && int64(len(data)) > lim.PDFBytes {
-		return fmt.Sprintf("it is %s, more than the %s this model takes as a file", sizeOf(int64(len(data))), sizeOf(lim.PDFBytes)), nil
+// bytesPast says why a PDF of n bytes is past what the model's provider
+// takes as a file (r.PDFLimits), or "" when it is not; of names it (it,
+// or its PDF).
+func (r Runner) bytesPast(n int64, of string) string {
+	if of == "" {
+		of = "it is"
 	}
-	if lim.PDFPages <= 0 {
-		return "", nil
+	if lim := r.PDFLimits.PDFBytes; lim > 0 && n > lim {
+		return fmt.Sprintf("%s %s, more than the %s this model takes as a file", of, sizeOf(n), sizeOf(lim))
 	}
-	pages, err := doctext.PDFPages(ctx, data, r.DocLimits)
-	switch {
-	case errors.Is(err, doctext.ErrEncrypted):
-		return "", err
-	case err == nil && pages > lim.PDFPages:
-		return fmt.Sprintf("it has %d pages, more than the %d this model takes in a file", pages, lim.PDFPages), nil
+	return ""
+}
+
+// pagesPast says why a PDF of pages pages, given whole, is past what the
+// model's provider takes in a file, or "" when it is not: a PDF whose
+// pages cannot be counted (0) is taken to be within it, as the provider
+// may yet read it.
+func (r Runner) pagesPast(pages int, of string) string {
+	if of == "" {
+		of = "it has"
 	}
-	return "", nil
+	if lim := r.PDFLimits.PDFPages; lim > 0 && pages > lim {
+		return fmt.Sprintf("%s %d pages, more than the %d this model takes in a file", of, pages, lim)
+	}
+	return ""
 }
 
 // extracted gives a file's text as doctext read it, and says what it

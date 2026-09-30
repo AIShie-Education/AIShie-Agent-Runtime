@@ -33,8 +33,8 @@ const FilePartArg = "file_part"
 var filePartProperty = map[string]any{
 	"type":    []any{"null", "integer"},
 	"minimum": 1,
-	"description": "which part of the file's text to read, from 1, when it is too long for one result: file.parts says how " +
-		"many there are and file.next_part is the call that reads the next; omit it for the first",
+	"description": "which part of the file to read, from 1, when it is too long for one result (a range of its text, or of a PDF's " +
+		"pages): file.parts says how many there are and file.next_part is the call that reads the next; omit it for the first",
 }
 
 // withFilePart is Core's input schema of FilePartTool with FilePartArg

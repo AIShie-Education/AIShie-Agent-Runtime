@@ -16,6 +16,7 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext/doctexttest"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/office"
 )
 
 // signature stands for a presigned URL's credential: it must never reach
@@ -166,6 +167,10 @@ func TestRunFiles(t *testing.T) {
 		wantFile    bool
 		contentType string
 		extracted   string
+		// convert has the runner convert Office files (a stub of
+		// LibreOffice's, which makes PDFs of two pages); off, as the
+		// other cases are, the files are given as before.
+		convert bool
 	}{
 		{name: "markdown is given as text", path: "/notes.md", title: "Week 1", ct: "text/markdown", size: len(markdown),
 			givenAs: givenText, fetched: true, wantText: markdown, contentType: "text/markdown"},
@@ -245,6 +250,27 @@ func TestRunFiles(t *testing.T) {
 			givenAs: givenText, fetched: true, wantText: "caf�", contentType: "text/plain"},
 		{name: "no fetcher, no file", path: "/notes.md", title: "Week 1", ct: "text/markdown", size: 10, noFetcher: true,
 			givenAs: givenNot, note: "files are not fetched here"},
+		{name: "converting, a deck to a model that takes files is LibreOffice's PDF of it", convert: true, path: "/deck.pptx", title: "Week 3",
+			ct: doctexttest.PPTXType, size: len(deck), fileInput: true, givenAs: givenFile, fetched: true, wantFile: true,
+			note: "LibreOffice converted it to PDF, which is given: its 2 slides as they look", wantText: "## Slide 2\nNotes: Draw the recursion tree."},
+		{name: "converting, a deck to a model that takes none is its text", convert: true, path: "/deck.pptx", title: "Week 3", ct: doctexttest.PPTXType,
+			size: len(deck), givenAs: givenText, fetched: true, extracted: "pptx",
+			note:    "its 1 image and 1 chart are only named, as [image] and [chart]; the text in its pictures and charts is not read: the runtime has no OCR here",
+			textHas: []string{"## Slide 1: Week 3: Sorting", "Notes: Draw the recursion tree."}},
+		{name: "converting, a Word document to a model that takes files is LibreOffice's PDF of it", convert: true, path: "/handout.docx", title: "Lab 3",
+			ct: doctexttest.DOCXType, size: len(handout), fileInput: true, givenAs: givenFile, fetched: true, wantFile: true,
+			note: "LibreOffice converted it to PDF, which is given: its 2 pages as they look"},
+		{name: "converting, a Word document to a model that takes none is its text as before", convert: true, path: "/handout.docx", title: "Lab 3",
+			ct: doctexttest.DOCXType, size: len(handout), givenAs: givenText, fetched: true, extracted: "docx", note: "the runtime's text of the document",
+			wantText: "# Lab 3\n\n- Bring a laptop."},
+		{name: "converting, a workbook is its text as before", convert: true, path: "/grades.xlsx", title: "Quiz", ct: doctexttest.XLSXType,
+			size: len(grades), fileInput: true, givenAs: givenText, fetched: true, extracted: "xlsx", wantText: "## Sheet 1: Quiz\nQuestion,Points\nQ1,5",
+			note: "the runtime's text of its 1 sheet"},
+		{name: "converting, an older Word file is read in LibreOffice's PDF of it", convert: true, path: "/old.doc", title: "Old notes",
+			ct: "application/msword", size: len(cfb), givenAs: givenText, fetched: true, extracted: "pdf",
+			note: "LibreOffice converted it to PDF: the runtime's text of its 2 pages", wantText: "## Page 1\npage 1\n\n## Page 2\npage 2"},
+		{name: "converting, an older Office file that says nothing of what it holds is not given", convert: true, path: "/old", title: "Old notes",
+			size: len(cfb), givenAs: givenNot, fetched: true, note: "an older Office format"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -256,6 +282,9 @@ func TestRunFiles(t *testing.T) {
 				return executed(`{"id":"c"}`), nil
 			}}
 			r := Runner{Client: core.NewClient(f), FileInput: tc.fileInput, PDFLimits: tc.pdfLimits, MaxFileBytes: tc.maxFile, DocLimits: tc.docLimits}
+			if tc.convert {
+				r.Office = &stubOffice{out: map[office.Target]*office.Output{office.ToPDF: pdfOf(2)}}
+			}
 			if !tc.noFetcher {
 				r.Files = NewHTTPFetcher(fs.Client())
 			}
@@ -313,8 +342,11 @@ func TestRunFiles(t *testing.T) {
 			if tc.wantFile {
 				fp := parts[2]
 				if fp.Type != llm.PartFile || fp.File == nil || fp.File.MIME != "application/pdf" ||
-					fp.File.Name != tc.title+".pdf" || int(rec["byte_size"].(float64)) != len(fp.File.Data) {
+					fp.File.Name != tc.title+".pdf" || !tc.convert && int(rec["byte_size"].(float64)) != len(fp.File.Data) {
 					t.Errorf("file part %+v", fp)
+				}
+				if tc.convert && (rec["converted_to"] != "pdf" || string(fp.File.Data) != string(pdfOf(2).Data)) {
+					t.Errorf("not LibreOffice's PDF: %v", rec)
 				}
 			}
 		})
@@ -475,6 +507,19 @@ func TestClassify(t *testing.T) {
 	for mt, want := range tests {
 		if got := classify(mt); got != want {
 			t.Errorf("classify(%q) = %v, want %v", mt, got, want)
+		}
+	}
+	// Where the runtime converts Office files, presentations, documents
+	// and the workbooks it reads no other way are converted; an older
+	// Office file of no telling type is fetched to know which it is.
+	converting := Runner{Office: &stubOffice{}}
+	for mt, want := range map[string]fileKind{
+		doctexttest.PPTXType: kindConvert, doctexttest.DOCXType: kindConvert, doctexttest.XLSXType: kindOffice,
+		"application/msword": kindConvert, "application/vnd.ms-excel": kindConvert, "application/vnd.oasis.opendocument.text": kindConvert,
+		"text/rtf": kindConvert, "application/x-ole-storage": kindUnknown, "application/pdf": kindPDF, "text/plain": kindText,
+	} {
+		if got := converting.kindOf(mt); got != want {
+			t.Errorf("converting, kindOf(%q) = %v, want %v", mt, got, want)
 		}
 	}
 	if mediaType("Text/Markdown; charset=UTF-8") != "text/markdown" || mediaType("not a type;;") != "" {
