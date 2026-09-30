@@ -21,8 +21,8 @@ func setProcessGroup(cmd *exec.Cmd) {
 }
 
 // lowerPriority gives the program a niceness of 10, so that the runtime's
-// answers come first on a busy CPU. Failing to is not an error: the
-// program still runs within its limits.
+// answers come first on a busy CPU, where there is no nice to. Failing to
+// is not an error: the program still runs within its limits.
 func lowerPriority(pid int) {
-	_ = syscall.Setpriority(syscall.PRIO_PROCESS, pid, 10)
+	_ = syscall.Setpriority(syscall.PRIO_PROCESS, pid, niceness)
 }

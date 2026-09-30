@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -33,10 +36,21 @@ func sh(t *testing.T, timeout time.Duration, snippet string, out *bytes.Buffer) 
 func TestRun(t *testing.T) {
 	t.Setenv("AISHIE_TEST_SECRET", "ais_Secret0123456789")
 	var out bytes.Buffer
-	if err := sh(t, 5*time.Second, `env; grep -E '^Max (address space|open files|core file size)' /proc/self/limits`, &out); err != nil {
+	// Its niceness is read first: it is the program's from its first
+	// instruction, not set once it has started.
+	if err := sh(t, 5*time.Second, `echo "nice=$(cut -d' ' -f19 /proc/self/stat)"; env; grep -E '^Max (address space|open files|core file size)' /proc/self/limits`, &out); err != nil {
 		t.Fatal(err)
 	}
 	lot := strings.Join(strings.Fields(out.String()), " ")
+	// nice adds to the niceness of the process that runs it.
+	own, err := os.ReadFile("/proc/self/stat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, _ := strconv.Atoi(strings.Fields(string(own))[18])
+	if want := fmt.Sprintf("nice=%d", min(n+niceness, 19)); !strings.HasPrefix(lot, want+" ") {
+		t.Errorf("the program's priority from its first instruction is not %s: %s", want, lot)
+	}
 	if strings.Contains(lot, "ais_Secret") {
 		t.Errorf("the runtime's environment reached the program: %s", lot)
 	}
@@ -51,7 +65,7 @@ func TestRun(t *testing.T) {
 		t.Errorf("an output of 3 MB: %d kept, %v", out.Len(), err)
 	}
 
-	err := sh(t, 5*time.Second, `echo 'no such page' >&2; exit 99`, nil)
+	err = sh(t, 5*time.Second, `echo 'no such page' >&2; exit 99`, nil)
 	var pe *ProgramError
 	if !errors.As(err, &pe) || pe.Status != 99 || !strings.Contains(pe.Stderr, "no such page") || strings.Contains(err.Error(), "no such page") {
 		t.Errorf("a failure: %v", err)

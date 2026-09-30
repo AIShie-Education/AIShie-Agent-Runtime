@@ -13,7 +13,8 @@
 //     than run without a memory limit;
 //   - with nothing of the runtime's environment (no credential, no proxy):
 //     PATH, LC_ALL=C, HOME and TMPDIR in its private directory, and what the
-//     caller adds; and a lower priority than the runtime's, so that answering
+//     caller adds; and a lower priority than the runtime's from its first
+//     instruction (coreutils' nice, which prlimit execs), so that answering
 //     is never starved of CPU;
 //   - with its output read to a bound, and its errors only counted, never
 //     logged.
@@ -33,6 +34,7 @@ import (
 	"io"
 	"os/exec"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -107,7 +109,7 @@ func Run(ctx context.Context, c Cmd) error {
 	if files <= 0 {
 		files = DefaultFiles
 	}
-	argv := append([]string{
+	argv := []string{
 		c.Prlimit,
 		"--as=" + strconv.FormatInt(c.Limits.Memory, 10),
 		"--cpu=" + strconv.FormatInt(int64(c.Limits.CPU/time.Second)+1, 10),
@@ -115,8 +117,12 @@ func Run(ctx context.Context, c Cmd) error {
 		"--nofile=" + strconv.Itoa(files),
 		"--core=0",
 		"--",
-		c.Path,
-	}, c.Args...)
+	}
+	nice := niceProgram()
+	if nice != "" {
+		argv = append(argv, nice, "-n", strconv.Itoa(niceness))
+	}
+	argv = append(append(argv, c.Path), c.Args...)
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // the programs the caller found, with arguments of its own: no file's content is an argument.
 	cmd.Dir = c.Dir
 	cmd.Env = append([]string{"PATH=/usr/local/bin:/usr/bin:/bin", "HOME=" + c.Dir, "TMPDIR=" + c.Dir, "LC_ALL=C"}, c.Env...)
@@ -132,7 +138,12 @@ func Run(ctx context.Context, c Cmd) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("sandbox: %s could not start: %w", c.Path, err)
 	}
-	lowerPriority(cmd.Process.Pid)
+	if nice == "" {
+		// Where there is no nice, the priority is lowered once the program
+		// has started, which its first instructions may run before; never
+		// both, as nice adds to what it finds.
+		lowerPriority(cmd.Process.Pid)
+	}
 	err := cmd.Wait()
 	switch {
 	case ctx.Err() != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) && err != nil:
@@ -173,6 +184,21 @@ func (c *capped) Write(p []byte) (int, error) {
 	}
 	return n, nil
 }
+
+// niceness is how far below the runtime's own priority a program runs: nice
+// adds it to the runtime's niceness (to at most 19).
+const niceness = 10
+
+// niceProgram is coreutils' nice, Essential in Debian, which prlimit execs
+// so that the program has its lower priority from its first instruction;
+// "" where there is none.
+var niceProgram = sync.OnceValue(func() string {
+	p, err := exec.LookPath("nice")
+	if err != nil {
+		return ""
+	}
+	return p
+})
 
 // Find finds each program: at the path given, or by its name on PATH. It
 // returns the paths found, and the names of those that are not.
