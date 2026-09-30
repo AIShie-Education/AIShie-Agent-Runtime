@@ -24,6 +24,8 @@ type slide struct {
 	lines  []string
 	notes  []string
 	hidden bool
+	// pictures is how many pictures and charts it shows.
+	pictures int
 }
 
 // pptxReader reads the parts of one presentation.
@@ -76,6 +78,7 @@ func readPPTX(data []byte, b *budget) (*Result, error) {
 		case errors.Is(err, ErrMalformed):
 			// One slide damaged: the others are read.
 			r.res.Parts++
+			r.res.Slides = append(r.res.Slides, SlideInfo{N: i + 1})
 			out.section(SectionSlide, i+1, head)
 			out.line("[this slide could not be read]")
 			continue
@@ -83,6 +86,7 @@ func readPPTX(data []byte, b *budget) (*Result, error) {
 			return nil, err
 		}
 		r.res.Parts++
+		r.res.Slides = append(r.res.Slides, SlideInfo{N: i + 1, Pictures: s.pictures, Notes: strings.Join(s.notes, "\n")})
 		if s.hidden {
 			head += " (hidden)"
 		}
@@ -218,6 +222,7 @@ func (sr *shapeReader) shape(se xml.StartElement) error {
 
 func (sr *shapeReader) image() {
 	sr.r.res.Images++
+	sr.s.pictures++
 	sr.s.lines = append(sr.s.lines, "[image]")
 }
 
@@ -448,6 +453,7 @@ func (sr *shapeReader) table() ([][]string, error) {
 // chart names a chart, by its title when it has one.
 func (sr *shapeReader) chart(id string) {
 	sr.r.res.Charts++
+	sr.s.pictures++
 	title := ""
 	if rl, ok := sr.rels[id]; ok && rl.is("chart") && rl.target != "" {
 		title, _ = chartTitle(sr.r.p, rl.target)

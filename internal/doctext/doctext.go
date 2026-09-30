@@ -119,6 +119,21 @@ type Result struct {
 	// order: what a text too long for one result is cut into parts by.
 	// A document's (DOCX) text has none.
 	Sections []Section
+	// Slides, of a presentation, say what each slide read holds besides
+	// its text, one a slide, in order.
+	Slides []SlideInfo
+}
+
+// SlideInfo is what a slide holds besides its text.
+type SlideInfo struct {
+	// N is its number, from 1, as its heading gives it.
+	N int
+	// Pictures is how many pictures and charts it shows, which its text
+	// only names.
+	Pictures int
+	// Notes are its speaker notes, as its text gives them after "Notes: ";
+	// "" when it has none.
+	Notes string
 }
 
 // Section is where one slide, page or sheet begins in a Result's Text: the

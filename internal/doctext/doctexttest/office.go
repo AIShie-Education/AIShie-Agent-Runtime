@@ -109,6 +109,9 @@ type Slide struct {
 	Table [][]string
 	// Images is how many pictures it shows.
 	Images int
+	// Picture is a picture it shows besides, large on its right half: a
+	// PNG's bytes, such as a screenshot of text.
+	Picture []byte
 	// Chart is a chart's title; "" for no chart.
 	Chart string
 	// Notes are the speaker notes.
@@ -178,7 +181,16 @@ func PPTXDeck(d Deck) []byte {
 			rid := fmt.Sprintf("rIdImg%d", k)
 			rels = append(rels, [3]string{rid, relT + "image", "../media/image1.png"})
 			fmt.Fprintf(&shapes, `<p:pic><p:nvPicPr><p:cNvPr id="%d" name="Picture %d" descr="a diagram"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>`+
-				`<p:blipFill><a:blip r:embed="%s"/></p:blipFill><p:spPr/></p:pic>`, id, id, rid)
+				`<p:blipFill><a:blip r:embed="%s"/></p:blipFill><p:spPr>%s</p:spPr></p:pic>`, id, id, rid, xfrm(id))
+			id++
+		}
+		if s.Picture != nil {
+			media := fmt.Sprintf("media/picture%d.png", n)
+			parts = append(parts, [2]string{"ppt/" + media, string(s.Picture)})
+			rels = append(rels, [3]string{"rIdPicture", relT + "image", "../" + media})
+			fmt.Fprintf(&shapes, `<p:pic><p:nvPicPr><p:cNvPr id="%d" name="Picture %d" descr="a screenshot"/><p:cNvPicPr/><p:nvPr/></p:nvPicPr>`+
+				`<p:blipFill><a:blip r:embed="rIdPicture"/><a:stretch><a:fillRect/></a:stretch></p:blipFill><p:spPr>`+
+				`<a:xfrm><a:off x="6096000" y="1371600"/><a:ext cx="5638800" cy="4572000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`, id, id)
 			id++
 		}
 		if s.Chart != "" {
@@ -256,8 +268,15 @@ func sp(id int, ph string, paras []string, levels []int) string {
 		}
 		body.WriteString(`<a:endParaRPr lang="en-US"/></a:p>`)
 	}
-	return fmt.Sprintf(`<p:sp><p:nvSpPr><p:cNvPr id="%d" name="Shape %d"/><p:cNvSpPr/><p:nvPr>%s</p:nvPr></p:nvSpPr><p:spPr/>`+
-		`<p:txBody><a:bodyPr/><a:lstStyle/>%s</p:txBody></p:sp>`, id, id, ph, body.String())
+	return fmt.Sprintf(`<p:sp><p:nvSpPr><p:cNvPr id="%d" name="Shape %d"/><p:cNvSpPr/><p:nvPr>%s</p:nvPr></p:nvSpPr><p:spPr>%s</p:spPr>`+
+		`<p:txBody><a:bodyPr/><a:lstStyle/>%s</p:txBody></p:sp>`, id, id, ph, xfrm(id), body.String())
+}
+
+// xfrm places the shape of id on the slide's left half, one under another
+// in the order drawn, so that a program that lays slides out (LibreOffice)
+// draws each where it can be read.
+func xfrm(id int) string {
+	return fmt.Sprintf(`<a:xfrm><a:off x="457200" y="%d"/><a:ext cx="5486400" cy="1143000"/></a:xfrm>`, 228600+(id-2)*1188720)
 }
 
 func tableFrame(id int, rows [][]string) string {
