@@ -87,7 +87,19 @@ type Env struct {
 	// PDFPartPages is how many pages of a PDF one file part holds, when it
 	// has more; 0 is office.DefaultPartPages.
 	PDFPartPages int
+	// Transcribe is whether the transcriber (package transcribe) may run
+	// here: TranscribeAuto, where the site's administrators turn it on;
+	// TranscribeOn, the same, and run and check fail when it cannot run;
+	// TranscribeOff, never, whatever the site says.
+	Transcribe string
 }
+
+// The values of TRANSCRIBE.
+const (
+	TranscribeAuto = "auto"
+	TranscribeOn   = "on"
+	TranscribeOff  = "off"
+)
 
 // Defaults of the environment's settings.
 const (
@@ -132,6 +144,7 @@ var envVars = []struct{ name, help string }{
 	{"OFFICE_PDF_TIMEOUT", "how long converting one file may take, such as 3m (default " + office.DefaultTimeout.String() + ")"},
 	{"OFFICE_PDF_MAX_PAGES", fmt.Sprintf("the most pages a PDF LibreOffice makes has, the rest of a document left out and said so (default %d)", office.DefaultMaxPages)},
 	{"OFFICE_PDF_MEMORY_MB", fmt.Sprintf("the address space LibreOffice may take, in MB (default %d)", office.DefaultMemoryMB)},
+	{"TRANSCRIBE", "auto, on or off: whether this runtime may transcribe the course's files into text versions in Core, which the site's administrators turn on (default auto: when they do; on: the same, and run and check fail when it cannot run here, a Core without the transcription service or the store, key or Core it needs missing; off: never)"},
 	{"PDF_PART_PAGES", fmt.Sprintf("the pages of a PDF given to a model as one file part, when it has more: a longer one is given in parts of its pages, where poppler's pdftocairo is installed, and never more than the provider takes (default %d)", office.DefaultPartPages)},
 }
 
@@ -244,6 +257,13 @@ func FromEnv(getenv func(string) string) (Env, error) {
 		} else {
 			e.PDFPartPages = n
 		}
+	}
+	switch e.Transcribe = strings.ToLower(get("TRANSCRIBE")); e.Transcribe {
+	case "":
+		e.Transcribe = TranscribeAuto
+	case TranscribeAuto, TranscribeOn, TranscribeOff:
+	default:
+		bad("TRANSCRIBE: %q is not auto, on or off", e.Transcribe)
 	}
 	if err := errors.Join(errs...); err != nil {
 		return Env{}, err

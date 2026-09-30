@@ -2,8 +2,9 @@
 // §8.1): polls, answers and their latency, model calls, tokens and cost,
 // Core calls, the models' writes, the drafts of answers being written,
 // budgets spent, lease takeovers, each agent's presence gap, the OCR of
-// documents, and their conversion to PDF. Labels hold ids, names and codes, never text: a write's
-// arguments are never a label, nor a draft's text.
+// documents, their conversion to PDF, and the transcriber's work. Labels
+// hold ids, names and codes, never text: a write's arguments are never a
+// label, nor a draft's text.
 package metrics
 
 import (
@@ -63,6 +64,15 @@ type Metrics struct {
 	OfficeCutSeconds *prometheus.HistogramVec
 	OfficeRunning    prometheus.Gauge
 	OfficeWaiting    prometheus.Gauge
+	// Transcribe: the transcriber's work (package transcribe): the
+	// versions it claimed, by what came of each (done, failed, skipped,
+	// dropped); the pages it sent to the model; the versions it works on
+	// now; and its calls to Core's queue that failed, by why
+	// (unauthenticated, rate_limited, unreachable, refused).
+	TranscribeJobs        *prometheus.CounterVec
+	TranscribePages       prometheus.Counter
+	TranscribeInflight    prometheus.Gauge
+	TranscribeClaimErrors *prometheus.CounterVec
 
 	presence *presence
 }
@@ -163,7 +173,8 @@ func New(reg prometheus.Registerer) *Metrics {
 		}, []string{"to"}),
 		OfficeCuts: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "pdf_cuts_total",
-			Help: "Pages cut from PDFs, by op (range: the pages a file part is given in; pick: the pages OCR reads) and outcome: done, cached, failed.",
+			Help: "Pages cut from PDFs, by op (range: the pages a file part is given in; pick: the pages OCR reads; " +
+				"images: pages drawn as pictures for the transcriber) and outcome: done, cached, failed.",
 		}, []string{"op", "outcome"}),
 		OfficeCutSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name: "pdf_cut_seconds", Help: "How long cutting pages from a PDF took, by op.",
@@ -175,12 +186,27 @@ func New(reg prometheus.Registerer) *Metrics {
 		OfficeWaiting: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "office_conversions_waiting", Help: "Office files waiting for a turn to be converted.",
 		}),
+		TranscribeJobs: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "transcribe_jobs_total",
+			Help: "Versions of documents the transcriber claimed, by outcome: done, failed, skipped, dropped (lease lost, edited by staff, gone).",
+		}, []string{"outcome"}),
+		TranscribePages: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "transcribe_pages_total", Help: "Pages of documents the transcriber sent to its model.",
+		}),
+		TranscribeInflight: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "transcribe_inflight", Help: "Versions of documents the transcriber works on now.",
+		}),
+		TranscribeClaimErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "transcribe_claim_errors_total",
+			Help: "Calls to Core's transcription queue that failed, by reason: unauthenticated, rate_limited, unreachable, refused.",
+		}, []string{"reason"}),
 		presence: &presence{last: map[string]time.Time{}},
 	}
 	reg.MustRegister(m.InboxPolls, m.AnswerLatency, m.Answers, m.LLMCalls, m.LLMTokens, m.LLMCost,
 		m.CoreCalls, m.ToolWrites, m.BudgetExhausted, m.LeaseTakeovers, m.AgentStates, m.presence, m.LongPolls, m.LongPollFallbacks,
 		m.DraftWrites, m.OCRRequests, m.OCRJobs, m.OCRPages, m.OCRJobSeconds, m.OCRPageSeconds, m.OCRRunning, m.OCRWaiting,
-		m.OfficeRequests, m.OfficeJobs, m.OfficeJobSeconds, m.OfficeCuts, m.OfficeCutSeconds, m.OfficeRunning, m.OfficeWaiting)
+		m.OfficeRequests, m.OfficeJobs, m.OfficeJobSeconds, m.OfficeCuts, m.OfficeCutSeconds, m.OfficeRunning, m.OfficeWaiting,
+		m.TranscribeJobs, m.TranscribePages, m.TranscribeInflight, m.TranscribeClaimErrors)
 	return m
 }
 

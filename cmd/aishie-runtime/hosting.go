@@ -15,6 +15,7 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/pgstore"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/transcribe"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/worker"
 )
 
@@ -44,6 +45,10 @@ type hosting struct {
 	// nil before the worker has one.
 	ocr    *ocr.Service
 	ocrSet *ocr.Setting
+	// transcriber is the worker's transcriber, which the site's setting,
+	// and what of the plan in force it needs, is put in force in
+	// (applyTranscribe); nil before the worker has one.
+	transcriber *transcribe.Service
 }
 
 // YAML is the operator's configuration as last loaded, for the API.
@@ -91,6 +96,7 @@ func (h *hosting) build(ctx context.Context) (*config.Config, int64, error) {
 	h.site = cfg.Runtime.Site
 	h.applyOCR()
 	table := h.table()
+	h.applyTranscribe(cfg.Runtime, table)
 	kept := cfg.Agents[:0]
 	for _, a := range cfg.Agents {
 		if a.Hosted != nil {
@@ -170,6 +176,42 @@ func (h *hosting) applyOCR() {
 	if !first || st != (ocr.Setting{Enabled: true}) {
 		h.log.Info("OCR as the site's settings say", "on", st.Enabled, "languages", h.ocr.Languages(), "ocr", h.ocr.String())
 	}
+}
+
+// setTranscriber is the worker's transcriber, in which the site's setting
+// as last built is put in force now, and at each build after.
+func (h *hosting) setTranscriber(t *transcribe.Service) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.transcriber = t
+	h.applyTranscribe(h.yaml.Runtime.WithSite(h.site), h.table())
+}
+
+// Transcriber is the worker's transcriber, for the API: nil where run
+// made none.
+func (h *hosting) Transcriber() *transcribe.Service {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.transcriber
+}
+
+// applyTranscribe puts the site's transcription setting in force in the
+// worker's transcriber, with the offer of the plan in force rt it names
+// (none when the plan no longer offers it), the plan's ceiling in dollars
+// across the school's key, and the price table in force. Called with mu
+// held.
+func (h *hosting) applyTranscribe(rt config.Runtime, table *pricing.Table) {
+	if h.transcriber == nil {
+		return
+	}
+	st := transcribe.Setting{Site: h.site.Transcription, Dir: h.yaml.Dir, PerDayUSD: rt.School.PerDay.USD, Prices: table}
+	for _, o := range rt.School.Offers {
+		if o.ID == st.Site.Offer {
+			st.Offer = &o
+			break
+		}
+	}
+	h.transcriber.Set(st)
 }
 
 // report logs the hosted agents that run and those that are not run, when

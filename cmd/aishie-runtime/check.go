@@ -126,6 +126,19 @@ func cmdCheck(ctx context.Context, args []string, getenv func(string) string, st
 	} else {
 		p("pdf parts: %d pages a file part, at most", cmp.Or(env.PDFPartPages, office.DefaultPartPages))
 	}
+	var kept store.Store
+	if pg != nil {
+		kept = pg
+	}
+	egress, err := egressClient(env)
+	if err != nil {
+		return failure(stderr, "the egress client: %v", err)
+	}
+	tr, err := checkTranscriber(ctx, env, cfg, kept, egress)
+	if err != nil {
+		return failure(stderr, "TRANSCRIBE=on, and the transcriber cannot run here: %v", err)
+	}
+	p("transcriber: %s", tr)
 	site := cfg.Runtime.Site
 	switch {
 	case l.pricesPath != "":

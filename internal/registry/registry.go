@@ -157,6 +157,11 @@ func ReadSite(ctx context.Context, r SiteReader) (config.Site, error) {
 			if DecodeSetting(st.Value, &b) {
 				site.Budgets = &b
 			}
+		case store.SettingTranscription:
+			var t config.SiteTranscription
+			if DecodeSetting(st.Value, &t) {
+				site.Transcription = t
+			}
 		}
 	}
 	for _, o := range offers {
