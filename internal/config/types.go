@@ -46,8 +46,10 @@ type Agent struct {
 	// nil for one of YAML.
 	Hosted *Hosted `yaml:"-"`
 	// merged is the agent's configuration as a generic map, after the
-	// defaults, for ForCourse to merge a course into.
-	merged map[string]any
+	// defaults, for ForCourse to merge a course into; own is its document
+	// as written, before them, for Deprecated. Both are nil for an Agent
+	// built in code.
+	merged, own map[string]any
 }
 
 // Hosted is what the registry knows of a hosted agent beside its
@@ -148,9 +150,10 @@ type Prompt struct {
 	// OnQuotaText is the canned notice posted when the asker, the agent or
 	// the tenant is out of quota.
 	OnQuotaText string `yaml:"on_quota_text"`
-	// CloseReasonText is the reason given when the runtime closes a
-	// conversation after max_attempts.
-	CloseReasonText string `yaml:"close_reason_text"`
+	// CloseReasonText was the reason given when the runtime closed a
+	// conversation after max_attempts. The runtime closes none now: it is
+	// taken from a configuration written before, and unused (Deprecated).
+	CloseReasonText string `yaml:"close_reason_text,omitempty"`
 }
 
 // Tools is what the model may call.
@@ -172,7 +175,10 @@ type Tools struct {
 // Answer is how questions are answered.
 type Answer struct {
 	MaxAttempts int `yaml:"max_attempts"`
-	// OnAttemptsExhausted is close or skip.
+	// OnAttemptsExhausted is skip: a message whose attempts are spent is
+	// held back until the next day. close, from a configuration written
+	// before the runtime stopped closing conversations, is decoded as skip
+	// (Deprecated).
 	OnAttemptsExhausted string `yaml:"on_attempts_exhausted"`
 	// OnQuotaExhausted is canned or silent.
 	OnQuotaExhausted string `yaml:"on_quota_exhausted"`

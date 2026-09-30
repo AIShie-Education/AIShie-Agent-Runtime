@@ -37,6 +37,8 @@ says what an agent may do and how. This repository meets it:
   - Proposals are followed. An agent whose seat is at `confirm_required`
     proposes. It notes the answer when a person approves, and tries again
     with the reason when one rejects.
+  - Conversations stay open. The runtime never closes one: a question it
+    could not answer in its attempts waits until the next day.
   - Stop means stop. A question its asker withdraws (retracts) is not
     answered: the answer being written to it stops at once, its model call
     cancelled, and nothing is posted.

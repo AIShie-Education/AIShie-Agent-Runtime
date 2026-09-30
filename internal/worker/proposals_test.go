@@ -92,10 +92,11 @@ func TestProposalApproved(t *testing.T) {
 	}
 }
 
-// TestProposalRejectedThenClosed: a rejected answer's reason goes into the
+// TestProposalRejectedThenSkipped: a rejected answer's reason goes into the
 // next attempt's prompt, under the next number; after max_attempts
-// rejections the conversation is closed under close:X (§2.4).
-func TestProposalRejectedThenClosed(t *testing.T) {
+// rejections the question is skipped until the next day, and its
+// conversation left open: the runtime closes none (§2.4 would close it).
+func TestProposalRejectedThenSkipped(t *testing.T) {
 	w := newWorld(t)
 	model := scripted.New(scripted.Reply("Try one."), scripted.Reply("Try two."), scripted.Reply("Try three."))
 	tu, wk := confirmedTutor(t, w, model, map[string]any{"answer": map[string]any{"max_attempts": 3}})
@@ -110,13 +111,9 @@ func TestProposalRejectedThenClosed(t *testing.T) {
 			t.Errorf("attempt %d: reason %q", i+1, at.Reason)
 		}
 	}
-	eventually(t, "the conversation closed", func() bool {
-		for _, c := range w.calls(tu.actor.ID, toolClose) {
-			if c.Status == "executed" && c.IdempotencyKey == core.CloseKey(conv) {
-				return true
-			}
-		}
-		return false
+	eventually(t, "the question skipped", func() bool {
+		o := wk.st.outcomes(conv)
+		return len(o) > 0 && o[len(o)-1] == store.OutcomeSkipped
 	})
 	if err := model.Err(); err != nil {
 		t.Fatal(err)
@@ -129,10 +126,9 @@ func TestProposalRejectedThenClosed(t *testing.T) {
 		!strings.Contains(reqs[2].System, "Too long.") {
 		t.Errorf("the rejections' reasons did not reach the next attempts' prompts")
 	}
-	eventually(t, "the close in the ledger", func() bool {
-		o := wk.st.outcomes(conv)
-		return len(o) > 0 && o[len(o)-1] == store.OutcomeClosed
-	})
+	if n := len(w.calls(tu.actor.ID, toolClose)); n != 0 {
+		t.Errorf("conversation_close was called %d times", n)
+	}
 	if n := len(w.answers(conv)); n != 0 {
 		t.Errorf("%d answers posted", n)
 	}
@@ -284,6 +280,45 @@ func TestRejectedWhileLeftSending(t *testing.T) {
 	}
 }
 
+// TestCloseLeftSendingFromBefore: an earlier version, a message's attempts
+// spent, closed a conversation, and stopped before it recorded what came of
+// it: the close is left sending in the store. This version, which closes
+// none, sends it again at the seat's start, the stored bytes under its key,
+// as any attempt left sending: Core replays it, and the attempt and the
+// ledger say it went through, so that an upgrade part way loses nothing.
+func TestCloseLeftSendingFromBefore(t *testing.T) {
+	w := newWorld(t)
+	tu := w.tutor("cs101-tutor")
+	conv, _ := w.ask(0, tu, "Closed before the upgrade.")
+	key := core.CloseKey(conv)
+	args, err := json.Marshal(core.CloseArgs{CourseID: w.co.ID, ConversationID: conv, Reason: "Closed after three tries.", IdempotencyKey: key})
+	w.ok(err)
+	caller := core.NewMCPCaller(core.MCPOptions{BaseURL: w.srv.URL, Token: tu.actor.Token, HTTPClient: &http.Client{Timeout: 5 * time.Second}})
+	if env, err := caller.Call(context.Background(), toolClose, args); err != nil || env.Status != core.StatusExecuted {
+		t.Fatalf("the close sent before the upgrade: %+v, %v", env, err)
+	}
+	st := memstore.New()
+	if _, err := st.PutAttempt(context.Background(), store.Attempt{Key: key, AgentID: "cs101-tutor", MemberID: tu.seat.ID, CourseID: w.co.ID,
+		ConversationID: conv, Tool: toolClose, Args: args, Kind: "close", State: store.AttemptSending}); err != nil {
+		t.Fatal(err)
+	}
+
+	model := scripted.New()
+	wk := w.start(w.config(nil, w.agentDoc("cs101-tutor", "m1", nil, nil)), models{"m1": model}, workerOpts{store: st})
+	wk.waitAttempt("cs101-tutor", key, store.AttemptExecuted)
+	eventually(t, "the close in the ledger", func() bool {
+		o := wk.st.outcomes(conv)
+		return len(o) == 1 && o[0] == store.OutcomeClosed
+	})
+	calls := w.calls(tu.actor.ID, toolClose)
+	if len(calls) != 2 || calls[1].IdempotencyKey != key || calls[1].Status != "executed" {
+		t.Errorf("conversation_close calls: %+v", calls)
+	}
+	if err := model.Err(); err != nil || len(model.Requests()) != 0 {
+		t.Errorf("the model was asked about a closed conversation: %v", err)
+	}
+}
+
 // flakyActions is a store whose AttemptByAction fails once for one action.
 type flakyActions struct {
 	store.Store
@@ -375,28 +410,51 @@ func TestDecisionBeforeTheSendIsSettled(t *testing.T) {
 	w.waitProposal(core.AnswerKey(conv, msg, 2))
 }
 
-// TestAttemptsExhaustedSkip: with on_attempts_exhausted skip, a question
-// whose attempts are spent is held back until the next UTC day, and the
-// conversation is not closed.
+// TestAttemptsExhaustedSkip: a question whose attempts are spent is held
+// back until the next UTC day, and its conversation is not closed: by
+// default, with on_attempts_exhausted skip, and with close, which a
+// configuration written before the runtime stopped closing conversations
+// may still say, taken as skip and logged as deprecated.
 func TestAttemptsExhaustedSkip(t *testing.T) {
-	w := newWorld(t)
-	model := scripted.New(scripted.Reply("The one try."))
-	tu, wk := confirmedTutor(t, w, model, map[string]any{"answer": map[string]any{"max_attempts": 1, "on_attempts_exhausted": "skip"}})
-	conv, msg := w.ask(0, tu, "Only one try?")
-	p := w.waitProposal(core.AnswerKey(conv, msg, 1))
-	w.ok(w.fc.Reject(p.ActionID, "No."))
-	eventually(t, "the question skipped", func() bool {
-		o := wk.st.outcomes(conv)
-		return len(o) > 0 && o[len(o)-1] == store.OutcomeSkipped
-	})
-	eventually(t, "the conversation held back", func() bool {
-		st := wk.sup.Status()
-		return len(st) == 1 && len(st[0].Seats) == 1 && st[0].Seats[0].HeldBack == 1
-	})
-	if n := len(w.calls(tu.actor.ID, toolClose)); n != 0 {
-		t.Errorf("conversation_close was called %d times", n)
-	}
-	if n := len(model.Requests()); n != 1 {
-		t.Errorf("the model was called %d times", n)
+	for _, c := range []struct {
+		name string
+		over map[string]any
+	}{
+		{"by default", nil},
+		{"skip", map[string]any{"on_attempts_exhausted": "skip"}},
+		{"close, deprecated", map[string]any{"on_attempts_exhausted": "close"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			w := newWorld(t)
+			model := scripted.New(scripted.Reply("The one try."))
+			over := map[string]any{"answer": mergeMaps(map[string]any{"max_attempts": 1}, c.over)}
+			if c.over != nil && c.over["on_attempts_exhausted"] == "close" {
+				over["prompt"] = map[string]any{"close_reason_text": "Closed after the one try."}
+			}
+			tu, wk := confirmedTutor(t, w, model, over)
+			conv, msg := w.ask(0, tu, "Only one try?")
+			p := w.waitProposal(core.AnswerKey(conv, msg, 1))
+			w.ok(w.fc.Reject(p.ActionID, "No."))
+			eventually(t, "the question skipped", func() bool {
+				o := wk.st.outcomes(conv)
+				return len(o) > 0 && o[len(o)-1] == store.OutcomeSkipped
+			})
+			eventually(t, "the conversation held back", func() bool {
+				st := wk.sup.Status()
+				return len(st) == 1 && len(st[0].Seats) == 1 && st[0].Seats[0].HeldBack == 1
+			})
+			if n := len(w.calls(tu.actor.ID, toolClose)); n != 0 {
+				t.Errorf("conversation_close was called %d times", n)
+			}
+			if n := len(model.Requests()); n != 1 {
+				t.Errorf("the model was called %d times", n)
+			}
+			logs := w.logs.String()
+			deprecated := strings.Contains(logs, `"path":"agent.answer.on_attempts_exhausted"`) &&
+				strings.Contains(logs, `"path":"agent.prompt.close_reason_text"`)
+			if want := c.name == "close, deprecated"; deprecated != want || strings.Contains(logs, "Closed after the one try.") {
+				t.Errorf("the deprecated settings logged: %v, want %v", deprecated, want)
+			}
+		})
 	}
 }

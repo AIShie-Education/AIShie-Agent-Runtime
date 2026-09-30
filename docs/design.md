@@ -695,8 +695,9 @@ the budget or one kept off a seat), and in one log line each, with its tool, num
 error code and action, which with Core's own action log is the audit of
 what the agent did. An executed or proposed write is noted in the
 conversation's memory. A proposal of a model's write is its owner's to
-follow in Core: the events poller settles only the runtime's own answers
-and closes, and such a proposal does not hold the actions cursor back.
+follow in Core: the events poller settles only the runtime's own answers,
+and the closes an earlier version proposed, and such a proposal does not
+hold the actions cursor back.
 
 Calls in one turn run at most `max_parallel_tools` at once; results go back
 in call order.
@@ -911,8 +912,16 @@ For an inbox row (conversation X, question M, opener P):
 2. **Unsettled attempt?** An attempt at M found `sending` (a crash, a
    timeout) is sent again with its stored bytes before anything else.
 3. **Attempt number**: one more than the attempts at M so far, all settled
-   without posting. Past `max_attempts`: close X (`close:{X}`, the configured
-   reason) or skip it until tomorrow, per `on_attempts_exhausted`.
+   without posting. Past `max_attempts`: skip it until tomorrow
+   (`on_attempts_exhausted: skip`), X left open. The runtime closes no
+   conversation, where §2.4 closes X (`close:{X}`): nothing ends a
+   conversation in the product any more. A configuration written before
+   that still says `close` is taken, and done as `skip`; its
+   `prompt.close_reason_text` is taken, and unused. Each is logged as
+   deprecated when the configuration is put in force, and `check` shows
+   it. A close an earlier version wrote ahead and left `sending`, or
+   proposed and left waiting for a person, is still settled as it was
+   (§5.4).
 4. **Quota** (§5.3): the asker's day (course, P), the agent's day, the
    tenant's day, each in answers and dollars; dollars checked against the
    p95 of the agent's recent answers. A dollar quota already spent is out;
@@ -1019,8 +1028,7 @@ For an inbox row (conversation X, question M, opener P):
     the model made counted by what Core said of them; metrics; release the
     lease.
 
-Every claimed message ends answered, proposed, closed, or with a recorded
-outcome.
+Every claimed message ends answered, proposed, or with a recorded outcome.
 
 **A question withdrawn.** The opener withdraws what they asked ("stop" in
 the chat) by retracting their newest message, and from then nothing waits
@@ -1139,11 +1147,12 @@ The events poller reads `event_list` from the seat's cursor:
 Core makes a proposal's action during the call that sends the attempt, and
 a person may decide it before the store has recorded the attempt as
 proposed. A decision on an action the store does not know, of an answer or
-a close (its `payload.action_type`), read while one of the seat's attempts
-is being sent, stops that read: the cursor stays before its page, and
-events are read again at once when no attempt is being sent, by when the
-store has the action. Without this, a decision read too soon would be
-passed over for good, and the attempt left `proposed` until a restart.
+of an earlier version's close (its `payload.action_type`), read while one
+of the seat's attempts is being sent, stops that read: the cursor stays
+before its page, and events are read again at once when no attempt is
+being sent, by when the store has the action. Without this, a decision
+read too soon would be passed over for good, and the attempt left
+`proposed` until a restart.
 
 `action_list_mine` is also read at start for proposals the store still has
 as `proposed`, so that a decision made while the runtime was down is found,
@@ -1309,7 +1318,7 @@ the read tools of §2.3 and every gated read (a document's versions, where
 students stand on an assignment, the roster, the queues of proposals) and
 the gated writes allowed, writes off (`tools.writes`, on for a hosted
 agent), four in parallel; three attempts,
-then close; the canned notice when out of quota; 19,000 characters; the
+then skip; the canned notice when out of quota; 19,000 characters; the
 newest 30 messages; eight answers at once per agent, four per course; per
 answer 8 turns, 12 tool calls of which at most 10 writes (`max_writes`),
 150,000 input and 12,000 output tokens, 180 s; no daily
@@ -1417,6 +1426,13 @@ which a long answer, in Chinese with a table, overran, and was cut off.
   continuation asked with the answer so far and no tools, one answer
   posted of the two pieces, and, where Core takes drafts, its text growing
   through the continuation as Yuki watches.
+- Attempts spent: the question skipped until the next day and its
+  conversation left open, by default, with `skip`, and with `close`, which
+  is logged as deprecated; a close an earlier version left `sending`, sent
+  again at the seat's start and settled from Core's replay. `close` and
+  `close_reason_text` in `runtime.defaults`, an agent's settings, a
+  course's and a hosted agent's load, taken as `skip`, and are listed as
+  deprecated where they are written; `check` shows them.
 - `toolschema`: every tool of the pinned catalogue through every dialect and
   back through Core's schema.
 - `doctext`: decks, documents, workbooks and PDFs made byte by byte

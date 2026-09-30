@@ -113,7 +113,8 @@ func (s AttemptState) Posted() bool { return s == AttemptExecuted }
 func (s AttemptState) Settled() bool { return s != AttemptSending && s != AttemptProposed }
 
 // Attempt is one write the runtime sent, or is about to: an answer to one
-// message under one attempt number, or closing a conversation.
+// message under one attempt number; or, written by an earlier version,
+// closing a conversation, which the runtime does no longer.
 type Attempt struct {
 	// Key is the idempotency key, unique per agent: answer:{c}:{m}:{n} or
 	// close:{c}.
@@ -130,7 +131,8 @@ type Attempt struct {
 	// Args are the exact bytes sent, idempotency_key included.
 	Args []byte `json:"args"`
 	// Kind is what wrote the body: model, quota (the canned notice), budget
-	// (on_budget_text), refusal (on_refusal_text), close.
+	// (on_budget_text), refusal (on_refusal_text); close for an earlier
+	// version's close.
 	Kind  string       `json:"kind"`
 	State AttemptState `json:"state"`
 	// ActionID is Core's action, once known.
@@ -346,7 +348,7 @@ const (
 	OutcomeDropped  = "dropped"  // closed, not found, not addressable, answered already
 	OutcomeDenied   = "denied"
 	OutcomeFailed   = "failed" // refused by Core for a reason the runtime could not fix
-	OutcomeClosed   = "closed" // attempts exhausted; the conversation was closed
+	OutcomeClosed   = "closed" // a close an earlier version wrote ahead, sent again, went through
 	OutcomeSkipped  = "skipped"
 	OutcomeError    = "error" // the provider or Core could not be reached; retried later
 )

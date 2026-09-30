@@ -81,7 +81,7 @@ func Load(paths ...string) (*Config, error) {
 			errs = append(errs, &Problem{File: d.file, Line: d.line, Agent: d.id, Path: "agent", Msg: err.Error()})
 			continue
 		}
-		a.merged, a.Courses, a.Dir, a.File = merged, d.courses, filepath.Dir(d.file), d.file
+		a.merged, a.own, a.Courses, a.Dir, a.File = merged, d.agent, d.courses, filepath.Dir(d.file), d.file
 		cfg.Agents = append(cfg.Agents, a)
 	}
 	if len(errs) > 0 {
@@ -154,7 +154,7 @@ func (c *Config) loadDocument(src Source, defaults map[string]any, origins []ori
 	if err != nil {
 		return nil, d.id, &Problem{File: d.file, Line: d.line, Agent: d.id, Path: "agent", Msg: err.Error()}
 	}
-	a.merged, a.Courses, a.File = merged, d.courses, src.Name
+	a.merged, a.own, a.Courses, a.File = merged, d.agent, d.courses, src.Name
 	is := &issues{prefix: "agent."}
 	if !idRe.MatchString(a.ID) {
 		is.add("id", "required: letters, digits, '_' and '-', at most 64")
@@ -395,13 +395,17 @@ func clone(v any) any {
 	return v
 }
 
-// decodeAgent turns merged generic settings into an Agent.
+// decodeAgent turns merged generic settings into an Agent. A deprecated
+// answer.on_attempts_exhausted of close is decoded as skip (Deprecated).
 func decodeAgent(m map[string]any) (*Agent, error) {
 	a := &Agent{}
 	if err := decodeInto(m, a); err != nil {
 		return nil, err
 	}
 	a.Model.inheritInto(a.Model.Fallback)
+	if a.Answer.OnAttemptsExhausted == OnExhaustedClose {
+		a.Answer.OnAttemptsExhausted = OnExhaustedSkip
+	}
 	return a, nil
 }
 

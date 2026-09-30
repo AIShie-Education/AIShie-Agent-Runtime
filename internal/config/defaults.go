@@ -8,7 +8,6 @@ const (
 	DefaultRefusalText = "I can't help with that here. Please ask your instructor."
 	DefaultBudgetText  = "I couldn't finish this one. Try a narrower question."
 	DefaultQuotaText   = "I've answered as many questions as I can today. Please try again tomorrow, or ask your instructor."
-	DefaultCloseReason = "I couldn't produce an answer to this after several tries, so I've closed this conversation. Please ask again, or ask your instructor."
 	// DefaultTruncatedText is in Traditional Chinese and in English, the
 	// school's two: the runtime does not know the answer's language.
 	DefaultTruncatedText = "（回答已達長度上限而中斷，回覆「繼續」可看後續。The answer reached its length limit; reply “continue” for the rest.）"
@@ -64,7 +63,7 @@ const DefaultMCPProtocol = "2025-11-25"
 // tools derived from the seat, with no allow list (tools.allow unset or
 // empty means the default list: the read tools of §2.3 and the gated
 // writes), writes off (a hosted agent's registry document turns them on)
-// and four calls at once; three attempts, then close; the canned notice
+// and four calls at once; three attempts, then skip; the canned notice
 // when out of quota; 19,000 characters; the newest 30 messages; eight
 // answers at once per agent and four per course; per answer 8 turns, 12
 // tool calls of which at most 10 writes, 150,000 input and 12,000 output
@@ -92,7 +91,6 @@ func Defaults() map[string]any {
 			"on_budget_text":    DefaultBudgetText,
 			"on_truncated_text": DefaultTruncatedText,
 			"on_quota_text":     DefaultQuotaText,
-			"close_reason_text": DefaultCloseReason,
 		},
 		"tools": map[string]any{
 			"mode":               ToolsDerived,
@@ -101,7 +99,7 @@ func Defaults() map[string]any {
 		},
 		"answer": map[string]any{
 			"max_attempts":              3,
-			"on_attempts_exhausted":     OnExhaustedClose,
+			"on_attempts_exhausted":     OnExhaustedSkip,
 			"on_quota_exhausted":        OnQuotaCanned,
 			"max_body_chars":            19000,
 			"history_messages":          30,
@@ -155,8 +153,12 @@ const (
 	ToolsDerived = "derived"
 	ToolsNone    = "none"
 
-	OnExhaustedClose = "close"
+	// OnExhaustedSkip holds a message whose attempts are spent back until
+	// the next day. OnExhaustedClose, which closed its conversation, is
+	// taken from a configuration written before the runtime stopped
+	// closing conversations, and done as skip (Deprecated).
 	OnExhaustedSkip  = "skip"
+	OnExhaustedClose = "close"
 
 	OnQuotaCanned = "canned"
 	OnQuotaSilent = "silent"

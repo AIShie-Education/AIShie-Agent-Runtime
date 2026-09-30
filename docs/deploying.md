@@ -157,6 +157,14 @@ its model is offered (its reads, and the writes its owner's conversations
 are offered besides), and tries each model key with one call. A
 `core.base_url` must be within `CORE_BASE_URL_ALLOWLIST`.
 
+`check` also shows, as `deprecated:`, what an agent's settings hold that
+the runtime takes but no longer does as they say, and `run` logs it when it
+puts the configuration in force. The runtime closes no conversation: a
+question whose attempts are spent waits until the next day. So
+`answer.on_attempts_exhausted: close` is done as `skip`, the default, and
+`prompt.close_reason_text` is unused; leave both out when next editing the
+file.
+
 An agent's model reads the course as far as its seat's permissions allow.
 It may also change the course, as far as they allow (writing a document, a
 grade, an assignment: Core decides each change at the seat's level, and

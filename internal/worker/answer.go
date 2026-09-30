@@ -18,16 +18,20 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolset"
 )
 
-// What wrote an attempt's body (store.Attempt.Kind).
+// What wrote an attempt's body (store.Attempt.Kind). An attempt of kind
+// close, closing a conversation, is one an earlier version wrote: the
+// runtime closes none now.
 const (
 	kindModel   = "model"
 	kindQuota   = "quota"
 	kindBudget  = "budget"
 	kindRefusal = "refusal"
-	kindClose   = "close"
 )
 
-// The writes the worker makes itself.
+// The writes the worker makes itself: an answer. A close, which an earlier
+// version made when a message's attempts were spent, may still be in the
+// store, sending (resendAtStart) or waiting for a person (settleProposal),
+// and is settled as it was.
 const (
 	toolAnswer = "conversation_answer"
 	toolClose  = "conversation_close"
@@ -208,7 +212,7 @@ func (c *claim) pass(ctx context.Context, msgID string, shorter bool) passResult
 			return r
 		}
 		if n > c.eff.Answer.MaxAttempts {
-			return c.exhausted(ctx, r)
+			return c.exhausted(r)
 		}
 		r.no, r.key = n, core.AnswerKey(c.conv, msgID, n)
 		// 4. Quotas. One of the school's spent, the owner's own key
@@ -702,48 +706,18 @@ func (c *claim) providersDown(ctx context.Context, r passResult) passResult {
 	return r
 }
 
-// exhausted acts on a message whose attempts are spent (step 3): the
-// conversation is closed, or skipped until tomorrow.
-func (c *claim) exhausted(ctx context.Context, r passResult) passResult {
-	if c.eff.Answer.OnAttemptsExhausted == config.OnExhaustedSkip {
-		c.s.holdBack(c.conv, nextDay(c.a.now()), "its attempts are spent")
-		r.outcome = store.OutcomeSkipped
-		return r
-	}
-	r.key, r.kind = core.CloseKey(c.conv), kindClose
-	args, err := json.Marshal(core.CloseArgs{CourseID: c.s.course, ConversationID: c.conv, Reason: c.eff.Prompt.CloseReasonText, IdempotencyKey: r.key})
-	if err != nil {
-		return c.failedHere(r, "the close could not be written", err)
-	}
-	at := store.Attempt{Key: r.key, AgentID: c.a.id, MemberID: c.s.id, CourseID: c.s.course, ConversationID: c.conv,
-		Tool: toolClose, Args: args, Kind: kindClose, State: store.AttemptSending}
-	if prev, err := c.a.store().PutAttempt(ctx, at); errors.Is(err, store.ErrExists) {
-		at = *prev
-	} else if err != nil {
-		return c.failedHere(r, "the close could not be written ahead", err)
-	}
-	over := c.s.sendBegins()
-	env, err := c.a.client.Send(ctx, at.Tool, at.Args)
-	d := classifyClose(env, err)
-	settle(c.a, c.eff, at, env, d)
-	over()
-	r.outcome = d.Outcome
-	switch d.Next {
-	case NextDone:
-		c.s.log.Info("the conversation was closed: its attempts are spent", "conversation", c.conv)
-	case NextHoldSeat:
-		c.s.holdSeat("Core denied closing a conversation")
-	case NextDropReseat:
-		c.a.requestReseat()
-	case NextRetryLater:
-		c.s.holdBack(c.conv, c.a.now().Add(c.a.s.o.Timing.RetryLater), "Core could not be reached")
-	case NextStopAgent:
-		c.a.stop(core.ErrUnauthenticated)
-	}
+// exhausted acts on a message whose attempts are spent (step 3): it is
+// skipped until the next UTC day, its conversation left open. The runtime
+// closes no conversation: answer.on_attempts_exhausted is skip, and close,
+// from a configuration written before, is taken as skip.
+func (c *claim) exhausted(r passResult) passResult {
+	c.s.holdBack(c.conv, nextDay(c.a.now()), "its attempts are spent")
+	r.outcome = store.OutcomeSkipped
 	return r
 }
 
-// classifyClose reads what came back from conversation_close.
+// classifyClose reads what came back from conversation_close: a close an
+// earlier version wrote ahead, sent again at the seat's start.
 func classifyClose(env *core.Envelope, err error) Decision {
 	if err != nil {
 		return classifyError(err)

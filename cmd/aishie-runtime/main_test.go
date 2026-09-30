@@ -112,6 +112,46 @@ func TestCheckExamples(t *testing.T) {
 	}
 }
 
+// TestCheckShowsDeprecatedSettings: a configuration written before the
+// runtime stopped closing conversations passes, and check says what of it
+// is taken but done as the runtime does now: close as skip, and a closing
+// reason unused, where each is written. The examples have none.
+func TestCheckShowsDeprecatedSettings(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"runtime.yaml": "runtime:\n  defaults:\n    answer: {on_attempts_exhausted: close}\n",
+		"a1.yaml": `agent:
+  id: a1
+  display_name: A1
+  core: {base_url: "https://lms.example.edu", token_ref: "env://A1_TOKEN"}
+  model: {adapter: openai_chat, model: gpt-4.1-mini, key_ref: "env://OPENAI_API_KEY"}
+  prompt: {close_reason_text: "Closed."}
+`,
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	code, out, errs := runCmd(t, env("CONFIG", dir), "check")
+	if code != exitOK {
+		t.Fatalf("check: %d\n%s%s", code, out, errs)
+	}
+	for _, want := range []string{
+		"runtime: deprecated: runtime.defaults.answer.on_attempts_exhausted: close is deprecated, and done as skip",
+		"answers: at most 3 attempts, then skip",
+		"  deprecated: agent.prompt.close_reason_text: is deprecated, and unused",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("check does not say %q:\n%s", want, out)
+		}
+	}
+	_, out, _ = runCmd(t, env("CONFIG", "../../examples/runtime.yaml,../../examples/agents"), "check")
+	if strings.Contains(out, "deprecated") {
+		t.Errorf("the examples hold deprecated settings:\n%s", out)
+	}
+}
+
 // TestCheckOCR: check says whether OCR runs here, and why not; with
 // OCR=on, a runtime without its programs does not pass.
 func TestCheckOCR(t *testing.T) {

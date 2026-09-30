@@ -497,7 +497,8 @@ func (l *actionLookup) more(ctx context.Context) bool {
 }
 
 // runtimesOwn reports whether an action of this type is one the runtime
-// makes itself, and follows: an answer, or a close.
+// makes itself, and follows: an answer; or a close, which an earlier
+// version proposed, and whose proposal may still wait for a person.
 func runtimesOwn(actionType string) bool {
 	return actionType == "conversation.answer" || actionType == "conversation.close"
 }

@@ -39,7 +39,7 @@ agent:
     max_parallel_tools: 4
   answer:
     max_attempts: 3                # §2.4
-    on_attempts_exhausted: close   # close | skip
+    on_attempts_exhausted: skip    # the next day; the runtime closes no conversation
     on_quota_exhausted: canned     # canned | silent
     max_body_chars: 19000          # Core's limit is 20000
   budgets:
