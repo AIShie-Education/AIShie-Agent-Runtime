@@ -23,9 +23,11 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/fakellm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/metrics"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/netguard"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/office"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/redact"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/memstore"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolset"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/worker"
 )
 
@@ -125,6 +127,9 @@ type runtimeConf struct {
 	// X-E2E-Worker, so that a test running two workers can tell their
 	// model calls apart.
 	tag string
+	// office, when set, converts the Office files the agents read (the
+	// worker's, as run makes it); none, they are given as their text.
+	office *office.Service
 }
 
 // tagHeader is the header runtimeConf.tag is sent in.
@@ -172,8 +177,12 @@ func (w *world) startRuntime(t *testing.T, m *fakellm.Server, rc runtimeConf) *i
 		}
 		rtp = tagged{next: tr, host: u.Host, tag: rc.tag}
 	}
+	var conv toolset.Office
+	if rc.office != nil {
+		conv = rc.office
+	}
 	rt.sup, err = worker.NewSupervisor(worker.Options{
-		Config: cfg, Store: rt.st, Metrics: metrics.New(rt.reg), Log: logger, WorkerID: rc.workerID,
+		Config: cfg, Store: rt.st, Metrics: metrics.New(rt.reg), Log: logger, WorkerID: rc.workerID, Office: conv,
 		HTTPClient: &http.Client{Transport: rtp},
 		// No hosted agent runs here; the hosted-model client follows no
 		// redirect, as in production.

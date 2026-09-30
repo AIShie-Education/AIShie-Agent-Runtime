@@ -33,7 +33,8 @@ func wantText(t *testing.T, got, want string) {
 // slide's title, its body bulleted by level, a text box, a table, its
 // pictures and chart named, its notes; the slide number and footer left
 // out; a hidden slide marked. The links to a web page and to a file
-// outside the package are never followed.
+// outside the package are never followed. What each slide shows besides
+// its text is recorded: its pictures and charts, and its notes.
 func TestPPTX(t *testing.T) {
 	deck := doctexttest.PPTXDeck(doctexttest.Deck{NamedBackwards: true, External: true, Slides: []doctexttest.Slide{
 		{Title: "Introduction to Computing", Text: []string{"Week 1", "Prof. Sato"}, Images: 1, SlideNumber: "1", Footer: "CS101 · Fall"},
@@ -68,6 +69,15 @@ Then recipes.
 	if res.Parts != 3 || res.Of != 3 || res.Images != 3 || res.Charts != 1 || len(res.Notes) != 0 {
 		t.Errorf("parts %d of %d, %d images, %d charts, notes %v", res.Parts, res.Of, res.Images, res.Charts, res.Notes)
 	}
+	want := []SlideInfo{{N: 1, Pictures: 1}, {N: 2, Pictures: 3, Notes: "Ask for everyday algorithms.\nThen recipes."}, {N: 3}}
+	if len(res.Slides) != len(want) {
+		t.Fatalf("slides %+v", res.Slides)
+	}
+	for i := range want {
+		if res.Slides[i] != want[i] {
+			t.Errorf("slide %d: %+v, want %+v", i+1, res.Slides[i], want[i])
+		}
+	}
 }
 
 // TestPPTXPartsCut gives the first MaxParts slides, and says so.
@@ -91,6 +101,9 @@ func TestPPTXDamagedSlide(t *testing.T) {
 	deck = withPart(t, deck, "ppt/slides/slide2.xml", []byte("<p:sld><unclosed>"))
 	res := extract(t, deck, PPTX, DefaultLimits())
 	wantText(t, res.Text, "## Slide 1: Fine\n\n## Slide 2\n[this slide could not be read]")
+	if len(res.Slides) != 2 || res.Slides[1] != (SlideInfo{N: 2}) {
+		t.Errorf("slides %+v", res.Slides)
+	}
 }
 
 // TestPPTXTextCut stops at MaxText, and says the rest is not given.

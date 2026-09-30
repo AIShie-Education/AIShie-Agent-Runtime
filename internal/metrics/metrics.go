@@ -1,8 +1,8 @@
 // Package metrics is what the runtime counts (Core's docs/agent-runtime.md
 // §8.1): polls, answers and their latency, model calls, tokens and cost,
 // Core calls, the models' writes, the drafts of answers being written,
-// budgets spent, lease takeovers, each agent's presence gap, and the OCR of
-// documents. Labels hold ids, names and codes, never text: a write's
+// budgets spent, lease takeovers, each agent's presence gap, the OCR of
+// documents, and their conversion to PDF. Labels hold ids, names and codes, never text: a write's
 // arguments are never a label, nor a draft's text.
 package metrics
 
@@ -54,6 +54,15 @@ type Metrics struct {
 	OCRPageSeconds *prometheus.HistogramVec
 	OCRRunning     prometheus.Gauge
 	OCRWaiting     prometheus.Gauge
+	// Office: the conversions of Office files, by LibreOffice, and the
+	// ranges of pages cut from PDFs (docs/design.md §4, Files).
+	OfficeRequests   *prometheus.CounterVec
+	OfficeJobs       *prometheus.CounterVec
+	OfficeJobSeconds *prometheus.HistogramVec
+	OfficeCuts       *prometheus.CounterVec
+	OfficeCutSeconds *prometheus.HistogramVec
+	OfficeRunning    prometheus.Gauge
+	OfficeWaiting    prometheus.Gauge
 
 	presence *presence
 }
@@ -139,11 +148,39 @@ func New(reg prometheus.Registerer) *Metrics {
 		OCRWaiting: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "ocr_jobs_waiting", Help: "Files waiting for a turn to be recognized.",
 		}),
+		OfficeRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "office_requests_total",
+			Help: "Asks for an Office file's conversion, by what they found: cached (a kept conversion), failed (a kept failure), " +
+				"started, in_progress, busy (the queue full), off (no conversion here).",
+		}, []string{"result"}),
+		OfficeJobs: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "office_conversions_total",
+			Help: "Office files converted, by target (pdf, pptx, xlsx) and outcome: done, failed, timeout, too_large, cancelled.",
+		}, []string{"to", "outcome"}),
+		OfficeJobSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name: "office_conversion_seconds", Help: "How long converting a file took, from its start to its end, by target.",
+			Buckets: []float64{0.5, 1, 2, 4, 8, 15, 30, 60, 120, 300},
+		}, []string{"to"}),
+		OfficeCuts: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "pdf_cuts_total",
+			Help: "Pages cut from PDFs, by op (range: the pages a file part is given in; pick: the pages OCR reads) and outcome: done, cached, failed.",
+		}, []string{"op", "outcome"}),
+		OfficeCutSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name: "pdf_cut_seconds", Help: "How long cutting pages from a PDF took, by op.",
+			Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 4, 8, 15, 30, 60},
+		}, []string{"op"}),
+		OfficeRunning: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "office_conversions_running", Help: "Office files being converted now.",
+		}),
+		OfficeWaiting: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "office_conversions_waiting", Help: "Office files waiting for a turn to be converted.",
+		}),
 		presence: &presence{last: map[string]time.Time{}},
 	}
 	reg.MustRegister(m.InboxPolls, m.AnswerLatency, m.Answers, m.LLMCalls, m.LLMTokens, m.LLMCost,
 		m.CoreCalls, m.ToolWrites, m.BudgetExhausted, m.LeaseTakeovers, m.AgentStates, m.presence, m.LongPolls, m.LongPollFallbacks,
-		m.DraftWrites, m.OCRRequests, m.OCRJobs, m.OCRPages, m.OCRJobSeconds, m.OCRPageSeconds, m.OCRRunning, m.OCRWaiting)
+		m.DraftWrites, m.OCRRequests, m.OCRJobs, m.OCRPages, m.OCRJobSeconds, m.OCRPageSeconds, m.OCRRunning, m.OCRWaiting,
+		m.OfficeRequests, m.OfficeJobs, m.OfficeJobSeconds, m.OfficeCuts, m.OfficeCutSeconds, m.OfficeRunning, m.OfficeWaiting)
 	return m
 }
 

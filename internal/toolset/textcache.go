@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/office"
 )
 
 // TextCache keeps what the runtime read of documents' files for the models
@@ -56,6 +57,14 @@ type fileReading struct {
 	// none.
 	res *doctext.Result
 	err error
+	// fam is the file's Office family when it is an Office file the
+	// runtime converts (Runner.Office): its text is given as that
+	// family's is. of is what the text was read from when that is not the
+	// file itself but what LibreOffice made of it: a document's PDF, an
+	// older or OpenDocument deck's PowerPoint form, a workbook's Excel
+	// form.
+	fam office.Family
+	of  office.Target
 }
 
 type cachedReading struct {

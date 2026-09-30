@@ -511,6 +511,7 @@ func (l *loop) runTools(ctx context.Context, resp *llm.Response) error {
 	runner := toolset.Runner{
 		Client: l.c.a.client, Files: l.c.a.s.files, Texts: l.c.a.s.texts, OCR: l.c.a.s.o.OCR, MaxParallel: eff.Tools.MaxParallelTools,
 		FileInput: l.m.ad.Capabilities().FileInput, PDFLimits: pdf, Writes: l.writes, Guard: l.guard,
+		Office: l.c.a.s.o.Office, PartPages: l.c.a.s.o.Env.PDFPartPages,
 	}
 	if l.d != nil {
 		runner.Seen = l.d.seen

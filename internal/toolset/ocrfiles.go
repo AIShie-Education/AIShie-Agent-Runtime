@@ -51,6 +51,15 @@ type ocrFile struct {
 	// ask is what the person may do instead, at the end of a note of no
 	// text: "; ask for a version with selectable text".
 	ask string
+	// sum is what OCR keeps the text by: the file's checksum, or one of
+	// the runtime's own, made from it, for what it made of the file (the
+	// PDF of a document LibreOffice converted, the slides of a deck that
+	// show pictures), which is recognized once for every copy of the file.
+	sum string
+	// data gives the bytes to recognize, should OCR need them.
+	data func(context.Context) ([]byte, error)
+	// again is the call that asks for the file again (ask_again).
+	again *nextPart
 }
 
 // ocrAvailable reports whether this runner recognizes text, and if not,
@@ -71,45 +80,54 @@ func noOCR(why string) string {
 	return s
 }
 
+// recognize is what OCR recognized of f, rd's file or what the runtime made
+// of it: kept (Runner.Texts, under f.sum, as the store keeps it, so that its
+// parts are read from the store once), or where its recognition stands, as
+// ocr.Service.Text says; res is set when it is done, and holds no text when
+// OCR found none.
+func (r Runner) recognize(ctx context.Context, rd *fileReading, f ocrFile) (*doctext.Result, ocr.State) {
+	key := "ocr\x00" + f.sum
+	if kept := r.Texts.get(key); kept != nil && kept.res != nil {
+		return kept.res, ocr.State{Status: ocr.StatusDone}
+	}
+	if ok, why := r.ocrAvailable(); !ok {
+		return nil, ocr.State{Status: ocr.StatusOff, Why: why}
+	}
+	st := r.OCR.Text(ctx, f.sum, f.kind, f.pages, f.data)
+	if st.Status != ocr.StatusDone {
+		return nil, st
+	}
+	res := ocrResult(st.Text)
+	if strings.TrimSpace(res.Text) != "" {
+		r.Texts.put(key, &fileReading{mt: rd.mt, size: rd.size, sum: rd.sum, res: res})
+	}
+	return res, st
+}
+
 // giveOCR gives the model the text OCR recognized of a file with none of
-// its own (rd's, of d), or says where its recognition stands: started now,
+// its own (f, of rd), or says where its recognition stands: started now,
 // in the background, and not done within what the question may wait, the
 // note asks the model to call again in a minute, with the arguments
 // AskAgain names. The text is given as any other the runtime read, in
 // parts when it is long, marked ExtractedOCR, and the note says it may hold
-// recognition errors. It is kept (Runner.Texts) under the file's checksum,
-// as the store keeps it, so that its parts are read from the store once.
-// data is the file's bytes when this call fetched them; nil when rd was
-// kept, and the file is fetched again, should OCR need it, and must be
-// the file rd read.
-func (r Runner) giveOCR(ctx context.Context, g given, d *docFile, rd *fileReading, f ocrFile, data []byte) given {
+// recognition errors.
+func (r Runner) giveOCR(ctx context.Context, g given, rd *fileReading, f ocrFile) given {
 	rec := g.rec
-	key := "ocr\x00" + rd.sum
-	if kept := r.Texts.get(key); kept != nil && kept.res != nil {
-		return recognized(g, kept.res, f)
-	}
-	if ok, why := r.ocrAvailable(); !ok {
-		rec.OCR, rec.Note = OCRUnavailable, f.why+noOCR(why)+f.ask
-		return g
-	}
-	st := r.OCR.Text(ctx, rd.sum, f.kind, f.pages, r.refetch(d, rd, data))
-	switch st.Status {
-	case ocr.StatusDone:
-		res := ocrResult(st.Text)
-		if strings.TrimSpace(res.Text) != "" {
-			r.Texts.put(key, &fileReading{mt: rd.mt, size: rd.size, sum: rd.sum, res: res})
-		}
+	res, st := r.recognize(ctx, rd, f)
+	if res != nil {
 		return recognized(g, res, f)
+	}
+	switch st.Status {
 	case ocr.StatusPending:
 		progress := ""
 		if st.Of > 0 {
 			progress = fmt.Sprintf(", %d of %d pages done", st.Done, st.Of)
 		}
-		rec.OCR, rec.AskAgain = OCRInProgress, askAgain(d)
+		rec.OCR, rec.AskAgain = OCRInProgress, f.again
 		rec.Note = f.why + "; the runtime is recognizing its text now (OCR)" + progress +
 			": to read it, call " + FilePartTool + " again with ask_again's arguments in a minute or so"
 	case ocr.StatusBusy:
-		rec.OCR, rec.AskAgain = OCRBusy, askAgain(d)
+		rec.OCR, rec.AskAgain = OCRBusy, f.again
 		rec.Note = f.why + "; the runtime could not start recognizing its text (OCR) just now: " + st.Why +
 			"; call " + FilePartTool + " again with ask_again's arguments in a few minutes to try again"
 	case ocr.StatusFailed:

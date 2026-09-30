@@ -91,6 +91,10 @@ type Options struct {
 	// worker's agents); nil recognizes nothing, and a model is told there
 	// is no OCR here.
 	OCR toolset.OCR
+	// Office converts presentations and documents to PDF for the models,
+	// and cuts ranges of pages from PDFs (an *office.Service, shared by
+	// the worker's agents); nil converts nothing, and gives PDFs whole.
+	Office toolset.Office
 }
 
 // SecretResolver resolves references to secrets (package secrets): ref,

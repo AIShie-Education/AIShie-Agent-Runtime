@@ -20,13 +20,17 @@ says what an agent may do and how. This repository meets it:
   makes it twice, and the agent tells its owner plainly what it did.
 - **Agents read the course's documents.** The runtime, never the model,
   fetches a document's file and gives it to the model by what it is: a
-  PowerPoint, Word or Excel file as its text, slides, notes, tables and
-  sheets kept apart; a PDF as a file where the model takes files, and as its
-  text where it does not; a scan, and an image, to a model that takes no
-  files as the text the runtime's OCR recognizes, in Chinese and English,
-  marked as such. Every file is read as a hostile one, within fixed limits,
-  and the OCR's programs run apart, held in memory, time and what they
-  see.
+  presentation or a document (`.pptx`, `.ppt`, `.odp`, `.docx`, `.doc`,
+  `.odt`, `.rtf`) as the PDF LibreOffice makes of it, slides as they look
+  with their speaker notes beside them, where the model takes files, and
+  as its text where it does not, slides, notes and tables kept apart, with
+  what OCR reads of the slides' pictures; a workbook as its text, sheet by
+  sheet; a PDF as a file where the model takes files, in parts of ten
+  pages when it is long, and as its text where it does not; a scan, and an
+  image, to a model that takes no files as the text the runtime's OCR
+  recognizes, in Chinese and English, marked as such. Every file is read
+  as a hostile one, within fixed limits, and LibreOffice and the OCR's
+  programs run apart, held in memory, time and what they see.
 - **Five model APIs.** OpenAI Chat, which also covers the compatible servers
   (DeepSeek, Azure OpenAI, Ollama, vLLM…), OpenAI Responses, Anthropic,
   Gemini and Bedrock Converse. Each agent can have a fallback model.
@@ -129,6 +133,7 @@ The process is set up from the environment:
 | `LOG_REDACT_EXTRA` | regular expressions redacted from logs, beside the built-in token and key shapes |
 | `WORKER_ID`, `SHUTDOWN_GRACE` | this process's name in leases (default hostname-pid); the grace on `SIGTERM` (default `15s`) |
 | `OCR`, `OCR_*` | the OCR of scanned PDFs and images for models that cannot take the files: `auto` (on where tesseract, pdftoppm and prlimit are, as in the image), `on` or `off`, and its languages, pages, resolution, time, memory and turns ([`docs/deploying.md`](docs/deploying.md#scanned-documents-ocr)) |
+| `OFFICE_PDF`, `OFFICE_PDF_*`, `PDF_PART_PAGES` | the conversion of presentations and documents to PDF by LibreOffice: `auto` (on where soffice and prlimit are, as in the image), `on` or `off`, its time, pages and memory; and the pages of a PDF a model is given as one file ([`docs/deploying.md`](docs/deploying.md#presentations-and-documents-libreoffice)) |
 
 `aishie-runtime help` lists them as the binary reads them.
 

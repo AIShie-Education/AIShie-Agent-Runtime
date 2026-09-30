@@ -39,7 +39,9 @@ repository's, not Core's, though Core has scripts of the same kind:
   of it: memory for its pollers, and a database far smaller than Core's.
 - On its own: Ubuntu 24.04 or later, 2 CPUs, 2 GB of memory and 20 GB of
   disk, to start with. OCR ([below](#scanned-documents-ocr)) takes one of
-  the CPUs while it reads a scan, and some 200 MB of memory. The database
+  the CPUs while it reads a scan, and some 200 MB of memory; LibreOffice
+  ([below](#presentations-and-documents-libreoffice)) one while it converts
+  a deck, and some 400 MB. The database
   holds who asked what and when (ids, not what they wrote) and what each
   answer cost, so pick a provider and a region your institution allows for
   that.
@@ -201,23 +203,27 @@ runtime refuses one from a seat at any other level. `tools.deny:
 [action_decide, action_review]` takes them away.
 
 A course document's file reaches the model as the runtime reads it: text
-as text, a PowerPoint, Word or Excel file as the runtime's text of it for
-every model, a PDF as a file where the model takes files (and its provider
-a PDF of its size and pages) and as its text otherwise, an image as a file
-where the model takes files. The runtime reads files of at most 10 MB, from
-memory and within fixed limits, and needs nothing installed for it. Text
-too long for one result (32 KB) is given in parts, which the model asks
-for one after another; each worker keeps what it read of a file (at most
-32 MiB in all), so that the file is fetched and read once for all its
-parts. A
+as text; a presentation or a document (`.pptx`, `.ppt`, `.odp`, `.docx`,
+`.doc`, `.odt`, `.rtf`) as the PDF LibreOffice makes of it where the model
+takes files, and as its text otherwise
+([below](#presentations-and-documents-libreoffice)); a workbook as its
+text for every model; a PDF as a file where the model takes files (and
+its provider a PDF of its size), in parts of ten pages when it has more,
+and as its text otherwise; an image as a file where the model takes
+files. The runtime reads files of at most 10 MB, from memory and within
+fixed limits. Text too long for one result (32 KB) is given in parts,
+which the model asks for one after another; each worker keeps what it
+read of a file (at most 32 MiB in all), so that the file is fetched and
+read once for all its parts. A
 scanned PDF, or one whose fonts do not map to text, and an image reach a
 model that takes no files as the text the runtime's OCR recognizes of
 them ([below](#scanned-documents-ocr)), marked as OCR's; without OCR, as a
-note asking for a version with selectable text. An older Office file
-(`.doc`, `.ppt`, `.xls`) reaches every model as a note asking for `.pptx`,
-`.docx` or `.xlsx`, or a PDF. Whether a model takes files is its
-adapter's default for its provider, which `model.capabilities.file_input`
-overrides.
+note asking for a version with selectable text. Without LibreOffice, a
+PowerPoint, Word or Excel file reaches every model as the runtime's text
+of it, and an older Office file (`.doc`, `.ppt`, `.xls`) as a note asking
+for `.pptx`, `.docx` or `.xlsx`, or a PDF. Whether a model takes files is
+its adapter's default for its provider, which
+`model.capabilities.file_input` overrides.
 
 ### Scanned documents (OCR)
 
@@ -232,7 +238,8 @@ how it works and how it is held in.
 
 - **The image** is Debian 13 slim with those packages, instead of
   distroless: some 240 MB unpacked and 92 MB to pull (for amd64), where it
-  was 30 MB and 10 MB. It still runs as `65532:65532`, with the same
+  was 30 MB and 10 MB; LibreOffice more than doubles that
+  ([below](#presentations-and-documents-libreoffice)). It still runs as `65532:65532`, with the same
   entrypoint, and needs nothing new of `aishie-runtime-deploy`.
 - **What it costs:** one CPU while a file is read, at a lower priority
   than the runtime's own work, so that answering is not starved. At the
@@ -268,6 +275,70 @@ how it works and how it is held in.
   `busy` result is a file not started, most often because the queue was
   full. One log line a file, with the
   start of its checksum, its outcome, pages and time, never its text.
+
+### Presentations and documents (LibreOffice)
+
+The runtime's text of a deck names its pictures, charts and diagrams and
+no more, and a lecture's slides are much made of them: screenshots of
+code, formulas, drawings. So the image holds LibreOffice (its Impress,
+Writer and Calc, without their windows), which converts a presentation or
+a document to PDF, a page a slide, and a model that takes files sees the
+slides as they look, their speaker notes beside them as text. For a model
+that takes no files, a deck is its text as before, with what the
+runtime's OCR reads of each slide that shows a picture or a chart, and an
+older or OpenDocument document is the text of its PDF. `.xls` and `.ods`
+are converted to `.xlsx` and read as any workbook. `docs/design.md` §4
+(Office files) has how it works and how it is held in.
+
+- **The image** holds LibreOffice 25.2 (Debian 13's `-nogui` packages), the
+  fonts Office files are laid out in (Liberation, Carlito, Caladea, whose
+  widths are Arial's, Calibri's and Cambria's), and Noto's CJK fonts, so
+  that a Chinese slide, simplified or traditional, is drawn in a Chinese
+  font, each script in its own forms, and its PDF keeps its text: some 710
+  MB unpacked and 305 MB to pull (for amd64), where it was 250 MB and 95
+  MB. LibreOffice and what it needs are most of that; Noto's CJK fonts are
+  90 MB of it (WenQuanYi's Zen Hei would be 16 MB, but draws the
+  characters both scripts share in the mainland's forms alone, and lacks
+  many beyond GBK and Big5). It
+  still runs as `65532:65532`, with the same entrypoint, and needs nothing
+  new of `aishie-runtime-deploy`.
+- **What it costs:** one CPU while a file converts, at a lower priority than
+  the runtime's own work, and some 400 MB of memory within the 2 GiB it
+  may have (`OFFICE_PDF_MEMORY_MB`). A lecture of 38 slides converts in
+  about 5 s, 1.5 s of it LibreOffice starting; a file converts once, and
+  what was made is kept in the worker's memory (64 MiB). A PDF given as a
+  file is cut into parts of ten pages (`PDF_PART_PAGES`), so that a long
+  deck does not cost a model a hundred thousand tokens a turn; each part
+  is a PDF of its own, in a second or less.
+- **How the model sees it:** the first question about a file converts it
+  and waits for it up to 2 min (`OFFICE_PDF_TIMEOUT`), never past half the
+  answer's time left. A file not ready by then is given as its text
+  meanwhile, where the runtime reads it without LibreOffice, and the model
+  is told to ask again in a minute to see its pages; a file LibreOffice
+  cannot open (damaged, protected by a password) is said so.
+- **What it may reach:** nothing outside the file. LibreOffice runs as OCR's
+  programs do (held in memory, time and what it may write, killed with its
+  children at its timeout, nothing of the runtime's environment), from a
+  fresh profile each time that blocks every link out of a document, gives
+  it a proxy nothing listens at, and turns off active content and macros:
+  a picture a document links on a web server is never fetched.
+- **The knobs** (in the env file, [below](#the-env-file)): `OFFICE_PDF`
+  (`auto`, `on` or `off`), `OFFICE_PDF_TIMEOUT` (2m), `OFFICE_PDF_MAX_PAGES`
+  (300), `OFFICE_PDF_MEMORY_MB` (2048) and `PDF_PART_PAGES` (10).
+- **Is it on:** the start's log line says `office` and what runs it, or why
+  not, and so does `aishie-runtime check`: `office: LibreOffice 25.2.3.2,
+  1 at once, 300 pages a file at most, 2m0s a file` and `pdf parts: 10
+  pages a file part, at most`. With `OFFICE_PDF=auto` (the default) and
+  LibreOffice missing (a binary run outside the image), it is off with a
+  warning, and files are given as before; `OFFICE_PDF=on` refuses to start
+  without it.
+- **Watching it:** `office_conversions_total{to,outcome}`,
+  `office_conversion_seconds{to}`, `office_requests_total{result}`,
+  `pdf_cuts_total{op,outcome}`, `pdf_cut_seconds{op}`,
+  `office_conversions_running` and `office_conversions_waiting` in
+  `/metrics`. One log line a conversion, with the start of the file's
+  checksum, its format, the outcome, pages, size and time, never its
+  text.
 
 To apply a change to the agents, check it, then either tell the runtime to
 read its configuration again, or deploy the image that is running again,
@@ -476,6 +547,9 @@ running (above): a restart does not read the file again.
 | `OCR_LANGUAGES`, `OCR_MAX_PAGES`, `OCR_DPI` | tesseract's languages (`chi_sim+chi_tra+eng`; the image has only these), the pages of a PDF read (`40`), and the resolution they are rendered at (`300`, from 72 to 600). |
 | `OCR_PAGE_TIMEOUT`, `OCR_TIMEOUT`, `OCR_MEMORY_MB` | how long one page may take to render or read (`90s`), one file in all (`15m`), and the memory each program may take (`1024`). |
 | `OCR_CONCURRENCY`, `OCR_QUEUE`, `OCR_WAIT` | the files a worker reads at once (`1`, at most 8), those that may wait (`8`), and how long a question waits for a file's text before the model is told to ask again (`5s`; `0` waits not at all). |
+| `OFFICE_PDF` | `auto` (the default: on where LibreOffice is, as in the image), `on` (the runtime does not start without it) or `off` ([above](#presentations-and-documents-libreoffice)). |
+| `OFFICE_PDF_TIMEOUT`, `OFFICE_PDF_MAX_PAGES`, `OFFICE_PDF_MEMORY_MB` | how long one file may take to convert (`2m`), the most pages a PDF made has (`300`), and the memory LibreOffice may take (`2048`). |
+| `PDF_PART_PAGES` | the pages of a PDF given to a model as one file, when it has more: a longer one is given in parts (`10`, and never more than the model's provider takes in a file). |
 
 `CONFIG` and `SECRETS_DIR` are set by `aishie-runtime-deploy` to the two
 mounts, whatever the file says. There is no `OIDC_*`: people sign in to

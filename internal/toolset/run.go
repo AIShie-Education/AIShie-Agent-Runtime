@@ -49,6 +49,14 @@ type Runner struct {
 	// that cannot take the file; nil recognizes nothing, and the model is
 	// told there is no OCR here.
 	OCR OCR
+	// Office converts presentations and documents to PDF, and cuts ranges
+	// of pages from PDFs; nil converts nothing, and gives every PDF whole,
+	// as does one that neither converts nor cuts here.
+	Office Office
+	// PartPages is how many pages of a PDF one file part holds when it has
+	// more; office.DefaultPartPages when 0 or less, and never more than the
+	// model's provider takes in one file (PDFLimits.PDFPages).
+	PartPages int
 	// Writes is the answer's account of its writes: their keys and their
 	// budget. Nil refuses every write, whatever the set offers.
 	Writes *Writes
@@ -417,7 +425,7 @@ func (s *Set) prepare(r Runner, courseID string, call llm.Part) prepared {
 		var err error
 		if part, callArgs, err = takeFilePart(call.Args); err != nil {
 			return refusedCall(res, core.CodeInvalidArgument, fmt.Sprintf(
-				"%s: %s is the part of the file's text to read, a whole number from 1 (file.parts says how many there are); call it again", call.Name, FilePartArg))
+				"%s: %s is the part of the file to read, a whole number from 1 (file.parts says how many there are); call it again", call.Name, FilePartArg))
 		}
 	}
 	bound := map[string]any{"course_id": courseID}
@@ -632,9 +640,9 @@ func (r Runner) render(ctx context.Context, tool string, env *core.Envelope, par
 	if doc == nil {
 		return r.fit(c, nil, given{}, 0), nil
 	}
-	g := r.giveFile(ctx, doc)
+	g := r.giveFile(ctx, doc, part)
 	c.File = g.rec
-	if part > 1 && g.text == "" && g.rec.GivenAs != givenNot {
+	if part > 1 && g.rec.GivenAs == givenFile && g.rec.Part == 0 {
 		g.rec.Note = strings.TrimPrefix(g.rec.Note+"; ", "; ") + FilePartArg + " does not apply: the file itself is given, whole"
 	}
 	return r.fit(c, doc, g, part), g.file
@@ -647,7 +655,7 @@ func (r Runner) render(ctx context.Context, tool string, env *core.Envelope, par
 func (r Runner) fit(c content, d *docFile, g given, part int) string {
 	limit := r.MaxResultBytes
 	if text := g.text; text != "" {
-		if escapedLenOf(text) > r.partBudget() || part > 1 {
+		if !g.aside && (escapedLenOf(text) > r.partBudget() || part > 1) {
 			text = r.pageText(c.File, d, g.text, g.sections, part)
 		}
 		if text != "" {
