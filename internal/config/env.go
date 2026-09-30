@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/office"
 )
 
 // Env is the process's settings from its environment (§8.3).
@@ -80,6 +81,12 @@ type Env struct {
 	// the models that cannot take the files (package ocr); its zero
 	// fields are its defaults.
 	OCR ocr.Config
+	// Office is how presentations and documents are converted to PDF by
+	// LibreOffice (package office); its zero fields are its defaults.
+	Office office.Config
+	// PDFPartPages is how many pages of a PDF one file part holds, when it
+	// has more; 0 is office.DefaultPartPages.
+	PDFPartPages int
 }
 
 // Defaults of the environment's settings.
@@ -121,6 +128,11 @@ var envVars = []struct{ name, help string }{
 	{"OCR_CONCURRENCY", fmt.Sprintf("the files this process recognizes at once, 1 to 8 (default %d)", ocr.DefaultConcurrency)},
 	{"OCR_QUEUE", fmt.Sprintf("the files that may wait for their turn; past them a file is not started, and the model is told to ask later (default %d)", ocr.DefaultQueue)},
 	{"OCR_WAIT", "how long a question about a file being recognized waits for its text before the model is told to ask again, never past half the answer's time left; 0 waits not at all (default " + ocr.DefaultWait.String() + ")"},
+	{"OFFICE_PDF", "auto, on or off: convert presentations and documents (.pptx, .ppt, .odp, .docx, .doc, .odt, .rtf) to PDF with LibreOffice, and older workbooks to .xlsx (default auto: on when soffice and prlimit are installed, as in the image; on refuses to start without them)"},
+	{"OFFICE_PDF_TIMEOUT", "how long converting one file may take, such as 3m (default " + office.DefaultTimeout.String() + ")"},
+	{"OFFICE_PDF_MAX_PAGES", fmt.Sprintf("the most pages a PDF LibreOffice makes has, the rest of a document left out and said so (default %d)", office.DefaultMaxPages)},
+	{"OFFICE_PDF_MEMORY_MB", fmt.Sprintf("the address space LibreOffice may take, in MB (default %d)", office.DefaultMemoryMB)},
+	{"PDF_PART_PAGES", fmt.Sprintf("the pages of a PDF given to a model as one file part, when it has more: a longer one is given in parts of its pages, where poppler's pdftocairo is installed, and never more than the provider takes (default %d)", office.DefaultPartPages)},
 }
 
 // EnvHelp lists the environment variables FromEnv reads, for the help
@@ -224,6 +236,15 @@ func FromEnv(getenv func(string) string) (Env, error) {
 		}
 	}
 	e.OCR = ocrFromEnv(get, bad)
+	e.Office = officeFromEnv(get, bad)
+	if v := get("PDF_PART_PAGES"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 1000 {
+			bad("PDF_PART_PAGES: %q is not a whole number from 1 to 1000", v)
+		} else {
+			e.PDFPartPages = n
+		}
+	}
 	if err := errors.Join(errs...); err != nil {
 		return Env{}, err
 	}
@@ -274,6 +295,41 @@ func ocrFromEnv(get func(string) string, bad func(string, ...any)) ocr.Config {
 	if err := c.Check(); err != nil {
 		for _, e := range strings.Split(err.Error(), "\n") {
 			bad("%s", strings.Replace(e, "ocr: ", "OCR: ", 1))
+		}
+	}
+	return c
+}
+
+// officeFromEnv reads the conversion's settings (OFFICE_PDF*); an unset one
+// is its default.
+func officeFromEnv(get func(string) string, bad func(string, ...any)) office.Config {
+	c := office.Config{Mode: strings.ToLower(get("OFFICE_PDF"))}
+	for _, w := range []struct {
+		name string
+		into *int
+	}{{"OFFICE_PDF_MAX_PAGES", &c.MaxPages}, {"OFFICE_PDF_MEMORY_MB", &c.MemoryMB}} {
+		v := get(w.name)
+		if v == "" {
+			continue
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			bad("%s: %q is not a whole number of at least 1", w.name, v)
+			continue
+		}
+		*w.into = n
+	}
+	if v := get("OFFICE_PDF_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 {
+			bad("OFFICE_PDF_TIMEOUT: %q is not a duration such as 3m", v)
+		} else {
+			c.Timeout = d
+		}
+	}
+	if err := c.Check(); err != nil {
+		for _, e := range strings.Split(err.Error(), "\n") {
+			bad("%s", strings.Replace(e, "office: ", "OFFICE_PDF: ", 1))
 		}
 	}
 	return c

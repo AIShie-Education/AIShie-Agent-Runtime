@@ -108,10 +108,19 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 		return exitFailure
 	}
 	defer func() { stopOCR(); recognizer.Wait() }()
+	// So do the conversions: what they had made is not kept.
+	officeCtx, stopOffice := context.WithCancel(ctx)
+	converter, err := newOffice(officeCtx, env, m, log)
+	if err != nil {
+		stopOffice()
+		log.Error("OFFICE_PDF=on, and LibreOffice cannot run here", "err", err)
+		return exitFailure
+	}
+	defer func() { stopOffice(); converter.Wait() }()
 	sup, err := worker.NewSupervisor(worker.Options{
 		Config: cfg, Env: env, Store: st, Metrics: m, Log: log,
 		Secrets: res, Prices: l.prices, HTTPClient: client, HostedHTTPClient: hostedClient, WorkerID: env.WorkerID,
-		OCR: recognizer,
+		OCR: recognizer, Office: converter,
 	})
 	if err != nil {
 		log.Error("the worker", "err", err)
@@ -137,7 +146,7 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 	}
 	log.Info("aishie-runtime started", "version", version.Version, "commit", version.Commit, "worker", sup.WorkerID(),
 		"addr", srv.Addr(), "api", apiAddr, "agents", len(cfg.Agents), "hosted", len(h.hosted), "registry", h.pg != nil,
-		"store", kind, "prices", l.pricesPath, "kek", kekID(v), "ocr", recognizer.String())
+		"store", kind, "prices", l.pricesPath, "kek", kekID(v), "ocr", recognizer.String(), "office", converter.String())
 	warnNoAgents(log, cfg)
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -190,6 +199,7 @@ wait:
 	}
 	cancel()
 	stopOCR()
+	stopOffice()
 	deadline := time.NewTimer(env.ShutdownGrace + stopMargin)
 	defer deadline.Stop()
 	for supDone != nil || watchDone != nil {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -17,6 +18,7 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/netguard"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/office"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/probe"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/redact"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/secrets"
@@ -102,6 +104,21 @@ func cmdCheck(ctx context.Context, args []string, getenv func(string) string, st
 		p("ocr: off: %v", err)
 	} else {
 		p("ocr: %s, %d at once, %d pages a file at most", e.Describe(), o.Concurrency, o.MaxPages)
+	}
+	if o := env.Office.WithDefaults(); o.Mode == office.ModeOff {
+		p("office: off (OFFICE_PDF=off)")
+	} else if c, err := office.NewConverter(ctx, o); err != nil {
+		if o.Mode == office.ModeOn {
+			return failure(stderr, "OFFICE_PDF=on, and LibreOffice cannot run here: %v", err)
+		}
+		p("office: off: %v", err)
+	} else {
+		p("office: %s, %d at once, %d pages a file at most, %s a file", c.Describe(), o.Concurrency, o.MaxPages, o.Timeout)
+	}
+	if _, err := office.NewPager(env.Office); err != nil {
+		p("pdf parts: off, PDFs are given whole: %v", err)
+	} else {
+		p("pdf parts: %d pages a file part, at most", cmp.Or(env.PDFPartPages, office.DefaultPartPages))
 	}
 	switch {
 	case l.pricesPath != "":

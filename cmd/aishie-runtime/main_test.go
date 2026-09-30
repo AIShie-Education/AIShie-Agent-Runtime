@@ -171,6 +171,27 @@ func TestCheckOCR(t *testing.T) {
 	}
 }
 
+// TestCheckOffice: check says whether Office files are converted here, and
+// whether PDFs are cut into parts, and why not; with OFFICE_PDF=on, a
+// runtime without LibreOffice does not pass.
+func TestCheckOffice(t *testing.T) {
+	examples := []string{"CONFIG", "../../examples/runtime.yaml,../../examples/agents"}
+	code, out, errs := runCmd(t, env(append(examples, "OFFICE_PDF", "off")...), "check")
+	if code != exitOK || !strings.Contains(out, "office: off (OFFICE_PDF=off)") {
+		t.Errorf("OFFICE_PDF=off: %d\n%s%s", code, out, errs)
+	}
+	t.Setenv("PATH", t.TempDir())
+	code, out, errs = runCmd(t, env(append(examples, "PDF_PART_PAGES", "20")...), "check")
+	if code != exitOK || !strings.Contains(out, "office: off: office: not available: prlimit, soffice not installed") ||
+		!strings.Contains(out, "pdf parts: off, PDFs are given whole: office: not available: pdfseparate, pdftocairo, pdfunite, prlimit not installed") {
+		t.Errorf("OFFICE_PDF=auto, without the programs: %d\n%s%s", code, out, errs)
+	}
+	code, out, errs = runCmd(t, env(append(examples, "OFFICE_PDF", "on")...), "check")
+	if code != exitFailure || !strings.Contains(errs, "OFFICE_PDF=on, and LibreOffice cannot run here") {
+		t.Errorf("OFFICE_PDF=on, without the programs: %d\n%s%s", code, out, errs)
+	}
+}
+
 func TestCheckRefusesDollarsWithoutPrices(t *testing.T) {
 	code, out, errs := runCmd(t, env("CONFIG", "../../examples/agents/delegate.yaml"), "check")
 	if code != exitFailure || !strings.Contains(errs, `agent "yuki-helper": it has a quota in dollars, and there is no price table`) {

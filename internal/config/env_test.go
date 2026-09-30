@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/office"
 )
 
 func envOf(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
@@ -25,6 +26,22 @@ func TestFromEnvDefaults(t *testing.T) {
 	}
 	if e.OCR != (ocr.Config{}) || e.OCR.WithDefaults().Mode != ocr.ModeAuto {
 		t.Fatalf("OCR's defaults: %+v", e.OCR)
+	}
+	if e.Office != (office.Config{}) || e.Office.WithDefaults().Mode != office.ModeAuto || e.PDFPartPages != 0 {
+		t.Fatalf("the conversion's defaults: %+v, %d pages a part", e.Office, e.PDFPartPages)
+	}
+}
+
+func TestFromEnvOffice(t *testing.T) {
+	e, err := FromEnv(envOf(map[string]string{
+		"OFFICE_PDF": "ON", "OFFICE_PDF_TIMEOUT": "3m", "OFFICE_PDF_MAX_PAGES": "120", "OFFICE_PDF_MEMORY_MB": "3072", "PDF_PART_PAGES": "20",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := office.Config{Mode: office.ModeOn, Timeout: 3 * time.Minute, MaxPages: 120, MemoryMB: 3072}
+	if e.Office != want || e.PDFPartPages != 20 {
+		t.Fatalf("the conversion %+v, want %+v; %d pages a part", e.Office, want, e.PDFPartPages)
 	}
 }
 
@@ -127,6 +144,14 @@ func TestFromEnvRefuses(t *testing.T) {
 		{"OCR_CONCURRENCY", "16", "OCR: 16 at once"},
 		{"OCR_QUEUE", "-1", "OCR_QUEUE"},
 		{"OCR_WAIT", "-5s", "OCR_WAIT"},
+		{"OFFICE_PDF", "sometimes", `OFFICE_PDF: mode "sometimes" is not auto, on or off`},
+		{"OFFICE_PDF_TIMEOUT", "0", "OFFICE_PDF_TIMEOUT"},
+		{"OFFICE_PDF_TIMEOUT", "1s", "OFFICE_PDF: a timeout of 1s is less than LibreOffice takes to start"},
+		{"OFFICE_PDF_MAX_PAGES", "none", "OFFICE_PDF_MAX_PAGES"},
+		{"OFFICE_PDF_MAX_PAGES", "5000", "OFFICE_PDF: 5000 pages"},
+		{"OFFICE_PDF_MEMORY_MB", "128", "OFFICE_PDF: 128 MB is too little"},
+		{"PDF_PART_PAGES", "0", "PDF_PART_PAGES"},
+		{"PDF_PART_PAGES", "ten", "PDF_PART_PAGES"},
 	} {
 		t.Run(tc.key+"="+tc.value, func(t *testing.T) {
 			_, err := FromEnv(envOf(map[string]string{tc.key: tc.value}))
@@ -217,7 +242,8 @@ func TestEnvHelp(t *testing.T) {
 	for _, v := range []string{"DATABASE_URL", "CONFIG", "HTTP_ADDR", "CORE_BASE_URL_ALLOWLIST", "EGRESS_PROXY", "LOG_REDACT_EXTRA",
 		"LOG_LEVEL", "LOG_FORMAT", "SECRETS_DIR", "WORKER_ID", "SHUTDOWN_GRACE", "PRICES", "KMS_KEY_ID", "CORE_BASE_URL",
 		"API_ADDR", "API_AUDIENCE", "CORE_ASSERTION_KEY", "ADMIN_ACTOR_IDS", "API_TRUSTED_PROXIES", "OCR", "OCR_LANGUAGES",
-		"OCR_MAX_PAGES", "OCR_DPI", "OCR_PAGE_TIMEOUT", "OCR_TIMEOUT", "OCR_MEMORY_MB", "OCR_CONCURRENCY", "OCR_QUEUE", "OCR_WAIT"} {
+		"OCR_MAX_PAGES", "OCR_DPI", "OCR_PAGE_TIMEOUT", "OCR_TIMEOUT", "OCR_MEMORY_MB", "OCR_CONCURRENCY", "OCR_QUEUE", "OCR_WAIT",
+		"OFFICE_PDF", "OFFICE_PDF_TIMEOUT", "OFFICE_PDF_MAX_PAGES", "OFFICE_PDF_MEMORY_MB", "PDF_PART_PAGES"} {
 		if !strings.Contains(help, "  "+v+" ") {
 			t.Errorf("EnvHelp lacks %s", v)
 		}
