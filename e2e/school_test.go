@@ -3,6 +3,7 @@ package e2e
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,11 +13,16 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/api"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/fakellm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
-// schoolKey is the school's key in the tests' secret store: no log, answer
-// or row may hold it.
-const schoolKey = "sk-school-e2e-0123456789abcdefghijkl"
+// schoolKey is the school's key in the tests' secret store, and siteKey
+// the one an administrator gives an offer through the API: no log, answer
+// or row may hold either.
+const (
+	schoolKey = "sk-school-e2e-0123456789abcdefghijkl"
+	siteKey   = "sk-site-e2e-9876543210zyxwvutsrqpo"
+)
 
 // schoolPlanThroughTheAPI is the school's AI plan (D8) against the real
 // Core: the runtime offers one model on the school's key, which is a file
@@ -26,8 +32,12 @@ const schoolKey = "sk-school-e2e-0123456789abcdefghijkl"
 // spent, her next question is given the plan's notice, in English and
 // Chinese, with no model call. With her own model and key behind the
 // plan, her next is answered with her key, and the school's quota stays
-// where it was. No log, answer or row holds the school's key or its
-// reference.
+// where it was. Then the school's administrator makes an offer through the
+// API, its key tried with the model at OpenAI's own endpoint and sealed,
+// and raises the quota per owner; Yuki puts her agent on it, and it
+// answers her with that key, over the hosted-model client. The offer
+// turned off, her own key answers, without a restart. No log, answer or
+// row holds the school's keys or the reference of runtime.yaml's.
 func schoolPlanThroughTheAPI(t *testing.T, w *world) {
 	audience := os.Getenv("E2E_RUNTIME_AUDIENCE")
 	if audience == "" {
@@ -40,6 +50,7 @@ func schoolPlanThroughTheAPI(t *testing.T, w *world) {
 	v, kek := keyring(t)
 	w.addSecret("the key that seals the school plan's runtime's secrets", kek)
 	w.addSecret("the school's key", schoolKey)
+	w.addSecret("the key of the school's the administrator gives", siteKey)
 	w.secretsDir = t.TempDir()
 	keyFile := filepath.Join(w.secretsDir, "school", "keys", "e2e")
 	if err := os.MkdirAll(filepath.Dir(keyFile), 0o700); err != nil {
@@ -62,8 +73,17 @@ func schoolPlanThroughTheAPI(t *testing.T, w *world) {
 		},
 	}}
 	rt := w.startHosted(t, m, st, v, yaml)
+	target, err := url.Parse(m.URL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyTrials := http.DefaultTransport.(*http.Transport).Clone()
+	t.Cleanup(keyTrials.CloseIdleConnections)
 	a := w.startAPI(t, st, audience, func(o *api.Options) {
 		o.Vault, o.Actors, o.Hosting = v, rt.sup, staticHosting{yaml: yaml}
+		// An offer's key is tried at OpenAI's own endpoint, which is the
+		// scripted model here, as the worker's hosted-model client has it.
+		o.ModelHTTP = modelClient(keyTrials, target)
 	})
 	type answer struct {
 		code int
@@ -173,11 +193,87 @@ func schoolPlanThroughTheAPI(t *testing.T, w *world) {
 		t.Errorf("the plan's use after the fallback: %+v", used.Today.School)
 	}
 
-	// Nothing the runtime keeps or says holds the school's key, or refers
-	// to it (its logs are searched with the others').
+	// The administrator makes an offer of the school's through the API,
+	// and gives owners four answers more a day.
+	asAdmin := func(method, path, body string, headers ...string) answer {
+		t.Helper()
+		code, _, raw := a.do(t, method, "/runtime/api/v1/"+path, w.assertion(t, w.admin.token, "", audience), body, headers...)
+		return answer{code, raw}
+	}
+	before = len(calls())
+	var offer api.PlanOffer
+	made, _ := json.Marshal(map[string]any{"id": "site", "label": "School AI (site)", "provider": "openai", "model": "e2e-site-model",
+		"max_output_tokens": 800, "key": siteKey})
+	decodeAs(asAdmin("POST", "admin/school-plan/offers", string(made)), http.StatusCreated, &offer)
+	if offer.Source != api.SourceSite || offer.KeyStatus == nil || *offer.KeyStatus != api.KeyTested || offer.KeyHint == nil ||
+		*offer.KeyHint != "sk-…rqpo" || offer.Status != api.OfferOffered {
+		t.Fatalf("the offer made: %+v", offer)
+	}
+	if reqs = calls(); len(reqs) != before+1 || reqs[len(reqs)-1].Model != "e2e-site-model" ||
+		reqs[len(reqs)-1].Header.Get("Authorization") != "Bearer "+siteKey {
+		t.Fatalf("the offer's key tried: %d calls", len(reqs)-before)
+	}
+	var plan api.SchoolPlan
+	decodeAs(asAdmin("PUT", "admin/school-plan/quotas", `{"per_owner_day":5,"per_asker_day":20,"per_day":null}`), 200, &plan)
+	if !plan.QuotasSet || plan.Quotas.PerOwnerDay != 5 || plan.QuotaDefaults.PerOwnerDay != 1 || len(plan.Offers) != 2 {
+		t.Fatalf("the quotas set: %+v", plan)
+	}
+	decodeAs(call("GET", "models", ""), 200, &models)
+	if o := models.SchoolKey.Offers; len(o) != 2 || o[1].ID != "site" || models.SchoolKey.Limits.PerOwnerDay != 5 {
+		t.Fatalf("GET /models with the site's offer: %+v", models.SchoolKey)
+	}
+
+	// Yuki puts her agent on it, her own model still behind it: the offer
+	// answers, with the key the administrator gave.
+	decodeAs(call("PATCH", "agents/"+id, `{"model":{"school":{"offer":"site"}}}`, "If-Match", `"3"`), 200, &agent)
+	if agent.Model.School == nil || agent.Model.School.Offer != "site" || !agent.Model.School.Fallback || agent.Today.School.Limit != 5 {
+		t.Fatalf("on the site's offer: %+v", agent)
+	}
+	waitStatus(api.StatusRunning, 4)
+	const q4 = "Does the site's offer answer me?"
+	conv4, _ := w.ask(t, w.yuki, w.own.member, q4)
+	if ans := w.waitAnswer(t, w.yuki, conv4, w.own.member); !strings.HasPrefix(ans.text(), "Answer: "+q4) {
+		t.Fatalf("the site's offer's answer: %q", ans.text())
+	}
+	reqs = calls()
+	if last := reqs[len(reqs)-1]; last.Model != "e2e-site-model" || last.Header.Get("Authorization") != "Bearer "+siteKey {
+		t.Errorf("the site's offer's call: model %q", last.Model)
+	}
+
+	// The offer turned off: the agent is on her own model again, without
+	// a restart of the runtime, and her key answers.
+	running, err := st.AgentState(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decodeAs(asAdmin("PATCH", "admin/school-plan/offers/site", `{"enabled":false}`, "If-Match", `"1"`), 200, &offer)
+	if offer.Enabled || offer.Status != api.OfferDisabled || offer.Agents != 1 {
+		t.Fatalf("the offer turned off: %+v", offer)
+	}
+	eventually(t, answerWait, "the agent started again on her own model", func() bool {
+		s, err := st.AgentState(t.Context(), id)
+		return err == nil && s.State == store.AgentRunning && s.UpdatedAt.After(running.UpdatedAt)
+	})
+	const q5 = "And with the site's offer off?"
+	conv5, _ := w.ask(t, w.yuki, w.own.member, q5)
+	if ans := w.waitAnswer(t, w.yuki, conv5, w.own.member); !strings.HasPrefix(ans.text(), "Answer: "+q5) {
+		t.Fatalf("the answer with the offer off: %q", ans.text())
+	}
+	reqs = calls()
+	if last := reqs[len(reqs)-1]; last.Model != "e2e-own-model" || last.Header.Get("Authorization") != "Bearer "+w.modelKey {
+		t.Errorf("the call with the offer off: model %q", last.Model)
+	}
+	var gone api.OfferDeleted
+	decodeAs(asAdmin("DELETE", "admin/school-plan/offers/site", ""), 200, &gone)
+	if gone.Deleted.ID != "site" || gone.Agents != 1 {
+		t.Errorf("the offer deleted: %+v", gone)
+	}
+
+	// Nothing the runtime keeps or says holds the school's keys, or refers
+	// to runtime.yaml's (its logs are searched with the others').
 	for what, text := range map[string]string{"the runtime's database": dumpDatabase(t, dbURL), "the API's answers": a.answers.String()} {
-		if strings.Contains(text, schoolKey) || strings.Contains(text, "school/keys") {
-			t.Errorf("%s holds or refers to the school's key", what)
+		if strings.Contains(text, schoolKey) || strings.Contains(text, siteKey) || strings.Contains(text, "school/keys") {
+			t.Errorf("%s holds or refers to the school's keys", what)
 		}
 	}
 }
