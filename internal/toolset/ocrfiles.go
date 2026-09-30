@@ -204,7 +204,7 @@ func (r Runner) refetch(d *docFile, rd *fileReading, data []byte) func(context.C
 		if r.Files == nil {
 			return nil, errors.New("toolset: files are not fetched here")
 		}
-		f, err := r.Files.Fetch(ctx, d.url, r.MaxFileBytes)
+		f, err := r.fetch(ctx, d)
 		if err != nil {
 			return nil, err
 		}

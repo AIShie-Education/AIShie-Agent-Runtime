@@ -499,7 +499,10 @@ in `file_text`, or `not_given`), `extracted_from` when the text is the
 runtime's reading of the file (`ocr` when its OCR recognized it),
 `converted_to` when what is given is of what LibreOffice made of it
 (Office files, below), and a `note` saying why it was not given or what
-the text holds and leaves out.
+the text holds and leaves out. Where Core lists the version's files (A
+version's files, below), the record names the file by its `file_id` and
+`position` too, and `name` is the file's name; before, the document's
+title.
 
 - Text (`text/*`, JSON, Markdown) is its text, to any model.
 - An image is a file part where the adapter takes files, and otherwise
@@ -564,9 +567,48 @@ the text holds and leaves out.
   stream its container names, an OpenDocument one by its `mimetype`, RTF by
   its first bytes; anything else is not given, with its type named.
 
+**A version's files** (`toolset.renderVersion`; AIShie-Core #49). A
+version of a document is text, files, or both, its files in order, each
+named: a lecture's slides, its handout and a sample program. Core lists
+them in `version.files` of `document_get`'s result, each with its id,
+place, name, type, size, checksum, a URL and its own text version, and
+keeps the version's `download_url`, `content_type`, `byte_size`,
+`checksum` and `text` as the first file's for the runtimes of before. The
+runtime reads every file, not the first alone, and gives the model each
+as a version's one file is given (this section and those below), under
+its name, in its order: the file's text version first where it is done,
+and otherwise the file, fetched, as text, a file part (named as the file,
+so that the model tells them apart), or why not. The result keeps Core's
+envelope, without its URLs and without the text versions' bodies, which
+the runtime gives itself (a body in the envelope would take the room the
+text is given in, twice), and gives the files in `files`, each its
+record and `file_text`, with `files_note` saying how they are given and
+read. What one call gives is bounded as the first turn bounds a
+question's files (§5.3, Attachments): each file at most what a result
+gives of it, the first part of a long text or of a PDF of more pages than
+a part holds, with `next_part` naming the file; all of them at most two
+results' worth of text (`versionResults`, 64 KB at the defaults) and one
+PDF part's pages of file parts (`PDF_PART_PAGES`, an image counting as
+one). A file past that, or one the answer's time ran out for, is named
+with the call that reads it (`next_part`), unfetched where it would be a
+file part and the pages are spent. `file_id`, a third argument the
+runtime adds to `document_get`'s schema and takes out again, as it does
+`file_part` and `file_pages`, reads one file of the version alone: its
+parts and its pages, each call naming the file again, exactly as a
+version of one file is read; an id of no file of the version is said so,
+and `file_part` or `file_pages` naming no file of several give the
+version's files and say to name one. A version of one file is read as it
+always was, whichever Core lists it, and its calls name no file. A URL
+Core gave that has lapsed (the file server refuses it) is asked for
+again of `document_file`, with the caller's own token, and the file
+fetched once more; neither reaches the model, and `document_file` is not
+offered to it (§4's list above). A Core before #49 lists no files: the
+version's one file is read from its `download_url`, as before.
+
 **Text versions** (`toolset.giveTextVersion`; Core #43). A version of a
 course's document with a file may have a text version in Core, beside the
-file (`version.text` of `document_get`'s result): the file transcribed into
+file (`version.text` of `document_get`'s result; since AIShie-Core #49 each
+file has its own, `version.files[].text`): the file transcribed into
 Markdown by a model, a page under `## 第 N 頁` (a slide under `## 投影片
 N`) and its pictures described in brackets, by this runtime's transcriber
 (§12) or another's, or what the course's staff wrote or corrected. Where it
@@ -576,13 +618,16 @@ reading of the file, which is then not fetched: `file_text` is the text,
 (<the offer's label>)` or `edited by staff`; the note says a transcription
 may hold mistakes. A text too long for one result is given in parts as
 any text is (below), cut where its pages begin. Core gives the text whole
-beside the version up to 64 KiB; a longer one is read a part at a time
+beside the version up to 64 KiB, the bodies of a version's files together
+(the rest are left out); a longer one is read a part at a time
 (`document_text`, with the caller's own token, which reads the text exactly
-where it reads the version), all at one revision, read again once should
-it change meanwhile; what was read is kept (`Runner.Texts`) under the
-version and its revision, and each worker drops it as Core's text events
-say the version's text changed (`document.text_updated`, `…rubric_…`,
-`…draft_…`, and their `_unreleased` forms). A model that takes files may
+where it reads the version, naming the file by its `file_id`), all at one
+revision, read again once should it change meanwhile; what was read is
+kept (`Runner.Texts`) under the file, which never changes (from a Core
+before #49, the version), and its revision, and each worker drops it as
+Core's text events say the file's text changed (`document.text_updated`,
+`…rubric_…`, `…draft_…`, and their `_unreleased` forms, whose payload
+names the `file_id` and the `version_id`: both are dropped). A model that takes files may
 ask for pages of the file itself to check one against the text:
 `file_pages`, the runtime's other argument of `document_get` (`"3"`,
 `"3-5"`; at most 10 at a time, and never more than its provider takes in a
@@ -614,7 +659,8 @@ their edges and nothing given twice. The file's record says which part
 (`part_holds`: `slides 1–16`, `the end of slide 17 to slide 20`), and,
 but for the last, the call that reads the next (`next_part`: `{"tool":
 "document_get", "arguments": {"document_id", "version_id", "file_part":
-2}}`), which its `note` says in words; the first part says how many there
+2}}`, and `file_id` for a file of a version of several), which its `note`
+says in words; the first part says how many there
 are, and, when there are at most twenty, what each of the others holds,
 so that a model looking for one slide asks for its part at once.
 
@@ -661,7 +707,8 @@ given whole, as before.
 
 What was read of a file is kept per worker (`toolset.TextCache`), so that
 the file is fetched and read once, not once a part: keyed by the version
-Core named, its checksum, and the limits it was read within, and kept
+Core named and the file of it (by its id, where Core lists files), its
+checksum, and the limits it was read within, and kept
 only for a model given the text (a file part needs its bytes, which are
 never kept). A version's file never changes, and the cache is reached
 only after Core has given the caller that version, so every agent of the

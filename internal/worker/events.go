@@ -214,10 +214,11 @@ var errSendUnderWay = errors.New("a decision on an action not yet stored, while 
 // read again.
 func (s *Seat) onEvent(ctx context.Context, ev core.Event, acts *actionLookup) error {
 	if core.IsTextEvent(ev.Type) {
-		var p struct {
-			VersionID string `json:"version_id"`
-		}
+		// A file's text is kept by the file (a Core since #49 names it),
+		// a version's one file's by the version: both go.
+		var p core.TextEventOf
 		if json.Unmarshal(ev.Payload, &p) == nil {
+			s.a.s.texts.DropText(p.FileID)
 			s.a.s.texts.DropText(p.VersionID)
 		}
 		return nil

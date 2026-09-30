@@ -20,11 +20,14 @@ import (
 // (pending, working, failed, skipped) changes nothing: the file is given as
 // before. Whether this runtime transcribes has no bearing on it.
 //
-// A text version read in parts (document_text, with the caller's own
-// token, which reads the text exactly where it reads the version) is kept
-// (Runner.Texts) under its version and revision, which every change of the
-// text moves on; the worker drops a version's kept text as Core's events
-// say it changed (DropText).
+// Each file of a version has a text version of its own (AIShie-Core #49),
+// given as the file's, under its name; a Core before it gives the
+// version's one file's. A text version read in parts (document_text, with
+// the caller's own token, which reads the text exactly where it reads the
+// version, naming the file) is kept (Runner.Texts) under its file, which
+// never changes (or, from a Core before #49, its version), and its
+// revision, which every change of the text moves on; the worker drops a
+// file's kept text as Core's events say it changed (DropText).
 
 // maxTextParts bounds the parts of a text version read: Core keeps at most
 // 2 MiB of text, in parts of at most 64 KiB.
@@ -56,7 +59,7 @@ func (r Runner) giveTextVersion(ctx context.Context, g given, d *docFile) (given
 	rec := g.rec
 	rec.GivenAs, rec.TextSource = givenText, textSource(tv)
 	var b strings.Builder
-	b.WriteString("file_text is the document's text version, which Core keeps beside the file: ")
+	b.WriteString("file_text is the file's text version, which Core keeps beside the file: ")
 	if tv.Source == core.SourceStaff {
 		b.WriteString("written or corrected by the course's staff")
 	} else {
@@ -86,7 +89,7 @@ func (r Runner) giveTextVersion(ctx context.Context, g given, d *docFile) (given
 // read is read again, once); nil where it cannot be read.
 func (r Runner) textVersion(ctx context.Context, d *docFile) *fileReading {
 	tv := d.text
-	if rd := r.Texts.get(textVersionKey(d.versionID, tv.Revision)); rd != nil {
+	if rd := r.Texts.get(textVersionKey(d.textOf(), tv.Revision)); rd != nil {
 		return rd
 	}
 	body, view := "", tv
@@ -102,12 +105,22 @@ func (r Runner) textVersion(ctx context.Context, d *docFile) *fileReading {
 	}
 	rd := &fileReading{mt: "text/markdown", size: int64(len(body)), text: view,
 		res: &doctext.Result{Text: body, Sections: headingSections(body)}}
-	r.Texts.put(textVersionKey(d.versionID, view.Revision), rd)
+	r.Texts.put(textVersionKey(d.textOf(), view.Revision), rd)
 	return rd
 }
 
-// readTextParts reads the version's text version a part at a time
-// (document_text), at one revision: the text, and the text version it is.
+// textOf is what d's text version is kept under: its file, which never
+// changes, where Core names it, and else its version, which has one file.
+func (d *docFile) textOf() string {
+	if d.fileID != "" {
+		return d.fileID
+	}
+	return d.versionID
+}
+
+// readTextParts reads the file's text version a part at a time
+// (document_text, naming the file where Core named it), at one revision:
+// the text, and the text version it is.
 func (r Runner) readTextParts(ctx context.Context, d *docFile) (string, *core.TextView, bool) {
 	if r.Client == nil || d.courseID == "" || d.documentID == "" {
 		return "", nil, false
@@ -117,8 +130,9 @@ func (r Runner) readTextParts(ctx context.Context, d *docFile) (string, *core.Te
 		var view *core.TextView
 		again := false
 		for part, parts := 1, 1; part <= parts; part++ {
-			tp, err := r.Client.TextPart(ctx, d.courseID, d.documentID, d.versionID, "", part)
-			if err != nil || tp.Text.Status != core.TextDone || tp.Parts < 1 || tp.Parts > maxTextParts {
+			tp, err := r.Client.TextPart(ctx, d.courseID, d.documentID, d.versionID, d.fileID, part)
+			if err != nil || tp.Text.Status != core.TextDone || tp.Parts < 1 || tp.Parts > maxTextParts ||
+				d.fileID != "" && tp.FileID != "" && !strings.EqualFold(tp.FileID, d.fileID) {
 				return "", nil, false
 			}
 			if part == 1 {
@@ -140,14 +154,16 @@ func (r Runner) readTextParts(ctx context.Context, d *docFile) (string, *core.Te
 	return "", nil, false
 }
 
-// textVersionKey is what a version's text version is kept under: apart
-// from the readings of files (textKey), by its version and revision.
-func textVersionKey(versionID string, revision int) string {
-	return textVersionPrefix(versionID) + strconv.Itoa(revision)
+// textVersionKey is what a file's text version is kept under: apart from
+// the readings of files (textKey), by its file (or, from a Core before
+// #49, its version) and revision.
+func textVersionKey(of string, revision int) string {
+	return textVersionPrefix(of) + strconv.Itoa(revision)
 }
 
-// textVersionPrefix begins the keys of a version's text versions.
-func textVersionPrefix(versionID string) string { return "text\x00" + versionID + "\x00" }
+// textVersionPrefix begins the keys of the text versions of a file, or of
+// a version's one file.
+func textVersionPrefix(of string) string { return "text\x00" + of + "\x00" }
 
 // headingSections are where a text version's pages and slides begin: at
 // its headings, "## 第 N 頁" and "## 投影片 N", as the transcriber writes
@@ -182,14 +198,15 @@ func pageHeading(line string) (string, int, bool) {
 	return kind, n, true
 }
 
-// DropText forgets what is kept of the version's text versions: the worker
-// calls it as Core's events say the version's text changed (core.
-// TextEvents), though a changed text is kept under its revision apart.
-func (c *TextCache) DropText(versionID string) {
-	if c == nil || versionID == "" {
+// DropText forgets what is kept of the text versions of the file of, or of
+// the version of's one file: the worker calls it as Core's events say the
+// text changed (core.TextEvents), with the file's id and the version's,
+// though a changed text is kept under its revision apart.
+func (c *TextCache) DropText(of string) {
+	if c == nil || of == "" {
 		return
 	}
-	prefix := textVersionPrefix(versionID)
+	prefix := textVersionPrefix(of)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for key, e := range c.byKey {

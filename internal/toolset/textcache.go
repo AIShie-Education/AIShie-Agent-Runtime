@@ -209,8 +209,10 @@ func (c *TextCache) Stats() TextCacheStats {
 }
 
 // textKey is what a document's reading is kept under: its version, as
-// Core names it, with the checksum Core gave, and the limits it is read
-// within. "" (nothing kept) when Core named no version.
+// Core names it, and the file of it, by its id where Core names one (a
+// version holds several since AIShie-Core #49), with the checksum Core
+// gave, and the limits it is read within. "" (nothing kept) when Core
+// named no version.
 func (r Runner) textKey(d *docFile) string {
 	if d.attachmentID != "" {
 		return r.attachmentKey(d)
@@ -218,7 +220,7 @@ func (r Runner) textKey(d *docFile) string {
 	if d.versionID == "" {
 		return ""
 	}
-	return fmt.Sprintf("%s\x00%s\x00%+v", d.versionID, d.checksum, r.DocLimits)
+	return fmt.Sprintf("%s\x00%s\x00%s\x00%+v", d.versionID, d.fileID, d.checksum, r.DocLimits)
 }
 
 // checksum is data's sha256, as "sha256:<hex>": Core's own form of a

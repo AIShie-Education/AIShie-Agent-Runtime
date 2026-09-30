@@ -116,6 +116,11 @@ const (
 // fileRecord is what became of a document's file, in the result the model
 // reads: it knows what the document holds even when it cannot read it.
 type fileRecord struct {
+	// FileID and Position are the file's id and place among its
+	// version's files, where Core gives them (AIShie-Core #49): what
+	// FileIDArg names it by.
+	FileID      string `json:"file_id,omitempty"`
+	Position    int    `json:"position,omitempty"`
 	Name        string `json:"name"`
 	ContentType string `json:"content_type,omitempty"`
 	ByteSize    int64  `json:"byte_size"`
@@ -163,8 +168,18 @@ type fileRecord struct {
 
 // docFile is a document_get result's file, as Core described it.
 type docFile struct {
+	// title is what the file is called: its name, where Core gives one,
+	// and else the document's title.
 	url, title, contentType string
 	byteSize                int64
+	// fileID and position are the file's id and place among its
+	// version's files, where Core lists them (version.files, AIShie-Core
+	// #49), "" and 0 where it gives the version's one file alone; several
+	// is that the version holds more than one, so that a call that reads
+	// more of this one names it (FileIDArg).
+	fileID   string
+	position int
+	several  bool
 	// documentID, versionID and checksum name the document and the
 	// version Core gave, as its result does: what a part of its text is
 	// asked for by, and kept under.
@@ -230,6 +245,9 @@ func (d *docFile) again(part int) *nextPart {
 	if d.versionID != "" {
 		args["version_id"] = d.versionID
 	}
+	if d.several && d.fileID != "" {
+		args[FileIDArg] = d.fileID
+	}
 	return &nextPart{Tool: FilePartTool, Arguments: args}
 }
 
@@ -240,38 +258,99 @@ func (d *docFile) readNext(k int) string {
 		return fmt.Sprintf("; part %d cannot be read here", k)
 	}
 	what := "this version"
-	if d.attachmentID != "" {
+	switch {
+	case d.attachmentID != "":
 		what = "this file"
+	case d.several && d.fileID != "":
+		what = "this file of this version"
 	}
 	return fmt.Sprintf("; to read part %d, call %s with next_part's arguments, which name %s", k, d.tool(), what)
 }
 
-// documentFile finds the file of a document_get result: its version's
-// download_url, with the document's title and the version's content type
-// and size. nil when there is none.
-func documentFile(result any) *docFile {
+// docVersion is a document_get result's version, as Core described it:
+// the document, the version, and its files, in order.
+type docVersion struct {
+	documentID, versionID, title string
+	files                        []*docFile
+}
+
+// documentVersion finds the files of a document_get result: its version's
+// files (version.files, each with its id, place, name, type, size,
+// checksum, download_url and text version) where Core lists them
+// (AIShie-Core #49); where it does not (a Core before it), the version's
+// one file, its download_url, with the document's title and the version's
+// content type, size, checksum and text version. nil when Core gave no
+// version.
+func documentVersion(result any) *docVersion {
 	m, _ := result.(map[string]any)
 	version, _ := m["version"].(map[string]any)
-	u, _ := version["download_url"].(string)
-	if u == "" {
+	if version == nil {
 		return nil
 	}
-	d := &docFile{url: u}
-	d.title, _ = m["title"].(string)
-	d.documentID, _ = m["id"].(string)
-	d.versionID, _ = version["id"].(string)
-	d.checksum, _ = version["checksum"].(string)
-	d.contentType, _ = version["content_type"].(string)
-	if n, ok := version["byte_size"].(json.Number); ok {
+	v := &docVersion{}
+	v.title, _ = m["title"].(string)
+	v.documentID, _ = m["id"].(string)
+	v.versionID, _ = version["id"].(string)
+	if files, listed := version["files"].([]any); listed {
+		for i, raw := range files {
+			f, _ := raw.(map[string]any)
+			u, _ := f["download_url"].(string)
+			if f == nil || u == "" {
+				continue
+			}
+			d := v.file(u, f)
+			d.fileID, _ = f["id"].(string)
+			d.title, _ = f["filename"].(string)
+			if d.title == "" {
+				d.title = v.title
+			}
+			d.position = i + 1
+			if n, ok := f["position"].(json.Number); ok {
+				if p, err := n.Int64(); err == nil && p > 0 {
+					d.position = int(p)
+				}
+			}
+			v.files = append(v.files, d)
+		}
+		for _, d := range v.files {
+			d.several = len(v.files) > 1
+		}
+		return v
+	}
+	if u, _ := version["download_url"].(string); u != "" {
+		d := v.file(u, version)
+		d.title = v.title
+		v.files = []*docFile{d}
+	}
+	return v
+}
+
+// file is the file of v at url that f describes, as a version or one of
+// its files describes it: its type, size, checksum and text version.
+func (v *docVersion) file(url string, f map[string]any) *docFile {
+	d := &docFile{url: url, documentID: v.documentID, versionID: v.versionID}
+	d.checksum, _ = f["checksum"].(string)
+	d.contentType, _ = f["content_type"].(string)
+	if n, ok := f["byte_size"].(json.Number); ok {
 		d.byteSize, _ = n.Int64()
 	}
-	if t, ok := version["text"].(map[string]any); ok {
+	if t, ok := f["text"].(map[string]any); ok {
 		var tv core.TextView
 		if json.Unmarshal([]byte(encodeJSON(t)), &tv) == nil && tv.Status != "" {
 			d.text = &tv
 		}
 	}
 	return d
+}
+
+// byID is v's file of id, nil for none.
+func (v *docVersion) byID(id string) *docFile {
+	for _, d := range v.files {
+		if d.fileID != "" && strings.EqualFold(d.fileID, id) {
+			return d
+		}
+	}
+	return nil
 }
 
 // kinds of file, by what the model can be given.
@@ -409,7 +488,7 @@ type given struct {
 // (Runner.Texts), and a later call for the same version, a later part of
 // it, reads it there without fetching the file again.
 func (r Runner) giveFile(ctx context.Context, d *docFile, part int) given {
-	rec := &fileRecord{Name: d.title, ContentType: d.contentType, ByteSize: d.byteSize, GivenAs: givenNot}
+	rec := &fileRecord{FileID: d.fileID, Position: d.position, Name: d.title, ContentType: d.contentType, ByteSize: d.byteSize, GivenAs: givenNot}
 	g := given{rec: rec}
 	// The version's text version first, where it is done, unless the
 	// model asked for pages of the file, which only a model that takes
@@ -441,7 +520,7 @@ func (r Runner) giveFile(ctx context.Context, d *docFile, part int) given {
 		}
 		return r.giveReading(ctx, g, d, kept, "", nil)
 	}
-	f, err := r.Files.Fetch(ctx, d.url, r.MaxFileBytes)
+	f, err := r.fetch(ctx, d)
 	switch {
 	case errors.Is(err, ErrTooLarge):
 		rec.Note = r.tooLarge()
@@ -507,6 +586,25 @@ func (r Runner) giveFile(ctx context.Context, d *docFile, part int) given {
 		}
 	}
 	return r.giveReading(ctx, g, d, rd, past, f.Data)
+}
+
+// fetch fetches d's file from the URL Core gave for it; where that has
+// lapsed (the file server refuses it), a file of a version Core names by
+// its id is fetched once more from a fresh URL, which document_file gives
+// with the caller's own token, as it gives the version.
+func (r Runner) fetch(ctx context.Context, d *docFile) (*FetchedFile, error) {
+	f, err := r.Files.Fetch(ctx, d.url, r.MaxFileBytes)
+	var fe *FetchError
+	if !errors.As(err, &fe) || fe.Status != http.StatusForbidden && fe.Status != http.StatusNotFound && fe.Status != http.StatusGone ||
+		d.fileID == "" || d.attachmentID != "" || r.Client == nil || d.courseID == "" || d.documentID == "" {
+		return f, err
+	}
+	fresh, ferr := r.Client.DocumentFile(ctx, d.courseID, d.documentID, d.fileID)
+	if ferr != nil || fresh.DownloadURL == "" || fresh.VersionID != "" && d.versionID != "" && fresh.VersionID != d.versionID {
+		return f, err
+	}
+	d.url = fresh.DownloadURL
+	return r.Files.Fetch(ctx, d.url, r.MaxFileBytes)
 }
 
 // noPages says why the pages of a file the model asked for

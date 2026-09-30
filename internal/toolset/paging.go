@@ -9,6 +9,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
+
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext"
 )
 
@@ -35,6 +37,22 @@ const FilePartArg = "file_part"
 // version is what the model reads (textversion.go).
 const FilePagesArg = "file_pages"
 
+// FileIDArg is the runtime's third argument of FilePartTool: which file of
+// a version of several (AIShie-Core #49) to read, by its id, as
+// result.version.files lists them; a part or pages then are of that file.
+// Omitted, a version of one file is read as it always was, and one of
+// several is read file by file, as much of each as a result has room for.
+const FileIDArg = "file_id"
+
+// fileIDProperty is FileIDArg as the model is shown it.
+var fileIDProperty = map[string]any{
+	"type":   []any{"null", "string"},
+	"format": "uuid",
+	"description": "which of the version's files to read, by its id (result.version.files[].id, files[].file_id): a version may hold " +
+		"several files, and file_part or file_pages are of the file it names; omit it to read the version's files in order, as much " +
+		"of each as fits",
+}
+
 // filePartProperty is FilePartArg as the model is shown it.
 var filePartProperty = map[string]any{
 	"type":    []any{"null", "integer"},
@@ -47,7 +65,7 @@ var filePartProperty = map[string]any{
 var filePagesProperty = map[string]any{
 	"type": []any{"null", "string"},
 	"description": "pages of the file itself to see, as a PDF of their own, such as \"3\" or \"3-5\" (at most " +
-		strconv.Itoa(maxFilePages) + " at a time): where file.text_source says file_text is the document's text version, to check a " +
+		strconv.Itoa(maxFilePages) + " at a time): where file.text_source says file_text is the file's text version, to check a " +
 		"page, a figure or a formula against the file; omit it to read the text",
 }
 
@@ -55,8 +73,8 @@ var filePagesProperty = map[string]any{
 // what the model's provider takes in one file (Runner.partPages).
 const maxFilePages = 10
 
-// withFilePart is Core's input schema of FilePartTool with FilePartArg and
-// FilePagesArg added, as the model is shown it. Core's schema naming
+// withFilePart is Core's input schema of FilePartTool with FilePartArg,
+// FilePagesArg and FileIDArg added, as the model is shown it. Core's schema naming
 // either itself is an error: the two would be one argument.
 func withFilePart(schema json.RawMessage) (json.RawMessage, error) {
 	v, err := decodeJSON(schema)
@@ -72,13 +90,14 @@ func withFilePart(schema json.RawMessage) (json.RawMessage, error) {
 		props = map[string]any{}
 		m["properties"] = props
 	}
-	for _, arg := range []string{FilePartArg, FilePagesArg} {
+	for _, arg := range []string{FilePartArg, FilePagesArg, FileIDArg} {
 		if _, taken := props[arg]; taken {
 			return nil, fmt.Errorf("toolset: Core's %s now takes %s itself, an argument the runtime adds for reading a file", FilePartTool, arg)
 		}
 	}
 	props[FilePartArg] = filePartProperty
 	props[FilePagesArg] = filePagesProperty
+	props[FileIDArg] = fileIDProperty
 	return json.RawMessage(encodeJSON(m)), nil
 }
 
@@ -86,10 +105,12 @@ func withFilePart(schema json.RawMessage) (json.RawMessage, error) {
 var errFilePart = errors.New("toolset: " + FilePartArg + " must be a whole number from 1")
 
 // fileArgs are what the model asked of a document's file by the runtime's
-// own arguments: the part of it (FilePartArg), 0 for none, or its pages
-// first to last (FilePagesArg), 0 for none; and the course the call is
-// in, which a text version's parts are read in.
+// own arguments: the file of the version (FileIDArg), "" for none; the
+// part of it (FilePartArg), 0 for none, or its pages first to last
+// (FilePagesArg), 0 for none; and the course the call is in, which a text
+// version's parts are read in.
 type fileArgs struct {
+	fileID      string
 	part        int
 	first, last int
 	courseID    string
@@ -102,10 +123,10 @@ func (e filePagesError) Error() string {
 	return fmt.Sprintf("toolset: %s names pages of the file, such as \"3\" or \"3-5\", at most %d at a time", FilePagesArg, e.most)
 }
 
-// takeFileArgs takes FilePartArg and FilePagesArg out of a call's
-// arguments, which must be a JSON object (or nothing): the part asked for,
-// or the pages, at most most of them (null is none), and the arguments
-// without them, for Core.
+// takeFileArgs takes FilePartArg, FilePagesArg and FileIDArg out of a
+// call's arguments, which must be a JSON object (or nothing): the file
+// asked for, the part, or the pages, at most most of them (null is none),
+// and the arguments without them, for Core.
 func takeFileArgs(args json.RawMessage, most int) (fileArgs, json.RawMessage, error) {
 	var fa fileArgs
 	if len(strings.TrimSpace(string(args))) == 0 {
@@ -121,12 +142,22 @@ func takeFileArgs(args json.RawMessage, most int) (fileArgs, json.RawMessage, er
 	}
 	rawPart, hasPart := m[FilePartArg]
 	rawPages, hasPages := m[FilePagesArg]
-	if !hasPart && !hasPages {
+	rawFile, hasFile := m[FileIDArg]
+	if !hasPart && !hasPages && !hasFile {
 		return fa, args, nil
 	}
 	delete(m, FilePartArg)
 	delete(m, FilePagesArg)
+	delete(m, FileIDArg)
 	out := json.RawMessage(encodeJSON(m))
+	if rawFile != nil {
+		s, _ := rawFile.(string)
+		id, err := uuid.Parse(strings.TrimSpace(s))
+		if err != nil {
+			return fa, out, errFileID
+		}
+		fa.fileID = id.String()
+	}
 	if rawPart != nil {
 		num, ok := rawPart.(json.Number)
 		if !ok {
@@ -151,6 +182,9 @@ func takeFileArgs(args json.RawMessage, most int) (fileArgs, json.RawMessage, er
 	}
 	return fa, out, nil
 }
+
+// errFileID is a FileIDArg that is not a file's id.
+var errFileID = errors.New("toolset: " + FileIDArg + " must be a file's id")
 
 // errBothFileArgs is a call that asks for a part of the file's text and
 // pages of the file at once.
