@@ -83,6 +83,9 @@ const (
 	ReasonSettingsRejected       = "settings_rejected"
 	// An administrators' route asked by someone else.
 	ReasonNotAdmin = "not_admin"
+	// The site's settings and the school's plan, as administrators change
+	// them.
+	ReasonOCRUnavailable = "ocr_unavailable"
 )
 
 // maxMessage bounds a message, in bytes, as Core's apperr.Clip does.

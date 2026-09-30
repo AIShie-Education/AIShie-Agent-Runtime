@@ -56,7 +56,7 @@ type OwnerPlanUse struct {
 
 // errNotAdmin is a route of the runtime's administrators asked by someone
 // else.
-var errNotAdmin = Error{Code: CodeForbidden, Reason: ReasonNotAdmin, Message: "only the runtime's administrators may read this"}
+var errNotAdmin = Error{Code: CodeForbidden, Reason: ReasonNotAdmin, Message: "only the runtime's administrators may read or change this"}
 
 func (s *Server) schoolPlanUsage(w http.ResponseWriter, r *http.Request, c *Caller) {
 	if !c.IsAdmin {

@@ -115,12 +115,12 @@ func ReadSite(ctx context.Context, r SiteReader) (config.Site, error) {
 		switch st.Name {
 		case store.SettingOCR:
 			var o config.SiteOCR
-			if decodeSetting(st.Value, &o) {
+			if DecodeSetting(st.Value, &o) {
 				site.OCR = o
 			}
 		case store.SettingSchoolQuotas:
 			var q config.SiteQuotas
-			if decodeSetting(st.Value, &q) {
+			if DecodeSetting(st.Value, &q) {
 				site.Quotas = &q
 			}
 		}
@@ -133,9 +133,9 @@ func ReadSite(ctx context.Context, r SiteReader) (config.Site, error) {
 	return site, nil
 }
 
-// decodeSetting reads a setting's value into v, strictly: every member
-// known, of its type, and nothing after.
-func decodeSetting(raw json.RawMessage, v any) bool {
+// DecodeSetting reads a setting's value into v, strictly, as ReadSite
+// does: every member known, of its type, and nothing after.
+func DecodeSetting(raw json.RawMessage, v any) bool {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	if dec.Decode(v) != nil {

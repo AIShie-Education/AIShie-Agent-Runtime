@@ -186,6 +186,8 @@ func New(o Options) *Server {
 	s.mux.Handle("GET "+Prefix+"models", s.authed(s.models))
 	s.mux.Handle("POST "+Prefix+"keys/test", s.authedBody(s.limitedKeyTest(s.audited("key.test", s.testKey))))
 	s.mux.Handle("GET "+Prefix+"admin/school-plan/usage", s.authed(s.schoolPlanUsage))
+	s.mux.Handle("GET "+Prefix+"admin/settings", s.authed(s.getSettings))
+	s.mux.Handle("PATCH "+Prefix+"admin/settings", s.authedBody(s.audited("settings.update", s.patchSettings)))
 
 	guard := http.NewCrossOriginProtection()
 	guard.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
