@@ -26,7 +26,7 @@ func ifMatch(r *http.Request) (version int, named bool, bad *Error) {
 		return 0, false, nil
 	}
 	refuse := &Error{Code: CodeInvalidArgument, Reason: ReasonBadIfMatch,
-		Message: `If-Match must be one strong entity tag of the agent's version, such as "7"`}
+		Message: `If-Match must be one strong entity tag of a version read, such as "7"`}
 	inner, ok := strings.CutPrefix(v, `"`)
 	if !ok {
 		return 0, false, refuse

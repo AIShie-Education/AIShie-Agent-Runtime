@@ -86,6 +86,12 @@ const (
 	// The site's settings and the school's plan, as administrators change
 	// them.
 	ReasonOCRUnavailable = "ocr_unavailable"
+	ReasonOfferNotFound  = "offer_not_found"
+	ReasonOfferExists    = "offer_exists"
+	ReasonOfferReadOnly  = "offer_read_only"
+	ReasonOfferNotPriced = "offer_not_priced"
+	ReasonKeyRequired    = "key_required"
+	ReasonKeyTestFailed  = "key_test_failed"
 )
 
 // maxMessage bounds a message, in bytes, as Core's apperr.Clip does.

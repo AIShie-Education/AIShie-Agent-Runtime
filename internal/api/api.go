@@ -188,6 +188,13 @@ func New(o Options) *Server {
 	s.mux.Handle("GET "+Prefix+"admin/school-plan/usage", s.authed(s.schoolPlanUsage))
 	s.mux.Handle("GET "+Prefix+"admin/settings", s.authed(s.getSettings))
 	s.mux.Handle("PATCH "+Prefix+"admin/settings", s.authedBody(s.audited("settings.update", s.patchSettings)))
+	s.mux.Handle("GET "+Prefix+"admin/school-plan", s.authed(s.getSchoolPlan))
+	s.mux.Handle("POST "+Prefix+"admin/school-plan/offers", s.authedBody(s.audited("school_offer.create", s.createOffer)))
+	s.mux.Handle("GET "+Prefix+"admin/school-plan/offers/{id}", s.authed(s.getOffer))
+	s.mux.Handle("PATCH "+Prefix+"admin/school-plan/offers/{id}", s.authedBody(s.audited("school_offer.update", s.updateOffer)))
+	s.mux.Handle("DELETE "+Prefix+"admin/school-plan/offers/{id}", s.authed(s.audited("school_offer.delete", s.deleteOffer)))
+	s.mux.Handle("PUT "+Prefix+"admin/school-plan/quotas", s.authedBody(s.audited("school_quotas.update", s.putQuotas)))
+	s.mux.Handle("DELETE "+Prefix+"admin/school-plan/quotas", s.authed(s.audited("school_quotas.reset", s.resetQuotas)))
 
 	guard := http.NewCrossOriginProtection()
 	guard.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
