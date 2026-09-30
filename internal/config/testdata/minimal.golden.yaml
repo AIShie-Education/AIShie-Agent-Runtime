@@ -17,7 +17,7 @@ model:
     provider: ""
     region: ""
     params:
-        max_output_tokens: 2000
+        max_output_tokens: 4000
         temperature: null
         top_p: null
     reasoning:
@@ -59,8 +59,8 @@ budgets:
         tool_calls: 12
         max_writes: 10
         input_tokens: 150000
-        output_tokens: 4000
-        wall_clock_s: 90
+        output_tokens: 12000
+        wall_clock_s: 180
     per_agent_day:
         usd: null
         answers: null

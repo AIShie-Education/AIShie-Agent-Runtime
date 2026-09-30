@@ -43,7 +43,7 @@ agent:
     on_quota_exhausted: canned     # canned | silent
     max_body_chars: 19000          # Core's limit is 20000
   budgets:
-    per_answer: {turns: 8, tool_calls: 12, max_writes: 10, input_tokens: 150000, output_tokens: 4000, wall_clock_s: 90}
+    per_answer: {turns: 8, tool_calls: 12, max_writes: 10, input_tokens: 150000, output_tokens: 12000, wall_clock_s: 180}
     per_agent_day: {usd: 20.00, answers: 2000}
     per_asker_day: {answers: 30, usd: 0.40}   # keyed on (course_id, opener member_id)
   polling:

@@ -120,8 +120,9 @@ func TestDefaultsGolden(t *testing.T) {
 	// Spot checks against design §9, in case the golden file is rewritten
 	// carelessly.
 	if a.Core.Transport != "mcp" || a.Core.MCPProtocol != "2025-11-25" || a.Model.KeySource != "own" ||
-		a.Model.Params.MaxOutputTokens != 2000 || a.Tools.MaxParallelTools != 4 || a.Answer.MaxBodyChars != 19000 ||
-		a.Budgets.PerAnswer.WallClock() != 90*time.Second || a.Budgets.PerAgentDay.set() || a.Budgets.PerAskerDay.set() ||
+		a.Model.Params.MaxOutputTokens != 4000 || a.Tools.MaxParallelTools != 4 || a.Answer.MaxBodyChars != 19000 ||
+		a.Budgets.PerAnswer.OutputTokens != 12000 || a.Budgets.PerAnswer.WallClock() != 180*time.Second ||
+		a.Budgets.PerAgentDay.set() || a.Budgets.PerAskerDay.set() ||
 		a.Polling.MaxRateShare != 0.3 || a.Polling.AssumedCoreBurst != 100 || !a.Memory.Enabled || a.Prompt.OnTruncatedText != DefaultTruncatedText {
 		t.Fatalf("defaults: %+v", a)
 	}

@@ -19,9 +19,11 @@ import (
 )
 
 const (
-	// maxCallTimeout bounds one model call (§7.1: "timeout = min(60 s, the
-	// wall clock left)").
-	maxCallTimeout = 60 * time.Second
+	// maxCallTimeout bounds one model call, within the wall clock left.
+	// §7.1 has min(60 s, the wall clock left), for a cap of 2,000 tokens;
+	// at the default 4,000, a slow provider (some 35 tokens a second) needs
+	// about two minutes, and an answer the timeout cut off would be lost.
+	maxCallTimeout = 120 * time.Second
 	// modelTries is how often one adapter is called for one turn while its
 	// errors are retryable.
 	modelTries = 3
@@ -404,11 +406,11 @@ func (l *loop) onText() llm.TextFunc {
 	return l.d.text
 }
 
-// timeout is a model call's: min(60 s, the wall clock left). A last turn
-// forced by a spent wall clock is given a grace of its own, a sixth of the
-// wall clock and at most 15 s, within the claim's own deadline. While a
-// fallback remains, the model gets two thirds of what is left, so that a
-// provider that hangs leaves its fallback time to answer.
+// timeout is a model call's: min(maxCallTimeout, the wall clock left). A
+// last turn forced by a spent wall clock is given a grace of its own, a
+// sixth of the wall clock and at most 15 s, within the claim's own
+// deadline. While a fallback remains, the model gets two thirds of what is
+// left, so that a provider that hangs leaves its fallback time to answer.
 func (l *loop) timeout(ctx context.Context, forced bool) time.Duration {
 	left := l.deadline.Sub(l.c.a.now())
 	if forced {

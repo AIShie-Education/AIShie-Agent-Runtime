@@ -955,7 +955,10 @@ For an inbox row (conversation X, question M, opener P):
    is left; tool calls past their budget get an error result and never reach
    Core. A last turn forced by the wall clock gets min(wall clock / 6, 15 s)
    more; the claim's Core calls stop at the wall clock plus 25 s, inside the
-   lease. A provider that cannot be reached is tried up to three times
+   lease. A call is given the wall clock left, at most 120 s: §7.1's 60 s
+   was for a cap of 2,000 tokens, and a whole cap of the default 4,000 at a
+   slow provider's pace takes about two minutes, where a timeout would lose
+   the answer. A provider that cannot be reached is tried up to three times
    with backoff within the wall clock (honouring `Retry-After`), then the
    fallback model, which an auth or bad-request error also moves to. While a
    fallback remains, a call gets two thirds of the time left, and one that
@@ -1300,7 +1303,8 @@ Postgres (`DATABASE_URL`) for anything that matters.
 
 ## 9. Defaults
 
-The built-in defaults are §4's example: MCP at `2025-11-25`; tools derived,
+The built-in defaults are §4's example: MCP at `2025-11-25`; the owner's own
+key and 4,000 output tokens a call; tools derived,
 the read tools of §2.3 and every gated read (a document's versions, where
 students stand on an assignment, the roster, the queues of proposals) and
 the gated writes allowed, writes off (`tools.writes`, on for a hosted
@@ -1308,7 +1312,7 @@ agent), four in parallel; three attempts,
 then close; the canned notice when out of quota; 19,000 characters; the
 newest 30 messages; eight answers at once per agent, four per course; per
 answer 8 turns, 12 tool calls of which at most 10 writes (`max_writes`),
-150,000 input and 4,000 output tokens, 90 s; no daily
+150,000 input and 12,000 output tokens, 180 s; no daily
 quotas unless set (a school key requires per-agent and per-asker ones, but
 an offer of the school's plan, whose quotas are 100 answers a day per
 owner and 20 per asker unless `runtime.school` sets them);
@@ -1323,7 +1327,9 @@ text given in parts of 24 KB within results of 32 KB, what was read kept
 per worker up to 32 MiB; OCR on where its programs are, in
 `chi_sim+chi_tra+eng`, 40 pages at 300 dpi, 90 s a page and 15 min a file,
 1 GiB a program, one file at a time per worker and eight waiting, the first
-question waiting 5 s for it.
+question waiting 5 s for it. The output tokens, a call's and an answer's,
+and the wall clock are more than §4's example (2,000, 4,000 and 90 s),
+which a long answer, in Chinese with a table, overran, and was cut off.
 
 ## 10. Tests
 
