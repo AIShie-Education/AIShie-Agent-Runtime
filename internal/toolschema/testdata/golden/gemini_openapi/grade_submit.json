@@ -51,6 +51,10 @@
       "description": "files to return with the grade, uploaded beforehand (optional; omit or null)",
       "items": {
         "properties": {
+          "filename": {
+            "description": "the file's name, as it downloads: 1 to 255 characters on one line, a name and not a path; if omitted, the name given to document.upload_url, or else the title with its type's extension",
+            "type": "string"
+          },
           "title": {
             "type": "string"
           },

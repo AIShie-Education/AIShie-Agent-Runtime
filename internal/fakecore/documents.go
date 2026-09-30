@@ -84,3 +84,70 @@ func documentCreate() *impl {
 		},
 	})
 }
+
+// fileView is a file of a version, as Core shows it (version.files).
+type fileView struct {
+	ID          string    `json:"id"`
+	Position    int       `json:"position"`
+	Filename    string    `json:"filename"`
+	ContentType string    `json:"content_type"`
+	ByteSize    int64     `json:"byte_size"`
+	Checksum    *string   `json:"checksum,omitempty"`
+	DownloadURL *string   `json:"download_url,omitempty"`
+	Text        *textView `json:"text,omitempty"`
+}
+
+// filesOf is doc's version's files as Core lists them: document_get's with
+// their download URLs at base and their text versions' bodies (full), and
+// document_versions' without either. Never nil.
+func filesOf(doc *document, base string, full bool) []fileView {
+	out := []fileView{}
+	if doc.file == nil {
+		return out
+	}
+	ct := ""
+	if doc.contentType != nil {
+		ct = *doc.contentType
+	}
+	f := fileView{ID: doc.fileID, Position: 1, Filename: nameFromTitle(doc.title, ct), ContentType: ct, ByteSize: int64(len(doc.file))}
+	if full {
+		url := base + blobPath + doc.fileToken
+		f.DownloadURL = &url
+	}
+	if doc.text != nil {
+		f.Text = doc.text.view(full)
+	}
+	return append(out, f)
+}
+
+// nameFromTitle is a file's name made from a title, as Core makes one for
+// a file named nowhere else: control and bidi characters and slashes made
+// spaces, "file" for nothing, and the extension of its type added unless
+// it ends with it.
+func nameFromTitle(title, contentType string) string {
+	name := strings.TrimSpace(strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || r == '/' || r == '\\' || r >= 0x202a && r <= 0x202e || r >= 0x2066 && r <= 0x2069 || r == 0x200e || r == 0x200f {
+			return ' '
+		}
+		return r
+	}, title))
+	if name == "" {
+		name = "file"
+	}
+	mt, _, _ := strings.Cut(contentType, ";")
+	ext := map[string]string{
+		"application/pdf": ".pdf", "application/msword": ".doc",
+		"application/vnd.openxmlformats-officedocument.wordprocessingml.document":   ".docx",
+		"application/vnd.ms-powerpoint":                                             ".ppt",
+		"application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+		"application/vnd.ms-excel":                                                  ".xls",
+		"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":         ".xlsx",
+		"text/plain": ".txt", "text/markdown": ".md", "text/csv": ".csv", "text/html": ".html", "text/x-python": ".py",
+		"application/json": ".json", "application/zip": ".zip", "image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif",
+		"image/webp": ".webp",
+	}[strings.ToLower(strings.TrimSpace(mt))]
+	if ext != "" && !strings.HasSuffix(strings.ToLower(name), ext) {
+		name += ext
+	}
+	return name
+}

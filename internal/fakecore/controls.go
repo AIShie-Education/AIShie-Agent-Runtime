@@ -195,6 +195,7 @@ func (c *Core) AddCourse(code string) Course {
 	syllabus.bodyMD = ptr("# " + code + " syllabus\n\nWeekly lectures, one assignment a fortnight, and a final exam.")
 	slides := doc(kindMaterial, "Lecture 1 slides", 1)
 	slides.file, slides.contentType, slides.fileToken = []byte("%PDF-1.4\n% fakecore: lecture 1 slides\n"), ptr("application/pdf"), fileToken()
+	slides.fileID = newID()
 	c.blobs[slides.fileToken] = slides
 	instructions := doc(kindInstructions, "HW1 instructions", 2)
 	instructions.bodyMD = ptr("Answer the three questions at the end of chapter 1. Show your working.")
@@ -227,7 +228,7 @@ func (c *Core) AddFile(courseID, title, contentType string, data []byte) (string
 	}
 	now := c.now()
 	d := &document{id: newID(), kind: kindMaterial, title: title, course: co, sortOrder: len(co.documents), createdAt: now,
-		versionID: newID(), authorMemberID: newID(), versionCreatedAt: now, file: bytes.Clone(data), fileToken: fileToken()}
+		versionID: newID(), authorMemberID: newID(), versionCreatedAt: now, file: bytes.Clone(data), fileToken: fileToken(), fileID: newID()}
 	if contentType != "" {
 		d.contentType = &contentType
 	}

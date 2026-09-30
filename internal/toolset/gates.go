@@ -246,6 +246,12 @@ var BuiltinDeny = []string{
 	// A signed upload URL is for bytes, which the model cannot send, and
 	// is a credential for the upload besides.
 	"document_upload_url",
+	// One file of a version with a fresh URL, which is a credential for
+	// the file: document_get gives the model every file of a version, and
+	// one of them by the runtime's own file_id, fetched by the runtime
+	// itself (design §4, Files), which asks document_file for a fresh URL
+	// when one has lapsed.
+	"document_file",
 	// Purging a document or a version, uploaded by mistake, deletes its
 	// text and file for good: an administrator's tool, which no course
 	// permission grants.
@@ -276,6 +282,11 @@ var BuiltinDeny = []string{
 	// and revoked by the platform's administrators alone, and a token
 	// issued is a credential in the model's text.
 	"service_*",
+	// The site's identity providers for single sign-on, set up, changed,
+	// switched, removed and tested by the platform's administrators
+	// alone: a provider's client secret is a credential, and a change
+	// decides who signs in.
+	"sso_*",
 }
 
 // BuiltinDenied reports whether name is on the built-in deny list.

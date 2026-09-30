@@ -190,17 +190,19 @@ type assignment struct {
 // draft, as Core's material, instructions and rubrics do, and a draft
 // without text has no version.
 type document struct {
-	id, kind, title  string
-	course           *course
-	sortOrder        int
-	createdAt        time.Time
-	draft            bool
-	versionID        string
-	authorMemberID   string
-	bodyMD           *string
-	file             []byte
-	contentType      *string
-	fileToken        string
+	id, kind, title string
+	course          *course
+	sortOrder       int
+	createdAt       time.Time
+	draft           bool
+	versionID       string
+	authorMemberID  string
+	bodyMD          *string
+	file            []byte
+	contentType     *string
+	fileToken       string
+	// fileID is the version's one file's id, as version.files names it.
+	fileID           string
 	submission       *submission
 	grade            *grade
 	versionCreatedAt time.Time

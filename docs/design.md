@@ -422,6 +422,11 @@ by `Run`; each entry has its reason beside it in the code:
   `actor_lookup_by_email`, the departments' administrators' own.)
 - `document_upload_url`: a signed URL for bytes the model cannot send, and a
   credential for the upload besides.
+- `document_file`: one file of a version with a fresh URL, a credential for
+  the file. `document_get` gives the model every file of a version, and one
+  of them by the runtime's own `file_id` (Files, below), fetched by the
+  runtime, which asks `document_file` itself for a fresh URL where one has
+  lapsed.
 - `document_purge`: removing a document's or a version's text and file for
   good, an administrator's tool, which no course permission grants.
 - `course_join_link_create`: a link that seats whoever opens it as a
@@ -445,6 +450,10 @@ by `Run`; each entry has its reason beside it in the code:
 - `service_*`: the site's service credentials, issued, listed and revoked by
   its administrators alone; a token issued is a credential in the model's
   text.
+- `sso_*`: the site's identity providers for single sign-on, set up,
+  changed, switched, removed and tested by the platform's administrators
+  alone: a provider's client secret is a credential, and a change decides
+  who signs in.
 
 `deny` entries ending in `*` cover every tool they begin. The model sees
 each tool through `toolschema`: bound arguments removed (`course_id`,

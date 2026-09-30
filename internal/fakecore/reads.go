@@ -433,15 +433,18 @@ type documentGetIn struct {
 }
 
 type versionView struct {
-	ID             string    `json:"id"`
-	Seq            int       `json:"seq"`
-	BodyMD         *string   `json:"body_md,omitempty"`
-	DownloadURL    *string   `json:"download_url,omitempty"`
-	ContentType    *string   `json:"content_type,omitempty"`
-	ByteSize       *int64    `json:"byte_size,omitempty"`
-	AuthorMemberID string    `json:"author_member_id"`
-	CreatedAt      time.Time `json:"created_at"`
-	Published      bool      `json:"published"`
+	ID          string  `json:"id"`
+	Seq         int     `json:"seq"`
+	BodyMD      *string `json:"body_md,omitempty"`
+	DownloadURL *string `json:"download_url,omitempty"`
+	ContentType *string `json:"content_type,omitempty"`
+	ByteSize    *int64  `json:"byte_size,omitempty"`
+	// Files are the version's files, in order: the fake's versions have
+	// one at most.
+	Files          []fileView `json:"files"`
+	AuthorMemberID string     `json:"author_member_id"`
+	CreatedAt      time.Time  `json:"created_at"`
+	Published      bool       `json:"published"`
 	// Text is the version's text version, for a version with a file of a
 	// course's document (text.go).
 	Text *textView `json:"text,omitempty"`
@@ -497,7 +500,7 @@ func documentGet() *impl {
 			var version *versionView
 			if doc.versionID != "" {
 				version = &versionView{ID: doc.versionID, Seq: 1, BodyMD: doc.bodyMD, ContentType: doc.contentType,
-					AuthorMemberID: doc.authorMemberID, CreatedAt: doc.versionCreatedAt, Published: !doc.draft}
+					AuthorMemberID: doc.authorMemberID, CreatedAt: doc.versionCreatedAt, Published: !doc.draft, Files: filesOf(doc, rc.base, true)}
 			}
 			v := version
 			if doc.file != nil && v != nil {

@@ -350,7 +350,7 @@ func fakeCore(t *testing.T) (*fakecore.Core, *httptest.Server) {
 func TestCatalogue(t *testing.T) {
 	_, srv := fakeCore(t)
 	code, out, errs := runCmd(t, env(), "catalogue", "--core", srv.URL)
-	if code != exitOK || !strings.HasPrefix(out, worker.SnapshotCatalogueHash+"  147 tools") {
+	if code != exitOK || !strings.HasPrefix(out, worker.SnapshotCatalogueHash+"  155 tools") {
 		t.Fatalf("catalogue: %d\n%s%s", code, out, errs)
 	}
 	for _, snapshot := range []string{"../../internal/core/testdata/catalogue.json", "../../internal/core/testdata/catalogue.sha256"} {
