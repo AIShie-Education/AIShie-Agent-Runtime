@@ -433,21 +433,21 @@ type documentGetIn struct {
 }
 
 type versionView struct {
-	ID          string  `json:"id"`
-	Seq         int     `json:"seq"`
-	BodyMD      *string `json:"body_md,omitempty"`
+	ID     string  `json:"id"`
+	Seq    int     `json:"seq"`
+	BodyMD *string `json:"body_md,omitempty"`
+	// DownloadURL, ContentType, ByteSize, Checksum and Text are the first
+	// file's, as Core keeps them for the runtimes of the release before.
 	DownloadURL *string `json:"download_url,omitempty"`
 	ContentType *string `json:"content_type,omitempty"`
 	ByteSize    *int64  `json:"byte_size,omitempty"`
-	// Files are the version's files, in order: the fake's versions have
-	// one at most.
+	Checksum    *string `json:"checksum,omitempty"`
+	// Files are the version's files, in order.
 	Files          []fileView `json:"files"`
 	AuthorMemberID string     `json:"author_member_id"`
 	CreatedAt      time.Time  `json:"created_at"`
 	Published      bool       `json:"published"`
-	// Text is the version's text version, for a version with a file of a
-	// course's document (text.go).
-	Text *textView `json:"text,omitempty"`
+	Text           *textView  `json:"text,omitempty"`
 }
 
 func (c *Core) findDocument(co *course, id uuid.UUID) *document {
@@ -497,19 +497,14 @@ func documentGet() *impl {
 			if in.VersionID != nil && in.VersionID.String() != doc.versionID {
 				return nil, missing("no such version of this document")
 			}
-			var version *versionView
+			var v *versionView
 			if doc.versionID != "" {
-				version = &versionView{ID: doc.versionID, Seq: 1, BodyMD: doc.bodyMD, ContentType: doc.contentType,
-					AuthorMemberID: doc.authorMemberID, CreatedAt: doc.versionCreatedAt, Published: !doc.draft, Files: filesOf(doc, rc.base, true)}
-			}
-			v := version
-			if doc.file != nil && v != nil {
-				n := int64(len(doc.file))
-				url := rc.base + blobPath + doc.fileToken
-				v.ByteSize, v.DownloadURL = &n, &url
-			}
-			if doc.text != nil && v != nil {
-				v.Text = doc.text.view(true)
+				v = &versionView{ID: doc.versionID, Seq: 1, BodyMD: doc.bodyMD, AuthorMemberID: doc.authorMemberID,
+					CreatedAt: doc.versionCreatedAt, Published: !doc.draft, Files: filesOf(doc, rc.base, true)}
+				if len(v.Files) > 0 {
+					f := v.Files[0]
+					v.DownloadURL, v.ContentType, v.ByteSize, v.Checksum, v.Text = f.DownloadURL, &f.ContentType, &f.ByteSize, f.Checksum, f.Text
+				}
 			}
 			out := struct {
 				documentSummary

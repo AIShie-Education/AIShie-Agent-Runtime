@@ -544,7 +544,7 @@ func (s *Server) testCredential(ctx context.Context, w http.ResponseWriter, toke
 		return false
 	}
 	svc := core.NewService(core.NewRESTCaller(core.RESTOptions{BaseURL: s.o.CoreBaseURL, Token: token, Catalogue: cat, HTTPClient: s.coreHTTP}))
-	_, err = svc.Renew(ctx, uuid.Nil.String(), uuid.NewString(), core.MinLease)
+	_, err = svc.Renew(ctx, core.Claim{VersionID: uuid.Nil.String(), LeaseID: uuid.NewString()}, core.MinLease)
 	var se *core.ServiceError
 	switch {
 	case err == nil, core.IsNotFound(err), errors.As(err, &se) && se.Code == core.CodeConflict:

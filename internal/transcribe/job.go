@@ -167,7 +167,7 @@ func (j *job) hold(ctx context.Context, drop context.CancelCauseFunc) {
 			return
 		case <-t.C:
 		}
-		_, err := j.svc.Renew(ctx, j.c.VersionID, j.c.LeaseID, s.t.Lease)
+		_, err := j.svc.Renew(ctx, core.ClaimOf(j.c), s.t.Lease)
 		if ctx.Err() != nil {
 			return
 		}
@@ -224,7 +224,7 @@ func (j *job) tell(ctx context.Context, res result) result {
 			}
 			backoff = min(backoff*2, s.t.BackoffMax)
 		}
-		if _, err = j.svc.Complete(ctx, j.c.VersionID, j.c.LeaseID, c); err == nil {
+		if _, err = j.svc.Complete(ctx, core.ClaimOf(j.c), c); err == nil {
 			return res
 		}
 		if reason, stop := stopReason(ctx, s, err); stop {
@@ -383,7 +383,7 @@ func (j *job) fetch(ctx context.Context) ([]byte, error) {
 	}
 	url := j.c.DownloadURL
 	fresh := func() error {
-		f, err := j.svc.File(ctx, j.c.VersionID, j.c.LeaseID)
+		f, err := j.svc.File(ctx, core.ClaimOf(j.c))
 		if err != nil {
 			return err
 		}

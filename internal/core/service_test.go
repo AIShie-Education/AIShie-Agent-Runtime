@@ -64,7 +64,8 @@ func fixed(status int, body string) func(*http.Request) (int, string) {
 
 // The four calls go to their routes with the service's token, the claim's
 // in the body or the query, a key for the completion alone, and read what
-// Core answers.
+// Core answers. A claim of a Core before #49 names no file, and no call
+// names one: they go as they went.
 func TestServiceCalls(t *testing.T) {
 	claimed := `{"status":"executed","result":{"claimed":[{"version_id":"` + versionID + `","document_id":"01a0f2de-656c-7264-a680-2f74dbe2bc72",` +
 		`"course_id":"01a0f2de-64c0-7d69-bb75-c4a314bf88cd","lease_id":"` + leaseID + `","lease_expires_at":"2026-09-30T15:11:56.447508Z",` +
@@ -91,19 +92,23 @@ func TestServiceCalls(t *testing.T) {
 		c.ByteSize != 17 || c.DownloadURL != "http://files/x?sig=1" || !c.LeaseExpiresAt.Equal(time.Date(2026, 9, 30, 15, 11, 56, 447508000, time.UTC)) {
 		t.Errorf("claimed %+v", c)
 	}
-	f, err := s.File(ctx, versionID, leaseID)
+	cl := ClaimOf(c)
+	if cl != (Claim{VersionID: versionID, LeaseID: leaseID}) {
+		t.Errorf("the claim: %+v", cl)
+	}
+	f, err := s.File(ctx, cl)
 	if err != nil || f.DownloadURL != "http://files/y" || f.ByteSize != 17 {
 		t.Errorf("File = %+v, %v", f, err)
 	}
-	until, err := s.Renew(ctx, versionID, leaseID, 20*time.Second)
+	until, err := s.Renew(ctx, cl, 20*time.Second)
 	if err != nil || until.Minute() != 12 {
 		t.Errorf("Renew = %s, %v", until, err)
 	}
-	rev, err := s.Complete(ctx, versionID, leaseID, Completion{Status: TextDone, Body: "## 第 1 頁\n\ntext", Pages: 1, Model: "Flash-Lite"})
+	rev, err := s.Complete(ctx, cl, Completion{Status: TextDone, Body: "## 第 1 頁\n\ntext", Pages: 1, Model: "Flash-Lite"})
 	if err != nil || rev != 4 {
 		t.Errorf("Complete = %d, %v", rev, err)
 	}
-	if _, err := s.Complete(ctx, versionID, leaseID, Completion{Status: TextSkipped, Reason: "too_many_pages"}); err != nil {
+	if _, err := s.Complete(ctx, cl, Completion{Status: TextSkipped, Reason: "too_many_pages"}); err != nil {
 		t.Errorf("Complete skipped: %v", err)
 	}
 
@@ -125,13 +130,70 @@ func TestServiceCalls(t *testing.T) {
 	if r := calls[2]; r.key != "" || r.body["lease_id"] != leaseID || r.body["lease_s"] != 60.0 {
 		t.Errorf("the renewal, whose lease is at least a minute: %+v", r)
 	}
+	for _, sc := range calls[2:] {
+		if _, ok := sc.body["file_id"]; ok {
+			t.Errorf("%s %s names a file: %+v", sc.method, sc.path, sc.body)
+		}
+	}
 	done := calls[3]
-	if done.key != CompleteKey(versionID, leaseID) || done.body["status"] != "done" || done.body["pages"] != 1.0 ||
+	if done.key != "complete:"+versionID+":"+leaseID || done.key != CompleteKey(cl) || done.body["status"] != "done" || done.body["pages"] != 1.0 ||
 		done.body["model"] != "Flash-Lite" || done.body["reason"] != nil || done.body["idempotency_key"] != nil {
 		t.Errorf("the completion: %+v", done)
 	}
 	if sk := calls[4]; sk.body["reason"] != "too_many_pages" || sk.body["body"] != nil || sk.body["pages"] != nil {
 		t.Errorf("the skip: %+v", sk)
+	}
+}
+
+// A claim of a file (AIShie-Core #49) names it in every call that
+// follows, in the query or the body, and its completion's key is the
+// file's: complete:{file_id}:{lease_id}.
+func TestServiceCallsByFile(t *testing.T) {
+	const fileID = "01a0f2de-7777-7d69-bb75-c4a314bf88cd"
+	claimed := `{"status":"executed","result":{"claimed":[{"version_id":"` + versionID + `","file_id":"` + fileID + `","position":2,` +
+		`"filename":"handout.txt","document_id":"01a0f2de-656c-7264-a680-2f74dbe2bc72","course_id":"01a0f2de-64c0-7d69-bb75-c4a314bf88cd",` +
+		`"lease_id":"` + leaseID + `","lease_expires_at":"2026-09-30T15:11:56.447508Z","attempt":1,"backfill":false,"content_type":"text/plain",` +
+		`"byte_size":27,"download_url":"http://files/h?sig=1","download_expires_at":"2026-09-30T15:25:56.447508475Z"}]}}`
+	s, seen := serviceCore(t, map[string]func(*http.Request) (int, string){
+		"POST /v1/services/document_text/queue": fixed(200, claimed),
+		"GET /v1/services/document_text/versions/" + versionID + "/file": fixed(200, `{"status":"executed","result":{"version_id":"`+versionID+
+			`","file_id":"`+fileID+`","position":2,"filename":"handout.txt","content_type":"text/plain","byte_size":27,"download_url":"http://files/h2",`+
+			`"download_expires_at":"2026-09-30T15:25:56.557331977Z","lease_expires_at":"2026-09-30T15:11:56.447508Z"}}`),
+		"POST /v1/services/document_text/versions/" + versionID + "/renew": fixed(200,
+			`{"status":"executed","result":{"lease_expires_at":"2026-09-30T15:12:56.594403153Z"}}`),
+		"POST /v1/services/document_text/versions/" + versionID + "/complete": fixed(200,
+			`{"status":"executed","action_id":"01a0f2de-6745-78c0-95c0-7231e5f6ca3f","review_state":"none","result":{"version_id":"`+versionID+
+				`","file_id":"`+fileID+`","status":"done","revision":2}}`),
+	})
+	ctx := t.Context()
+	got, err := s.Queue(ctx, 1, time.Minute, 0)
+	if err != nil || len(got) != 1 || got[0].FileID != fileID || got[0].Position != 2 || got[0].Filename != "handout.txt" {
+		t.Fatalf("Queue = %+v, %v", got, err)
+	}
+	cl := ClaimOf(got[0])
+	if f, err := s.File(ctx, cl); err != nil || f.FileID != fileID || f.Filename != "handout.txt" || f.DownloadURL != "http://files/h2" {
+		t.Errorf("File = %+v, %v", f, err)
+	}
+	if _, err := s.Renew(ctx, cl, time.Minute); err != nil {
+		t.Errorf("Renew: %v", err)
+	}
+	if rev, err := s.Complete(ctx, cl, Completion{Status: TextDone, Body: "The handout.", Pages: 1, Model: "m"}); err != nil || rev != 2 {
+		t.Errorf("Complete = %d, %v", rev, err)
+	}
+	calls := *seen
+	if len(calls) != 4 {
+		t.Fatalf("%d calls", len(calls))
+	}
+	if f := calls[1]; !strings.Contains(f.query, "file_id="+fileID) || !strings.Contains(f.query, "lease_id="+leaseID) {
+		t.Errorf("the file: %+v", f)
+	}
+	for _, sc := range calls[2:] {
+		if sc.body["file_id"] != fileID || sc.body["lease_id"] != leaseID {
+			t.Errorf("%s %s: %+v", sc.method, sc.path, sc.body)
+		}
+	}
+	if done := calls[3]; done.key != "complete:"+fileID+":"+leaseID || done.key != CompleteKey(cl) {
+		t.Errorf("the completion's key: %q", done.key)
 	}
 }
 
@@ -155,17 +217,26 @@ func TestServiceRefusals(t *testing.T) {
 		code   string
 	}{
 		{"a renewal of a claim lost", 409, `{"error":{"code":"conflict","message":"the claim no longer holds","details":{"reason":"lease_lost"}}}`,
-			func() error { _, err := s.Renew(ctx, versionID, leaseID, time.Minute); return err }, ReasonLeaseLost, CodeConflict},
+			func() error {
+				_, err := s.Renew(ctx, Claim{VersionID: versionID, LeaseID: leaseID}, time.Minute)
+				return err
+			}, ReasonLeaseLost, CodeConflict},
 		{"a renewal of a text staff wrote", 409, `{"error":{"code":"conflict","message":"staff have written the text","details":{"reason":"edited_by_staff"}}}`,
-			func() error { _, err := s.Renew(ctx, versionID, leaseID, time.Minute); return err }, ReasonEditedByStaff, CodeConflict},
+			func() error {
+				_, err := s.Renew(ctx, Claim{VersionID: versionID, LeaseID: leaseID}, time.Minute)
+				return err
+			}, ReasonEditedByStaff, CodeConflict},
 		{"a completion of a text staff wrote", 409,
 			`{"status":"failed","action_id":"01a0f2de-6692-7d3b-86c1-1e152a1250c5","review_state":"none","error":{"code":"conflict","message":"staff have written the text","details":{"reason":"edited_by_staff"}}}`,
 			func() error {
-				_, err := s.Complete(ctx, versionID, leaseID, Completion{Status: TextDone, Body: "x", Pages: 1, Model: "m"})
+				_, err := s.Complete(ctx, Claim{VersionID: versionID, LeaseID: leaseID}, Completion{Status: TextDone, Body: "x", Pages: 1, Model: "m"})
 				return err
 			}, ReasonEditedByStaff, CodeConflict},
 		{"a version purged", 404, `{"error":{"code":"not_found","message":"no such text version"}}`,
-			func() error { _, err := s.Renew(ctx, versionID, leaseID, time.Minute); return err }, "", CodeNotFound},
+			func() error {
+				_, err := s.Renew(ctx, Claim{VersionID: versionID, LeaseID: leaseID}, time.Minute)
+				return err
+			}, "", CodeNotFound},
 		{"a person's token", 403, `{"status":"denied","error":{"code":"forbidden","message":"not permitted","details":{"reason":"service_only"}}}`,
 			func() error { _, err := s.Queue(ctx, 1, 0, 0); return err }, ReasonServiceOnly, CodeForbidden},
 	} {

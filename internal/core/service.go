@@ -10,13 +10,16 @@ import (
 )
 
 // The transcription service's side of Core (AIShie-Core #43, its
-// docs/schema.md "text versions"): the site's transcriber claims the
-// versions of documents whose text is waiting (document_text.queue),
-// fetches their files (a fresh URL with document_text.file), holds its
-// claims while it works (document_text.renew), and writes back the text,
-// or why there is none (document_text.complete). It calls them over REST
-// alone, with the service's own credential (aissvc_…), which works at
-// these four routes and nowhere else; Core serves none of them over MCP.
+// docs/schema.md "text versions"): the site's transcriber claims the files
+// of documents' versions whose text is waiting (document_text.queue; a
+// version's each file on its own since AIShie-Core #49, a Core before it
+// claiming versions of one file), fetches them (a fresh URL with
+// document_text.file), holds its claims while it works
+// (document_text.renew), and writes back the text, or why there is none
+// (document_text.complete), every call naming the file where the claim
+// did. It calls them over REST alone, with the service's own credential
+// (aissvc_…), which works at these four routes and nowhere else; Core
+// serves none of them over MCP.
 
 // The service's tools, as the catalogue names them.
 const (
@@ -71,13 +74,18 @@ const (
 	DefaultLease = 10 * time.Minute
 )
 
-// ClaimedText is one version the service claimed: whose it is, the claim
-// (its lease, until when it holds, how many claims the version has had,
-// this one's included), whether it was queued by the backfill rather than
-// as its file was added, the file as Core has it, and a short-lived URL
-// that serves it (no credential: it is signed).
+// ClaimedText is one file the service claimed: whose it is (its version,
+// and the file by its id, place and name, which a Core before #49, whose
+// versions had one file, does not give), the claim (its lease, until when
+// it holds, how many claims the file has had, this one's included),
+// whether it was queued by the backfill rather than as its file was
+// added, the file as Core has it, and a short-lived URL that serves it (no
+// credential: it is signed).
 type ClaimedText struct {
 	VersionID         string    `json:"version_id"`
+	FileID            string    `json:"file_id,omitempty"`
+	Position          int       `json:"position,omitempty"`
+	Filename          string    `json:"filename,omitempty"`
 	DocumentID        string    `json:"document_id"`
 	CourseID          string    `json:"course_id"`
 	LeaseID           string    `json:"lease_id"`
@@ -91,10 +99,13 @@ type ClaimedText struct {
 	DownloadExpiresAt time.Time `json:"download_expires_at"`
 }
 
-// TextFile is document_text.file's result: the claimed version's file
-// again, at a fresh URL.
+// TextFile is document_text.file's result: the claimed file again, at a
+// fresh URL.
 type TextFile struct {
 	VersionID         string    `json:"version_id"`
+	FileID            string    `json:"file_id,omitempty"`
+	Position          int       `json:"position,omitempty"`
+	Filename          string    `json:"filename,omitempty"`
 	ContentType       string    `json:"content_type"`
 	ByteSize          int64     `json:"byte_size"`
 	Checksum          string    `json:"checksum,omitempty"`
@@ -187,7 +198,7 @@ func HasService(cat *Catalogue) bool {
 	return true
 }
 
-// Queue claims up to n versions waiting (1 to MaxClaims), each for
+// Queue claims up to n files waiting (1 to MaxClaims), each for
 // lease, rounded to whole seconds within MinLease and MaxLease. wait above
 // zero is wait_s, whole seconds up to MaxWait: a call that finds nothing
 // waiting waits that long for a version to be queued, and answers as soon
@@ -205,47 +216,70 @@ func (s *Service) Queue(ctx context.Context, n int, lease, wait time.Duration) (
 	return r.Claimed, err
 }
 
-// File is the claimed version's file again, at a fresh URL: while the
-// claim holds, and ReasonLeaseLost otherwise.
-func (s *Service) File(ctx context.Context, versionID, leaseID string) (*TextFile, error) {
+// Claim names one claim in the calls that follow it: the version, the
+// file (none from a Core before #49, and none is then sent) and the
+// lease.
+type Claim struct {
+	VersionID, FileID, LeaseID string
+}
+
+// ClaimOf is c's claim.
+func ClaimOf(c ClaimedText) Claim {
+	return Claim{VersionID: c.VersionID, FileID: c.FileID, LeaseID: c.LeaseID}
+}
+
+// claimArgs are the arguments that name cl: file_id only where the claim
+// named a file, which a Core before #49, whose schema takes no file_id,
+// never does.
+func claimArgs(cl Claim) map[string]any {
+	args := map[string]any{"version_id": cl.VersionID, "lease_id": cl.LeaseID}
+	if cl.FileID != "" {
+		args["file_id"] = cl.FileID
+	}
+	return args
+}
+
+// File is the claimed file again, at a fresh URL: while the claim holds,
+// and ReasonLeaseLost otherwise.
+func (s *Service) File(ctx context.Context, cl Claim) (*TextFile, error) {
 	var f TextFile
-	err := s.call(ctx, ToolTextFile, struct {
-		VersionID string `json:"version_id"`
-		LeaseID   string `json:"lease_id"`
-	}{versionID, leaseID}, &f)
+	err := s.call(ctx, ToolTextFile, claimArgs(cl), &f)
 	return &f, err
 }
 
 // Renew holds the claim for lease from now, and says until when:
 // ReasonLeaseLost or ReasonEditedByStaff when the work is to stop,
 // ReasonCourseArchived when the course was archived.
-func (s *Service) Renew(ctx context.Context, versionID, leaseID string, lease time.Duration) (time.Time, error) {
+func (s *Service) Renew(ctx context.Context, cl Claim, lease time.Duration) (time.Time, error) {
 	var r struct {
 		LeaseExpiresAt time.Time `json:"lease_expires_at"`
 	}
-	err := s.call(ctx, ToolTextRenew, struct {
-		VersionID string `json:"version_id"`
-		LeaseID   string `json:"lease_id"`
-		LeaseS    int    `json:"lease_s"`
-	}{versionID, leaseID, leaseSeconds(lease)}, &r)
+	args := claimArgs(cl)
+	args["lease_s"] = leaseSeconds(lease)
+	err := s.call(ctx, ToolTextRenew, args, &r)
 	return r.LeaseExpiresAt, err
 }
 
 // CompleteKey is the idempotency key of the completion of a claim: the
 // same for every try of it, so that a completion sent again after a
-// network error is Core's replay of the first.
-func CompleteKey(versionID, leaseID string) string {
-	return "complete:" + versionID + ":" + leaseID
+// network error is Core's replay of the first. It names the file where
+// the claim does (complete:{file_id}:{lease_id}, as Core suggests), and
+// the version otherwise, as before.
+func CompleteKey(cl Claim) string {
+	if cl.FileID != "" {
+		return "complete:" + cl.FileID + ":" + cl.LeaseID
+	}
+	return "complete:" + cl.VersionID + ":" + cl.LeaseID
 }
 
-// Complete writes back what became of the claimed version, under
+// Complete writes back what became of the claimed file, under
 // CompleteKey, and returns the text's revision. Core refuses it with
 // ReasonEditedByStaff, ReasonLeaseLost, ReasonDocumentArchived or
 // ReasonCourseArchived, and a version purged meanwhile is not found: in
 // each, nothing was written, and the work is dropped.
-func (s *Service) Complete(ctx context.Context, versionID, leaseID string, c Completion) (int, error) {
-	args := map[string]any{"version_id": versionID, "lease_id": leaseID, "status": c.Status,
-		idempotencyKeyArg: CompleteKey(versionID, leaseID)}
+func (s *Service) Complete(ctx context.Context, cl Claim, c Completion) (int, error) {
+	args := claimArgs(cl)
+	args["status"], args[idempotencyKeyArg] = c.Status, CompleteKey(cl)
 	if c.Status == TextDone {
 		args["body"], args["pages"], args["model"] = c.Body, c.Pages, c.Model
 	} else {
@@ -313,12 +347,16 @@ type TextView struct {
 	Body             *string    `json:"body,omitempty"`
 }
 
-// TextPart is document_text's result: one part of a version's text.
+// TextPart is document_text's result: one part of the text of a file of a
+// version (the file by its id, place and name, from a Core since #49).
 type TextPart struct {
 	DocumentID string   `json:"document_id"`
 	VersionID  string   `json:"version_id"`
 	Seq        int      `json:"seq"`
 	Published  bool     `json:"published"`
+	FileID     string   `json:"file_id,omitempty"`
+	Position   int      `json:"position,omitempty"`
+	Filename   string   `json:"filename,omitempty"`
 	Text       TextView `json:"text"`
 	Part       int      `json:"part"`
 	Parts      int      `json:"parts"`
@@ -328,23 +366,62 @@ type TextPart struct {
 // at a time.
 const ToolText = "document_text"
 
-// TextPart reads part (from 1) of the text of the document's version,
-// with the caller's own token: the version's access is the text's.
-func (c *Client) TextPart(ctx context.Context, courseID, documentID, versionID string, part int) (*TextPart, error) {
+// TextPart reads part (from 1) of the text of the file fileID of the
+// document's version (its first, as before, for ""; a Core before #49
+// takes no file_id, and none is sent), with the caller's own token: the
+// version's access is the text's.
+func (c *Client) TextPart(ctx context.Context, courseID, documentID, versionID, fileID string, part int) (*TextPart, error) {
 	var r TextPart
 	err := c.read(ctx, ToolText, struct {
 		CourseID   string `json:"course_id"`
 		DocumentID string `json:"document_id"`
 		VersionID  string `json:"version_id,omitempty"`
+		FileID     string `json:"file_id,omitempty"`
 		Part       int    `json:"part,omitempty"`
-	}{courseID, documentID, versionID, part}, &r)
+	}{courseID, documentID, versionID, fileID, part}, &r)
 	return &r, err
 }
 
-// Text events, which Core files in the course's feed when a version's
-// text becomes done (by the service or staff) or is discarded by a
-// retranscription: its payload names the version (version_id) and its
-// revision, never the text.
+// ToolDocumentFile is document.file over MCP and REST (AIShie-Core #49):
+// one file of a version, with a fresh URL.
+const ToolDocumentFile = "document_file"
+
+// DocumentFile is document_file's result: a file of a version, its text
+// version without its body, and a short-lived URL that serves it (a
+// credential for the file: never a model's).
+type DocumentFile struct {
+	ID          string    `json:"id"`
+	Position    int       `json:"position"`
+	Filename    string    `json:"filename"`
+	ContentType string    `json:"content_type"`
+	ByteSize    int64     `json:"byte_size"`
+	Checksum    string    `json:"checksum,omitempty"`
+	Text        *TextView `json:"text,omitempty"`
+	DocumentID  string    `json:"document_id"`
+	VersionID   string    `json:"version_id"`
+	Seq         int       `json:"seq"`
+	Published   bool      `json:"published"`
+	DownloadURL string    `json:"download_url"`
+	ExpiresAt   time.Time `json:"expires_at"`
+}
+
+// DocumentFile reads the file fileID of the document, with a fresh URL,
+// with the caller's own token: whoever may read its version may read it,
+// and anyone else is told it is not there.
+func (c *Client) DocumentFile(ctx context.Context, courseID, documentID, fileID string) (*DocumentFile, error) {
+	var r DocumentFile
+	err := c.read(ctx, ToolDocumentFile, struct {
+		CourseID   string `json:"course_id"`
+		DocumentID string `json:"document_id"`
+		FileID     string `json:"file_id"`
+	}{courseID, documentID, fileID}, &r)
+	return &r, err
+}
+
+// Text events, which Core files in the course's feed when a file's text
+// becomes done (by the service or staff) or is discarded by a
+// retranscription: its payload names the version (version_id), the file
+// (file_id, from a Core since #49) and its revision, never the text.
 var TextEvents = []string{
 	"document.text_updated", "document.rubric_text_updated", "document.draft_text_updated",
 	"document.text_updated_unreleased", "document.rubric_text_updated_unreleased", "document.draft_text_updated_unreleased",
@@ -352,3 +429,10 @@ var TextEvents = []string{
 
 // IsTextEvent reports whether an event's type is one of TextEvents.
 func IsTextEvent(typ string) bool { return slices.Contains(TextEvents, typ) }
+
+// TextEventOf is what a text event's payload names: the version, and the
+// file, "" from a Core before #49, whose versions had one file.
+type TextEventOf struct {
+	VersionID string `json:"version_id"`
+	FileID    string `json:"file_id,omitempty"`
+}

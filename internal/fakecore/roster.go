@@ -137,14 +137,11 @@ func documentVersions() *impl {
 				Versions []versionSummary `json:"versions"`
 			}{Versions: []versionSummary{}}
 			if doc.versionID != "" {
-				v := versionSummary{ID: doc.versionID, Seq: 1, HasFile: doc.file != nil, ContentType: doc.contentType,
-					AuthorMemberID: doc.authorMemberID, CreatedAt: doc.versionCreatedAt, Published: !doc.draft, Files: filesOf(doc, "", false)}
-				if doc.file != nil {
-					n := int64(len(doc.file))
-					v.ByteSize = &n
-				}
-				if doc.text != nil {
-					v.Text = doc.text.view(false)
+				v := versionSummary{ID: doc.versionID, Seq: 1, HasFile: len(doc.files) > 0, AuthorMemberID: doc.authorMemberID,
+					CreatedAt: doc.versionCreatedAt, Published: !doc.draft, Files: filesOf(doc, "", false)}
+				if len(v.Files) > 0 {
+					f := v.Files[0]
+					v.ContentType, v.ByteSize, v.Text = &f.ContentType, &f.ByteSize, f.Text
 				}
 				out.Versions = append(out.Versions, v)
 			}

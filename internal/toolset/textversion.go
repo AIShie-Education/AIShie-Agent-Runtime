@@ -117,7 +117,7 @@ func (r Runner) readTextParts(ctx context.Context, d *docFile) (string, *core.Te
 		var view *core.TextView
 		again := false
 		for part, parts := 1, 1; part <= parts; part++ {
-			tp, err := r.Client.TextPart(ctx, d.courseID, d.documentID, d.versionID, part)
+			tp, err := r.Client.TextPart(ctx, d.courseID, d.documentID, d.versionID, "", part)
 			if err != nil || tp.Text.Status != core.TextDone || tp.Parts < 1 || tp.Parts > maxTextParts {
 				return "", nil, false
 			}

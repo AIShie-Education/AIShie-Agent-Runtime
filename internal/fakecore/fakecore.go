@@ -134,7 +134,7 @@ type Core struct {
 	actionList       []*action
 	keys             map[actorKey]*action
 	seq              int64
-	blobs            map[string]*document
+	blobs            map[string]*versionFile
 	// uploads are the files uploaded for messages, by upload token, and
 	// putURLs the same by the secret of their upload URL; attachments the
 	// files messages carry, by id, and downloads the download URLs handed
@@ -210,6 +210,7 @@ func implemented() map[string]*impl {
 		"document.versions":       documentVersions(),
 		"conversation.draft":      conversationDraft(),
 		"document.text":           documentText(),
+		"document.file":           documentFile(),
 		"conversation.upload_url": conversationUploadURL(),
 		"conversation.attachment": conversationAttachment(),
 	}
@@ -296,7 +297,7 @@ func New(o Options) *Core {
 		opts: o, cat: cat,
 		actors: map[string]*actor{}, tokens: map[string]*credential{}, courses: map[string]*course{},
 		members: map[string]*member{}, conversations: map[string]*conversation{}, messages: map[string]*message{},
-		actions: map[string]*action{}, keys: map[actorKey]*action{}, blobs: map[string]*document{},
+		actions: map[string]*action{}, keys: map[actorKey]*action{}, blobs: map[string]*versionFile{},
 		uploads: map[string]*upload{}, putURLs: map[string]*upload{}, attachments: map[string]*attachment{}, downloads: map[string]download{},
 		siteChat: map[string]bool{}, presetIDs: map[string]string{}, serviceCreds: map[string]*credential{},
 		waiters: map[*waiter]struct{}{}, shutdown: make(chan struct{}),

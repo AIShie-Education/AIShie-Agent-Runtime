@@ -186,29 +186,39 @@ type assignment struct {
 }
 
 // document is a document with one version, published unless it is a
-// draft: text, or a file. A document made by document.create starts as a
-// draft, as Core's material, instructions and rubrics do, and a draft
-// without text has no version.
+// draft: text, files, or both. A document made by document.create starts
+// as a draft, as Core's material, instructions and rubrics do, and a
+// draft without text has no version.
 type document struct {
-	id, kind, title string
-	course          *course
-	sortOrder       int
-	createdAt       time.Time
-	draft           bool
-	versionID       string
-	authorMemberID  string
-	bodyMD          *string
-	file            []byte
-	contentType     *string
-	fileToken       string
-	// fileID is the version's one file's id, as version.files names it.
-	fileID           string
+	id, kind, title  string
+	course           *course
+	sortOrder        int
+	createdAt        time.Time
+	draft            bool
+	versionID        string
+	authorMemberID   string
+	bodyMD           *string
 	submission       *submission
 	grade            *grade
 	versionCreatedAt time.Time
-	// text is the version's text version (text.go): a version with a file
-	// of a course's material, instructions or rubric has one.
-	text *textVersion
+	// files are the version's files, in order (documents.go).
+	files []*versionFile
+}
+
+// versionFile is one file of a document's version: its id, its place
+// among the version's files, from 1, its name, the type its uploader
+// declared, its bytes, the secret part of its download URL, and its text
+// version (text.go), which a file of a course's material, instructions or
+// rubric has.
+type versionFile struct {
+	id          string
+	doc         *document
+	position    int
+	filename    string
+	contentType string
+	data        []byte
+	token       string
+	text        *textVersion
 }
 
 type submission struct {

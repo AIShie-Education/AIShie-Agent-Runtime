@@ -657,8 +657,9 @@ func TestModelReads(t *testing.T) {
 		if _, err := buf.ReadFrom(resp.Body); err != nil {
 			t.Fatal(err)
 		}
-		if resp.StatusCode != 200 || !strings.HasPrefix(buf.String(), "%PDF") || resp.Header.Get("Content-Disposition") != "attachment" {
-			t.Errorf("download: %d %q", resp.StatusCode, buf.String())
+		if resp.StatusCode != 200 || !strings.HasPrefix(buf.String(), "%PDF") ||
+			resp.Header.Get("Content-Disposition") != `attachment; filename="Lecture 1 slides.pdf"` {
+			t.Errorf("download: %d %q %s", resp.StatusCode, buf.String(), resp.Header.Get("Content-Disposition"))
 		}
 		wantEnvelope(t, mustCall(t, w.agentC, "assignment_get", inCourseArgs(w, "assignment_id", w.co.AssignmentID)), "executed", "", "")
 		if n := len(list(mustCall(t, w.agentC, "assignment_list", inCourseArgs(w)), "assignments")); n != 1 {
