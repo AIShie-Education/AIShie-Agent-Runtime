@@ -18,9 +18,9 @@ import (
 // reports sum of the school's key since the start of the UTC day, and the
 // plan's quotas. Counts and costs, never what anyone wrote.
 
-// SchoolPlanUsage is the route's answer: since when, the plan's quotas in
-// answers (per_day null when the school sets no ceiling), the total, and a
-// row per tenant that used the school's key today, by tenant id.
+// SchoolPlanUsage is the route's answer: since when, the plan's quotas
+// (per_day null when the school sets no ceiling), the total, and a row per
+// tenant that used the school's key today, by tenant id.
 type SchoolPlanUsage struct {
 	Since  time.Time        `json:"since"`
 	Limits SchoolPlanLimits `json:"limits"`
@@ -28,11 +28,16 @@ type SchoolPlanUsage struct {
 	Owners []OwnerPlanUse   `json:"owners"`
 }
 
-// SchoolPlanLimits are the plan's quotas in answers a UTC day.
+// SchoolPlanLimits are the plan's quotas a UTC day: in answers (per_day
+// null for no ceiling), and in dollars, each a decimal with six places, or
+// null for none.
 type SchoolPlanLimits struct {
-	PerOwnerDay int  `json:"per_owner_day"`
-	PerAskerDay int  `json:"per_asker_day"`
-	PerDay      *int `json:"per_day"`
+	PerOwnerDay    int     `json:"per_owner_day"`
+	PerAskerDay    int     `json:"per_asker_day"`
+	PerDay         *int    `json:"per_day"`
+	PerOwnerDayUSD *string `json:"per_owner_day_usd"`
+	PerAskerDayUSD *string `json:"per_asker_day_usd"`
+	PerDayUSD      *string `json:"per_day_usd"`
 }
 
 // PlanUse is billable answers and the cost of model calls on the school's
@@ -76,21 +81,13 @@ func (s *Server) schoolPlanUsage(w http.ResponseWriter, r *http.Request, c *Call
 		s.storeUnavailable(w, "the site's settings", err)
 		return
 	}
-	out := SchoolPlanUsage{Since: since, Owners: []OwnerPlanUse{},
-		Limits: SchoolPlanLimits{PerOwnerDay: *sc.OwnerQuota().Answers, PerAskerDay: *sc.AskerQuota().Answers, PerDay: sc.PerDay.Answers}}
+	out := SchoolPlanUsage{Since: since, Owners: []OwnerPlanUse{}, Limits: limitsOf(sc)}
 	var total int64
 	for _, u := range rows {
 		o := OwnerPlanUse{TenantID: u.TenantID, PlanUse: PlanUse{Answers: u.Answers, ModelCalls: u.ModelCalls, CostUSD: costUSD(u.CostPUSD)}}
-		if actor, ok := strings.CutPrefix(u.TenantID, "ten_"); ok && uuid.Validate(actor) == nil {
-			o.OwnerActorID = &actor
-			switch p, err := s.o.Store.Person(ctx, actor); {
-			case err == nil:
-				name := p.DisplayName
-				o.DisplayName = &name
-			case !errors.Is(err, store.ErrNotFound):
-				s.storeUnavailable(w, "a person", err)
-				return
-			}
+		if o.OwnerActorID, o.DisplayName, err = s.ownerOf(ctx, u.TenantID); err != nil {
+			s.storeUnavailable(w, "a person", err)
+			return
 		}
 		out.Owners = append(out.Owners, o)
 		out.Total.Answers += u.Answers
@@ -99,4 +96,23 @@ func (s *Server) schoolPlanUsage(w http.ResponseWriter, r *http.Request, c *Call
 	}
 	out.Total.CostUSD = costUSD(total)
 	writeJSON(w, http.StatusOK, out)
+}
+
+// ownerOf is the person a tenant is, when it is a hosted agents' owner's
+// (ten_ and their actor id): their actor id, and their name as the
+// runtime last saw them (nil when it has not); both nil for any other
+// tenant.
+func (s *Server) ownerOf(ctx context.Context, tenantID string) (actorID, name *string, err error) {
+	actor, ok := strings.CutPrefix(tenantID, "ten_")
+	if !ok || uuid.Validate(actor) != nil {
+		return nil, nil, nil
+	}
+	switch p, err := s.o.Store.Person(ctx, actor); {
+	case err == nil:
+		n := p.DisplayName
+		return &actor, &n, nil
+	case !errors.Is(err, store.ErrNotFound):
+		return nil, nil, err
+	}
+	return &actor, nil, nil
 }

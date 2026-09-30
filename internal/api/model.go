@@ -7,6 +7,7 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
 )
 
@@ -152,9 +153,9 @@ type OwnModel struct {
 	PriceKnown      bool    `json:"price_known"`
 }
 
-// ownModelView is the model section own as its owner reads it; nil for
-// none.
-func (s *Server) ownModelView(own *modelSection, now time.Time) *OwnModel {
+// ownModelView is the model section own as its owner reads it, priced by
+// prices; nil for none.
+func ownModelView(own *modelSection, prices *pricing.Table, now time.Time) *OwnModel {
 	if own == nil {
 		return nil
 	}
@@ -178,6 +179,6 @@ func (s *Server) ownModelView(own *modelSection, now time.Time) *OwnModel {
 	if own.Reasoning != nil {
 		v.ReasoningEffort = str(own.Reasoning.Effort)
 	}
-	_, v.PriceKnown = s.prices().Lookup(v.Provider, v.Model, now)
+	_, v.PriceKnown = prices.Lookup(v.Provider, v.Model, now)
 	return v
 }

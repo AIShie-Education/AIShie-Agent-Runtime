@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/probe"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
@@ -50,9 +51,10 @@ const (
 
 // SchoolPlan is GET /admin/school-plan's answer, and PUT and DELETE
 // /admin/school-plan/quotas': every offer, runtime.yaml's first as it
-// lists them, then the site's by id; the quotas in force in answers a UTC
-// day (per_day null for no ceiling), runtime.yaml's (with the built-in
-// defaults) beside them, and whether the site sets them, when and by whom.
+// lists them, then the site's by id; the quotas in force a UTC day, in
+// answers (per_day null for no ceiling) and in dollars (null for none),
+// runtime.yaml's (with the built-in defaults) beside them, and whether the
+// site sets them, when and by whom.
 type SchoolPlan struct {
 	Offers          []PlanOffer      `json:"offers"`
 	Quotas          SchoolPlanLimits `json:"quotas"`
@@ -146,8 +148,8 @@ func (s *Server) agentsOn(ctx context.Context) (map[string]int, error) {
 }
 
 // configOfferView is an offer of runtime.yaml's as the administrators
-// read it.
-func (s *Server) configOfferView(o config.SchoolOffer, agents int, now time.Time) PlanOffer {
+// read it, priced by the table in force, prices.
+func configOfferView(o config.SchoolOffer, prices *pricing.Table, agents int, now time.Time) PlanOffer {
 	m := o.AsModel()
 	v := PlanOffer{ID: o.ID, Source: SourceConfig, Label: o.Label, Provider: m.EffectiveProvider(), Adapter: o.Adapter, Model: o.Model,
 		Enabled: true, Status: OfferOffered, Agents: agents, ReasoningEffort: strPtr(o.Reasoning.Effort)}
@@ -155,26 +157,26 @@ func (s *Server) configOfferView(o config.SchoolOffer, agents int, now time.Time
 	if n := o.Params.MaxOutputTokens; n > 0 {
 		v.MaxOutputTokens = &n
 	}
-	_, v.Priced = s.prices().Lookup(v.Provider, v.Model, now)
+	_, v.Priced = prices.Lookup(v.Provider, v.Model, now)
 	return v
 }
 
 // siteOfferView is the site's offer o as the administrators read it, its
-// status in the plan of rt.
-func (s *Server) siteOfferView(o store.SchoolOffer, rt config.Runtime, agents int, now time.Time) PlanOffer {
+// status in the plan of eff, priced by eff's price table.
+func (s *Server) siteOfferView(o store.SchoolOffer, eff *config.Config, agents int, now time.Time) PlanOffer {
 	v := PlanOffer{ID: o.ID, Source: SourceSite, Label: o.Label, Provider: o.Provider, Adapter: o.Adapter, Model: o.Model,
 		Enabled: o.Enabled, Status: OfferOffered, Agents: agents, ReasoningEffort: strPtr(o.ReasoningEffort), KeyHint: strPtr(o.KeyHint)}
 	v.Endpoint, v.Resource, v.Region, v.BaseURL = modelView(o.Provider, o.BaseURL, o.Region)
 	if n := o.MaxOutputTokens; n > 0 {
 		v.MaxOutputTokens = &n
 	}
-	switch why := rt.Withheld(registry.SiteOffer(o)); {
+	switch why := eff.Runtime.Withheld(registry.SiteOffer(o)); {
 	case !o.Enabled:
 		v.Status = OfferDisabled
 	case why != "":
 		v.Status = why
 	}
-	_, v.Priced = s.prices().Lookup(v.Provider, v.Model, now)
+	_, v.Priced = s.pricesOf(eff).Lookup(v.Provider, v.Model, now)
 	status := KeyUntested
 	if o.KeyTested {
 		status = KeyTested
@@ -206,11 +208,12 @@ func (s *Server) schoolPlan(ctx context.Context) (*SchoolPlan, error) {
 	now := s.o.Now()
 	out := &SchoolPlan{Offers: []PlanOffer{}, Quotas: limitsOf(eff.Runtime.School), QuotaDefaults: limitsOf(s.yaml().Runtime.School),
 		QuotasSet: eff.Runtime.Site.Quotas != nil}
+	prices := s.pricesOf(eff)
 	for _, o := range s.yaml().Runtime.School.Offers {
-		out.Offers = append(out.Offers, s.configOfferView(o, agents[o.ID], now))
+		out.Offers = append(out.Offers, configOfferView(o, prices, agents[o.ID], now))
 	}
 	for _, o := range offers {
-		out.Offers = append(out.Offers, s.siteOfferView(o, eff.Runtime, agents[o.ID], now))
+		out.Offers = append(out.Offers, s.siteOfferView(o, eff, agents[o.ID], now))
 	}
 	if quotas != nil {
 		at := quotas.UpdatedAt.UTC()
@@ -219,9 +222,11 @@ func (s *Server) schoolPlan(ctx context.Context) (*SchoolPlan, error) {
 	return out, nil
 }
 
-// limitsOf are sc's quotas in answers.
+// limitsOf are sc's quotas.
 func limitsOf(sc config.School) SchoolPlanLimits {
-	return SchoolPlanLimits{PerOwnerDay: *sc.OwnerQuota().Answers, PerAskerDay: *sc.AskerQuota().Answers, PerDay: sc.PerDay.Answers}
+	owner, asker := sc.OwnerQuota(), sc.AskerQuota()
+	return SchoolPlanLimits{PerOwnerDay: *owner.Answers, PerAskerDay: *asker.Answers, PerDay: clonePtr(sc.PerDay.Answers),
+		PerOwnerDayUSD: usdText(owner.USD), PerAskerDayUSD: usdText(asker.USD), PerDayUSD: usdText(sc.PerDay.USD)}
 }
 
 // writePlan answers the plan, or that the store cannot be read.
@@ -257,7 +262,7 @@ func (s *Server) writeOffer(ctx context.Context, w http.ResponseWriter, status i
 		return
 	}
 	w.Header().Set("ETag", etag(o.Version))
-	writeJSON(w, status, s.siteOfferView(*o, eff.Runtime, agents[o.ID], s.o.Now()))
+	writeJSON(w, status, s.siteOfferView(*o, eff, agents[o.ID], s.o.Now()))
 }
 
 // getOffer is GET /admin/school-plan/offers/{id}: an offer as GET
@@ -286,12 +291,17 @@ func (s *Server) getOffer(w http.ResponseWriter, r *http.Request, c *Caller) {
 		WriteError(w, Error{Code: CodeNotFound, Reason: ReasonOfferNotFound, Message: "the plan has no offer of this id"})
 		return
 	}
+	eff, err := s.effective(ctx)
+	if err != nil {
+		s.storeUnavailable(w, "the site's settings", err)
+		return
+	}
 	agents, err := s.agentsOn(ctx)
 	if err != nil {
 		s.storeUnavailable(w, "the hosted agents", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.configOfferView(yo, agents[id], s.o.Now()))
+	writeJSON(w, http.StatusOK, configOfferView(yo, s.pricesOf(eff), agents[id], s.o.Now()))
 }
 
 // offerRequest is POST /admin/school-plan/offers' body: the offer's id,
@@ -334,17 +344,18 @@ func offerOf(id, label string, sec *modelSection) store.SchoolOffer {
 
 // allowedOffer refuses an offer the plan in force eff would not offer for
 // its model (runtime.denied_models, runtime.allowed_models), or could not
-// hold to its quotas in dollars, the price table not pricing it. The
-// field is the model's.
+// hold to its quotas in dollars, the price table in force (the file's and
+// the site's) not pricing it. The field is the model's.
 func (s *Server) allowedOffer(eff *config.Config, o store.SchoolOffer, field string) *Error {
 	if eff.Runtime.Withheld(registry.SiteOffer(o)) == config.WithheldModelNotAllowed {
 		return &Error{Code: CodeFailedPrecondition, Reason: ReasonModelDenied,
 			Message: "the school's model lists do not allow this model on the school's key (runtime.yaml's allowed_models, denied_models)",
 			Details: map[string]any{"field": field}}
 	}
-	if _, priced := s.prices().Lookup(o.Provider, o.Model, s.o.Now()); eff.Runtime.School.USD() && !priced {
+	if _, priced := s.pricesOf(eff).Lookup(o.Provider, o.Model, s.o.Now()); eff.Runtime.School.USD() && !priced {
 		return &Error{Code: CodeFailedPrecondition, Reason: ReasonOfferNotPriced,
-			Message: "the plan has a quota in dollars, and the price table has no price for this model", Details: map[string]any{"field": field}}
+			Message: "the plan has a quota in dollars, and the price table has no price for this model: add one (POST /admin/prices)",
+			Details: map[string]any{"field": field, "offers": []string{o.ID}}}
 	}
 	return nil
 }
@@ -646,7 +657,8 @@ func (s *Server) updateOffer(w http.ResponseWriter, r *http.Request, c *Caller, 
 	}
 	// An offer the model lists came to deny since may still be relabelled,
 	// turned off or given another key; not given another model of theirs,
-	// nor turned on.
+	// nor turned on. Nor may it be, where the agents on it have a quota in
+	// dollars the price table would not hold.
 	if slices.Contains(changed, "model") || o.Enabled && !cur.Enabled {
 		eff, err := s.effective(ctx)
 		if err != nil {
@@ -656,6 +668,15 @@ func (s *Server) updateOffer(w http.ResponseWriter, r *http.Request, c *Caller, 
 		if e := s.allowedOffer(eff, o, "/model"); e != nil {
 			WriteError(w, *e)
 			return
+		}
+		if o.Enabled {
+			site := eff.Runtime.Site
+			next := site
+			next.Offers = slices.DeleteFunc(slices.Clone(site.Offers), func(x config.SchoolOffer) bool { return x.ID == o.ID })
+			next.Offers = append(next.Offers, registry.SiteOffer(o))
+			if !s.checkUnpriced(ctx, w, site, next, "/model") {
+				return
+			}
 		}
 	}
 	var secrets []store.Secret
@@ -827,12 +848,17 @@ func (s *Server) deleteOffer(w http.ResponseWriter, r *http.Request, c *Caller, 
 	writeJSON(w, http.StatusOK, out)
 }
 
-// quotasRequest is PUT /admin/school-plan/quotas' body: every quota, in
-// answers a UTC day, per_day null for no ceiling.
+// quotasRequest is PUT /admin/school-plan/quotas' body: every quota in
+// answers a UTC day, per_day null for no ceiling; and the quotas in
+// dollars, each an amount or null for none, and, left out, as it is in
+// force.
 type quotasRequest struct {
-	PerOwnerDay json.RawMessage `json:"per_owner_day"`
-	PerAskerDay json.RawMessage `json:"per_asker_day"`
-	PerDay      json.RawMessage `json:"per_day"`
+	PerOwnerDay    json.RawMessage `json:"per_owner_day"`
+	PerAskerDay    json.RawMessage `json:"per_asker_day"`
+	PerDay         json.RawMessage `json:"per_day"`
+	PerOwnerDayUSD json.RawMessage `json:"per_owner_day_usd"`
+	PerAskerDayUSD json.RawMessage `json:"per_asker_day_usd"`
+	PerDayUSD      json.RawMessage `json:"per_day_usd"`
 }
 
 // quota reads a quota's member: from minQuota to maxQuota, or, where
@@ -856,7 +882,9 @@ func quota(raw json.RawMessage, field string, nullable bool) (*int, *Error) {
 }
 
 // putQuotas is PUT /admin/school-plan/quotas: the site's quotas, in place
-// of runtime.yaml's.
+// of runtime.yaml's, in answers and in dollars. A quota in dollars is
+// refused while an offer of the plan, or a model an agent on it falls
+// back to, has no price today (offer_not_priced, model_not_priced).
 func (s *Server) putQuotas(w http.ResponseWriter, r *http.Request, c *Caller, au *auditing) {
 	au.target("site_setting", store.SettingSchoolQuotas)
 	if !c.IsAdmin {
@@ -879,25 +907,65 @@ func (s *Server) putQuotas(w http.ResponseWriter, r *http.Request, c *Caller, au
 		WriteError(w, *e)
 		return
 	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*storeTimeout)
+	defer cancel()
+	eff, err := s.effective(ctx)
+	if err != nil {
+		s.storeUnavailable(w, "the site's settings", err)
+		return
+	}
 	q := config.SiteQuotas{PerOwnerDay: *owner, PerAskerDay: *asker, PerDay: day}
+	sc, field := eff.Runtime.School, ""
+	for _, f := range []struct {
+		raw   json.RawMessage
+		into  **float64
+		now   *float64
+		field string
+	}{
+		{req.PerOwnerDayUSD, &q.PerOwnerDayUSD, sc.PerOwnerDay.USD, "/per_owner_day_usd"},
+		{req.PerAskerDayUSD, &q.PerAskerDayUSD, sc.PerAskerDay.USD, "/per_asker_day_usd"},
+		{req.PerDayUSD, &q.PerDayUSD, sc.PerDay.USD, "/per_day_usd"},
+	} {
+		if f.raw == nil {
+			*f.into = clonePtr(f.now)
+			continue
+		}
+		usd, _, e := readUSD(f.raw, f.field)
+		if e != nil {
+			WriteError(w, *e)
+			return
+		}
+		if *f.into = usd; usd != nil && field == "" {
+			field = f.field
+		}
+	}
+	au.detail["per_owner_day"], au.detail["per_asker_day"], au.detail["per_day"] = q.PerOwnerDay, q.PerAskerDay, q.PerDay
+	au.detail["per_owner_day_usd"], au.detail["per_asker_day_usd"], au.detail["per_day_usd"] = usdText(q.PerOwnerDayUSD),
+		usdText(q.PerAskerDayUSD), usdText(q.PerDayUSD)
+	if q.PerOwnerDayUSD != nil || q.PerAskerDayUSD != nil || q.PerDayUSD != nil {
+		next := eff.Runtime.Site
+		next.Quotas = &q
+		if !s.checkUnpriced(ctx, w, eff.Runtime.Site, next, field) {
+			return
+		}
+	}
 	value, err := json.Marshal(q)
 	if err != nil {
 		WriteError(w, Error{Code: CodeInternal, Reason: ReasonInternal, Message: "the quotas could not be written"})
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 3*storeTimeout)
-	defer cancel()
 	if err := s.o.Store.PutSiteSetting(ctx, store.SiteSetting{Name: store.SettingSchoolQuotas, Value: value, UpdatedBy: c.ActorID,
 		UpdatedAt: s.o.Now().UTC()}); err != nil {
 		s.storeUnavailable(w, "the school's quotas written", err)
 		return
 	}
-	au.detail["per_owner_day"], au.detail["per_asker_day"], au.detail["per_day"] = q.PerOwnerDay, q.PerAskerDay, q.PerDay
 	s.writePlan(ctx, w)
 }
 
 // resetQuotas is DELETE /admin/school-plan/quotas: runtime.yaml's quotas
-// again. With none of the site's set, nothing is written or audited.
+// again, in answers and in dollars, refused where its dollars would be
+// left without a price. With none of the site's set, nothing is written or
+// audited.
 func (s *Server) resetQuotas(w http.ResponseWriter, r *http.Request, c *Caller, au *auditing) {
 	au.target("site_setting", store.SettingSchoolQuotas)
 	if !c.IsAdmin {
@@ -913,7 +981,22 @@ func (s *Server) resetQuotas(w http.ResponseWriter, r *http.Request, c *Caller, 
 	}
 	if set == nil {
 		au.skip = true
-	} else if err := s.o.Store.DeleteSiteSetting(ctx, store.SettingSchoolQuotas); err != nil {
+		s.writePlan(ctx, w)
+		return
+	}
+	if s.yaml().Runtime.School.USD() {
+		cur, err := registry.ReadSite(ctx, s.o.Store)
+		if err != nil {
+			s.storeUnavailable(w, "the site's settings", err)
+			return
+		}
+		next := cur
+		next.Quotas = nil
+		if !s.checkUnpriced(ctx, w, cur, next, "") {
+			return
+		}
+	}
+	if err := s.o.Store.DeleteSiteSetting(ctx, store.SettingSchoolQuotas); err != nil {
 		s.storeUnavailable(w, "the school's quotas unset", err)
 		return
 	}

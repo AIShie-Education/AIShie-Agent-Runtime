@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/probe"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
@@ -61,14 +62,14 @@ type SchoolLimits struct {
 }
 
 // schoolOffers are the offers of the school's plan sc, as GET /models
-// lists them.
-func (s *Server) schoolOffers(sc config.School, now time.Time) SchoolKeyOffers {
+// lists them, priced by prices.
+func schoolOffers(sc config.School, prices *pricing.Table, now time.Time) SchoolKeyOffers {
 	owner, asker := sc.OwnerQuota(), sc.AskerQuota()
 	out := SchoolKeyOffers{Offered: sc.Offered(), Offers: []SchoolOffer{},
 		Limits: SchoolLimits{PerOwnerDay: *owner.Answers, PerAskerDay: *asker.Answers}}
 	for _, o := range sc.Offers {
 		m := o.AsModel()
-		_, priced := s.prices().Lookup(m.EffectiveProvider(), m.Model, now)
+		_, priced := prices.Lookup(m.EffectiveProvider(), m.Model, now)
 		out.Offers = append(out.Offers, SchoolOffer{ID: o.ID, Label: o.Label, Provider: m.EffectiveProvider(), Model: o.Model, Priced: priced})
 	}
 	return out
@@ -121,8 +122,8 @@ func (s *Server) models(w http.ResponseWriter, r *http.Request, _ *Caller) {
 		s.storeUnavailable(w, "the site's settings", err)
 		return
 	}
-	prices, rt := s.prices(), eff.Runtime
-	out := Models{OwnKey: OwnKeyOffers{Offered: true, Providers: []ProviderOffer{}}, SchoolKey: s.schoolOffers(rt.School, now)}
+	prices, rt := s.pricesOf(eff), eff.Runtime
+	out := Models{OwnKey: OwnKeyOffers{Offered: true, Providers: []ProviderOffer{}}, SchoolKey: schoolOffers(rt.School, prices, now)}
 	for _, o := range registry.Offers() {
 		p := ProviderOffer{Provider: o.Provider, Label: o.Label, Adapters: o.Adapters, SuggestedModels: []SuggestedModel{},
 			Endpoint: EndpointOffer{Kind: o.Endpoint.Kind, BaseURL: o.Endpoint.BaseURL, Pattern: o.Endpoint.Pattern,

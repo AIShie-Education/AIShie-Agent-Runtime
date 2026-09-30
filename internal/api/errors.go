@@ -92,6 +92,12 @@ const (
 	ReasonOfferNotPriced = "offer_not_priced"
 	ReasonKeyRequired    = "key_required"
 	ReasonKeyTestFailed  = "key_test_failed"
+	// The money: the site's prices, and the quotas in dollars no price
+	// would hold.
+	ReasonModelNotPriced = "model_not_priced"
+	ReasonPriceNotFound  = "price_not_found"
+	ReasonPriceExists    = "price_exists"
+	ReasonPriceReadOnly  = "price_read_only"
 )
 
 // maxMessage bounds a message, in bytes, as Core's apperr.Clip does.

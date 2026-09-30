@@ -7,6 +7,7 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"net/url"
 	"reflect"
 	"slices"
 	"strings"
@@ -30,6 +31,34 @@ func noQuery(w http.ResponseWriter, r *http.Request) bool {
 	WriteError(w, Error{Code: CodeInvalidArgument, Reason: ReasonUnknownParameter, Message: "this route takes no query parameter",
 		Details: map[string]any{"field": field}})
 	return false
+}
+
+// queryOf reads the query of a GET that takes one: the parameters named
+// alone, each given once (unknown_parameter, invalid_field, naming it),
+// and no body but an empty one or {}. It answers a refusal, and reports
+// whether the request may go on.
+func queryOf(w http.ResponseWriter, r *http.Request, names ...string) (map[string]string, bool) {
+	q, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil || strings.Contains(r.URL.RawQuery, ";") {
+		WriteError(w, Error{Code: CodeInvalidArgument, Reason: ReasonUnknownParameter, Message: "the query cannot be read",
+			Details: map[string]any{"field": ""}})
+		return nil, false
+	}
+	out := map[string]string{}
+	for _, k := range slices.Sorted(maps.Keys(q)) {
+		switch {
+		case !slices.Contains(names, k):
+			WriteError(w, Error{Code: CodeInvalidArgument, Reason: ReasonUnknownParameter,
+				Message: "this route takes " + strings.Join(names, ", ") + " alone", Details: map[string]any{"field": k}})
+			return nil, false
+		case len(q[k]) != 1:
+			WriteError(w, *fieldError(CodeInvalidArgument, ReasonInvalidField, k, "a parameter is given once"))
+			return nil, false
+		}
+		out[k] = q[k][0]
+	}
+	var none struct{}
+	return out, decodeBody(w, r, &none, true)
 }
 
 // noBody refuses a query parameter and a body that is not empty or {} (the

@@ -185,17 +185,16 @@ func (s *Server) view(ctx context.Context, row *store.HostedAgent) (*HostedAgent
 		return nil, fmt.Errorf("%w: %w", errStore, err)
 	}
 	own, school := modelSlots(row.Settings)
-	var sc config.School
-	if school != nil {
-		if sc, err = s.plan(ctx); err != nil {
-			return nil, fmt.Errorf("%w: %w", errStore, err)
-		}
+	eff, err := s.effective(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errStore, err)
 	}
+	sc := eff.Runtime.School
 	status, problem := statusOf(row, own != nil || school != nil, st)
 	v := &HostedAgent{
 		ID: row.ID, Version: row.Version, CoreActorID: row.CoreActorID, OwnerActorID: row.OwnerActorID,
 		DisplayName: row.DisplayName, Status: status, Problem: problem, Paused: row.Paused, Token: tokenInfo(row.TokenHint),
-		Model: ModelSlots{Own: s.ownModelView(own, now), School: schoolModelView(school, sc, own != nil && row.KeySecretID != "")},
+		Model: ModelSlots{Own: ownModelView(own, s.pricesOf(eff), now), School: schoolModelView(school, sc, own != nil && row.KeySecretID != "")},
 		Tools: ToolsView{Writes: registry.WritesOf(row.Settings)},
 		Seats: []Seat{}, CreatedAt: row.CreatedAt.UTC(), UpdatedAt: row.UpdatedAt.UTC(),
 	}

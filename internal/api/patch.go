@@ -320,7 +320,7 @@ func (s *Server) update(w http.ResponseWriter, r *http.Request, c *Caller, au *a
 			return
 		}
 		o := registry.Options{CoreBaseURL: s.o.CoreBaseURL, Allowlist: s.o.Allowlist}
-		if err := registry.Check(ctx, eff, next, courses, o); err != nil {
+		if err := registry.CheckPriced(ctx, eff, next, courses, o, s.pricesOf(eff), s.o.Now()); err != nil {
 			WriteError(w, Error{Code: CodeFailedPrecondition, Reason: ReasonSettingsRejected,
 				Message: "the runtime cannot run these settings", Details: map[string]any{"problems": problems(err)}})
 			return

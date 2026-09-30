@@ -452,7 +452,7 @@ func TestSchoolPlanQuotas(t *testing.T) {
 		t.Errorf("the plan in force: %+v", sc)
 	}
 	if ev := h.events("school_quotas.update"); len(ev) != 1 || ev[0].TargetID != store.SettingSchoolQuotas ||
-		string(ev[0].Detail) != `{"per_asker_day":5,"per_day":400,"per_owner_day":50}` {
+		string(ev[0].Detail) != `{"per_asker_day":5,"per_asker_day_usd":null,"per_day":400,"per_day_usd":null,"per_owner_day":50,"per_owner_day_usd":null}` {
 		t.Errorf("the audit: %+v", ev)
 	}
 
@@ -468,7 +468,14 @@ func TestSchoolPlanQuotas(t *testing.T) {
 		{`{"per_owner_day":1.5,"per_asker_day":5,"per_day":null}`, ReasonInvalidField, "/per_owner_day"},
 		{`{"per_owner_day":5,"per_asker_day":"5","per_day":null}`, ReasonInvalidField, "/per_asker_day"},
 		{`{"per_owner_day":5,"per_asker_day":5,"per_day":1000001}`, ReasonInvalidField, "/per_day"},
-		{`{"per_owner_day":5,"per_asker_day":5,"per_day":null,"per_owner_day_usd":2}`, ReasonUnknownField, "/per_owner_day_usd"},
+		{`{"per_owner_day":5,"per_asker_day":5,"per_day":null,"per_week":2}`, ReasonUnknownField, "/per_week"},
+		{`{"per_owner_day":5,"per_asker_day":5,"per_day":null,"per_owner_day_usd":0}`, ReasonInvalidField, "/per_owner_day_usd"},
+		{`{"per_owner_day":5,"per_asker_day":5,"per_day":null,"per_asker_day_usd":"-1"}`, ReasonInvalidField, "/per_asker_day_usd"},
+		{`{"per_owner_day":5,"per_asker_day":5,"per_day":null,"per_day_usd":"0.0000001"}`, ReasonInvalidField, "/per_day_usd"},
+		{`{"per_owner_day":5,"per_asker_day":5,"per_day":null,"per_day_usd":1e3}`, ReasonInvalidField, "/per_day_usd"},
+		{`{"per_owner_day":5,"per_asker_day":5,"per_day":null,"per_day_usd":"1000000.01"}`, ReasonInvalidField, "/per_day_usd"},
+		{`{"per_owner_day":5,"per_asker_day":5,"per_day":null,"per_day_usd":"two"}`, ReasonInvalidField, "/per_day_usd"},
+		{`{"per_owner_day":5,"per_asker_day":5,"per_day":null,"per_day_usd":true}`, ReasonInvalidField, "/per_day_usd"},
 	} {
 		e := wantRefused(t, h.admin("PUT", "admin/school-plan/quotas", tc.body), 400, CodeInvalidArgument, tc.reason)
 		if e.Details["field"] != tc.field {

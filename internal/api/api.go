@@ -68,7 +68,7 @@ type Options struct {
 	// supervisor); nil knows of none.
 	Actors Actors
 	// Hosting is the configuration the runtime runs: the operator's YAML
-	// and the price table in force. Nil is none of either.
+	// and the price file's table. Nil is none of either.
 	Hosting Hosting
 	// OCR is the worker's OCR, which the site's settings turn off and on
 	// and give its languages (admin/settings); nil is none here.
@@ -107,7 +107,8 @@ type Hosting interface {
 	// YAML is the operator's configuration as last loaded: its runtime
 	// settings, and its agents.
 	YAML() *config.Config
-	// Prices is the price table in force, nil for none.
+	// Prices is the price file's table, nil for none; the site's rows
+	// are put before it as the store has them (pricesOf).
 	Prices() *pricing.Table
 }
 
@@ -195,6 +196,19 @@ func New(o Options) *Server {
 	s.mux.Handle("DELETE "+Prefix+"admin/school-plan/offers/{id}", s.authed(s.audited("school_offer.delete", s.deleteOffer)))
 	s.mux.Handle("PUT "+Prefix+"admin/school-plan/quotas", s.authedBody(s.audited("school_quotas.update", s.putQuotas)))
 	s.mux.Handle("DELETE "+Prefix+"admin/school-plan/quotas", s.authed(s.audited("school_quotas.reset", s.resetQuotas)))
+	s.mux.Handle("GET "+Prefix+"admin/prices", s.authed(s.getPrices))
+	s.mux.Handle("POST "+Prefix+"admin/prices", s.authedBody(s.audited("price.create", s.createPrice)))
+	s.mux.Handle("GET "+Prefix+"admin/prices/{id}", s.authed(s.getPrice))
+	s.mux.Handle("PATCH "+Prefix+"admin/prices/{id}", s.authedBody(s.audited("price.update", s.updatePrice)))
+	s.mux.Handle("DELETE "+Prefix+"admin/prices/{id}", s.authed(s.audited("price.delete", s.deletePrice)))
+	s.mux.Handle("GET "+Prefix+"admin/tenants", s.authedBody(s.listTenants))
+	s.mux.Handle("GET "+Prefix+"admin/tenants/{tenant_id}", s.authed(s.getTenant))
+	s.mux.Handle("PUT "+Prefix+"admin/tenants/{tenant_id}", s.authedBody(s.audited("tenant_quota.update", s.putTenant)))
+	s.mux.Handle("DELETE "+Prefix+"admin/tenants/{tenant_id}", s.authed(s.audited("tenant_quota.reset", s.resetTenant)))
+	s.mux.Handle("GET "+Prefix+"admin/agent-budgets", s.authed(s.getAgentBudgets))
+	s.mux.Handle("PUT "+Prefix+"admin/agent-budgets", s.authedBody(s.audited("agent_budgets.update", s.putAgentBudgets)))
+	s.mux.Handle("DELETE "+Prefix+"admin/agent-budgets", s.authed(s.audited("agent_budgets.reset", s.resetAgentBudgets)))
+	s.mux.Handle("GET "+Prefix+"admin/costs", s.authedBody(s.costs))
 
 	guard := http.NewCrossOriginProtection()
 	guard.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -285,7 +299,8 @@ func (s *Server) isAdmin(c *webauth.Claims) bool {
 	return len(s.o.AdminActorIDs) == 0 || slices.Contains(s.o.AdminActorIDs, c.Subject)
 }
 
-// prices is the price table in force, nil for none.
+// prices is the price file's table, nil for none: the table in force is
+// it with the site's rows (pricesOf).
 func (s *Server) prices() *pricing.Table {
 	if s.o.Hosting == nil {
 		return nil
