@@ -254,9 +254,15 @@ func TestNewConverterUnavailable(t *testing.T) {
 	if _, err := NewConverter(t.Context(), Config{Mode: "sometimes"}); err == nil || errors.Is(err, ErrUnavailable) {
 		t.Errorf("a bad mode: %v", err)
 	}
-	if _, err := NewPager(Config{PDFToCairo: filepath.Join(t.TempDir(), "pdftocairo")}); !errors.Is(err, ErrUnavailable) ||
-		!strings.Contains(err.Error(), "pdftocairo not installed") {
-		t.Errorf("no pdftocairo: %v", err)
+	// All three of poppler's programs named where none is, so that what is
+	// said does not hang on which of them the machine has: a runner may have
+	// none.
+	dir := t.TempDir()
+	missing := Config{PDFToCairo: filepath.Join(dir, "pdftocairo"), PDFSeparate: filepath.Join(dir, "pdfseparate"),
+		PDFUnite: filepath.Join(dir, "pdfunite")}
+	if _, err := NewPager(missing); !errors.Is(err, ErrUnavailable) ||
+		!strings.Contains(err.Error(), "pdfseparate, pdftocairo, pdfunite not installed") {
+		t.Errorf("no poppler: %v", err)
 	}
 }
 
