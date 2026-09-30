@@ -520,13 +520,18 @@ change in force within moments, with no restart and no SIGHUP:
   and `budgets.per_asker_day` for the hosted agents. `runtime.yaml`'s
   agents keep the budgets `runtime.yaml` gives them.
 - **What things cost:** the ledger's model calls in dollars, by day,
-  tenant, agent, model or key, over at most a year at a time.
+  tenant, agent, model or key, over at most a year at a time, the
+  transcriber's a line of their own.
+- **The transcriber** ([below](#transcribing-the-courses-files)): on or off,
+  the plan's offer it transcribes with, its limits, and the service
+  credential it claims with.
 
 What stays the operator's, in the env file and `runtime.yaml`:
 
 - **The ceilings:** `OCR=off`, or OCR's programs missing, is off whatever
   the site says; `OCR_LANGUAGES` is the languages until the site chooses,
-  and the other `OCR_*` knobs are the env file's alone.
+  and the other `OCR_*` knobs are the env file's alone. So is
+  `TRANSCRIBE=off` for the transcriber.
 - **`school:`'s offers**, and their keys as files under
   `secret://school/keys/`: the site shows them, read-only, and cannot make
   an offer of the same id. A server of the school's own (a gateway, vLLM,
@@ -554,6 +559,64 @@ has none today, nor delete the price one needs, and is told which to
 price. An offer turned off or deleted is withdrawn as one taken out of
 `school:` is (above). Every change is in the audit, with who made it; a
 key never is, but its hint.
+
+### Transcribing the course's files
+
+Core keeps beside each file of a course's material, instructions and
+rubrics a text version (文字版, AIShie-Core #43): the file as Markdown, a
+page under `## 第 N 頁`, each picture described, which people read and
+correct in the front end and the agents' models read in place of the file.
+The runtime's transcriber makes them: it claims the versions waiting in
+Core's queue, has a model of the school's plan transcribe each file, a
+range of pages at a time, and writes the text back (`docs/design.md` §12).
+It is off until the site's administrators turn it on; off, nothing of the
+runtime changes. A model reading a document is given its text version
+whenever Core has one done, whether or not this runtime made it.
+
+- **It needs** the store in PostgreSQL, `KMS_KEY_ID` and `CORE_BASE_URL`,
+  as hosted agents do, and a Core with the transcription service (#43 or
+  later). `TRANSCRIBE` in the env file is the ceiling: `auto` (the
+  default) runs it when the site turns it on, `off` never, and `on`
+  refuses to start where it cannot run (those missing, or Core too old or
+  out of reach). LibreOffice (in the image) converts presentations and
+  documents; without it they are skipped.
+- **Turning it on** (the front end's AI 與文件 → 文件 page, `PATCH
+  admin/settings`'s `transcription`): the switch; the offer of the school's
+  plan it transcribes with, whose model must take files (PDFs, or pages
+  as pictures), on the school's key; the most pages a document may have
+  (300), the pages a UTC day across the site (no limit unless set), and
+  how many documents at once (2). Its costs are in the ledger as their
+  own kind: they count against the plan's ceiling across the school's key
+  (`per_day_usd`), not against any owner's or asker's quota, and the cost
+  report shows them as a line of their own (文件轉寫). Give the offer's
+  model a price, or a ceiling in dollars cannot hold it.
+- **The credential.** The transcriber works in Core as the site's
+  transcription service, with a credential of its own that works nowhere
+  else. An administrator issues it in Core and hands it to the runtime in
+  one step of the front end's card (「發放並交給 runtime」): the front end
+  issues a credential in Core, gives its token to `PUT
+  admin/transcription/credential`, which tries it with Core by a call that
+  claims nothing and keeps it sealed like a school's key, and then revokes
+  the service's other credentials in Core (or the new one, should the
+  runtime refuse it). The token is never shown again, nor logged: only its
+  prefix (`aissvc_ab12cd34ef56…`). Replacing it is the same; 「撤銷」 forgets
+  it here and revokes it in Core. A credential Core stops taking (revoked,
+  expired) stops the claiming, and the card says so, until another is
+  given.
+- **One worker claims**, whatever the number of replicas: the one holding
+  the lease `transcriber` in the database; the others stand by and take
+  over within a minute of it stopping.
+- **Is it on:** `aishie-runtime check` says `transcriber: off in the site's
+  settings; …`, `transcriber: on in the site's settings, with the plan's
+  offer "…"`, or why it cannot run; so does the start's log line
+  (`transcriber`). The card shows what it does now (運作中, 待命, 受阻 and
+  why), today's pages, documents and cost, and its jobs of the last 90
+  days (`GET admin/transcription/jobs`), a document's id beside each.
+- **Watching it:** `transcribe_jobs_total{outcome}`, `transcribe_pages_total`,
+  `transcribe_inflight` and `transcribe_claim_errors_total{reason}` in
+  `/metrics`, and its model calls in `llm_calls_total`, `llm_tokens_total`
+  and `llm_cost_usd_total{key_source="school"}`. One log line a version,
+  with ids, the outcome, pages, calls and time, never its text.
 
 ## The key that seals secrets
 
@@ -629,7 +692,8 @@ running (above): a restart does not read the file again.
 | `OCR_CONCURRENCY`, `OCR_QUEUE`, `OCR_WAIT` | the files a worker reads at once (`1`, at most 8), those that may wait (`8`), and how long a question waits for a file's text before the model is told to ask again (`5s`; `0` waits not at all). |
 | `OFFICE_PDF` | `auto` (the default: on where LibreOffice is, as in the image), `on` (the runtime does not start without it) or `off` ([above](#presentations-and-documents-libreoffice)). |
 | `OFFICE_PDF_TIMEOUT`, `OFFICE_PDF_MAX_PAGES`, `OFFICE_PDF_MEMORY_MB` | how long one file may take to convert (`2m`), the most pages a PDF made has (`300`), and the memory LibreOffice may take (`2048`). |
-| `PDF_PART_PAGES` | the pages of a PDF given to a model as one file, when it has more: a longer one is given in parts (`10`, and never more than the model's provider takes in a file). |
+| `PDF_PART_PAGES` | the pages of a PDF given to a model as one file, when it has more: a longer one is given in parts (`10`, and never more than the model's provider takes in a file); the transcriber's ranges of pages too. |
+| `TRANSCRIBE` | `auto` (the default: the transcriber runs when the site's administrators turn it on), `on` (the runtime does not start where it cannot run) or `off` (never, whatever the site says) ([above](#transcribing-the-courses-files)). |
 
 `CONFIG` and `SECRETS_DIR` are set by `aishie-runtime-deploy` to the two
 mounts, whatever the file says. There is no `OIDC_*`: people sign in to
