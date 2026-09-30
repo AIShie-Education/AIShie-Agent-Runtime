@@ -387,7 +387,11 @@ by `Run`; each entry has its reason beside it in the code:
   answer, close or retract one in someone else's name. `conversation_draft`
   among them: the runtime writes the answer's draft itself (§5.3), and a
   model writing one would show the asker whatever it liked as the answer to
-  come.
+  come. So are a message's files (`conversation_attachment`): a tutor's
+  token reads those of every conversation addressed to it, and the URL it
+  gives is a credential; the runtime fetches them itself, for the
+  conversation it answers alone (§5.3, Attachments). And
+  `conversation_upload_url`, a signed URL for bytes a model cannot send.
 - `event_list` and `action_list_mine`: the runtime reads them itself, and
   `action_list_mine` returns the agent's own actions, the answers it wrote in
   other people's conversations among them.
