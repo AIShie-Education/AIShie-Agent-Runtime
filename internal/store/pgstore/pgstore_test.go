@@ -25,7 +25,8 @@ var update = flag.Bool("update", false, "rewrite testdata/schema.golden from the
 // tables are every table the migrations make, in the order TRUNCATE takes
 // them.
 var tables = []string{"lease", "attempt", "cursor", "note", "seat", "llm_call", "answer", "agent_state", "secret",
-	"person", "hosted_agent", "hosted_course", "audit", "ocr_text", "site_setting", "school_offer", "site_price", "site_tenant_quota"}
+	"person", "hosted_agent", "hosted_course", "audit", "ocr_text", "site_setting", "school_offer", "site_price", "site_tenant_quota",
+	"transcription_credential", "transcription_job"}
 
 // newest is the newest migration the binary carries.
 func newest(t *testing.T) uint {
@@ -304,11 +305,11 @@ func TestLedgerRowsKeepEveryField(t *testing.T) {
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, at, tenant_id, agent_id, course_id, member_id, conversation_id, message_id, opener_member_id,
 		       adapter, provider, model, stop, raw_stop, input_tokens, cache_read_tokens, cache_write_tokens,
-		       output_tokens, reasoning_tokens, estimated, raw_usage::text, price_version, cost_pusd, key_source, latency_ms
+		       output_tokens, reasoning_tokens, estimated, raw_usage::text, price_version, cost_pusd, key_source, latency_ms, kind
 		  FROM llm_call`).Scan(&got.ID, &got.At, &got.TenantID, &got.AgentID, &got.CourseID, &got.MemberID,
 		&got.ConversationID, &got.MessageID, &got.OpenerMemberID, &got.Adapter, &got.Provider, &got.Model, &got.Stop,
 		&got.RawStop, &got.Input, &got.CacheRead, &got.CacheWrite, &got.Output, &got.Reasoning, &got.Estimated, &raw,
-		&got.PriceVersion, &got.CostPUSD, &got.KeySource, &got.LatencyMS)
+		&got.PriceVersion, &got.CostPUSD, &got.KeySource, &got.LatencyMS, &got.Kind)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,6 +324,10 @@ func TestLedgerRowsKeepEveryField(t *testing.T) {
 		t.Errorf("raw_usage = %s, want %s", raw, call.RawUsage)
 	}
 	got.At, got.RawUsage = got.At.UTC(), call.RawUsage
+	if got.Kind != store.CallAnswer {
+		t.Errorf("llm_call kind = %q, want %q", got.Kind, store.CallAnswer)
+	}
+	got.Kind = ""
 	if !reflect.DeepEqual(got, call) {
 		t.Errorf("llm_call row:\n got %+v\nwant %+v", got, call)
 	}
@@ -515,5 +520,55 @@ func TestSeatSnapshotMigratesTheSeatsBefore(t *testing.T) {
 	seats, err = s.KnownSeats(t.Context(), "a1")
 	if err != nil || seats[0].CourseCode != "CS101" || seats[0].Perms["conversation_answer"] != "autonomous" {
 		t.Fatalf("a seat written on the new schema: %+v, %v", seats, err)
+	}
+}
+
+// The ledger's rows from before 0011 are answers' calls, and the release
+// before's write of one still works on the new schema: both are summed as
+// the answers', and the transcriber's apart.
+func TestLedgerMigratesTheCallsBefore(t *testing.T) {
+	u := freshDatabase(t)
+	m, err := newMigrator(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Migrate(10); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// The release before 0011's RecordLLMCall, but its raw usage.
+	before := `INSERT INTO llm_call (agent_id, id, at, tenant_id, course_id, member_id, conversation_id, message_id,
+		                      opener_member_id, adapter, provider, model, stop, raw_stop,
+		                      input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, reasoning_tokens,
+		                      estimated, raw_usage, price_version, cost_pusd, key_source, latency_ms)
+		VALUES ($1, $2, now(), 'ten_1', 'c1', 'm1', 'x1', 'q1', 'm2', 'openai_chat', 'openai', 'gpt-test', 'end', 'stop',
+		        100, 0, 0, 10, 0, false, NULL, 'v1', 7, 'school', 5)`
+	conn, err := pgx.Connect(t.Context(), u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(context.Background()) }()
+	if _, err := conn.Exec(t.Context(), before, "agt_1", "call-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(u, Up); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Exec(t.Context(), before, "agt_1", "call-2"); err != nil {
+		t.Fatalf("the release before's write on the new schema: %v", err)
+	}
+	s := openOn(t, u)
+	if err := s.RecordLLMCall(t.Context(), store.LLMCall{ID: "tx-1", Kind: store.CallTranscription, Adapter: "gemini",
+		Provider: "gemini", Model: "gemini-flash-lite", KeySource: "school", CostPUSD: 3, PriceVersion: "v1"}); err != nil {
+		t.Fatal(err)
+	}
+	day := store.UTCDay(time.Now())
+	rows, err := s.CostReport(t.Context(), store.CostQuery{Group: store.CostByTotal, Since: day.AddDate(0, 0, -1), Until: day.AddDate(0, 0, 2),
+		Limit: 1})
+	if err != nil || len(rows) != 1 || rows[0].ModelCalls != 2 || rows[0].CostPUSD != 14 || rows[0].Transcription.Calls != 1 ||
+		rows[0].Transcription.CostPUSD != 3 {
+		t.Fatalf("the report after the migration: %+v, %v", rows, err)
 	}
 }

@@ -81,7 +81,15 @@
 //     none is kept, as none.
 //   - The cost report groups model calls by key, bytewise, pages after a
 //     key, and counts the calls recorded with no price version as
-//     unpriced.
+//     unpriced. The transcriber's calls are summed apart in each group,
+//     under the key transcription by agent and site by tenant; they are
+//     of no agent, tenant, course or asker, and a scope of the key source
+//     alone spends them.
+//   - The transcriber's credential is one at most, a core_token of the
+//     tenant site; given again, the one before goes with its secret; a
+//     note of what Core made of it is of the one it names, and moves no
+//     revision on, where giving and forgetting it do. Its jobs keep the
+//     place they were first given, and are listed newest first.
 package storetest
 
 import (
@@ -120,6 +128,7 @@ func Run(t *testing.T, open func(t *testing.T) store.Store) {
 		{"Site", testSite},
 		{"SitePrices", testSitePrices},
 		{"CostReport", testCostReport},
+		{"Transcription", testTranscription},
 	} {
 		t.Run(g.name, func(t *testing.T) { g.run(t, open) })
 	}

@@ -114,6 +114,7 @@ llm_call.price_version text not null
 llm_call.cost_pusd bigint not null
 llm_call.key_source text not null
 llm_call.latency_ms bigint not null
+llm_call.kind text not null default 'model_calls'::text
 note.id bigint not null identity
 note.agent_id text not null
 note.member_id text not null
@@ -205,6 +206,40 @@ site_tenant_quota.answers integer
 site_tenant_quota.usd_pusd bigint
 site_tenant_quota.updated_by text not null
 site_tenant_quota.updated_at timestamp with time zone not null
+transcription_credential.one boolean not null default true
+transcription_credential.secret_id text not null
+transcription_credential.hint text not null
+transcription_credential.credential_id text not null
+transcription_credential.tested boolean not null
+transcription_credential.set_by text not null
+transcription_credential.set_at timestamp with time zone not null
+transcription_credential.last_ok_at timestamp with time zone
+transcription_credential.rejected_at timestamp with time zone
+transcription_credential.last_error text not null
+transcription_job.id text not null
+transcription_job.seq bigint not null identity
+transcription_job.version_id text not null
+transcription_job.document_id text not null
+transcription_job.course_id text not null
+transcription_job.lease_id text not null
+transcription_job.status text not null
+transcription_job.reason text not null
+transcription_job.backfill boolean not null
+transcription_job.attempt integer not null
+transcription_job.content_type text not null
+transcription_job.byte_size bigint not null
+transcription_job.pages integer
+transcription_job.pages_sent integer not null
+transcription_job.offer text not null
+transcription_job.model text not null
+transcription_job.model_calls integer not null
+transcription_job.cost_pusd bigint
+transcription_job.input_tokens bigint not null
+transcription_job.output_tokens bigint not null
+transcription_job.worker text not null
+transcription_job.started_at timestamp with time zone not null
+transcription_job.heartbeat_at timestamp with time zone not null
+transcription_job.finished_at timestamp with time zone
 -- constraints
 agent_state agent_state_pkey PRIMARY KEY (agent_id)
 answer answer_pkey PRIMARY KEY (agent_id, id)
@@ -260,6 +295,14 @@ site_setting site_setting_value_object CHECK ((jsonb_typeof(value) = 'object'::t
 site_tenant_quota site_tenant_quota_pkey PRIMARY KEY (tenant_id)
 site_tenant_quota site_tenant_quota_positive CHECK ((((answers IS NULL) OR (answers >= 1)) AND ((usd_pusd IS NULL) OR (usd_pusd >= 1))))
 site_tenant_quota site_tenant_quota_tenant_shape CHECK ((tenant_id ~ '^[A-Za-z0-9_-]{1,64}$'::text))
+transcription_credential transcription_credential_one_row CHECK (one)
+transcription_credential transcription_credential_pkey PRIMARY KEY (one)
+transcription_credential transcription_credential_secret_id_fkey FOREIGN KEY (secret_id) REFERENCES secret(id)
+transcription_credential transcription_credential_secret_id_key UNIQUE (secret_id)
+transcription_job transcription_job_id_shape CHECK ((id ~ '^trj_'::text))
+transcription_job transcription_job_pkey PRIMARY KEY (id)
+transcription_job transcription_job_seq_key UNIQUE (seq)
+transcription_job transcription_job_status_known CHECK ((status = ANY (ARRAY['working'::text, 'done'::text, 'failed'::text, 'skipped'::text, 'dropped'::text])))
 -- indexes
 CREATE UNIQUE INDEX agent_state_pkey ON public.agent_state USING btree (agent_id)
 CREATE INDEX answer_agent_course_idx ON public.answer USING btree (agent_id, course_id, at)
@@ -308,6 +351,12 @@ CREATE UNIQUE INDEX site_price_pkey ON public.site_price USING btree (id)
 CREATE UNIQUE INDEX site_price_rev_pkey ON public.site_price_rev USING btree (one)
 CREATE UNIQUE INDEX site_setting_pkey ON public.site_setting USING btree (name)
 CREATE UNIQUE INDEX site_tenant_quota_pkey ON public.site_tenant_quota USING btree (tenant_id)
+CREATE UNIQUE INDEX transcription_credential_pkey ON public.transcription_credential USING btree (one)
+CREATE UNIQUE INDEX transcription_credential_secret_id_key ON public.transcription_credential USING btree (secret_id)
+CREATE UNIQUE INDEX transcription_job_pkey ON public.transcription_job USING btree (id)
+CREATE UNIQUE INDEX transcription_job_seq_key ON public.transcription_job USING btree (seq)
+CREATE INDEX transcription_job_started_idx ON public.transcription_job USING btree (started_at)
+CREATE INDEX transcription_job_status_idx ON public.transcription_job USING btree (status, seq)
 -- triggers
 CREATE TRIGGER hosted_agent_changed AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE ON public.hosted_agent FOR EACH STATEMENT EXECUTE FUNCTION registry_changed()
 CREATE TRIGGER hosted_course_changed AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE ON public.hosted_course FOR EACH STATEMENT EXECUTE FUNCTION registry_changed()
@@ -316,3 +365,5 @@ CREATE TRIGGER site_price_changed AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE O
 CREATE TRIGGER site_price_versioned AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE ON public.site_price FOR EACH STATEMENT EXECUTE FUNCTION site_price_changed()
 CREATE TRIGGER site_setting_changed AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE ON public.site_setting FOR EACH STATEMENT EXECUTE FUNCTION registry_changed()
 CREATE TRIGGER site_tenant_quota_changed AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE ON public.site_tenant_quota FOR EACH STATEMENT EXECUTE FUNCTION registry_changed()
+CREATE TRIGGER transcription_credential_changed AFTER INSERT OR DELETE OR TRUNCATE ON public.transcription_credential FOR EACH STATEMENT EXECUTE FUNCTION registry_changed()
+CREATE TRIGGER transcription_credential_replaced AFTER UPDATE OF secret_id ON public.transcription_credential FOR EACH STATEMENT EXECUTE FUNCTION registry_changed()

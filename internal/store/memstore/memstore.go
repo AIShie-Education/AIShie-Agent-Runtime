@@ -56,6 +56,8 @@ type Store struct {
 	// pricesAt is when the site's prices last changed.
 	pricesAt time.Time
 	tenants  map[string]store.TenantQuota
+	// tx is the transcriber's.
+	tx transcription
 }
 
 type lease struct {
@@ -111,6 +113,7 @@ func New() *Store {
 		offers:   map[string]store.SchoolOffer{},
 		prices:   map[string]store.SitePrice{},
 		tenants:  map[string]store.TenantQuota{},
+		tx:       transcription{jobs: map[string]store.TranscriptionJob{}},
 	}
 }
 
@@ -556,7 +559,7 @@ func (s *Store) ForgetSeat(_ context.Context, agentID, memberID string) error {
 // RecordLLMCall records c, once: a call already recorded under its agent
 // and id is left as it is.
 func (s *Store) RecordLLMCall(_ context.Context, c store.LLMCall) error {
-	if err := required("id", c.ID, "agent_id", c.AgentID); err != nil {
+	if err := store.CheckCall(c); err != nil {
 		return err
 	}
 	if len(c.RawUsage) > 0 && !json.Valid(c.RawUsage) {
@@ -568,7 +571,7 @@ func (s *Store) RecordLLMCall(_ context.Context, c store.LLMCall) error {
 	if _, ok := s.calls[k]; ok {
 		return nil
 	}
-	c.At = s.orNow(c.At)
+	c.At, c.Kind = s.orNow(c.At), c.KindOf()
 	c.RawUsage = append(json.RawMessage(nil), c.RawUsage...)
 	s.calls[k] = c
 	return nil
@@ -783,6 +786,9 @@ func (s *Store) secretInUse(id string) error {
 		if o.KeySecretID == id {
 			return fmt.Errorf("secret %s: %w", id, store.ErrInUse)
 		}
+	}
+	if c := s.tx.cred; c != nil && c.SecretID == id {
+		return fmt.Errorf("secret %s: %w", id, store.ErrInUse)
 	}
 	return nil
 }
@@ -1166,7 +1172,7 @@ func (s *Store) TenantUsage(_ context.Context, keySource string, since, until ti
 		}
 	}
 	for _, c := range s.calls {
-		if c.KeySource == keySource && inSpan(c.At, since, until) {
+		if c.KeySource == keySource && inSpan(c.At, since, until) && c.KindOf() == store.CallAnswer {
 			r := row(c.TenantID)
 			r.ModelCalls++
 			r.CostPUSD += c.CostPUSD
