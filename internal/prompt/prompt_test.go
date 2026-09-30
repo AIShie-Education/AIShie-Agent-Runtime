@@ -279,12 +279,12 @@ func equal(a, b []llm.Message) bool {
 // answer was cut short.
 func TestContinue(t *testing.T) {
 	more := Continue(false, 0)
-	for _, want := range []string{"from exactly where it stops", "joined to it as it stands", "Repeat nothing"} {
+	for _, want := range []string{"from exactly where it stops, in its language", "joined to it as it stands", "Repeat nothing"} {
 		if !strings.Contains(more, want) {
 			t.Errorf("a continuation is not told %q:\n%s", want, more)
 		}
 	}
-	if strings.Contains(more, "room") || strings.Contains(more, "cut short") {
+	if strings.Contains(more, "room") || strings.Contains(more, "cut short") || !strings.Contains(more, "Do not mention the interruption") {
 		t.Errorf("a continuation with room to spare is told to close:\n%s", more)
 	}
 	last := Continue(true, 850)
@@ -293,5 +293,8 @@ func TestContinue(t *testing.T) {
 		if !strings.Contains(last, want) {
 			t.Errorf("the last continuation is not told %q:\n%s", want, last)
 		}
+	}
+	if strings.Contains(last, "Do not mention the interruption") {
+		t.Errorf("the last continuation, which may say it was cut short, is told not to mention it:\n%s", last)
 	}
 }
