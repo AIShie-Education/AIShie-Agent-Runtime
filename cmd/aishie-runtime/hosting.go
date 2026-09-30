@@ -5,10 +5,12 @@ import (
 	"errors"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
@@ -37,6 +39,11 @@ type hosting struct {
 	site     config.Site
 	// reported are the agents last reported not run.
 	reported []string
+	// ocr is the worker's OCR, which the site's setting is put in force
+	// in (applyOCR), and ocrSet the setting last put in force, or tried;
+	// nil before the worker has one.
+	ocr    *ocr.Service
+	ocrSet *ocr.Setting
 }
 
 // YAML is the operator's configuration as last loaded, for the API.
@@ -80,6 +87,7 @@ func (h *hosting) build(ctx context.Context) (*config.Config, int64, error) {
 		return h.withLastHosted(), 0, err
 	}
 	h.site = cfg.Runtime.Site
+	h.applyOCR()
 	kept := cfg.Agents[:0]
 	for _, a := range cfg.Agents {
 		if a.Hosted != nil {
@@ -119,6 +127,41 @@ func (h *hosting) withLastHosted() *config.Config {
 		}
 	}
 	return cfg
+}
+
+// setOCR is the worker's OCR, in which the site's setting as last read is
+// put in force now, and at each build after.
+func (h *hosting) setOCR(o *ocr.Service) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.ocr = o
+	h.applyOCR()
+}
+
+// applyOCR puts the site's OCR setting as last read in force in the
+// worker's OCR, when it changed: on unless the site turns it off, in the
+// site's languages or else the environment's. Languages not installed
+// here are refused, logged once, and the setting before stays. With
+// OCR=off, or its programs missing, it changes nothing. Called with mu
+// held.
+func (h *hosting) applyOCR() {
+	if h.ocr == nil {
+		return
+	}
+	s := h.site.OCR
+	st := ocr.Setting{Enabled: s.Enabled == nil || *s.Enabled, Languages: strings.Join(s.Languages, "+")}
+	if h.ocrSet != nil && *h.ocrSet == st {
+		return
+	}
+	first := h.ocrSet == nil
+	h.ocrSet = &st
+	if err := h.ocr.Set(st); err != nil {
+		h.log.Warn("the site's OCR languages are not all installed here: OCR goes on as it was", "languages", st.Languages, "err", err)
+		return
+	}
+	if !first || st != (ocr.Setting{Enabled: true}) {
+		h.log.Info("OCR as the site's settings say", "on", st.Enabled, "languages", h.ocr.Languages(), "ocr", h.ocr.String())
+	}
 }
 
 // report logs the hosted agents that run and those that are not run, when

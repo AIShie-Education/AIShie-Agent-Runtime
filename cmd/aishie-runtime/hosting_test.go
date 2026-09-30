@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/fakecore"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/pgstore"
@@ -427,5 +429,69 @@ prices:
 	last, _, err := h.build(t.Context())
 	if err == nil || len(last.Runtime.School.Offers) != 2 || len(last.Agents) != 1 {
 		t.Errorf("the registry not read: %v, %+v", err, last.Runtime.School.Offers)
+	}
+}
+
+// fakeRecognizer is a recognizer in the languages it is given, of those
+// it has.
+type fakeRecognizer struct{ langs string }
+
+func (f fakeRecognizer) Recognize(context.Context, []byte, ocr.Kind, int, func(done, of int)) (*ocr.Result, error) {
+	return &ocr.Result{Text: "text"}, nil
+}
+
+func (f fakeRecognizer) Describe() string { return "fake 1.0 " + f.langs + " 300dpi" }
+
+func (f fakeRecognizer) Installed() []string { return []string{"chi_sim", "chi_tra", "eng"} }
+
+func (f fakeRecognizer) InLanguages(l string) (ocr.Recognizer, error) {
+	for _, x := range strings.Split(l, "+") {
+		if !slices.Contains(f.Installed(), x) {
+			return nil, ocr.ErrUnavailable
+		}
+	}
+	return fakeRecognizer{l}, nil
+}
+
+// TestBuildPutsTheSitesOCRInForce: each build puts the site's OCR setting
+// in force in the worker's OCR: turned off, then in English alone; in a
+// language not installed here, OCR goes on as it was, saying so; unset, it
+// is on again in the environment's languages.
+func TestBuildPutsTheSitesOCRInForce(t *testing.T) {
+	w := newRegistryWorld(t)
+	var logs strings.Builder
+	h := &hosting{env: config.Env{CoreBaseURL: w.coreURL}, pg: w.st, log: slog.New(slog.NewTextHandler(&logs, nil)), yaml: &config.Config{}}
+	svc := ocr.NewService(t.Context(), ocr.ServiceOptions{Recognizer: fakeRecognizer{ocr.DefaultLanguages}, Store: w.st})
+	h.setOCR(svc)
+	build := func(setting string) {
+		t.Helper()
+		if setting == "" {
+			if err := w.st.DeleteSiteSetting(t.Context(), store.SettingOCR); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := w.st.PutSiteSetting(t.Context(), store.SiteSetting{Name: store.SettingOCR, Value: json.RawMessage(setting)}); err != nil {
+			t.Fatal(err)
+		}
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if _, _, err := h.build(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	build(`{"enabled": false}`)
+	if ok, why := svc.Available(); ok || why != "it is turned off" {
+		t.Errorf("turned off: %v %q", ok, why)
+	}
+	build(`{"enabled": true, "languages": ["eng"]}`)
+	if ok, _ := svc.Available(); !ok || svc.Languages() != "eng" {
+		t.Errorf("in English: %v %q", ok, svc.Languages())
+	}
+	build(`{"languages": ["jpn"]}`)
+	if svc.Languages() != "eng" || !strings.Contains(logs.String(), "the site's OCR languages are not all installed here") {
+		t.Errorf("in a language not installed: %q\n%s", svc.Languages(), logs.String())
+	}
+	build("")
+	if ok, _ := svc.Available(); !ok || svc.Languages() != ocr.DefaultLanguages {
+		t.Errorf("unset: %v %q", ok, svc.Languages())
 	}
 }

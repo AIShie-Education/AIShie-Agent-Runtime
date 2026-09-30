@@ -108,6 +108,7 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 		return exitFailure
 	}
 	defer func() { stopOCR(); recognizer.Wait() }()
+	h.setOCR(recognizer)
 	// So do the conversions: what they had made is not kept.
 	officeCtx, stopOffice := context.WithCancel(ctx)
 	converter, err := newOffice(officeCtx, env, m, log)
@@ -131,7 +132,7 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 		log.Error("HTTP_ADDR cannot be listened on", "addr", env.HTTPAddr, "err", err)
 		return exitFailure
 	}
-	apiSrv, err := newAPI(env, apiDeps{client: client, models: hostedClient, st: st, vault: v, actors: sup, hosting: h}, reg, log)
+	apiSrv, err := newAPI(env, apiDeps{client: client, models: hostedClient, st: st, vault: v, actors: sup, hosting: h, ocr: recognizer}, reg, log)
 	if err != nil {
 		log.Error("the API", "err", err)
 		return exitFailure
@@ -237,7 +238,7 @@ wait:
 
 // apiDeps are what the API shares with the worker: the egress client (for
 // Core), the hosted-model client (for keys/test), the store, the vault,
-// the supervisor, and the configuration in force.
+// the supervisor, the configuration in force, and the worker's OCR.
 type apiDeps struct {
 	client  *http.Client
 	models  *http.Client
@@ -245,6 +246,7 @@ type apiDeps struct {
 	vault   *vault.Vault
 	actors  api.Actors
 	hosting api.Hosting
+	ocr     api.OCR
 }
 
 // newAPI is the JSON API for the front end (docs/design.md §11.4), or nil
@@ -279,6 +281,7 @@ func newAPI(env config.Env, d apiDeps, reg prometheus.Registerer, log *slog.Logg
 		Vault:          d.vault,
 		Actors:         d.actors,
 		Hosting:        d.hosting,
+		OCR:            d.ocr,
 		Allowlist:      env.CoreBaseURLAllowlist,
 		ModelHTTP:      d.models,
 		AdminActorIDs:  env.AdminActorIDs,

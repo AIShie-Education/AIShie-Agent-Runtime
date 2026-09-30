@@ -303,3 +303,123 @@ func eventually(t *testing.T, what string, cond func() bool) {
 		time.Sleep(2 * time.Millisecond)
 	}
 }
+
+// multilingual is a fake recognizer in the languages it is given, of
+// those installed.
+type multilingual struct {
+	*fakeRecognizer
+	langs string
+}
+
+func (m multilingual) Describe() string { return "fake 1.0 " + m.langs + " 300dpi" }
+
+func (m multilingual) Installed() []string { return []string{"chi_sim", "chi_tra", "eng"} }
+
+func (m multilingual) InLanguages(l string) (Recognizer, error) {
+	for _, x := range strings.Split(l, "+") {
+		if x != "chi_sim" && x != "chi_tra" && x != "eng" {
+			return nil, ErrUnavailable
+		}
+	}
+	return multilingual{m.fakeRecognizer, l}, nil
+}
+
+// TestServiceTakesTheSitesSetting: turned off by the site, no file is
+// recognized and no kept text read, as with OCR=off, and turned on again it
+// reads them; in other languages, a file whose text was kept in others is
+// recognized again, in these, and kept in its place; languages not
+// installed are refused, keeping the setting before. Capability says what
+// the environment allows.
+func TestServiceTakesTheSitesSetting(t *testing.T) {
+	st := memstore.New()
+	base := &fakeRecognizer{fn: func(_ context.Context, data []byte, _ func(done, of int)) (*Result, error) {
+		return &Result{Text: string(data), Pages: 1, Of: 1}, nil
+	}}
+	rec := multilingual{base, "chi_sim+chi_tra+eng"}
+	s, _ := newTestService(t, t.Context(), rec, Config{Wait: time.Second}, st)
+	var fetched atomic.Int32
+	sum := sumOf("b")
+	if got := s.Text(t.Context(), sum, Image, 0, bytesOf("第一章", &fetched)); got.Status != StatusDone || got.Text.Text != "第一章" {
+		t.Fatalf("first: %+v", got)
+	}
+	if c := s.Capability(); !c.Available || strings.Join(c.Installed, " ") != "chi_sim chi_tra eng" || strings.Join(c.Default, "+") != "chi_sim+chi_tra+eng" {
+		t.Errorf("Capability = %+v", c)
+	}
+
+	if err := s.Set(Setting{Enabled: false}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, why := s.Available(); ok || why != "it is turned off" {
+		t.Errorf("turned off: Available = %v, %q", ok, why)
+	}
+	if got := s.Text(t.Context(), sum, Image, 0, bytesOf("第一章", &fetched)); got.Status != StatusOff {
+		t.Errorf("turned off, a kept text: %+v", got)
+	}
+	if err := s.Set(Setting{Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Text(t.Context(), sum, Image, 0, bytesOf("第一章", &fetched)); got.Status != StatusDone || base.runs.Load() != 1 {
+		t.Errorf("on again, the kept text: %+v, %d runs", got, base.runs.Load())
+	}
+
+	// In English alone: recognized again, and kept in its place.
+	if err := s.Set(Setting{Enabled: true, Languages: "eng"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Text(t.Context(), sum, Image, 0, bytesOf("Chapter one", &fetched)); got.Status != StatusDone || got.Text.Text != "Chapter one" ||
+		base.runs.Load() != 2 || fetched.Load() != 2 {
+		t.Fatalf("in other languages: %+v, %d runs, %d fetched", got, base.runs.Load(), fetched.Load())
+	}
+	kept, err := st.OCRText(t.Context(), sum)
+	if err != nil || kept.Engine != "fake 1.0 eng 300dpi" {
+		t.Errorf("kept: %+v %v", kept, err)
+	}
+	if got := s.Text(t.Context(), sum, Image, 0, bytesOf("x", &fetched)); got.Status != StatusDone || base.runs.Load() != 2 {
+		t.Errorf("in the same languages again: %+v, %d runs", got, base.runs.Load())
+	}
+
+	if err := s.Set(Setting{Enabled: false, Languages: "jpn"}); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("a language not installed: %v", err)
+	}
+	if ok, _ := s.Available(); !ok || !strings.Contains(s.String(), " eng ") {
+		t.Errorf("a refused setting changed it: %s", s.String())
+	}
+	// The environment's languages again, by naming none.
+	if err := s.Set(Setting{Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(s.String(), "chi_sim+chi_tra+eng") {
+		t.Errorf("the environment's languages: %s", s.String())
+	}
+}
+
+// TestServiceOffByTheEnvironment: with no recognizer, the site's setting
+// changes nothing, and Capability says why.
+func TestServiceOffByTheEnvironment(t *testing.T) {
+	s := NewService(t.Context(), ServiceOptions{Off: "it is turned off", OffReason: ReasonTurnedOff, Store: memstore.New()})
+	if err := s.Set(Setting{Enabled: true, Languages: "eng"}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, why := s.Available(); ok || why != "it is turned off" {
+		t.Errorf("Available = %v, %q", ok, why)
+	}
+	if c := s.Capability(); c.Available || c.Reason != ReasonTurnedOff || len(c.Installed) != 0 {
+		t.Errorf("Capability = %+v", c)
+	}
+	missing := NewService(t.Context(), ServiceOptions{Off: "its programs are not installed", OffDetail: "tesseract not installed", Store: memstore.New()})
+	if c := missing.Capability(); c.Available || c.Reason != ReasonNotInstalled || c.Detail != "tesseract not installed" {
+		t.Errorf("Capability = %+v", c)
+	}
+	var none *Service
+	if c := none.Capability(); c.Available || c.Reason != ReasonNotInstalled {
+		t.Errorf("a nil service's Capability = %+v", c)
+	}
+	// A recognizer of one language set cannot be given another.
+	fixed := NewService(t.Context(), ServiceOptions{Recognizer: &fakeRecognizer{}, Store: memstore.New()})
+	if err := fixed.Set(Setting{Enabled: true, Languages: "eng"}); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("another language of a recognizer of one: %v", err)
+	}
+	if err := fixed.Set(Setting{Enabled: true, Languages: DefaultLanguages}); err != nil {
+		t.Errorf("its own languages, named: %v", err)
+	}
+}

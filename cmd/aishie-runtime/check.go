@@ -104,6 +104,11 @@ func cmdCheck(ctx context.Context, args []string, getenv func(string) string, st
 		p("ocr: off: %v", err)
 	} else {
 		p("ocr: %s, %d at once, %d pages a file at most", e.Describe(), o.Concurrency, o.MaxPages)
+		if so := cfg.Runtime.Site.OCR; so.Enabled != nil && !*so.Enabled {
+			p("ocr: turned off in the site's settings")
+		} else if len(so.Languages) > 0 {
+			p("ocr: in %s, as the site's settings say", strings.Join(so.Languages, "+"))
+		}
 	}
 	if o := env.Office.WithDefaults(); o.Mode == office.ModeOff {
 		p("office: off (OFFICE_PDF=off)")

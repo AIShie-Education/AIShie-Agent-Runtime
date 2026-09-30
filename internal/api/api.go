@@ -30,6 +30,7 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/netguard"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
@@ -69,6 +70,9 @@ type Options struct {
 	// Hosting is the configuration the runtime runs: the operator's YAML
 	// and the price table in force. Nil is none of either.
 	Hosting Hosting
+	// OCR is the worker's OCR, which the site's settings turn off and on
+	// and give its languages (admin/settings); nil is none here.
+	OCR OCR
 	// Allowlist is CORE_BASE_URL_ALLOWLIST, which a change's dry run holds
 	// CORE_BASE_URL to, as the registry does.
 	Allowlist []string
@@ -105,6 +109,11 @@ type Hosting interface {
 	YAML() *config.Config
 	// Prices is the price table in force, nil for none.
 	Prices() *pricing.Table
+}
+
+// OCR is what the API reads of the worker's OCR: *ocr.Service.
+type OCR interface {
+	Capability() ocr.Capability
 }
 
 // Server is the API.

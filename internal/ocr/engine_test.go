@@ -322,3 +322,32 @@ func TestEngineUnavailable(t *testing.T) {
 		t.Errorf("a language that is a path: %v", err)
 	}
 }
+
+// TestEngineInOtherLanguages: the engine knows the languages tesseract
+// lists, but its orientation data; in others of them, it recognizes in
+// those and says so; one tesseract has not got is refused.
+func TestEngineInOtherLanguages(t *testing.T) {
+	e := fakeEngine(t, Config{}, fakeTesseract(`echo "read in $4"`), fakePDFToPPM(1, ""))
+	if got := strings.Join(e.Installed(), " "); got != "chi_sim chi_tra eng" {
+		t.Errorf("Installed = %q", got)
+	}
+	r, err := e.InLanguages("eng+chi_tra")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Describe() != "tesseract 0.0-fake eng+chi_tra 300dpi" || languagesOf(r.Describe()) != "eng+chi_tra" {
+		t.Errorf("described as %q", r.Describe())
+	}
+	res, err := r.Recognize(t.Context(), []byte("%PDF-1.4"), PDF, 1, nil)
+	if err != nil || res.Text != "## Page 1\nread in eng+chi_tra" {
+		t.Errorf("in other languages: %+v %v", res, err)
+	}
+	if res, err := e.Recognize(t.Context(), []byte("%PDF-1.4"), PDF, 1, nil); err != nil || res.Text != "## Page 1\nread in chi_sim+chi_tra+eng" {
+		t.Errorf("the engine's own languages after: %+v %v", res, err)
+	}
+	for _, l := range []string{"jpn", "eng+osd", "eng+", "../eng"} {
+		if _, err := e.InLanguages(l); !errors.Is(err, ErrUnavailable) {
+			t.Errorf("InLanguages(%q): %v", l, err)
+		}
+	}
+}
