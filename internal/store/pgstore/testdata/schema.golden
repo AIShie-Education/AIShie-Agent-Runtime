@@ -140,6 +140,24 @@ person.platform_role text not null
 person.last_seen_at timestamp with time zone not null
 registry_rev.one boolean not null default true
 registry_rev.rev bigint not null
+school_offer.id text not null
+school_offer.label text not null
+school_offer.adapter text not null
+school_offer.provider text not null
+school_offer.model text not null
+school_offer.base_url text not null
+school_offer.region text not null
+school_offer.max_output_tokens integer not null
+school_offer.reasoning_effort text not null
+school_offer.enabled boolean not null
+school_offer.key_secret_id text not null
+school_offer.key_hint text not null
+school_offer.key_tested boolean not null
+school_offer.version integer not null
+school_offer.created_by text not null
+school_offer.created_at timestamp with time zone not null
+school_offer.updated_by text not null
+school_offer.updated_at timestamp with time zone not null
 seat.agent_id text not null
 seat.member_id text not null
 seat.course_id text not null
@@ -163,6 +181,30 @@ secret.ciphertext bytea not null
 secret.hint text not null
 secret.created_by text not null
 secret.created_at timestamp with time zone not null
+site_price.id text not null
+site_price.provider text not null
+site_price.model text not null
+site_price.from_day date not null
+site_price.input_pusd bigint not null
+site_price.cache_read_pusd bigint not null
+site_price.cache_write_pusd bigint not null
+site_price.output_pusd bigint not null
+site_price.version integer not null
+site_price.created_by text not null
+site_price.created_at timestamp with time zone not null
+site_price.updated_by text not null
+site_price.updated_at timestamp with time zone not null
+site_price_rev.one boolean not null default true
+site_price_rev.changed_at timestamp with time zone not null
+site_setting.name text not null
+site_setting.value jsonb not null
+site_setting.updated_by text not null
+site_setting.updated_at timestamp with time zone not null
+site_tenant_quota.tenant_id text not null
+site_tenant_quota.answers integer
+site_tenant_quota.usd_pusd bigint
+site_tenant_quota.updated_by text not null
+site_tenant_quota.updated_at timestamp with time zone not null
 -- constraints
 agent_state agent_state_pkey PRIMARY KEY (agent_id)
 answer answer_pkey PRIMARY KEY (agent_id, id)
@@ -195,10 +237,29 @@ ocr_text ocr_text_sum_check CHECK ((sum ~ '^sha256:[0-9a-f]{64}$'::text))
 person person_pkey PRIMARY KEY (core_actor_id)
 registry_rev registry_rev_one_row CHECK (one)
 registry_rev registry_rev_pkey PRIMARY KEY (one)
+school_offer school_offer_id_shape CHECK ((id ~ '^[A-Za-z0-9_-]{1,64}$'::text))
+school_offer school_offer_key_secret_id_fkey FOREIGN KEY (key_secret_id) REFERENCES secret(id)
+school_offer school_offer_key_secret_id_key UNIQUE (key_secret_id)
+school_offer school_offer_output_bound CHECK ((max_output_tokens >= 0))
+school_offer school_offer_pkey PRIMARY KEY (id)
 seat seat_pkey PRIMARY KEY (agent_id, member_id)
 secret secret_id_shape CHECK ((id ~ '^sec_[A-Za-z0-9_-]{1,60}$'::text))
 secret secret_kind_known CHECK ((kind = ANY (ARRAY['core_token'::text, 'model_key'::text])))
 secret secret_pkey PRIMARY KEY (id)
+site_price site_price_id_shape CHECK ((id ~ '^[A-Za-z0-9._-]{1,64}$'::text))
+site_price site_price_model_given CHECK ((btrim(model) <> ''::text))
+site_price site_price_not_negative CHECK (((input_pusd >= 0) AND (cache_read_pusd >= 0) AND (cache_write_pusd >= 0) AND (output_pusd >= 0)))
+site_price site_price_one_per_day UNIQUE (provider, model, from_day)
+site_price site_price_pkey PRIMARY KEY (id)
+site_price site_price_provider_shape CHECK ((provider ~ '^[a-z0-9_]+$'::text))
+site_price_rev site_price_rev_one_row CHECK (one)
+site_price_rev site_price_rev_pkey PRIMARY KEY (one)
+site_setting site_setting_name_shape CHECK ((name ~ '^[a-z][a-z0-9_]{0,63}$'::text))
+site_setting site_setting_pkey PRIMARY KEY (name)
+site_setting site_setting_value_object CHECK ((jsonb_typeof(value) = 'object'::text))
+site_tenant_quota site_tenant_quota_pkey PRIMARY KEY (tenant_id)
+site_tenant_quota site_tenant_quota_positive CHECK ((((answers IS NULL) OR (answers >= 1)) AND ((usd_pusd IS NULL) OR (usd_pusd >= 1))))
+site_tenant_quota site_tenant_quota_tenant_shape CHECK ((tenant_id ~ '^[A-Za-z0-9_-]{1,64}$'::text))
 -- indexes
 CREATE UNIQUE INDEX agent_state_pkey ON public.agent_state USING btree (agent_id)
 CREATE INDEX answer_agent_course_idx ON public.answer USING btree (agent_id, course_id, at)
@@ -235,11 +296,23 @@ CREATE INDEX ocr_text_by_age ON public.ocr_text USING btree (status, created_at)
 CREATE UNIQUE INDEX ocr_text_pkey ON public.ocr_text USING btree (sum)
 CREATE UNIQUE INDEX person_pkey ON public.person USING btree (core_actor_id)
 CREATE UNIQUE INDEX registry_rev_pkey ON public.registry_rev USING btree (one)
+CREATE UNIQUE INDEX school_offer_key_secret_id_key ON public.school_offer USING btree (key_secret_id)
+CREATE UNIQUE INDEX school_offer_pkey ON public.school_offer USING btree (id)
 CREATE INDEX seat_gone_idx ON public.seat USING btree (gone_at) WHERE (gone_at IS NOT NULL)
 CREATE UNIQUE INDEX seat_pkey ON public.seat USING btree (agent_id, member_id)
 CREATE INDEX secret_kek_idx ON public.secret USING btree (kek_id)
 CREATE UNIQUE INDEX secret_pkey ON public.secret USING btree (id)
 CREATE INDEX secret_tenant_idx ON public.secret USING btree (tenant_id)
+CREATE UNIQUE INDEX site_price_one_per_day ON public.site_price USING btree (provider, model, from_day)
+CREATE UNIQUE INDEX site_price_pkey ON public.site_price USING btree (id)
+CREATE UNIQUE INDEX site_price_rev_pkey ON public.site_price_rev USING btree (one)
+CREATE UNIQUE INDEX site_setting_pkey ON public.site_setting USING btree (name)
+CREATE UNIQUE INDEX site_tenant_quota_pkey ON public.site_tenant_quota USING btree (tenant_id)
 -- triggers
 CREATE TRIGGER hosted_agent_changed AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE ON public.hosted_agent FOR EACH STATEMENT EXECUTE FUNCTION registry_changed()
 CREATE TRIGGER hosted_course_changed AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE ON public.hosted_course FOR EACH STATEMENT EXECUTE FUNCTION registry_changed()
+CREATE TRIGGER school_offer_changed AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE ON public.school_offer FOR EACH STATEMENT EXECUTE FUNCTION registry_changed()
+CREATE TRIGGER site_price_changed AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE ON public.site_price FOR EACH STATEMENT EXECUTE FUNCTION registry_changed()
+CREATE TRIGGER site_price_versioned AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE ON public.site_price FOR EACH STATEMENT EXECUTE FUNCTION site_price_changed()
+CREATE TRIGGER site_setting_changed AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE ON public.site_setting FOR EACH STATEMENT EXECUTE FUNCTION registry_changed()
+CREATE TRIGGER site_tenant_quota_changed AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE ON public.site_tenant_quota FOR EACH STATEMENT EXECUTE FUNCTION registry_changed()

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -70,10 +71,15 @@ const (
 // recognized at once, the others waiting their turn, at most Config.Queue
 // of them; each file recognized once, in the background, and its text
 // kept in the store by its checksum, where every worker reads it after.
-// A nil *Service, or one without a Recognizer, is off.
+// A nil *Service, or one without a Recognizer, is off. Within what the
+// environment allows, the site's setting (Set) turns it off and on and
+// chooses its languages.
 type Service struct {
-	rec    Recognizer
+	// base is the recognizer the environment gives, in its languages.
+	base   Recognizer
 	why    string
+	reason string
+	detail string
 	cfg    Config
 	store  Store
 	holder string
@@ -86,38 +92,60 @@ type Service struct {
 	ctx context.Context
 	sem chan struct{}
 
-	mu   sync.Mutex
+	mu sync.Mutex
+	// rec is base in the site's languages, and off the site's turning it
+	// off (Set).
+	rec  Recognizer
+	off  bool
 	jobs map[string]*job
 	wg   sync.WaitGroup
 }
 
-// job is one file being recognized, or waiting to be.
+// job is one file being recognized, or waiting to be, by rec.
 type job struct {
+	rec      Recognizer
 	done     chan struct{}
 	pages    int
 	progress [2]int
 	state    State
 }
 
+// Why OCR does not run here at all (Capability.Reason): the environment is
+// the ceiling of the site's setting.
+const (
+	// ReasonTurnedOff: OCR=off.
+	ReasonTurnedOff = "operator_off"
+	// ReasonNotInstalled: its programs, or the languages of
+	// OCR_LANGUAGES, are not installed.
+	ReasonNotInstalled = "not_installed"
+)
+
 // ServiceOptions are what a Service is made of. Recognizer nil makes one
 // that is off, saying Off.
 type ServiceOptions struct {
 	Recognizer Recognizer
-	// Off is why there is no OCR, for the model and the logs.
-	Off     string
-	Config  Config
-	Store   Store
-	Holder  string
-	Metrics *metrics.Metrics
-	Log     *slog.Logger
-	Now     func() time.Time
+	// Off is why there is no OCR, for the model and the logs; OffReason
+	// the same as a code (ReasonTurnedOff, ReasonNotInstalled), and
+	// OffDetail what is missing, for the site's administrators.
+	Off       string
+	OffReason string
+	OffDetail string
+	Config    Config
+	Store     Store
+	Holder    string
+	Metrics   *metrics.Metrics
+	Log       *slog.Logger
+	Now       func() time.Time
 }
 
 // NewService makes the worker's OCR, which runs until ctx ends.
 func NewService(ctx context.Context, o ServiceOptions) *Service {
 	cfg := o.Config.WithDefaults()
-	s := &Service{rec: o.Recognizer, why: o.Off, cfg: cfg, store: o.Store, holder: o.Holder, m: o.Metrics, log: o.Log, now: o.Now,
-		ctx: ctx, sem: make(chan struct{}, cfg.Concurrency), jobs: map[string]*job{}}
+	s := &Service{base: o.Recognizer, rec: o.Recognizer, why: o.Off, reason: o.OffReason, detail: o.OffDetail, cfg: cfg, store: o.Store,
+		holder: o.Holder, m: o.Metrics, log: o.Log, now: o.Now, ctx: ctx, sem: make(chan struct{}, cfg.Concurrency), jobs: map[string]*job{}}
+	if s.reason == "" {
+		s.reason = ReasonNotInstalled
+	}
 	if s.log == nil {
 		s.log = slog.New(slog.DiscardHandler)
 	}
@@ -132,13 +160,110 @@ func NewService(ctx context.Context, o ServiceOptions) *Service {
 
 // Available reports whether s recognizes anything, and if not, why.
 func (s *Service) Available() (bool, string) {
+	_, why := s.current()
+	return why == "", why
+}
+
+// current is the recognizer in force, or, when there is none, why.
+func (s *Service) current() (Recognizer, string) {
 	if s == nil {
-		return false, "OCR is off here"
+		return nil, "OCR is off here"
 	}
-	if s.rec == nil {
-		return false, s.why
+	if s.base == nil {
+		return nil, s.why
 	}
-	return true, ""
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.off {
+		return nil, "it is turned off"
+	}
+	return s.rec, ""
+}
+
+// Setting is the site's OCR setting (docs/design.md §11.5): whether OCR
+// runs, and in which of the languages installed, tesseract's joined by +,
+// "" for the environment's (OCR_LANGUAGES).
+type Setting struct {
+	Enabled   bool
+	Languages string
+}
+
+// Multilingual is a Recognizer that recognizes in other languages than its
+// own: an Engine.
+type Multilingual interface {
+	Recognizer
+	// InLanguages is it recognizing in languages instead, or an error
+	// when it has not got one of them.
+	InLanguages(languages string) (Recognizer, error)
+	// Installed are the languages it may recognize in.
+	Installed() []string
+}
+
+// Set puts the site's setting in force for the files asked about after
+// it: turned off, no file is recognized, and none is read from what was
+// kept, as with OCR=off; in other languages, a file whose kept text was
+// recognized in others is recognized again. Languages the recognizer has
+// not got are refused, and the setting before is kept. With no OCR here
+// (OCR=off, or its programs missing), it changes nothing: the environment
+// is its ceiling.
+func (s *Service) Set(st Setting) error {
+	if s == nil || s.base == nil {
+		return nil
+	}
+	rec := s.base
+	if st.Languages != "" && st.Languages != s.cfg.Languages {
+		m, ok := s.base.(Multilingual)
+		if !ok {
+			return fmt.Errorf("%w: it recognizes in %s alone", ErrUnavailable, s.cfg.Languages)
+		}
+		var err error
+		if rec, err = m.InLanguages(st.Languages); err != nil {
+			return err
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.rec, s.off = rec, !st.Enabled
+	return nil
+}
+
+// Languages are the languages the files asked about now are recognized
+// in, as a text kept records them; "" when OCR does not run.
+func (s *Service) Languages() string {
+	rec, _ := s.current()
+	if rec == nil {
+		return ""
+	}
+	return languagesOf(rec.Describe())
+}
+
+// Capability is what OCR can do here, as the site's administrators are
+// shown it: whether the environment lets it run, and if not, why (Reason,
+// Detail); the languages installed; and the environment's, the default.
+type Capability struct {
+	Available bool
+	Reason    string
+	Detail    string
+	Installed []string
+	Default   []string
+}
+
+// Capability says what OCR can do here, whatever the site's setting.
+func (s *Service) Capability() Capability {
+	if s == nil {
+		return Capability{Reason: ReasonNotInstalled}
+	}
+	c := Capability{Available: s.base != nil, Default: strings.Split(s.cfg.Languages, "+")}
+	if !c.Available {
+		c.Reason, c.Detail = s.reason, s.detail
+		return c
+	}
+	if m, ok := s.base.(Multilingual); ok {
+		c.Installed = m.Installed()
+	} else {
+		c.Installed = c.Default
+	}
+	return c
 }
 
 // Wait waits for every job to end, as the process stops.
@@ -158,7 +283,8 @@ func (s *Service) Wait() {
 // recognized here, it waits as long again. A file another worker is
 // recognizing is pending at once.
 func (s *Service) Text(ctx context.Context, sum string, kind Kind, pages int, data func(context.Context) ([]byte, error)) State {
-	if ok, why := s.Available(); !ok {
+	rec, why := s.current()
+	if rec == nil {
 		s.count("off")
 		return State{Status: StatusOff, Why: why}
 	}
@@ -175,6 +301,9 @@ func (s *Service) Text(ctx context.Context, sum string, kind Kind, pages int, da
 
 	kept, err := s.store.OCRText(ctx, sum)
 	switch {
+	case err == nil && languagesOf(kept.Engine) != languagesOf(rec.Describe()):
+		// Recognized in other languages than the site's now: recognized
+		// again, and kept in their place.
 	case err == nil:
 		s.count(kept.Status)
 		return keptState(kept)
@@ -183,16 +312,17 @@ func (s *Service) Text(ctx context.Context, sum string, kind Kind, pages int, da
 		return State{Status: StatusBusy, Why: "the runtime could not read what it keeps of it"}
 	}
 
-	j, st := s.start(ctx, sum, kind, pages, data)
+	j, st := s.start(ctx, rec, sum, kind, pages, data)
 	if j == nil {
 		return st
 	}
 	return s.await(ctx, j)
 }
 
-// start starts a job for the file, or says why it did not: the queue is
-// full, another worker holds the file's lease, the file could not be read.
-func (s *Service) start(ctx context.Context, sum string, kind Kind, pages int, data func(context.Context) ([]byte, error)) (*job, State) {
+// start starts a job for the file, by rec, or says why it did not: the
+// queue is full, another worker holds the file's lease, the file could not
+// be read.
+func (s *Service) start(ctx context.Context, rec Recognizer, sum string, kind Kind, pages int, data func(context.Context) ([]byte, error)) (*job, State) {
 	s.mu.Lock()
 	if j, ok := s.jobs[sum]; ok {
 		st := j.stateLocked()
@@ -205,7 +335,7 @@ func (s *Service) start(ctx context.Context, sum string, kind Kind, pages int, d
 		s.count("busy")
 		return nil, State{Status: StatusBusy, Why: "the runtime is recognizing other files just now"}
 	}
-	j := &job{done: make(chan struct{}), pages: pages}
+	j := &job{rec: rec, done: make(chan struct{}), pages: pages}
 	s.jobs[sum] = j
 	s.mu.Unlock()
 
@@ -297,7 +427,7 @@ func (s *Service) run(sum string, kind Kind, data []byte, j *job) {
 	ctx, cancel := context.WithTimeout(s.ctx, s.cfg.Timeout)
 	defer cancel()
 	start := s.now()
-	res, err := s.rec.Recognize(ctx, data, kind, j.pages, func(done, of int) {
+	res, err := j.rec.Recognize(ctx, data, kind, j.pages, func(done, of int) {
 		s.mu.Lock()
 		j.progress = [2]int{done, of}
 		s.mu.Unlock()
@@ -314,7 +444,7 @@ func (s *Service) run(sum string, kind Kind, data []byte, j *job) {
 		s.log.Info("ocr: a file's recognition stopped with the runtime", "sum", short(sum), "kind", kind)
 		return
 	}
-	t := store.OCRText{Sum: sum, Kind: string(kind), Engine: s.rec.Describe(), DurationMS: took.Milliseconds(), CreatedAt: s.now()}
+	t := store.OCRText{Sum: sum, Kind: string(kind), Engine: j.rec.Describe(), DurationMS: took.Milliseconds(), CreatedAt: s.now()}
 	outcome := "done"
 	switch {
 	case err == nil:
@@ -416,8 +546,9 @@ func (s *Service) gauges(waiting, running float64) {
 
 // String is the service as the start's log line says it.
 func (s *Service) String() string {
-	if ok, why := s.Available(); !ok {
+	rec, why := s.current()
+	if rec == nil {
 		return "off: " + why
 	}
-	return fmt.Sprintf("%s, %d at once, %d pages a file at most", s.rec.Describe(), s.cfg.Concurrency, s.cfg.MaxPages)
+	return fmt.Sprintf("%s, %d at once, %d pages a file at most", rec.Describe(), s.cfg.Concurrency, s.cfg.MaxPages)
 }

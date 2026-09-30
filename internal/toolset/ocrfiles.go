@@ -86,12 +86,16 @@ func noOCR(why string) string {
 // ocr.Service.Text says; res is set when it is done, and holds no text when
 // OCR found none.
 func (r Runner) recognize(ctx context.Context, rd *fileReading, f ocrFile) (*doctext.Result, ocr.State) {
-	key := "ocr\x00" + f.sum
-	if kept := r.Texts.get(key); kept != nil && kept.res != nil {
-		return kept.res, ocr.State{Status: ocr.StatusDone}
-	}
 	if ok, why := r.ocrAvailable(); !ok {
 		return nil, ocr.State{Status: ocr.StatusOff, Why: why}
+	}
+	// A text recognized in other languages than OCR's now is not given.
+	key := "ocr\x00" + f.sum
+	if l, ok := r.OCR.(interface{ Languages() string }); ok {
+		key += "\x00" + l.Languages()
+	}
+	if kept := r.Texts.get(key); kept != nil && kept.res != nil {
+		return kept.res, ocr.State{Status: ocr.StatusDone}
 	}
 	st := r.OCR.Text(ctx, f.sum, f.kind, f.pages, f.data)
 	if st.Status != ocr.StatusDone {

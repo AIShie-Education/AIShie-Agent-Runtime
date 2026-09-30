@@ -54,9 +54,6 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 		log.Error("the configuration does not load; see `aishie-runtime check`", "problems", problemsText(err))
 		return exitFailure
 	}
-	if l.prices == nil {
-		log.Warn("no price table (PRICES, or the runtime's prices_ref): the costs of model calls are unknown, and recorded as zero")
-	}
 	client, err := egressClient(env)
 	if err != nil {
 		log.Error("the egress client", "err", err)
@@ -84,10 +81,14 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 	}
 	h.mu.Lock()
 	cfg, rev, err := h.build(ctx)
+	prices := h.table()
 	h.mu.Unlock()
 	if err != nil {
 		log.Error("the registry of hosted agents could not be read: the YAML agents start, and it is read again at the next poll", "err", err)
 		rev = -1
+	}
+	if prices == nil {
+		log.Warn("no price table (PRICES, the runtime's prices_ref, or the site's prices): the costs of model calls are unknown, and recorded as zero")
 	}
 
 	reg := prometheus.NewRegistry()
@@ -108,6 +109,7 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 		return exitFailure
 	}
 	defer func() { stopOCR(); recognizer.Wait() }()
+	h.setOCR(recognizer)
 	// So do the conversions: what they had made is not kept.
 	officeCtx, stopOffice := context.WithCancel(ctx)
 	converter, err := newOffice(officeCtx, env, m, log)
@@ -119,7 +121,7 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 	defer func() { stopOffice(); converter.Wait() }()
 	sup, err := worker.NewSupervisor(worker.Options{
 		Config: cfg, Env: env, Store: st, Metrics: m, Log: log,
-		Secrets: res, Prices: l.prices, HTTPClient: client, HostedHTTPClient: hostedClient, WorkerID: env.WorkerID,
+		Secrets: res, Prices: prices, HTTPClient: client, HostedHTTPClient: hostedClient, WorkerID: env.WorkerID,
 		OCR: recognizer, Office: converter,
 	})
 	if err != nil {
@@ -131,7 +133,7 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 		log.Error("HTTP_ADDR cannot be listened on", "addr", env.HTTPAddr, "err", err)
 		return exitFailure
 	}
-	apiSrv, err := newAPI(env, apiDeps{client: client, models: hostedClient, st: st, vault: v, actors: sup, hosting: h}, reg, log)
+	apiSrv, err := newAPI(env, apiDeps{client: client, models: hostedClient, st: st, vault: v, actors: sup, hosting: h, ocr: recognizer}, reg, log)
 	if err != nil {
 		log.Error("the API", "err", err)
 		return exitFailure
@@ -237,7 +239,7 @@ wait:
 
 // apiDeps are what the API shares with the worker: the egress client (for
 // Core), the hosted-model client (for keys/test), the store, the vault,
-// the supervisor, and the configuration in force.
+// the supervisor, the configuration in force, and the worker's OCR.
 type apiDeps struct {
 	client  *http.Client
 	models  *http.Client
@@ -245,6 +247,7 @@ type apiDeps struct {
 	vault   *vault.Vault
 	actors  api.Actors
 	hosting api.Hosting
+	ocr     api.OCR
 }
 
 // newAPI is the JSON API for the front end (docs/design.md §11.4), or nil
@@ -279,6 +282,7 @@ func newAPI(env config.Env, d apiDeps, reg prometheus.Registerer, log *slog.Logg
 		Vault:          d.vault,
 		Actors:         d.actors,
 		Hosting:        d.hosting,
+		OCR:            d.ocr,
 		Allowlist:      env.CoreBaseURLAllowlist,
 		ModelHTTP:      d.models,
 		AdminActorIDs:  env.AdminActorIDs,

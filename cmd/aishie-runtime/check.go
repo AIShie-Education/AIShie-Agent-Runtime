@@ -19,6 +19,7 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/netguard"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/office"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/probe"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/redact"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/secrets"
@@ -104,6 +105,11 @@ func cmdCheck(ctx context.Context, args []string, getenv func(string) string, st
 		p("ocr: off: %v", err)
 	} else {
 		p("ocr: %s, %d at once, %d pages a file at most", e.Describe(), o.Concurrency, o.MaxPages)
+		if so := cfg.Runtime.Site.OCR; so.Enabled != nil && !*so.Enabled {
+			p("ocr: turned off in the site's settings")
+		} else if len(so.Languages) > 0 {
+			p("ocr: in %s, as the site's settings say", strings.Join(so.Languages, "+"))
+		}
 	}
 	if o := env.Office.WithDefaults(); o.Mode == office.ModeOff {
 		p("office: off (OFFICE_PDF=off)")
@@ -120,11 +126,15 @@ func cmdCheck(ctx context.Context, args []string, getenv func(string) string, st
 	} else {
 		p("pdf parts: %d pages a file part, at most", cmp.Or(env.PDFPartPages, office.DefaultPartPages))
 	}
+	site := cfg.Runtime.Site
 	switch {
 	case l.pricesPath != "":
 		p("prices: %s (version %s)", l.pricesPath, l.prices.Version)
-	default:
+	case len(site.Prices) == 0:
 		p("prices: none; the costs of model calls will be unknown")
+	}
+	if len(site.Prices) > 0 {
+		p("prices: %d rows of the site's (version %s), before the file's", len(site.Prices), pricing.SiteVersion(site.PricesChanged))
 	}
 	describeSchool(p, cfg.Runtime.School)
 	if pg != nil {
@@ -237,7 +247,11 @@ func describeSchool(p func(string, ...any), sc config.School) {
 	}
 	for _, o := range sc.Offers {
 		m := o.AsModel()
-		p("school plan: offer %s, %q: %s %s (%s)", o.ID, redact.String(o.Label), m.Adapter, m.Model, m.EffectiveProvider())
+		site := ""
+		if o.Site {
+			site = ", made in the site"
+		}
+		p("school plan: offer %s, %q: %s %s (%s)%s", o.ID, redact.String(o.Label), m.Adapter, m.Model, m.EffectiveProvider(), site)
 	}
 	p("school plan: per owner %s; per asker %s; across the school %s (UTC days)", quotaLine(sc.OwnerQuota()), quotaLine(sc.AskerQuota()), quotaLine(sc.PerDay))
 }
@@ -306,11 +320,12 @@ func newLiveClients(env config.Env) (liveClients, error) {
 	return liveClients{egress: egress, hosted: hosted}, nil
 }
 
-// model is the client model m of agent a is called over: a hosted
-// agent's over the hosted-model client, but for an offer of the school's
-// plan, whose endpoint is the operator's.
+// model is the client model m of agent a is called over, as run calls
+// it: a hosted agent's over the hosted-model client, but for an offer of
+// runtime.yaml's plan, whose endpoint is the operator's
+// (config.Agent.OverHostedClient).
 func (c liveClients) model(a *config.Agent, m config.Model) *http.Client {
-	if a.Hosted != nil && m.Offer == "" {
+	if a.OverHostedClient(m) {
 		return c.hosted
 	}
 	return c.egress

@@ -30,7 +30,9 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/netguard"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/webauth"
@@ -66,8 +68,11 @@ type Options struct {
 	// supervisor); nil knows of none.
 	Actors Actors
 	// Hosting is the configuration the runtime runs: the operator's YAML
-	// and the price table in force. Nil is none of either.
+	// and the price file's table. Nil is none of either.
 	Hosting Hosting
+	// OCR is the worker's OCR, which the site's settings turn off and on
+	// and give its languages (admin/settings); nil is none here.
+	OCR OCR
 	// Allowlist is CORE_BASE_URL_ALLOWLIST, which a change's dry run holds
 	// CORE_BASE_URL to, as the registry does.
 	Allowlist []string
@@ -102,8 +107,14 @@ type Hosting interface {
 	// YAML is the operator's configuration as last loaded: its runtime
 	// settings, and its agents.
 	YAML() *config.Config
-	// Prices is the price table in force, nil for none.
+	// Prices is the price file's table, nil for none; the site's rows
+	// are put before it as the store has them (pricesOf).
 	Prices() *pricing.Table
+}
+
+// OCR is what the API reads of the worker's OCR: *ocr.Service.
+type OCR interface {
+	Capability() ocr.Capability
 }
 
 // Server is the API.
@@ -176,6 +187,28 @@ func New(o Options) *Server {
 	s.mux.Handle("GET "+Prefix+"models", s.authed(s.models))
 	s.mux.Handle("POST "+Prefix+"keys/test", s.authedBody(s.limitedKeyTest(s.audited("key.test", s.testKey))))
 	s.mux.Handle("GET "+Prefix+"admin/school-plan/usage", s.authed(s.schoolPlanUsage))
+	s.mux.Handle("GET "+Prefix+"admin/settings", s.authed(s.getSettings))
+	s.mux.Handle("PATCH "+Prefix+"admin/settings", s.authedBody(s.audited("settings.update", s.patchSettings)))
+	s.mux.Handle("GET "+Prefix+"admin/school-plan", s.authed(s.getSchoolPlan))
+	s.mux.Handle("POST "+Prefix+"admin/school-plan/offers", s.authedBody(s.audited("school_offer.create", s.createOffer)))
+	s.mux.Handle("GET "+Prefix+"admin/school-plan/offers/{id}", s.authed(s.getOffer))
+	s.mux.Handle("PATCH "+Prefix+"admin/school-plan/offers/{id}", s.authedBody(s.audited("school_offer.update", s.updateOffer)))
+	s.mux.Handle("DELETE "+Prefix+"admin/school-plan/offers/{id}", s.authed(s.audited("school_offer.delete", s.deleteOffer)))
+	s.mux.Handle("PUT "+Prefix+"admin/school-plan/quotas", s.authedBody(s.audited("school_quotas.update", s.putQuotas)))
+	s.mux.Handle("DELETE "+Prefix+"admin/school-plan/quotas", s.authed(s.audited("school_quotas.reset", s.resetQuotas)))
+	s.mux.Handle("GET "+Prefix+"admin/prices", s.authed(s.getPrices))
+	s.mux.Handle("POST "+Prefix+"admin/prices", s.authedBody(s.audited("price.create", s.createPrice)))
+	s.mux.Handle("GET "+Prefix+"admin/prices/{id}", s.authed(s.getPrice))
+	s.mux.Handle("PATCH "+Prefix+"admin/prices/{id}", s.authedBody(s.audited("price.update", s.updatePrice)))
+	s.mux.Handle("DELETE "+Prefix+"admin/prices/{id}", s.authed(s.audited("price.delete", s.deletePrice)))
+	s.mux.Handle("GET "+Prefix+"admin/tenants", s.authedBody(s.listTenants))
+	s.mux.Handle("GET "+Prefix+"admin/tenants/{tenant_id}", s.authed(s.getTenant))
+	s.mux.Handle("PUT "+Prefix+"admin/tenants/{tenant_id}", s.authedBody(s.audited("tenant_quota.update", s.putTenant)))
+	s.mux.Handle("DELETE "+Prefix+"admin/tenants/{tenant_id}", s.authed(s.audited("tenant_quota.reset", s.resetTenant)))
+	s.mux.Handle("GET "+Prefix+"admin/agent-budgets", s.authed(s.getAgentBudgets))
+	s.mux.Handle("PUT "+Prefix+"admin/agent-budgets", s.authedBody(s.audited("agent_budgets.update", s.putAgentBudgets)))
+	s.mux.Handle("DELETE "+Prefix+"admin/agent-budgets", s.authed(s.audited("agent_budgets.reset", s.resetAgentBudgets)))
+	s.mux.Handle("GET "+Prefix+"admin/costs", s.authedBody(s.costs))
 
 	guard := http.NewCrossOriginProtection()
 	guard.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -266,7 +299,8 @@ func (s *Server) isAdmin(c *webauth.Claims) bool {
 	return len(s.o.AdminActorIDs) == 0 || slices.Contains(s.o.AdminActorIDs, c.Subject)
 }
 
-// prices is the price table in force, nil for none.
+// prices is the price file's table, nil for none: the table in force is
+// it with the site's rows (pricesOf).
 func (s *Server) prices() *pricing.Table {
 	if s.o.Hosting == nil {
 		return nil
@@ -283,4 +317,26 @@ func (s *Server) yaml() *config.Config {
 		return c
 	}
 	return &config.Config{}
+}
+
+// effective is the operator's configuration with the site's settings in
+// force (registry.ReadSite, registry.WithSite), as the registry builds the
+// configuration the worker runs: read from the store at each request, so
+// that the request after an administrator's change sees it.
+func (s *Server) effective(ctx context.Context) (*config.Config, error) {
+	site, err := registry.ReadSite(ctx, s.o.Store)
+	if err != nil {
+		return nil, err
+	}
+	return registry.WithSite(s.yaml(), site), nil
+}
+
+// plan is the school's plan in force: runtime.yaml's, with the site's
+// offers and quotas (effective).
+func (s *Server) plan(ctx context.Context) (config.School, error) {
+	eff, err := s.effective(ctx)
+	if err != nil {
+		return config.School{}, err
+	}
+	return eff.Runtime.School, nil
 }

@@ -24,6 +24,8 @@ type Engine struct {
 	tesseract, pdftoppm, prlimit string
 	// version is tesseract's own first line, "tesseract 5.3.4".
 	version string
+	// installed are the languages tesseract has, by name.
+	installed []string
 	// observe, when set, is told how long each step of a page took.
 	observe func(step string, took time.Duration)
 }
@@ -80,8 +82,15 @@ func NewEngine(ctx context.Context, cfg Config) (*Engine, error) {
 	}
 	have := map[string]bool{}
 	for _, l := range strings.Split(out.String(), "\n") {
-		have[strings.TrimSpace(l)] = true
+		l = strings.TrimSpace(l)
+		have[l] = true
+		// Its first line says where the languages are; osd is the
+		// orientation and script of a page, and no language to read in.
+		if validLanguage(l) && l != "osd" {
+			e.installed = append(e.installed, l)
+		}
 	}
+	slices.Sort(e.installed)
 	var lacking []string
 	for _, l := range strings.Split(cfg.Languages, "+") {
 		if !have[l] {
@@ -95,13 +104,46 @@ func NewEngine(ctx context.Context, cfg Config) (*Engine, error) {
 }
 
 // Describe names the engine as a file's text records what recognized it:
-// the program, its version, the languages and the resolution.
+// the program, its version, the languages and the resolution, the
+// languages its next to last word (languagesOf).
 func (e *Engine) Describe() string {
 	return fmt.Sprintf("%s %s %ddpi", e.version, e.cfg.Languages, e.cfg.DPI)
 }
 
+// languagesOf are the languages a recognizer's description names, as
+// Describe writes them: its next to last word.
+func languagesOf(described string) string {
+	f := strings.Fields(described)
+	if len(f) < 2 {
+		return described
+	}
+	return f[len(f)-2]
+}
+
 // Config is the engine's configuration, its defaults filled in.
 func (e *Engine) Config() Config { return e.cfg }
+
+// Installed are the languages tesseract has, which InLanguages may choose
+// from, by name.
+func (e *Engine) Installed() []string { return slices.Clone(e.installed) }
+
+// InLanguages is the engine recognizing in languages (tesseract's, joined
+// by +) instead of its own: an error when tesseract has not got one of
+// them.
+func (e *Engine) InLanguages(languages string) (Recognizer, error) {
+	var lacking []string
+	for _, l := range strings.Split(languages, "+") {
+		if !validLanguage(l) || !slices.Contains(e.installed, l) {
+			lacking = append(lacking, l)
+		}
+	}
+	if len(lacking) > 0 {
+		return nil, fmt.Errorf("%w: tesseract has no %s data", ErrUnavailable, strings.Join(lacking, ", "))
+	}
+	in := *e
+	in.cfg.Languages = languages
+	return &in, nil
+}
 
 // Observe has f told how long each step of each page takes: render
 // (pdftoppm) and recognize (tesseract). Set it before the engine is used.

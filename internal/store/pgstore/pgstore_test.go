@@ -25,7 +25,7 @@ var update = flag.Bool("update", false, "rewrite testdata/schema.golden from the
 // tables are every table the migrations make, in the order TRUNCATE takes
 // them.
 var tables = []string{"lease", "attempt", "cursor", "note", "seat", "llm_call", "answer", "agent_state", "secret",
-	"person", "hosted_agent", "hosted_course", "audit", "ocr_text"}
+	"person", "hosted_agent", "hosted_course", "audit", "ocr_text", "site_setting", "school_offer", "site_price", "site_tenant_quota"}
 
 // newest is the newest migration the binary carries.
 func newest(t *testing.T) uint {
@@ -90,8 +90,9 @@ func TestMigrateUpDownUp(t *testing.T) {
 			t.Fatalf("version = %d (dirty %v), want %d", current, dirty, want)
 		}
 	}
-	// registry_rev is a table too, which TRUNCATE leaves alone.
-	all := len(tables) + 1
+	// registry_rev and site_price_rev are tables too, which TRUNCATE
+	// leaves alone.
+	all := len(tables) + 2
 	tableCount := func() int {
 		t.Helper()
 		conn, err := pgx.Connect(ctx, u)

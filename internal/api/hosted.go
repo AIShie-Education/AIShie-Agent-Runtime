@@ -185,11 +185,16 @@ func (s *Server) view(ctx context.Context, row *store.HostedAgent) (*HostedAgent
 		return nil, fmt.Errorf("%w: %w", errStore, err)
 	}
 	own, school := modelSlots(row.Settings)
+	eff, err := s.effective(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errStore, err)
+	}
+	sc := eff.Runtime.School
 	status, problem := statusOf(row, own != nil || school != nil, st)
 	v := &HostedAgent{
 		ID: row.ID, Version: row.Version, CoreActorID: row.CoreActorID, OwnerActorID: row.OwnerActorID,
 		DisplayName: row.DisplayName, Status: status, Problem: problem, Paused: row.Paused, Token: tokenInfo(row.TokenHint),
-		Model: ModelSlots{Own: s.ownModelView(own, now), School: s.schoolModelView(school, own != nil && row.KeySecretID != "")},
+		Model: ModelSlots{Own: ownModelView(own, s.pricesOf(eff), now), School: schoolModelView(school, sc, own != nil && row.KeySecretID != "")},
 		Tools: ToolsView{Writes: registry.WritesOf(row.Settings)},
 		Seats: []Seat{}, CreatedAt: row.CreatedAt.UTC(), UpdatedAt: row.UpdatedAt.UTC(),
 	}
@@ -225,7 +230,7 @@ func (s *Server) view(ctx context.Context, row *store.HostedAgent) (*HostedAgent
 	}
 	v.Today = Today{Since: since, Answers: spend.Answers, CostUSD: costUSD(spend.CostPUSD)}
 	if school != nil {
-		use, err := s.schoolUse(ctx, row.TenantID, since)
+		use, err := s.schoolUse(ctx, sc, row.TenantID, since)
 		if err != nil {
 			return nil, err
 		}
@@ -234,11 +239,10 @@ func (s *Server) view(ctx context.Context, row *store.HostedAgent) (*HostedAgent
 	return v, nil
 }
 
-// schoolUse is the owner's use of the school's plan today, the owner being
-// the agent's tenant: every answer on the school's key of any of their
-// agents.
-func (s *Server) schoolUse(ctx context.Context, tenant string, since time.Time) (*SchoolUse, error) {
-	sc := s.yaml().Runtime.School
+// schoolUse is the owner's use of the school's plan sc today, the owner
+// being the agent's tenant: every answer on the school's key of any of
+// their agents.
+func (s *Server) schoolUse(ctx context.Context, sc config.School, tenant string, since time.Time) (*SchoolUse, error) {
 	spend, err := s.o.Store.Spend(ctx, store.SpendScope{TenantID: tenant, KeySource: config.KeySchool}, since)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errStore, err)

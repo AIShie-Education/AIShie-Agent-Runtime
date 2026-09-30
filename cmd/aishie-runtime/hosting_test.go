@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -16,6 +17,8 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/fakecore"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/pgstore"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
@@ -229,15 +232,18 @@ func TestRunWithTheRegistryOff(t *testing.T) {
 // running. (check --live connects them as it does YAML agents with sealed
 // secrets, TestCheckLiveOpensSealedSecrets, and tries their keys at their
 // providers, which a test does not.) A registry it cannot read, as before a deploy's migrate up, is
-// said, and passes too.
+// said, and passes too. The school's plan it shows is the one in force,
+// the site's offers among it.
 func TestCheckReadsTheRegistry(t *testing.T) {
 	w := newRegistryWorld(t)
 	w.host(t, "agt_ok", 0, hostedSettings)
 	w.host(t, "agt_bad", 1, `{"model": {"adapter": "openai_chat", "model": "m", "key_source": "school"}}`)
+	w.siteOffer(t, "fast", "deepseek-chat")
 	getenv := env("CONFIG", t.TempDir(), "DATABASE_URL", w.dbURL, "CORE_BASE_URL", w.coreURL, "KMS_KEY_ID", w.kms)
 	code, out, errs := runCmd(t, getenv, "check")
 	for _, want := range []string{
 		`agent agt_ok (hosted): "Hosted agt_ok"`,
+		`school plan: offer fast, "Site fast": openai_chat deepseek-chat (deepseek), made in the site`,
 		"hosted agent agt_bad: NOT RUN: agent.model.adapter: set by the school's offer", "agent.model: on the school's key, and names no offer of the school's plan",
 		"the configuration passes: 1 agents, 1 of them hosted; 1 hosted agents not run",
 	} {
@@ -366,5 +372,146 @@ func TestBuildIsNotHeldUpByTheDatabase(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("a build the database does not answer did not end")
+	}
+}
+
+// siteOffer makes an offer of the school's plan as the API makes one, on
+// a sealed key of the school's.
+func (w *registryWorld) siteOffer(t *testing.T, id, model string) {
+	t.Helper()
+	key, err := w.v.Seal(t.Context(), store.Secret{ID: vault.NewSecretID(), TenantID: store.SchoolTenantID, Kind: store.SecretModelKey},
+		"sk-school-0123456789abcdefghij")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = w.st.CreateSchoolOffer(t.Context(), store.SchoolOffer{ID: id, Label: "Site " + id, Adapter: "openai_chat", Provider: "deepseek",
+		Model: model, BaseURL: "https://api.deepseek.com", Enabled: true, KeySecretID: key.ID, KeyHint: key.Hint, CreatedBy: "admin"}, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestBuildHoldsTheSitesOffersToThePriceTable: with a quota of the plan's
+// in dollars, an agent on an offer of the site's that the price table does
+// not price is not run, and the others are, the site's priced offer's
+// among them; once the site prices its model, it runs too, the price table
+// in force holding the site's row; the plan and the prices in force stay
+// as last read when the registry cannot be read after.
+func TestBuildHoldsTheSitesOffersToThePriceTable(t *testing.T) {
+	w := newRegistryWorld(t)
+	w.siteOffer(t, "priced", "deepseek-chat")
+	w.siteOffer(t, "unpriced", "deepseek-reasoner")
+	w.host(t, "agt_priced", 0, `{"model": {"key_source": "school", "offer": "priced"}}`)
+	w.host(t, "agt_unpriced", 1, `{"model": {"key_source": "school", "offer": "unpriced"}}`)
+	prices, err := pricing.Parse([]byte(`
+version: "t1"
+prices:
+  - {provider: deepseek, model: deepseek-chat, from: 2025-09-29, usd_per_mtok: {input: 0.28, output: 0.42}}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	two := 2.0
+	yaml := &config.Config{Runtime: config.Runtime{School: config.School{PerOwnerDay: config.Quota{USD: &two}}}}
+	h := &hosting{env: config.Env{CoreBaseURL: w.coreURL}, pg: w.st, log: slog.New(slog.DiscardHandler), yaml: yaml, prices: prices}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	cfg, _, err := h.build(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Agents) != 1 || cfg.Agents[0].ID != "agt_priced" || len(cfg.Rejected) != 1 || cfg.Rejected[0].AgentID != "agt_unpriced" ||
+		!strings.Contains(cfg.Rejected[0].Detail(), "the price table has no price for deepseek deepseek-reasoner") {
+		t.Fatalf("agents %+v, rejected %+v", cfg.Agents, cfg.Rejected)
+	}
+
+	// The site prices the other model: the agent on it runs, priced by the
+	// site's row under the site's version.
+	if _, err := w.st.CreateSitePrice(t.Context(), store.SitePrice{ID: "reasoner", Provider: "deepseek", Model: "deepseek-reasoner",
+		From: time.Date(2025, 9, 29, 0, 0, 0, 0, time.UTC), InputPUSD: 550_000, CacheReadPUSD: 140_000, CacheWritePUSD: 550_000,
+		OutputPUSD: 2_190_000, CreatedBy: "admin"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _, err = h.build(t.Context())
+	if err != nil || len(cfg.Agents) != 2 || len(cfg.Rejected) != 0 {
+		t.Fatalf("with the site's price: %v, agents %+v, rejected %+v", err, cfg.Agents, cfg.Rejected)
+	}
+	table := h.table()
+	if p, ok := table.Lookup("deepseek", "deepseek-reasoner", time.Now()); !ok || !strings.HasPrefix(p.Version, "site-") || !strings.HasSuffix(p.Version, "/reasoner") {
+		t.Errorf("the price table in force: %q %+v", table.Version, p)
+	}
+	if p, _ := table.Lookup("deepseek", "deepseek-chat", time.Now()); p.Version != "t1/0" {
+		t.Errorf("the file's row: %+v", p)
+	}
+
+	defer func(d time.Duration) { registryTimeout = d }(registryTimeout)
+	registryTimeout = time.Nanosecond
+	last, _, err := h.build(t.Context())
+	if err == nil || len(last.Runtime.School.Offers) != 2 || len(last.Agents) != 2 || h.table() != nil && h.table().Version != table.Version {
+		t.Errorf("the registry not read: %v, %+v", err, last.Runtime.School.Offers)
+	}
+}
+
+// fakeRecognizer is a recognizer in the languages it is given, of those
+// it has.
+type fakeRecognizer struct{ langs string }
+
+func (f fakeRecognizer) Recognize(context.Context, []byte, ocr.Kind, int, func(done, of int)) (*ocr.Result, error) {
+	return &ocr.Result{Text: "text"}, nil
+}
+
+func (f fakeRecognizer) Describe() string { return "fake 1.0 " + f.langs + " 300dpi" }
+
+func (f fakeRecognizer) Installed() []string { return []string{"chi_sim", "chi_tra", "eng"} }
+
+func (f fakeRecognizer) InLanguages(l string) (ocr.Recognizer, error) {
+	for _, x := range strings.Split(l, "+") {
+		if !slices.Contains(f.Installed(), x) {
+			return nil, ocr.ErrUnavailable
+		}
+	}
+	return fakeRecognizer{l}, nil
+}
+
+// TestBuildPutsTheSitesOCRInForce: each build puts the site's OCR setting
+// in force in the worker's OCR: turned off, then in English alone; in a
+// language not installed here, OCR goes on as it was, saying so; unset, it
+// is on again in the environment's languages.
+func TestBuildPutsTheSitesOCRInForce(t *testing.T) {
+	w := newRegistryWorld(t)
+	var logs strings.Builder
+	h := &hosting{env: config.Env{CoreBaseURL: w.coreURL}, pg: w.st, log: slog.New(slog.NewTextHandler(&logs, nil)), yaml: &config.Config{}}
+	svc := ocr.NewService(t.Context(), ocr.ServiceOptions{Recognizer: fakeRecognizer{ocr.DefaultLanguages}, Store: w.st})
+	h.setOCR(svc)
+	build := func(setting string) {
+		t.Helper()
+		if setting == "" {
+			if err := w.st.DeleteSiteSetting(t.Context(), store.SettingOCR); err != nil {
+				t.Fatal(err)
+			}
+		} else if err := w.st.PutSiteSetting(t.Context(), store.SiteSetting{Name: store.SettingOCR, Value: json.RawMessage(setting)}); err != nil {
+			t.Fatal(err)
+		}
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if _, _, err := h.build(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	build(`{"enabled": false}`)
+	if ok, why := svc.Available(); ok || why != "it is turned off" {
+		t.Errorf("turned off: %v %q", ok, why)
+	}
+	build(`{"enabled": true, "languages": ["eng"]}`)
+	if ok, _ := svc.Available(); !ok || svc.Languages() != "eng" {
+		t.Errorf("in English: %v %q", ok, svc.Languages())
+	}
+	build(`{"languages": ["jpn"]}`)
+	if svc.Languages() != "eng" || !strings.Contains(logs.String(), "the site's OCR languages are not all installed here") {
+		t.Errorf("in a language not installed: %q\n%s", svc.Languages(), logs.String())
+	}
+	build("")
+	if ok, _ := svc.Available(); !ok || svc.Languages() != ocr.DefaultLanguages {
+		t.Errorf("unset: %v %q", ok, svc.Languages())
 	}
 }

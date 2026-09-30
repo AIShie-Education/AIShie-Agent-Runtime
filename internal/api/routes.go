@@ -33,20 +33,30 @@ type Features struct {
 	ConnectByToken bool `json:"connect_by_token"`
 	OwnKey         bool `json:"own_key"`
 	// SchoolKey is the school's plan for hosted agents (D8): true when
-	// the runtime's settings offer at least one model on it.
+	// the plan in force, runtime.yaml's and the site's, offers at least
+	// one model.
 	SchoolKey bool `json:"school_key"`
 }
 
-// features are what this API can do.
-func (s *Server) features() Features {
+// features are what this API can do: the school's plan by the plan in
+// force, or runtime.yaml's alone while the store cannot be read.
+func (s *Server) features(ctx context.Context) Features {
 	hosts := s.o.Vault != nil && s.o.CoreBaseURL != ""
-	return Features{ConnectByToken: hosts, OwnKey: hosts, SchoolKey: hosts && s.yaml().Runtime.School.Offered()}
+	sc, err := s.plan(ctx)
+	if err != nil {
+		s.o.Log.Warn("GET /info: the site's settings cannot be read; the school's plan is runtime.yaml's", "err", err)
+		sc = s.yaml().Runtime.School
+	}
+	return Features{ConnectByToken: hosts, OwnKey: hosts, SchoolKey: hosts && sc.Offered()}
 }
 
-func (s *Server) info(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) info(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), storeTimeout)
+	defer cancel()
+	features := s.features(ctx)
 	w.Header().Set("Cache-Control", "public, max-age=60")
 	writeJSON(w, http.StatusOK, Info{API: "aishie-runtime", APIVersion: 1, Version: version.Version, Commit: version.Commit,
-		Audience: s.o.Verifier.Audience, Issuer: s.o.Verifier.Issuer, Features: s.features()})
+		Audience: s.o.Verifier.Audience, Issuer: s.o.Verifier.Issuer, Features: features})
 }
 
 // Me is GET /me's answer: the person the assertion names, whether they are

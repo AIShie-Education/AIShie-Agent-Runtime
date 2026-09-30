@@ -5,10 +5,12 @@ import (
 	"errors"
 	"log/slog"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
@@ -29,12 +31,19 @@ type hosting struct {
 	mu     sync.Mutex
 	yaml   *config.Config
 	prices *pricing.Table
-	// hosted and rejected are the registry's agents as last built, kept
-	// for a reload when the registry cannot be read.
+	// hosted and rejected are the registry's agents as last built, and
+	// site the site's settings as last read, kept for a reload when the
+	// registry cannot be read.
 	hosted   []*config.Agent
 	rejected []config.Rejection
+	site     config.Site
 	// reported are the agents last reported not run.
 	reported []string
+	// ocr is the worker's OCR, which the site's setting is put in force
+	// in (applyOCR), and ocrSet the setting last put in force, or tried;
+	// nil before the worker has one.
+	ocr    *ocr.Service
+	ocrSet *ocr.Setting
 }
 
 // YAML is the operator's configuration as last loaded, for the API.
@@ -44,7 +53,8 @@ func (h *hosting) YAML() *config.Config {
 	return h.yaml
 }
 
-// Prices is the price table in force, for the API.
+// Prices is the price file's table, for the API, which puts the site's
+// rows over it as it reads them from the store.
 func (h *hosting) Prices() *pricing.Table {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -66,7 +76,8 @@ func (h *hosting) options() registry.Options {
 // the YAML alone, at revision 0, when the registry is off. A hosted agent
 // with a quota in dollars that no price holds is not run. When the
 // registry cannot be read, it is the YAML with the hosted agents as they
-// were last built, and the error. Called with mu held.
+// were last built, and the error. The price table in force (table) is the
+// file's with the site's rows as last read. Called with mu held.
 func (h *hosting) build(ctx context.Context) (*config.Config, int64, error) {
 	if h.pg == nil {
 		return h.yaml, 0, nil
@@ -77,10 +88,16 @@ func (h *hosting) build(ctx context.Context) (*config.Config, int64, error) {
 	if err != nil {
 		return h.withLastHosted(), 0, err
 	}
+	h.site = cfg.Runtime.Site
+	h.applyOCR()
+	table := h.table()
 	kept := cfg.Agents[:0]
 	for _, a := range cfg.Agents {
 		if a.Hosted != nil {
-			if p := usdWithoutPrices(&config.Config{Runtime: cfg.Runtime, Agents: []*config.Agent{a}}, h.prices, time.Now()); len(p) > 0 {
+			// runtime.yaml's offers were held to the price file as the
+			// YAML loaded: of the plan in force, the agent's own offer is
+			// held here, with the price table in force.
+			if p := config.AgentsUSDWithoutPrices(&config.Config{Runtime: cfg.Runtime, Agents: []*config.Agent{a}}, table, time.Now()); len(p) > 0 {
 				cfg.Rejected = append(cfg.Rejected, config.Rejection{AgentID: a.ID, Source: registry.SourceName(a.ID), Err: errors.New(p[0]),
 					Reason: store.ReasonSettingsRejected, Version: a.Hosted.Version})
 				continue
@@ -99,10 +116,15 @@ func (h *hosting) build(ctx context.Context) (*config.Config, int64, error) {
 	return cfg, rev, nil
 }
 
-// withLastHosted is the YAML with the hosted agents as last built, less
-// any whose id a YAML agent now has. Called with mu held.
+// table is the price table in force: the price file's, with the site's
+// rows as last read. Called with mu held.
+func (h *hosting) table() *pricing.Table { return h.site.PriceTable(h.prices) }
+
+// withLastHosted is the YAML with the site's settings and the hosted
+// agents as last read, less any whose id a YAML agent now has. Called with
+// mu held.
 func (h *hosting) withLastHosted() *config.Config {
-	cfg := &config.Config{Runtime: h.yaml.Runtime, Dir: h.yaml.Dir, Agents: slices.Clone(h.yaml.Agents), Rejected: h.rejected}
+	cfg := &config.Config{Runtime: h.yaml.Runtime.WithSite(h.site), Dir: h.yaml.Dir, Agents: slices.Clone(h.yaml.Agents), Rejected: h.rejected}
 	ids := map[string]bool{}
 	for _, a := range h.yaml.Agents {
 		ids[a.ID] = true
@@ -113,6 +135,41 @@ func (h *hosting) withLastHosted() *config.Config {
 		}
 	}
 	return cfg
+}
+
+// setOCR is the worker's OCR, in which the site's setting as last read is
+// put in force now, and at each build after.
+func (h *hosting) setOCR(o *ocr.Service) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.ocr = o
+	h.applyOCR()
+}
+
+// applyOCR puts the site's OCR setting as last read in force in the
+// worker's OCR, when it changed: on unless the site turns it off, in the
+// site's languages or else the environment's. Languages not installed
+// here are refused, logged once, and the setting before stays. With
+// OCR=off, or its programs missing, it changes nothing. Called with mu
+// held.
+func (h *hosting) applyOCR() {
+	if h.ocr == nil {
+		return
+	}
+	s := h.site.OCR
+	st := ocr.Setting{Enabled: s.Enabled == nil || *s.Enabled, Languages: strings.Join(s.Languages, "+")}
+	if h.ocrSet != nil && *h.ocrSet == st {
+		return
+	}
+	first := h.ocrSet == nil
+	h.ocrSet = &st
+	if err := h.ocr.Set(st); err != nil {
+		h.log.Warn("the site's OCR languages are not all installed here: OCR goes on as it was", "languages", st.Languages, "err", err)
+		return
+	}
+	if !first || st != (ocr.Setting{Enabled: true}) {
+		h.log.Info("OCR as the site's settings say", "on", st.Enabled, "languages", h.ocr.Languages(), "ocr", h.ocr.String())
+	}
 }
 
 // report logs the hosted agents that run and those that are not run, when
@@ -148,7 +205,7 @@ func (h *hosting) reload(ctx context.Context, sup *worker.Supervisor) {
 	if err != nil {
 		h.log.Warn("SIGHUP: the registry of hosted agents could not be read; they run as they were", "err", err)
 	}
-	sup.SetPrices(l.prices)
+	sup.SetPrices(h.table())
 	sup.Reload(cfg)
 	h.log.Info("SIGHUP: the configuration was read again", "agents", len(cfg.Agents), "hosted", len(h.hosted), "prices", l.pricesPath)
 	warnNoAgents(h.log, cfg)
@@ -164,6 +221,7 @@ func (h *hosting) update(ctx context.Context, sup *worker.Supervisor) (int64, er
 	if err != nil {
 		return 0, err
 	}
+	sup.SetPrices(h.table())
 	sup.Update(cfg)
 	h.log.Info("the registry of hosted agents changed", "rev", rev, "hosted", len(h.hosted), "not_run", len(cfg.Rejected))
 	return rev, nil

@@ -338,8 +338,10 @@ func (w *world) startHosted(t *testing.T, m *fakellm.Server, st *pgstore.Store, 
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The price table in force is the site's rows alone: run's, with no
+	// price file.
 	rt.sup, err = worker.NewSupervisor(worker.Options{
-		Config: cfg, Store: st, Metrics: metrics.New(rt.reg), Log: logger, WorkerID: "hosted-w1",
+		Config: cfg, Store: st, Metrics: metrics.New(rt.reg), Log: logger, WorkerID: "hosted-w1", Prices: cfg.Runtime.Site.PriceTable(nil),
 		Secrets:    secrets.Resolver{Dir: w.secretsDir, Sealed: vault.Opener{Vault: v, Store: st}},
 		HTTPClient: &http.Client{Transport: toModel{next: tr, target: target}},
 		// A hosted agent's model calls go through a client that follows no
@@ -364,6 +366,7 @@ func (w *world) startHosted(t *testing.T, m *fakellm.Server, st *pgstore.Store, 
 			if err != nil {
 				return 0, err
 			}
+			rt.sup.SetPrices(cfg.Runtime.Site.PriceTable(nil))
 			rt.sup.Update(cfg)
 			return rev, nil
 		},

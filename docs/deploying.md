@@ -269,6 +269,15 @@ how it works and how it is held in.
   `OCR=auto` (the default) and the programs missing (a binary run outside
   the image), OCR is off with a warning, and models are told there is no
   OCR here; `OCR=on` refuses to start without them.
+- **In the site:** where OCR runs, the runtime's administrators turn it
+  off and on, and choose its languages among those installed, from the
+  front end ([below](#what-the-sites-administrators-change)); a change is
+  in force on every worker within moments, with no restart, and a file
+  recognized in other languages is recognized again when next asked.
+  The environment stays the ceiling: with `OCR=off`, or the programs
+  missing, the site cannot turn it on, and says why. `check` says the
+  site's setting when it has one. The image has Chinese (simplified and
+  traditional) and English alone; another language is another image.
 - **Watching it:** `ocr_jobs_total{kind,outcome}`, `ocr_pages_total`,
   `ocr_job_seconds`, `ocr_page_seconds{step}`, `ocr_jobs_running`,
   `ocr_jobs_waiting` and `ocr_requests_total{result}` in `/metrics`; a
@@ -413,11 +422,18 @@ and key behind it: once the plan's quota for them (or for the asker, or
 the school's ceiling) is spent that day, their own key answers; without
 one, the asker is told the school's allowance is used up (in English and
 Chinese, or in the language `answer_language` fixes; `on_quota_text` in
-`school:` sets the words). Taking an offer out of `school:` stops the
-agents on it, each saying so in its state, until their owners choose
-another. `check` lists the offers and the quotas; the runtime's
-administrators read today's use per owner at `GET
+`school:` sets the words). Taking an offer out of `school:` leaves the
+agents on it on their owners' own models behind it, on their keys; an
+agent with none stops, saying the school withdrew its offer
+(`offer_withdrawn`), until the offer is back or its owner chooses another.
+`check` lists the offers and the quotas; the runtime's administrators
+read today's use per owner at `GET
 /runtime/api/v1/admin/school-plan/usage`.
+
+The runtime's administrators also make offers of their own, set the
+quotas, in answers and in dollars, and add the prices those need from the
+front end ([below](#what-the-sites-administrators-change)): the plan
+owners see is `school:`'s offers and the site's.
 
 ## The API for the front end
 
@@ -465,8 +481,8 @@ tokens; its owner then revokes them in AIshie, as the front end says. Every chan
 (`docs/design.md` §11.4), with hints of tokens and keys, never the values.
 
 A hosted agent's model is called only at the providers' own endpoints,
-which the runtime makes from the provider its owner chose: no one gives it
-a URL. The runtime also refuses, when it dials, any address that is not on
+which the runtime makes from the provider its owner chose (or the offer of
+the school's an administrator made): no one gives it a URL. The runtime also refuses, when it dials, any address that is not on
 the public internet (loopback, private, link-local and the cloud metadata
 address, carrier-grade NAT, the IPv6 forms that hold an IPv4 address, and
 the rest of the reserved ranges, whatever DNS says), and follows no
@@ -474,6 +490,70 @@ redirect; `check --live` tries a hosted agent's model the same way. Behind
 `EGRESS_PROXY` it dials only the proxy, which then resolves and connects:
 the proxy must refuse those addresses itself, or a hosted agent's calls
 are only as closed as the proxy is.
+
+### What the site's administrators change
+
+The runtime's administrators (Core's `root` and `admin`, narrowed by
+`ADMIN_ACTOR_IDS` when it is set) change these from the front end, through
+the API's `admin/` routes (`docs/design.md` §11.5), and every worker puts a
+change in force within moments, with no restart and no SIGHUP:
+
+- **OCR:** on or off, and its languages among those installed.
+- **The school's plan:** offers of the school's, each a provider's model
+  at its own endpoint with a key of the school's, which is tried with the
+  model before it is kept, sealed in the database like an owner's key,
+  and shown only as its hint (`sk-…3f9a`); an offer turned off, changed or
+  deleted; and the quotas a day per owner, per asker, and across the
+  school, in answers and in dollars.
+- **Prices:** rows of the site's own beside the price file's, which the
+  front end lists read-only: a model the file does not price, or a price
+  that has changed. A site's row of the same provider, model and `from`
+  as a file's stands before it. The site's rows are a table of their own,
+  versioned by the second they last changed (`site-20260930T101500Z`):
+  the ledger names each cost's version and row, so that a cost recorded
+  before a change keeps the price it was recorded at.
+- **Tenants' quotas:** a tenant's daily quota on the school's key, in
+  answers, dollars or both, in place of `runtime.tenants`', and a hosted
+  agents' owner's (`ten_<their Core actor id>`) beside the plan's.
+- **Hosted agents' daily budgets by default:** per agent and per asker, in
+  answers and dollars, in place of `runtime.defaults`' `budgets.per_agent_day`
+  and `budgets.per_asker_day` for the hosted agents. `runtime.yaml`'s
+  agents keep the budgets `runtime.yaml` gives them.
+- **What things cost:** the ledger's model calls in dollars, by day,
+  tenant, agent, model or key, over at most a year at a time.
+
+What stays the operator's, in the env file and `runtime.yaml`:
+
+- **The ceilings:** `OCR=off`, or OCR's programs missing, is off whatever
+  the site says; `OCR_LANGUAGES` is the languages until the site chooses,
+  and the other `OCR_*` knobs are the env file's alone.
+- **`school:`'s offers**, and their keys as files under
+  `secret://school/keys/`: the site shows them, read-only, and cannot make
+  an offer of the same id. A server of the school's own (a gateway, vLLM,
+  Ollama) is offered here alone: the site offers a provider's own
+  endpoints, as owners choose them.
+- **`allowed_models` and `denied_models`**, which hold the site's offers
+  too (an offer they no longer allow is held back from owners),
+  `on_quota_text`, and the budgets of one answer (turns, tool calls,
+  tokens, time).
+- **The defaults the site's settings stand in place of:** the price file
+  (`PRICES` or `prices_ref`), `school:`'s quotas, `runtime.tenants` and
+  `runtime.defaults`' daily budgets. A site's setting reset in the front
+  end takes the operator's again. `runtime.yaml`'s own agents and offers
+  are held to the price file alone as the configuration loads: a quota in
+  dollars of theirs needs a price in the file, not the site's.
+- **`KMS_KEY_ID`**, the key that seals the site's keys as it seals the
+  owners': `keys check` and `keys rewrap` cover them, and a backup of the
+  database is no use without it ([below](#the-key-that-seals-secrets)).
+
+The site's quotas stand in place of `school:`'s, answers and dollars,
+until an administrator resets them to `school:`'s, which the front end
+shows beside them. A quota in dollars needs a price for every model it
+holds: the site cannot set one while an offer, or a hosted agent's model,
+has none today, nor delete the price one needs, and is told which to
+price. An offer turned off or deleted is withdrawn as one taken out of
+`school:` is (above). Every change is in the audit, with who made it; a
+key never is, but its hint.
 
 ## The key that seals secrets
 

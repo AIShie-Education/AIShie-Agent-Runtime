@@ -7,6 +7,7 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
 )
 
@@ -106,11 +107,12 @@ func putModels(settings json.RawMessage, own *modelSection, offer string) (json.
 }
 
 // SchoolModel is the offer of the school's plan the agent is on (D8): its
-// id, the label people are shown, and the model, as the runtime's
-// settings have it now; offered false when the school no longer has it
-// (the agent is then not run, and says why). Fallback is whether the
-// owner's own model and key stand behind it, for when the plan's quotas
-// are spent. Of its key, nothing.
+// id, the label people are shown, and the model, as the plan in force has
+// it now; offered false when the school no longer has it (the owner's own
+// model behind it then answers alone, and with none the agent is not run,
+// saying why: offer_withdrawn). Fallback is whether the owner's own model
+// and key stand behind it, for when the plan's quotas are spent. Of its
+// key, nothing.
 type SchoolModel struct {
 	Offer    string `json:"offer"`
 	Label    string `json:"label"`
@@ -120,14 +122,15 @@ type SchoolModel struct {
 	Fallback bool   `json:"fallback"`
 }
 
-// schoolModelView is the school's slot school as its owner reads it; nil
-// for none. fallback is whether the owner's model and key are behind it.
-func (s *Server) schoolModelView(school *modelSection, fallback bool) *SchoolModel {
+// schoolModelView is the school's slot school as its owner reads it, with
+// the plan in force sc; nil for none. fallback is whether the owner's
+// model and key are behind it.
+func schoolModelView(school *modelSection, sc config.School, fallback bool) *SchoolModel {
 	if school == nil {
 		return nil
 	}
 	v := &SchoolModel{Offer: school.Offer, Label: school.Offer, Fallback: fallback}
-	if o, ok := s.yaml().Runtime.School.OfferOf(school.Offer); ok {
+	if o, ok := sc.OfferOf(school.Offer); ok {
 		m := o.AsModel()
 		v.Label, v.Model, v.Provider, v.Offered = o.Label, o.Model, m.EffectiveProvider(), true
 	}
@@ -150,9 +153,9 @@ type OwnModel struct {
 	PriceKnown      bool    `json:"price_known"`
 }
 
-// ownModelView is the model section own as its owner reads it; nil for
-// none.
-func (s *Server) ownModelView(own *modelSection, now time.Time) *OwnModel {
+// ownModelView is the model section own as its owner reads it, priced by
+// prices; nil for none.
+func ownModelView(own *modelSection, prices *pricing.Table, now time.Time) *OwnModel {
 	if own == nil {
 		return nil
 	}
@@ -176,6 +179,6 @@ func (s *Server) ownModelView(own *modelSection, now time.Time) *OwnModel {
 	if own.Reasoning != nil {
 		v.ReasoningEffort = str(own.Reasoning.Effort)
 	}
-	_, v.PriceKnown = s.prices().Lookup(v.Provider, v.Model, now)
+	_, v.PriceKnown = prices.Lookup(v.Provider, v.Model, now)
 	return v
 }

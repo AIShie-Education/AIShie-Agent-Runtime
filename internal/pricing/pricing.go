@@ -127,7 +127,9 @@ type row struct {
 	glob     bool
 	from     time.Time
 	name     string // the row's id, or its index
-	price    Price
+	// site is set for a row of the site's (WithSite).
+	site  bool
+	price Price
 }
 
 // Load reads the table at path.

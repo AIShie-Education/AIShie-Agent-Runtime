@@ -296,10 +296,10 @@ func TestUSDWithoutPrices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p := usdWithoutPrices(cfg, table, time.Now()); len(p) != 0 {
+	if p := config.USDWithoutPrices(cfg, table, time.Now()); len(p) != 0 {
 		t.Errorf("the examples' prices leave %v", p)
 	}
-	if p := usdWithoutPrices(cfg, nil, time.Now()); len(p) != 2 {
+	if p := config.USDWithoutPrices(cfg, nil, time.Now()); len(p) != 2 {
 		t.Errorf("without prices: %v", p)
 	}
 }
@@ -315,25 +315,25 @@ func TestSchoolUSDWithoutPrices(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p := usdWithoutPrices(cfg, nil, time.Now()); len(p) != 2 || strings.Contains(strings.Join(p, " "), "runtime.school") {
+	if p := config.USDWithoutPrices(cfg, nil, time.Now()); len(p) != 2 || strings.Contains(strings.Join(p, " "), "runtime.school") {
 		t.Errorf("answers need no prices: %v", p)
 	}
 	usd := 0.5
 	cfg.Runtime.School.PerOwnerDay.USD = &usd
-	if p := usdWithoutPrices(cfg, nil, time.Now()); len(p) == 0 || !strings.Contains(p[0], "runtime.school: it has a quota in dollars, and there is no price table") {
+	if p := config.USDWithoutPrices(cfg, nil, time.Now()); len(p) == 0 || !strings.Contains(p[0], "runtime.school: it has a quota in dollars, and there is no price table") {
 		t.Errorf("dollars and no table: %v", p)
 	}
-	if p := usdWithoutPrices(cfg, table, time.Now()); len(p) != 0 {
+	if p := config.USDWithoutPrices(cfg, table, time.Now()); len(p) != 0 {
 		t.Errorf("dollars, every offer priced: %v", p)
 	}
 	cfg.Runtime.School.Offers = append(cfg.Runtime.School.Offers, config.SchoolOffer{ID: "odd", Label: "Odd", Adapter: "openai_chat",
 		Model: "unpriced-model", KeyRef: "secret://school/keys/odd"})
-	if p := usdWithoutPrices(cfg, table, time.Now()); len(p) != 1 || !strings.Contains(p[0], "no price for offer odd, openai unpriced-model") {
+	if p := config.USDWithoutPrices(cfg, table, time.Now()); len(p) != 1 || !strings.Contains(p[0], "no price for offer odd, openai unpriced-model") {
 		t.Errorf("an offer not priced: %v", p)
 	}
 	// The ceiling in dollars holds the YAML agents on the school's key.
 	cfg.Runtime.School = config.School{PerDay: config.Quota{USD: &usd}}
-	if p := usdWithoutPrices(cfg, nil, time.Now()); len(p) != 3 || !strings.Contains(p[0], "runtime.school") {
+	if p := config.USDWithoutPrices(cfg, nil, time.Now()); len(p) != 3 || !strings.Contains(p[0], "runtime.school") {
 		t.Errorf("a ceiling in dollars, and no table: %v", p)
 	}
 }

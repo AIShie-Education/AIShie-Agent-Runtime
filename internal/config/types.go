@@ -14,6 +14,9 @@ package config
 import (
 	"strings"
 	"time"
+
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/secrets"
 )
 
 // Agent is one hosted agent: the `agent:` document of §4, and its courses.
@@ -65,6 +68,16 @@ type Hosted struct {
 	// records it with every state it writes, so that the API tells a
 	// change not yet in force from one that is.
 	Version int
+}
+
+// OverHostedClient reports whether the agent's model m is called over the
+// hosted-model client, which connects to public addresses alone and
+// follows no redirect: a hosted agent's, its owner's own and an offer the
+// site made (its key sealed), each a person's choice through the API; but
+// not an offer of runtime.yaml's, whose endpoint is the operator's, as a
+// YAML agent's is.
+func (a *Agent) OverHostedClient(m Model) bool {
+	return a.Hosted != nil && (m.Offer == "" || strings.HasPrefix(m.KeyRef, secrets.SchemeSealed))
 }
 
 // Core is how the agent reaches Core.
@@ -282,10 +295,86 @@ type Runtime struct {
 	// DeniedModels an administrator denies even on an owner's key.
 	DeniedModels []string `yaml:"denied_models"`
 	// School is the school's AI plan: the models the school offers hosted
-	// agents on its own key, and the quotas that hold them.
+	// agents on its own key, and the quotas that hold them. Once the
+	// registry has read the site's settings, it is the plan in force
+	// (WithSite).
 	School School `yaml:"school"`
+	// Site is what the site's administrators set through the API, which
+	// the registry reads with its hosted agents (WithSite): never YAML's.
+	Site Site `yaml:"-"`
 	// File is the file the runtime document came from; problems name it.
 	File string `yaml:"-"`
+}
+
+// Site is what the site's administrators set through the API
+// (docs/design.md §11.5), within the ceiling the environment and
+// runtime.yaml set: offers of the school's plan beside runtime.yaml's, the
+// plan's quotas in place of runtime.yaml's, whether OCR runs, in which of
+// the languages installed; and the money: the site's price table beside
+// the file's, the tenants' daily quotas and the hosted agents' daily
+// budgets by default, each in place of runtime.yaml's.
+type Site struct {
+	// Offers are the plan's offers the site made and turned on, each on
+	// its sealed key (SchoolOffer.Site).
+	Offers []SchoolOffer
+	// Quotas, when set, are the plan's quotas.
+	Quotas *SiteQuotas
+	OCR    SiteOCR
+	// Prices are the site's price table's rows, and PricesChanged when
+	// they last changed, which names their version (PriceTable).
+	Prices        []pricing.Row
+	PricesChanged time.Time
+	// Tenants are the tenants' daily quotas the site sets, by tenant, in
+	// place of runtime.tenants'.
+	Tenants map[string]SiteQuota
+	// Budgets, when set, are the hosted agents' daily budgets by default,
+	// in place of runtime.defaults'.
+	Budgets *SiteBudgets
+}
+
+// SiteQuotas are the school plan's quotas a UTC day, as the site sets
+// them: per owner and per asker, and across the school, in answers and in
+// dollars, each nil (but the first two's answers) for none.
+type SiteQuotas struct {
+	PerOwnerDay    int      `json:"per_owner_day"`
+	PerAskerDay    int      `json:"per_asker_day"`
+	PerDay         *int     `json:"per_day"`
+	PerOwnerDayUSD *float64 `json:"per_owner_day_usd"`
+	PerAskerDayUSD *float64 `json:"per_asker_day_usd"`
+	PerDayUSD      *float64 `json:"per_day_usd"`
+}
+
+// SiteQuota is a daily quota as the site sets it: answers and dollars,
+// each nil for none.
+type SiteQuota struct {
+	Answers *int     `json:"answers"`
+	USD     *float64 `json:"usd"`
+}
+
+// Quota is q as the configuration holds a quota.
+func (q SiteQuota) Quota() Quota { return Quota{Answers: q.Answers, USD: q.USD} }
+
+// SiteBudgets are the hosted agents' daily budgets by default, as the
+// site sets them: budgets.per_agent_day and budgets.per_asker_day.
+type SiteBudgets struct {
+	PerAgentDay SiteQuota `json:"per_agent_day"`
+	PerAskerDay SiteQuota `json:"per_asker_day"`
+}
+
+// PriceTable is the price table in force: file's (nil for none) with the
+// site's rows before it (pricing.Table.WithSite), under the site's
+// version.
+func (s Site) PriceTable(file *pricing.Table) *pricing.Table {
+	return file.WithSite(pricing.SiteVersion(s.PricesChanged), s.Prices)
+}
+
+// SiteOCR is whether OCR runs, and in which languages, as the site sets
+// it: nil and empty are the environment's (on, in OCR_LANGUAGES). The
+// environment is its ceiling too: with OCR=off, or its programs missing,
+// OCR does not run whatever the site says.
+type SiteOCR struct {
+	Enabled   *bool    `json:"enabled,omitempty"`
+	Languages []string `json:"languages,omitempty"`
 }
 
 // Tenant is one tenant's quotas.
@@ -336,6 +425,12 @@ type SchoolOffer struct {
 	Params       ModelParams  `yaml:"params"`
 	Reasoning    Reasoning    `yaml:"reasoning"`
 	Capabilities Capabilities `yaml:"capabilities"`
+	// Site is set for an offer the site's administrators made through the
+	// API (Runtime.Site): its key is sealed, and its endpoint a provider's
+	// own, which the API made from the provider's offer, as it makes an
+	// owner's; the registry holds it to that, and the worker calls it over
+	// the hosted-model client. Never YAML's.
+	Site bool `yaml:"-"`
 }
 
 // The school plan's quotas when the runtime's settings give none.
@@ -346,6 +441,135 @@ const (
 
 // Offered reports whether the plan offers any model.
 func (s School) Offered() bool { return len(s.Offers) > 0 }
+
+// Why a site's offer is withheld from the plan in force (Withheld).
+const (
+	// WithheldIDTaken: an offer of runtime.yaml's has its id, and wins.
+	WithheldIDTaken = "id_taken"
+	// WithheldModelNotAllowed: runtime.denied_models denies its model, or
+	// runtime.allowed_models does not list it.
+	WithheldModelNotAllowed = "model_not_allowed"
+)
+
+// Withheld says why the site's offer o is not in the plan in force with
+// rt's settings (WithheldIDTaken, WithheldModelNotAllowed), or "" when it
+// is: the operator's offers and model lists stand over the site's.
+func (rt Runtime) Withheld(o SchoolOffer) string {
+	for _, y := range rt.School.Offers {
+		if !y.Site && y.ID == o.ID {
+			return WithheldIDTaken
+		}
+	}
+	triple := o.Adapter + ":" + o.AsModel().EffectiveProvider() + ":" + o.Model
+	if _, denied := matchModel(rt.DeniedModels, triple); denied {
+		return WithheldModelNotAllowed
+	}
+	if _, ok := matchModel(rt.AllowedModels, triple); len(rt.AllowedModels) > 0 && !ok {
+		return WithheldModelNotAllowed
+	}
+	return ""
+}
+
+// WithSite is rt, runtime.yaml's settings as loaded, with the site's
+// settings s in force: the plan offers runtime.yaml's offers, then the
+// site's that Withheld does not hold back; the site's quotas of the plan,
+// when it sets them, stand in place of runtime.yaml's, in answers and in
+// dollars; a tenant's quota the site sets, in place of runtime.tenants';
+// and the site's daily budgets by default, in place of
+// runtime.defaults', for the agents built on rt after (the registry's;
+// runtime.yaml's agents were built on runtime.yaml's).
+func (rt Runtime) WithSite(s Site) Runtime {
+	sc := rt.School
+	sc.Offers = nil
+	for _, o := range rt.School.Offers {
+		if !o.Site {
+			sc.Offers = append(sc.Offers, o)
+		}
+	}
+	rt.School = sc
+	for _, o := range s.Offers {
+		if rt.Withheld(o) == "" {
+			sc.Offers = append(sc.Offers, o)
+		}
+	}
+	if q := s.Quotas; q != nil {
+		owner, asker := q.PerOwnerDay, q.PerAskerDay
+		sc.PerOwnerDay = Quota{Answers: &owner, USD: clonePtr(q.PerOwnerDayUSD)}
+		sc.PerAskerDay = Quota{Answers: &asker, USD: clonePtr(q.PerAskerDayUSD)}
+		sc.PerDay = Quota{Answers: clonePtr(q.PerDay), USD: clonePtr(q.PerDayUSD)}
+	}
+	if len(s.Tenants) > 0 {
+		tenants := make(map[string]Tenant, len(rt.Tenants)+len(s.Tenants))
+		for id, t := range rt.Tenants {
+			tenants[id] = t
+		}
+		for id, q := range s.Tenants {
+			tenants[id] = Tenant{PerDay: Quota{Answers: clonePtr(q.Answers), USD: clonePtr(q.USD)}}
+		}
+		rt.Tenants = tenants
+	}
+	if b := s.Budgets; b != nil {
+		quota := func(q SiteQuota) map[string]any {
+			m := map[string]any{"answers": nil, "usd": nil}
+			if q.Answers != nil {
+				m["answers"] = *q.Answers
+			}
+			if q.USD != nil {
+				m["usd"] = *q.USD
+			}
+			return m
+		}
+		rt.Defaults = merge(rt.Defaults, map[string]any{"budgets": map[string]any{
+			"per_agent_day": quota(b.PerAgentDay), "per_asker_day": quota(b.PerAskerDay)}})
+	}
+	rt.School, rt.Site = sc, s
+	return rt
+}
+
+// clonePtr is a pointer to a copy of *p, nil for nil.
+func clonePtr[T any](p *T) *T {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
+// DefaultBudgets are the daily budgets rt's defaults give an agent that
+// sets none: budgets.per_agent_day and budgets.per_asker_day as
+// runtime.defaults has them, none where it has none.
+func (rt Runtime) DefaultBudgets() (perAgent, perAsker Quota) {
+	b, _ := rt.Defaults["budgets"].(map[string]any)
+	return quotaOf(b["per_agent_day"]), quotaOf(b["per_asker_day"])
+}
+
+// quotaOf reads a quota of runtime.defaults, as generic YAML: answers and
+// usd, a number each, or none.
+func quotaOf(v any) Quota {
+	m, _ := v.(map[string]any)
+	var q Quota
+	switch n := m["answers"].(type) {
+	case int:
+		q.Answers = &n
+	case int64:
+		i := int(n)
+		q.Answers = &i
+	case float64:
+		i := int(n)
+		q.Answers = &i
+	}
+	switch n := m["usd"].(type) {
+	case float64:
+		q.USD = &n
+	case int:
+		f := float64(n)
+		q.USD = &f
+	case int64:
+		f := float64(n)
+		q.USD = &f
+	}
+	return q
+}
 
 // OfferOf is the offer whose id is id.
 func (s School) OfferOf(id string) (SchoolOffer, bool) {
