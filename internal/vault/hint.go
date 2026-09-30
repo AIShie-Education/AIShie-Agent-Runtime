@@ -13,10 +13,12 @@ const Ellipsis = "…"
 // coreTokenPrefix begins Core's API tokens: ais_, then a public prefix of
 // 12 characters, then _ and the secret. Core lists a token by that prefix
 // (credential_list's token_prefix), so a hint that shows it names the
-// token in Core and nothing of its secret.
+// token in Core and nothing of its secret. A service credential's (the
+// transcriber's) is the same, after aissvc_.
 const (
-	coreTokenPrefix = "ais_"
-	corePublicLen   = 12
+	coreTokenPrefix    = "ais_"
+	serviceTokenPrefix = "aissvc_"
+	corePublicLen      = 12
 )
 
 // keyPrefixes are providers' key prefixes that say whose a key is and
@@ -35,21 +37,27 @@ const (
 )
 
 // Hint is what may be shown of a secret of kind, and never more: for a
-// Core token, ais_ and its public prefix (ais_k7v2m4qhx3ab…), nothing for
-// a token not of Core's shape; for a model
+// Core token, ais_ and its public prefix (ais_k7v2m4qhx3ab…), or aissvc_
+// and its for a service credential, nothing for a token not of Core's
+// shape; for a model
 // key, the provider's prefix and the last four characters (sk-…3f9a), the
 // prefix alone for a key too short to show four of, and the last four
 // alone for a key of no known prefix.
 func Hint(kind, secret string) string {
 	secret = strings.TrimSpace(secret)
 	if kind == store.SecretCoreToken {
-		// The prefix is the 12 characters between ais_ and the next _;
-		// twelve characters with no _ after them may be the secret's.
-		public, ok := strings.CutPrefix(secret, coreTokenPrefix)
+		// The prefix is the 12 characters between ais_ (or aissvc_) and
+		// the next _; twelve characters with no _ after them may be the
+		// secret's.
+		scheme := coreTokenPrefix
+		if strings.HasPrefix(secret, serviceTokenPrefix) {
+			scheme = serviceTokenPrefix
+		}
+		public, ok := strings.CutPrefix(secret, scheme)
 		if !ok || len(public) <= corePublicLen || public[corePublicLen] != '_' || !isPublicPrefix(public[:corePublicLen]) {
 			return Ellipsis
 		}
-		return coreTokenPrefix + public[:corePublicLen] + Ellipsis
+		return scheme + public[:corePublicLen] + Ellipsis
 	}
 	prefix := ""
 	for _, p := range keyPrefixes {

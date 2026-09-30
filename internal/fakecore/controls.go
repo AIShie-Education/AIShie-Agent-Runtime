@@ -215,7 +215,8 @@ func (c *Core) AddCourse(code string) Course {
 // AddFile adds a material to the course, published, whose one version is
 // a file: data, of contentType ("" for a file whose type was not
 // recorded), as a person uploads a deck of slides or a handout.
-// document_get gives it a download_url as Core does, and serves it. It
+// document_get gives it a download_url as Core does, and serves it. Its
+// text version is queued, for the transcription service to claim. It
 // returns the document's id.
 func (c *Core) AddFile(courseID, title, contentType string, data []byte) (string, error) {
 	c.mu.Lock()
@@ -230,8 +231,10 @@ func (c *Core) AddFile(courseID, title, contentType string, data []byte) (string
 	if contentType != "" {
 		d.contentType = &contentType
 	}
+	d.text = c.newText(now, false)
 	co.documents = append(co.documents, d)
 	c.blobs[d.fileToken] = d
+	c.queued()
 	return d.id, nil
 }
 

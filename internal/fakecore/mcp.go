@@ -84,8 +84,10 @@ func (c *Core) mcpHandler() http.Handler {
 		DisableLocalhostProtection: true,
 	})
 	verify := func(_ context.Context, token string, _ *http.Request) (*sdkauth.TokenInfo, error) {
+		// A service credential is refused at the agents' door, as Core's
+		// is: it works at the service's REST routes alone.
 		a := c.authenticate(token)
-		if a == nil {
+		if a == nil || a.kind == kindService {
 			return nil, fmt.Errorf("%w: %s", sdkauth.ErrInvalidToken, "the credential is missing or not valid")
 		}
 		return &sdkauth.TokenInfo{UserID: a.id}, nil
@@ -170,13 +172,20 @@ func (c *Core) serve(ctx context.Context, actorID, transport string, t *toolDef,
 	if hook != nil {
 		hook(t.mcpName, append(json.RawMessage(nil), sent...))
 	}
+	cred, _ := ctx.Value(restCredKey{}).(*credential)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	caller := c.actors[actorID]
 	var out outcome
-	if caller == nil {
+	switch {
+	case caller == nil:
 		out = errorOutcome(newErr(codeUnauthenticated, "actor %s does not exist", actorID))
-	} else {
+	case serviceRefusal(caller, t) != nil:
+		out = outcome{Status: actDenied, Error: serviceRefusal(caller, t)}
+	case t.restOnly:
+		again := func() outcome { return c.invokeService(caller, cred, t, args, key, base) }
+		out = c.waitForQueue(ctx, t, args, again(), again)
+	default:
 		out = c.waitForNews(ctx, caller, t, args, base, c.invoke(caller, t, args, key, base))
 	}
 	if t.ephemeral && out.Status == actExecuted {

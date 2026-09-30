@@ -54,15 +54,15 @@ var (
 	langTagRe    = regexp.MustCompile(`^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$`)
 	headerNameRe = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
 	regionRe     = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
-	// A Core token or invitation, as Core makes them (ais_ or aisinv_, a
-	// 12-character public prefix, then the secret), anywhere, even inside
-	// what looks like a reference.
-	coreTokenRe = regexp.MustCompile(`ais(?:inv)?_[a-z2-7]{12}_[A-Za-z0-9_-]{16,}`)
+	// A Core token, invitation or service credential, as Core makes them
+	// (ais_, aisinv_ or aissvc_, a 12-character public prefix, then the
+	// secret), anywhere, even inside what looks like a reference.
+	coreTokenRe = regexp.MustCompile(`ais(?:inv|svc)?_[a-z2-7]{12}_[A-Za-z0-9_-]{16,}`)
 )
 
-// HoldsCoreToken reports whether s holds a Core token or invitation, as
-// Core makes them, anywhere in it: what is never written in configuration,
-// nor sent to a model's provider as its key.
+// HoldsCoreToken reports whether s holds a Core token, invitation or
+// service credential, as Core makes them, anywhere in it: what is never
+// written in configuration, nor sent to a model's provider as its key.
 func HoldsCoreToken(s string) bool { return coreTokenRe.MatchString(s) }
 
 var (

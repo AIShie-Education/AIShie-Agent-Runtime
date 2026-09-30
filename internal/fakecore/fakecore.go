@@ -11,6 +11,9 @@
 //   - REST routes for every tool, answered as Core answers them;
 //   - GET /healthz, and the files document_get's download_url points at.
 //
+// The transcription service's four tools, and a document's text versions
+// (text.go), are carried out as Core #43 has them.
+//
 // The tools the runtime calls (me_*, conversation_*, event_list,
 // action_list_mine, and credential_list and credential_revoke, with which
 // an agent's token revokes a token of its own; me_site_chat, but with
@@ -136,6 +139,12 @@ type Core struct {
 	draftWrites []DraftWrite
 	// presetIDs are the built-in presets' ids, by name.
 	presetIDs map[string]string
+	// service is the site's transcription service's actor, nil before
+	// its first credential; serviceCreds its credentials, by id; textNews
+	// is closed, and replaced, when a text version is queued (text.go).
+	service      *actor
+	serviceCreds map[string]*credential
+	textNews     chan struct{}
 
 	// waiters are the calls waiting for news now (wait.go), which the
 	// events flushed wake; shutdown is closed by Shutdown.
@@ -188,6 +197,7 @@ func implemented() map[string]*impl {
 		"submission.roster":     submissionRoster(),
 		"document.versions":     documentVersions(),
 		"conversation.draft":    conversationDraft(),
+		"document.text":         documentText(),
 	}
 }
 
@@ -273,7 +283,7 @@ func New(o Options) *Core {
 		actors: map[string]*actor{}, tokens: map[string]*credential{}, courses: map[string]*course{},
 		members: map[string]*member{}, conversations: map[string]*conversation{}, messages: map[string]*message{},
 		actions: map[string]*action{}, keys: map[actorKey]*action{}, blobs: map[string]*document{},
-		siteChat: map[string]bool{}, presetIDs: map[string]string{},
+		siteChat: map[string]bool{}, presetIDs: map[string]string{}, serviceCreds: map[string]*credential{},
 		waiters: map[*waiter]struct{}{}, shutdown: make(chan struct{}),
 	}
 	c.system = &actor{id: newID(), kind: "system", name: "system", status: statusActive}

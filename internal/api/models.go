@@ -262,7 +262,7 @@ func (s *Server) denied(sec *modelSection, at string) *Error {
 // Core token or invitation does, or holds one anywhere (pasted in quotes,
 // or after something else), which is never sent to a provider.
 func keyMalformed(key, field string) *Error {
-	if strings.HasPrefix(key, "ais_") || strings.HasPrefix(key, "aisinv_") || config.HoldsCoreToken(key) {
+	if strings.HasPrefix(key, "ais_") || strings.HasPrefix(key, "aisinv_") || strings.HasPrefix(key, "aissvc_") || config.HoldsCoreToken(key) {
 		return fieldError(CodeInvalidArgument, ReasonKeyMalformed, field,
 			"that is an AIshie token, a person's or an agent's, not a provider's API key: it is never sent to a provider")
 	}

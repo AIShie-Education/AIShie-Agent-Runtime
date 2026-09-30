@@ -344,6 +344,9 @@ func TestHint(t *testing.T) {
 		// where Core's _ follows them: here they are a secret's.
 		{store.SecretCoreToken, "ais_abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnop", "…"},
 		{store.SecretCoreToken, "ais_k7v2m4qhx3ab", "…"},
+		// A service credential's hint is its public prefix too.
+		{store.SecretCoreToken, "aissvc_ixgrh7nbgpyd_Qm9vYmFyYmF6cXV4cXV1eHF1dXhxdXV4cXV1eHF1dXg", "aissvc_ixgrh7nbgpyd…"},
+		{store.SecretCoreToken, "aissvc_ixgrh7nbgpyd", "…"},
 		{store.SecretModelKey, "sk-0123456789abcdef0123456789ab3f9a", "sk-…3f9a"},
 		{store.SecretModelKey, modelKey, "sk-proj-…3f9a"},
 		{store.SecretModelKey, "sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWx-9z0Q", "sk-ant-…9z0Q"},
