@@ -2,16 +2,20 @@ package e2e
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/api"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/fakellm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
@@ -35,9 +39,12 @@ const (
 // where it was. Then the school's administrator makes an offer through the
 // API, its key tried with the model at OpenAI's own endpoint and sealed,
 // and raises the quota per owner; Yuki puts her agent on it, and it
-// answers her with that key, over the hosted-model client. The offer
-// turned off, her own key answers, without a restart. No log, answer or
-// row holds the school's keys or the reference of runtime.yaml's.
+// answers her with that key, over the hosted-model client. A quota of the
+// plan's in dollars is refused until the site prices every offer, and the
+// model behind Yuki's; priced, the next call is costed by the site's row,
+// under its version, and the cost report says so. The offer turned off,
+// her own key answers, without a restart. No log, answer or row holds the
+// school's keys or the reference of runtime.yaml's.
 func schoolPlanThroughTheAPI(t *testing.T, w *world) {
 	audience := os.Getenv("E2E_RUNTIME_AUDIENCE")
 	if audience == "" {
@@ -238,6 +245,69 @@ func schoolPlanThroughTheAPI(t *testing.T, w *world) {
 	reqs = calls()
 	if last := reqs[len(reqs)-1]; last.Model != "e2e-site-model" || last.Header.Get("Authorization") != "Bearer "+siteKey {
 		t.Errorf("the site's offer's call: model %q", last.Model)
+	}
+
+	// A quota in dollars needs a price for every offer, and for the model
+	// behind Yuki's: the site adds them, and the quota is taken.
+	refused := func(an answer, reason string) map[string]any {
+		t.Helper()
+		var e struct {
+			Error struct {
+				Details map[string]any `json:"details"`
+			} `json:"error"`
+		}
+		decodeAs(an, http.StatusUnprocessableEntity, &e)
+		if e.Error.Details["reason"] != reason {
+			t.Fatalf("refused as %v, want %s: %s", e.Error.Details["reason"], reason, an.body)
+		}
+		return e.Error.Details
+	}
+	const dollars = `{"per_owner_day":5,"per_asker_day":20,"per_day":null,"per_day_usd":"50"}`
+	if d := refused(asAdmin("PUT", "admin/school-plan/quotas", dollars), api.ReasonOfferNotPriced); fmt.Sprint(d["offers"]) != "[standard site]" {
+		t.Errorf("the offers unpriced: %v", d["offers"])
+	}
+	price := func(id, provider, model string) {
+		t.Helper()
+		body := `{"id":"` + id + `","provider":"` + provider + `","model":"` + model + `","from":"2025-01-01","usd_per_mtok":{"input":"1.25","output":10}}`
+		var row api.PriceRow
+		decodeAs(asAdmin("POST", "admin/prices", body), http.StatusCreated, &row)
+		if row.Source != api.PriceSourceSite || !strings.HasPrefix(row.Version, "site-") || !strings.HasSuffix(row.Version, "/"+id) {
+			t.Fatalf("the price made: %+v", row)
+		}
+	}
+	// runtime.yaml's offer is at an endpoint of the operator's, an
+	// OpenAI-compatible one; the site's, at OpenAI's own.
+	price("e2e-school", llm.ProviderOpenAICompat, "e2e-school-model")
+	price("e2e-site", llm.ProviderOpenAI, "e2e-site-model")
+	if d := refused(asAdmin("PUT", "admin/school-plan/quotas", dollars), api.ReasonModelNotPriced); !strings.Contains(fmt.Sprint(d["problems"]),
+		"e2e-own-model") {
+		t.Errorf("the model behind Yuki's: %v", d["problems"])
+	}
+	price("e2e-own", llm.ProviderOpenAI, "e2e-own-model")
+	decodeAs(asAdmin("PUT", "admin/school-plan/quotas", dollars), 200, &plan)
+	if plan.Quotas.PerDayUSD == nil || *plan.Quotas.PerDayUSD != "50.000000" {
+		t.Fatalf("the quota in dollars: %+v", plan.Quotas)
+	}
+	const q4b = "Is this answer costed?"
+	conv4b, _ := w.ask(t, w.yuki, w.own.member, q4b)
+	if ans := w.waitAnswer(t, w.yuki, conv4b, w.own.member); !strings.HasPrefix(ans.text(), "Answer: "+q4b) {
+		t.Fatalf("the answer under the quota in dollars: %q", ans.text())
+	}
+	var costs api.CostReport
+	eventually(t, answerWait, "the cost report counting the priced call", func() bool {
+		an := asAdmin("GET", "admin/costs?group=model&key_source=school", "")
+		if an.code != 200 || json.Unmarshal(an.body, &costs) != nil {
+			return false
+		}
+		for _, r := range costs.Rows {
+			if r.Key == "school/openai/e2e-site-model" && r.Lines[0].Calls > r.Lines[0].UnpricedCalls && r.CostUSD != "0.000000" {
+				return slices.Equal(r.Offers, []string{"site"})
+			}
+		}
+		return false
+	})
+	if !regexp.MustCompile(`site-[0-9]{8}T[0-9]{6}Z/e2e-site\b`).MatchString(dumpDatabase(t, dbURL)) {
+		t.Error("no cost in the ledger names the site's row")
 	}
 
 	// The offer turned off: the agent is on her own model again, without
