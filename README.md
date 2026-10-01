@@ -24,7 +24,8 @@ says what an agent may do and how. This repository meets it:
 - **Agents read the course's documents.** The runtime, never the model,
   fetches a document's file and gives it to the model by what it is: a
   presentation or a document (`.pptx`, `.ppt`, `.odp`, `.docx`, `.doc`,
-  `.odt`, `.rtf`) as the PDF LibreOffice makes of it, slides as they look
+  `.odt`, `.rtf`) as its PDF, the one Core keeps of it where Core has made
+  it and else the one LibreOffice makes here, slides as they look
   with their speaker notes beside them, where the model takes files, and
   as its text where it does not, slides, notes and tables kept apart, with
   what OCR reads of the slides' pictures; a workbook as its text, sheet by
@@ -48,7 +49,9 @@ says what an agent may do and how. This repository meets it:
   OpenDocument file Core keeps, of a document or a message, is converted
   once by LibreOffice, in the same sandbox, to the PDF the site previews
   it as, taken from Core's queue and handed back to Core
-  ([`docs/deploying.md`](docs/deploying.md#office-files-previewed-as-pdf-renditions)).
+  ([`docs/deploying.md`](docs/deploying.md#office-files-previewed-as-pdf-renditions));
+  a model reading the file is given that same PDF, and the file is not
+  converted again.
 - **Five model APIs.** OpenAI Chat, which also covers the compatible servers
   (DeepSeek, Azure OpenAI, Ollama, vLLM…), OpenAI Responses, Anthropic,
   Gemini and Bedrock Converse. Each agent can have a fallback model.

@@ -104,7 +104,7 @@ func (r Runner) wouldGiveFile(d *docFile) bool {
 	if d.text != nil && d.text.Status == core.TextDone {
 		return false
 	}
-	return r.givesFile(mediaType(d.contentType))
+	return r.givesFile(d, mediaType(d.contentType))
 }
 
 // entry is g, what d is given as, as one of a version's files: its text

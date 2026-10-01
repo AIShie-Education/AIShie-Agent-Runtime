@@ -45,9 +45,9 @@ type pdfFile struct {
 	// of it is, doctext.SectionSlide for a deck's.
 	pages int
 	unit  string
-	// converted says it is LibreOffice's PDF of the file; capped that it
-	// stopped at the pages LibreOffice is let make, and the file may have
-	// more.
+	// converted says it is a PDF made of the file, Core's or
+	// LibreOffice's; capped that it stopped at the pages a PDF given is
+	// let have (OFFICE_PDF_MAX_PAGES), and the file may have more.
 	converted, capped bool
 	// slides are a deck's slides as the runtime read them, whose speaker
 	// notes are given beside the pages that show them; notesWhy says why

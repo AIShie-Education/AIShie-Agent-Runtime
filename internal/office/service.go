@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/metrics"
 )
 
@@ -57,11 +58,20 @@ type State struct {
 // LibreOffice cannot convert is not tried at every question.
 const FailedRetention = time.Hour
 
+// RenditionRetention is how long a PDF of Core's not taken
+// (TakeRendition) is remembered, so that one that cannot be fetched, or is
+// not one the runtime gives, is not fetched again at every question,
+// megabytes each time, where nothing here converts the file instead; and
+// is tried again after, as its URL, or Core's PDF, may be good by then.
+const RenditionRetention = 5 * time.Minute
+
 // Service converts Office files for a worker process: at most
 // Config.Concurrency at once, the others waiting their turn, at most
 // Config.Queue of them; each file converted once, in the background, and
 // what was made kept in memory by the file's checksum, within
-// Config.CacheBytes, for every agent of the worker. It cuts ranges of pages
+// Config.CacheBytes, for every agent of the worker. It keeps the PDFs Core
+// made of files (TakeRendition) as it keeps its own, by the same checksum:
+// a file's PDF is made, or fetched, once a worker. It cuts ranges of pages
 // from PDFs too, a few at once, and keeps them as well. A nil *Service
 // converts and cuts nothing.
 //
@@ -282,6 +292,91 @@ func failure(err error) (outcome, why string) {
 		return "failed", "LibreOffice could not open it: it is damaged, password-protected, or not the kind of file it says it is"
 	}
 	return "failed", "LibreOffice failed on it"
+}
+
+// TakeRendition is the PDF of the file whose checksum is sum that Core
+// keeps, its PDF rendition (package rendition makes them), which fetch
+// fetches: the file's PDF kept here, whichever made it, or the one fetch
+// gives now, its pages counted and, past Config.MaxPages, cut to its first
+// MaxPages, as LibreOffice makes no more here, then kept by the file's
+// checksum as a conversion is. It converts nothing, and takes a PDF
+// whether LibreOffice is here or not. Its error is ErrRendition, saying
+// why the PDF is not taken, and the caller converts the file itself; what
+// fetch's error says, which may name where the PDF is, is neither returned
+// nor logged. A PDF not taken is remembered for RenditionRetention (but
+// for a fetch cancelled with ctx), and not fetched again meanwhile.
+func (s *Service) TakeRendition(ctx context.Context, sum string, fetch func(context.Context) ([]byte, error)) (*Output, error) {
+	if s == nil {
+		return nil, fmt.Errorf("%w: no conversions here", ErrRendition)
+	}
+	key, missed := string(ToPDF)+"\x00"+sum, "rendition\x00"+sum
+	s.mu.Lock()
+	if e := s.cache.get(key, s.now()); e != nil && e.out != nil {
+		s.mu.Unlock()
+		s.count("cached")
+		return e.out, nil
+	}
+	if e := s.cache.get(missed, s.now()); e != nil {
+		s.mu.Unlock()
+		s.count("rendition_failed")
+		return nil, fmt.Errorf("%w: %s", ErrRendition, e.why)
+	}
+	s.mu.Unlock()
+	start := s.now()
+	out, outcome := s.takeRendition(ctx, fetch)
+	pages, size := 0, 0
+	if out != nil {
+		pages, size = out.Pages, len(out.Data)
+	}
+	s.log.Info("office: Core's PDF of a file", "sum", short(sum), "outcome", outcome, "pages", pages, "bytes", size,
+		"ms", s.now().Sub(start).Milliseconds())
+	if out == nil {
+		s.count("rendition_failed")
+		if outcome != "cancelled" {
+			s.mu.Lock()
+			s.cache.put(&entry{key: missed, why: outcome, expires: s.now().Add(RenditionRetention)})
+			s.mu.Unlock()
+		}
+		return nil, fmt.Errorf("%w: %s", ErrRendition, outcome)
+	}
+	s.count("rendition")
+	s.mu.Lock()
+	s.cache.put(&entry{key: key, out: out})
+	s.mu.Unlock()
+	return out, nil
+}
+
+// takeRendition fetches Core's PDF of a file and makes it what a PDF
+// made here is (TakeRendition), or says why not: its outcome, as logged.
+func (s *Service) takeRendition(ctx context.Context, fetch func(context.Context) ([]byte, error)) (*Output, string) {
+	data, err := fetch(ctx)
+	switch {
+	case ctx.Err() != nil:
+		return nil, "cancelled"
+	case err != nil:
+		return nil, "not_fetched"
+	case int64(len(data)) > maxOutput:
+		return nil, "too_large"
+	}
+	pctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	n, err := doctext.PDFPages(pctx, data, doctext.Limits{MaxInflated: max(maxOutput, doctext.DefaultLimits().MaxInflated)})
+	cancel()
+	if err != nil || n < 1 {
+		return nil, "not_a_pdf"
+	}
+	if n <= s.cfg.MaxPages {
+		return &Output{Data: data, Pages: n, Rendition: true}, "taken"
+	}
+	// LibreOffice here would have made its first MaxPages pages: so many
+	// are given, and said to be.
+	if !s.Cuts() {
+		return nil, "too_many_pages"
+	}
+	b, err := s.cut(ctx, "range", func() ([]byte, error) { return s.pager.Range(ctx, data, 1, s.cfg.MaxPages) })
+	if err != nil {
+		return nil, "not_cut"
+	}
+	return &Output{Data: b, Pages: s.cfg.MaxPages, Capped: true, Rendition: true}, "taken"
 }
 
 // Range is pages first to last of pdf, whose checksum is sum, as a PDF of

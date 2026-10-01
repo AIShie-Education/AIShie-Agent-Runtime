@@ -3,7 +3,10 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -17,6 +20,7 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext/doctexttest"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/fakellm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/office"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/redact"
 )
@@ -263,4 +267,182 @@ func getPDF(t *testing.T, url string) ([]byte, http.Header) {
 		t.Errorf("the PDF's Content-Length %d, of %d bytes", n, len(b))
 	}
 	return b, resp.Header
+}
+
+// The lecture whose PDF Core keeps, and what Yuki asks of it.
+const (
+	renderedTitle    = "Week 7 lecture"
+	renderedQuestion = "What do the slides of " + renderedTitle + " show, as the site shows them?"
+)
+
+// renderedSlides is the lecture's deck, its notes on the first slide, and
+// renderedPDF the PDF Core keeps of it, each page saying it is Core's, so
+// that it is never taken for one the runtime made.
+var (
+	renderedSlides = doctexttest.PPTX(doctexttest.Slide{Title: "Hashing", Body: []doctexttest.Bullet{{Text: "Buckets"}}, Notes: "Ask about collisions."},
+		doctexttest.Slide{Title: "探測", Body: []doctexttest.Bullet{{Text: "線性探測"}}})
+	renderedPDF = doctexttest.PDF(doctexttest.PDFPage{Lines: []string{"Core's PDF of slide 1"}},
+		doctexttest.PDFPage{Lines: []string{"Core's PDF of slide 2"}})
+)
+
+// renderedResponder is a model that takes files and reads the lecture to
+// say what its slides show: it lists the course's documents, reads the
+// lecture's, and answers with what it was given of it: the file's record,
+// the text of the PDF it had as a file, and the text beside it.
+func renderedResponder(req fakellm.ChatRequest) fakellm.ChatResponse {
+	asked := false
+	for _, m := range req.Messages {
+		asked = asked || m.Role == "user" && m.Text() == renderedQuestion
+	}
+	if !asked {
+		return fakellm.DefaultResponder(req)
+	}
+	var results []string
+	var pdfText string
+	for _, m := range req.Messages {
+		if m.Role == "tool" {
+			results = append(results, m.Text())
+		}
+		parts, _ := m.Content.([]any)
+		for _, p := range parts {
+			part, _ := p.(map[string]any)
+			file, _ := part["file"].(map[string]any)
+			data, _ := file["file_data"].(string)
+			if raw, ok := strings.CutPrefix(data, "data:application/pdf;base64,"); ok {
+				if pdf, err := base64.StdEncoding.DecodeString(raw); err == nil {
+					if res, err := doctext.Extract(context.Background(), pdf, doctext.PDF, doctext.Limits{}); err == nil {
+						pdfText = strings.Join(strings.Fields(res.Text), " ")
+					}
+				}
+			}
+		}
+	}
+	switch len(results) {
+	case 0:
+		return fakellm.CallTools(fakellm.FunctionCall{Name: "document_list", Arguments: `{}`})
+	case 1:
+		var env struct {
+			Result struct {
+				Documents []struct {
+					ID    string `json:"id"`
+					Title string `json:"title"`
+				} `json:"documents"`
+			} `json:"result"`
+		}
+		_ = json.Unmarshal([]byte(results[0]), &env)
+		for _, d := range env.Result.Documents {
+			if d.Title == renderedTitle {
+				return fakellm.CallTools(fakellm.FunctionCall{Name: "document_get", Arguments: fmt.Sprintf(`{"document_id":%q}`, d.ID)})
+			}
+		}
+		return fakellm.Reply("There is no " + renderedTitle + ".")
+	}
+	var got struct {
+		File struct {
+			GivenAs     string `json:"given_as"`
+			ConvertedTo string `json:"converted_to"`
+		} `json:"file"`
+		FileText string `json:"file_text"`
+	}
+	_ = json.Unmarshal([]byte(results[len(results)-1]), &got)
+	return fakellm.Reply(fmt.Sprintf("Given as a %s of its %s: %s; beside it: %s", got.File.GivenAs, got.File.ConvertedTo, pdfText, got.FileText))
+}
+
+// slidesAsCoresPDF: Sato puts up his lecture's deck, and its PDF
+// rendition is made in Core, here by the test as the site's runtime makes
+// one (claimed with the runtime's own credential, its PDF put where Core
+// says, and completed done). Yuki's own agent, whose model takes files,
+// runs where LibreOffice converts nothing, and reads the lecture for her:
+// its model is given Core's PDF of the deck, page for page, with the
+// deck's speaker notes beside it. The PDF's URL reaches neither the model
+// nor the runtime's log. Against a Core without renditions it is skipped.
+func slidesAsCoresPDF(t *testing.T, w *world) {
+	cat, err := core.FetchCatalogue(t.Context(), w.api.hc, w.api.base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !core.HasRenditions(cat) {
+		t.Skip("the Core under test makes no PDF renditions (agent_runtime.rendition_*): it is older than AIShie-Core's migration 0026")
+	}
+	_, files := w.uploadFiles(t, w.sato, renderedTitle, "", attachedFile{"week7.pptx", doctexttest.PPTXType, renderedSlides})
+	w.renderAsTheRuntime(t, files[0], renderedPDF, 2)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	off := office.NewService(ctx, office.ServiceOptions{Off: "LibreOffice is not installed"})
+	t.Cleanup(func() { cancel(); off.Wait() })
+	m := newModel(t, renderedResponder)
+	takesFiles := map[string]any{"model": map[string]any{"capabilities": map[string]any{"file_input": true}}}
+	rt := w.startRuntime(t, m, runtimeConf{office: off, agents: []agentConf{{id: "yuki-helper", seat: w.own, over: takesFiles}}})
+	rt.waitPolling("yuki-helper")
+	asked, msg := w.ask(t, w.yuki, w.own.member, renderedQuestion)
+	answer := w.waitAnswer(t, w.yuki, asked, w.own.member)
+	want := "Given as a file of its pdf: ## Page 1 Core's PDF of slide 1 ## Page 2 Core's PDF of slide 2; beside it: ## Slide 1\nNotes: Ask about collisions."
+	if answer.text() != want || answer.replyTo() != msg {
+		t.Errorf("the answer is %q in reply to %s; want %q in reply to %s", answer.text(), answer.replyTo(), want, msg)
+	}
+	for _, req := range m.Requests() {
+		if strings.Contains(string(req.Raw), "/v1/blobs/") {
+			t.Error("a download URL reached the model")
+		}
+	}
+	if strings.Contains(rt.raw.String(), "/v1/blobs/") {
+		t.Error("the runtime's log holds a download URL")
+	}
+}
+
+// renderAsTheRuntime makes the PDF rendition of the version's file fileID
+// pdf, of pages, as the site's runtime makes one, with its credential:
+// claimed (any other file claimed on the way is left to its lease, as a
+// claim that lapses is), its PDF put at the URL Core gives for it, and
+// completed done.
+func (w *world) renderAsTheRuntime(t *testing.T, fileID string, pdf []byte, pages int) {
+	t.Helper()
+	svc := w.runtimeService()
+	deadline := time.Now().Add(renditionWait)
+	for {
+		claimed, err := svc.ClaimRenditions(t.Context(), core.MaxRenditionClaims, time.Minute, 5*time.Second)
+		if err != nil {
+			t.Fatalf("claiming renditions: %v", err)
+		}
+		for _, c := range claimed {
+			if c.FileID != fileID {
+				continue
+			}
+			w.addSecret("the URL of the claimed file", c.DownloadURL)
+			cl := core.ClaimOfRendition(c)
+			up, err := svc.RenditionUploadURL(t.Context(), cl)
+			if err != nil {
+				t.Fatalf("the rendition's upload URL: %v", err)
+			}
+			w.addSecret("the rendition's upload URL", up.UploadURL)
+			w.addSecret("the rendition's upload token", up.UploadToken)
+			ctx, cancel := context.WithTimeout(t.Context(), requestTimeout)
+			req, err := http.NewRequestWithContext(ctx, http.MethodPut, up.UploadURL, bytes.NewReader(pdf))
+			if err != nil {
+				cancel()
+				t.Fatal(err)
+			}
+			for k, v := range up.Headers {
+				req.Header.Set(k, v)
+			}
+			resp, err := w.api.hc.Do(req)
+			cancel()
+			if err != nil {
+				t.Fatalf("the PUT of the PDF: %v", err)
+			}
+			_ = resp.Body.Close()
+			if resp.StatusCode < 200 || resp.StatusCode > 299 {
+				t.Fatalf("the PUT of the PDF: HTTP %d", resp.StatusCode)
+			}
+			done, err := svc.CompleteRendition(t.Context(), cl, core.RenditionKey(cl, 1),
+				core.RenditionCompletion{Status: core.RenditionDone, UploadToken: up.UploadToken, PageCount: pages})
+			if err != nil || done.State != core.RenditionDone {
+				t.Fatalf("completing the rendition: %+v %v", done, err)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the rendition of file %s was not claimed within %s", fileID, renditionWait)
+		}
+	}
 }

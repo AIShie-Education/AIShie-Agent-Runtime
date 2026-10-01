@@ -145,9 +145,12 @@ type Output struct {
 	// and the file may have more.
 	Pages  int
 	Capped bool
+	// Rendition says it is Core's PDF rendition of the file
+	// (Service.TakeRendition), not LibreOffice's here.
+	Rendition bool
 }
 
-// Errors of Convert, Range and Pick, besides the context's.
+// Errors of Convert, Range, Pick and TakeRendition, besides the context's.
 var (
 	// ErrUnavailable is conversion that cannot run here: LibreOffice, or
 	// poppler's programs, or prlimit, are not installed.
@@ -160,6 +163,10 @@ var (
 	ErrTooLarge = errors.New("office: the converted file is larger than the runtime keeps")
 	// ErrTimeout is a conversion that took longer than Config.Timeout.
 	ErrTimeout = errors.New("office: the conversion took longer than the runtime allows")
+	// ErrRendition is Core's PDF of a file that Service.TakeRendition
+	// does not take: not fetched, not a PDF that reads, or of more pages
+	// than are kept where none are cut.
+	ErrRendition = errors.New("office: Core's PDF of the file is not taken")
 )
 
 // maxOutput bounds a converted file, and a PDF's range: past it, the

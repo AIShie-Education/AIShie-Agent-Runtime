@@ -683,3 +683,21 @@ func (c *Core) Backfill(fileID string) error {
 	r.backfill = true
 	return nil
 }
+
+// RenderFile makes the file fileID's rendition done with pdf, of pages, as
+// the runtime completing a claim of it would, whatever it stood at: its
+// readers are shown it, and its URL serves the PDF.
+func (c *Core) RenderFile(fileID string, pdf []byte, pages int) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	r := c.renditionOf(fileID)
+	if r == nil {
+		return errors.New("fakecore: RenderFile: no rendition")
+	}
+	if r.token != "" {
+		delete(c.rendPDFs, r.token)
+	}
+	r.status, r.reason, r.claim, r.pdf, r.pages, r.token = renditionDone, "", nil, bytes.Clone(pdf), pages, fileToken()
+	c.rendPDFs[r.token] = r
+	return nil
+}
