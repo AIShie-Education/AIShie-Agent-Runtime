@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -287,14 +288,18 @@ func TestDraftTextStartsAgainAfterABrokenStream(t *testing.T) {
 // as the model has written it, and no other draft is sent meanwhile, one
 // at a time. The model writes the rest of its answer once that draft is
 // held, so that the answer is always written behind it; and the test waits
-// on the answer, not on a time a busy machine may pass. The only time left
-// in it is the draft's own timeout (5 s), within which the answer is
-// posted, after which the worker would be free to send another.
+// on the answer, not on a time a busy machine may pass. That the answer
+// did not wait for the draft is read off the draft: let go once the answer
+// is in, it is answered, and counted, rather than having run out its own
+// time (5 s), which a worker that held the answer behind it would have
+// waited for, and then not counted (a write that fails on the way is
+// counted when it has been sent once more, or given up).
 func TestDraftWritesNeverHoldTheAnswer(t *testing.T) {
 	w := newDraftWorld(t)
 	own := w.ownAgent("yuki-helper", 0)
 	held, release := make(chan struct{}), make(chan struct{})
-	defer close(release) // before the fake Core's server closes, which waits for it
+	let := sync.OnceFunc(func() { close(release) })
+	defer let() // before the fake Core's server closes, which waits for it
 	var drafts atomic.Int32
 	w.fc.Inject(func(c fakecore.InjectedCall) *fakecore.Injection {
 		if c.Tool == core.ToolDraft && drafts.Add(1) == 1 {
@@ -313,12 +318,19 @@ func TestDraftWritesNeverHoldTheAnswer(t *testing.T) {
 		scripted.TextOf(ctx)(" Friday.")
 		return scripted.Reply("On Friday.")(ctx, req)
 	})
-	w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": model}, draftsEvery(10*time.Millisecond))
+	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": model}, draftsEvery(10*time.Millisecond))
 	w.answersInSite(own)
 	conv, _ := w.ask(0, own, "When is HW3 due?")
 	w.waitAnswers(conv, 1)
+	let()
+	eventually(t, "the drafter ended", func() bool { return drafting(wk, "yuki-helper") == 0 })
 	if n := drafts.Load(); n != 1 {
 		t.Errorf("%d drafts sent while the first was held", n)
+	}
+	answered := counter(t, wk.reg, "draft_writes_total", map[string]string{"outcome": draftSent}) +
+		counter(t, wk.reg, "draft_writes_total", map[string]string{"outcome": draftDropped})
+	if answered != 1 {
+		t.Errorf("%v of the held draft's writes answered by Core; want it answered once let go, not timed out behind the answer", answered)
 	}
 }
 

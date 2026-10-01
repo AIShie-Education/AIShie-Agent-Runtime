@@ -21,8 +21,9 @@ import (
 )
 
 // draftCore is a Caller that takes conversation_draft calls as Core would,
-// or as answer says, keeps each, and counts those in flight at once; and
-// answers conversation_messages as read says, counting them.
+// or as answer says, keeps each, when it began (by stamp, when set), and
+// counts those in flight at once; and answers conversation_messages as
+// read says, counting them.
 type draftCore struct {
 	mu       sync.Mutex
 	writes   []core.DraftArgs
@@ -34,6 +35,9 @@ type draftCore struct {
 	inFlight atomic.Int32
 	most     atomic.Int32
 	starts   []time.Time
+	// stamp, called on the caller's goroutine, is when the write began as
+	// the caller reckons it; nil, the time it reaches draftCore.
+	stamp func() time.Time
 }
 
 func (d *draftCore) Call(ctx context.Context, tool string, raw json.RawMessage) (*core.Envelope, error) {
@@ -55,10 +59,14 @@ func (d *draftCore) Call(ctx context.Context, tool string, raw json.RawMessage) 
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return nil, err
 	}
+	began := time.Now()
 	d.mu.Lock()
+	if d.stamp != nil {
+		began = d.stamp()
+	}
 	d.writes = append(d.writes, args)
 	d.ctxs = append(d.ctxs, ctx)
-	d.starts = append(d.starts, time.Now())
+	d.starts = append(d.starts, began)
 	i := len(d.writes)
 	answer := d.answer
 	d.mu.Unlock()
@@ -119,10 +127,16 @@ func waitWrites(t *testing.T, c *draftCore, n int) []core.DraftArgs {
 
 // A draft's first write goes at once; the state then changing many times
 // is sent at most every DraftEvery, one write at a time, each the state as
-// it stands, whole, with its version rising, and the last the latest.
+// it stands, whole, with its version rising, and the last the latest. The
+// spacing is read off when the drafter began each write, by which it
+// reckons the next, not off when each reached Core, which a busy machine
+// delays by more for one than for the next.
 func TestDrafterCoalesces(t *testing.T) {
 	c := &draftCore{hold: 20 * time.Millisecond}
 	d, _, reg := testDrafter(t, c, 50*time.Millisecond)
+	c.mu.Lock()
+	c.stamp = func() time.Time { return d.last } // on d's goroutine, which alone touches it
+	c.mu.Unlock()
 	d.begin()
 	d.round()
 	waitWrites(t, c, 1)
@@ -162,7 +176,7 @@ func TestDrafterCoalesces(t *testing.T) {
 		t.Errorf("%d writes were in flight at once", c.most.Load())
 	}
 	for i := 1; i < len(c.starts); i++ {
-		if gap := c.starts[i].Sub(c.starts[i-1]); gap < 45*time.Millisecond {
+		if gap := c.starts[i].Sub(c.starts[i-1]); gap < 50*time.Millisecond {
 			t.Errorf("writes %d and %d went %s apart", i, i+1, gap)
 		}
 	}
