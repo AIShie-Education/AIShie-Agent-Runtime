@@ -1045,6 +1045,135 @@ catches it. `go test -fuzz` runs `FuzzPPTX`, `FuzzDOCX`, `FuzzXLSX`,
 `FuzzPDFContent` (a page's content stream) and `FuzzCMap`, seeded with the
 tests' files and the hostile ones of `hostile_test.go`.
 
+**Search** (`toolset.SearchTool`, `internal/search`; AIShie-Agent-Runtime
+#39). A model looking for something in a course listed its documents by
+title and read them whole, a part at a time: a deck of 38 slides is three
+parts, and a title need not say where a passage is. So the runtime offers
+a tool of its own, `course_materials_search {query, limit, page}`, which
+gives the passages of the course's documents that best match a few words:
+each hit the document (its id, title and kind), the version and the file
+(its id and name), the slide, page or sheet it is on (`where`), whose text
+it is (`text_source`), an excerpt of at most 200 characters around the
+words, and `read`, the `document_get` call that gives the passage itself,
+which the model makes as it is. A page holds 5 hits (`limit`, at most 10);
+`more` and `next` give the next page. The result says how many documents
+and files were searched, how many files have no text the search can read,
+and how many were not read yet; a search that finds nothing says what it
+could not search, so that the model does not take "not found" for "the
+course never says it".
+
+- *Offered* (`Set.WithSearch`) to every seat's model whose set offers
+  `document_list` and `document_get`, through which it reads (a seat that
+  reads the material or the rubrics), in every conversation, as a read:
+  not where `tools.deny` names it (or a `*` entry covers it, `course_*`),
+  nor in mode `none`; Core's catalogue offering a tool of its name fails
+  `Check`. The prompt (§6) says what it does, and to read a hit before
+  relying on it. The answer's draft shows it as listing documents.
+- *Only what the seat may read.* The index is the course's, shared by
+  every agent and seat in it, and holds nobody's permission. Every search
+  asks Core, with the asking seat's own token, what it may read, by the
+  very calls a model reads with: `document_list` (the first 100 documents
+  in the course's order, archived ones aside: what Core lists the seat,
+  its drafts only to a seat that reads drafts, instructions and rubrics
+  only as their assignments are released to it, no submission or feedback
+  file), and `document_get` of each, of no version, which gives the
+  version the seat reads (the published one, or the latest to a seat that
+  reads drafts) and its files, each with its text version's status and
+  revision. Those files, each at that revision, are all the store
+  searches: a passage of another version (a draft, a newer version than
+  the published one), of a document Core does not give the seat now
+  (withheld since it was listed: said so in the result), or of another
+  revision of a file's text is never a candidate, whoever read it into
+  the index. What one answer's seat may read is read at its first search
+  and used by its later ones (`toolset.SearchScope`): once an answer, a
+  list and a `document_get` a document, at most four at once, within the
+  agent's rate limit like any call.
+- *What it searches*: the text a model given the file as text reads, from
+  the same pipeline (`giveFile`): Core's text version where it is done
+  (staff's or an AI transcription), otherwise the runtime's own reading of
+  the file (a text file, a PDF's text, an Office Open XML file's), and the
+  version's own text (`body_md`). A search starts neither OCR nor
+  LibreOffice: a scanned file or an older Office file is searchable once
+  its text version is done, which Core's transcription gives every file of
+  a course's material; meanwhile the result counts it among the files
+  with no text to search. A text is cut into passages (`search.Chunks`):
+  one a slide, page or sheet, a longer one cut at a paragraph or a line
+  near 1,500 bytes.
+- *The index* (`store.SearchIndex`, migration 0014: `search_file` and
+  `search_passage`), per course and version, by the file's key in its
+  version (its id, or `body`) and the revision of its text: `text:<n>`, the
+  text version's, which every edit moves on; `file:<reading>:<checksum>`,
+  the runtime's reading of a file, which never changes; `body:<sum>`. It is
+  built lazily: a search reads the files of its scope that the index lacks
+  at the revision the seat was shown, at most four at once, within 20 s and
+  half the answer's time left, and keeps each as it is read, a file with no
+  text kept with no passages, so that it is not read at every search; a
+  file that could not be read now (not fetched, read too slowly, its text
+  version not given) is not kept, and one the time ran out for is left for
+  a later search, which the result says. A text edited since, or a text
+  version done since, is read again in its place. What the runtime read is
+  kept apart from what it gives models (`TextCache`), which with OCR and
+  LibreOffice may be other.
+- *Dropped* when a version or a document is purged: as the worker reads
+  Core's `document.purged` (and `_unreleased`), naming the version, or the
+  document, every version of it (a seat that reads drafts sees them); as a
+  search's `document_list` lists a document purged, or its `document_get`
+  gives a version's tombstone; and by housekeeping, a file no search has
+  needed for 30 days (`toolset.SearchRetention`), which bounds how long a
+  purge no worker heard of leaves its text, and an archived document's.
+- *Terms and ranking* (`internal/search`). PostgreSQL's full-text search
+  keeps a run of Chinese as one word, so 排序 is not found in
+  合併排序的複雜度, and pg_trgm's trigrams depend on the cluster's
+  character classes: under a C ctype it finds no word in Chinese at all.
+  The runtime makes the terms itself, the same in either store and under
+  any locale: a text folded (NFKC, lower case), its words of the
+  alphabetic scripts with their plural endings taken off, and of Han,
+  kana and Hangul every character and every pair side by side, the
+  bigrams of Lucene's CJK analyser. A query of several characters is
+  matched by its pairs, one of one character by the character; English
+  stopwords go where other words are left. A passage keeps its terms once
+  each in a `text[]` under a GIN index, which every PostgreSQL has (13 to
+  18; no extension, so nothing for the deploy's `postgres:18` to install,
+  and a test runs it under a C locale); the store gives the 400 passages
+  of the scope that hold the most of the query's terms, with how many
+  passages hold each term and how long they are, and the runtime scores
+  them by BM25, times how many of the terms each holds, half again where
+  it holds the query as written, and orders ties by the course's order.
+  Simplified and traditional characters are not taken for each other: a
+  query is matched in the script it is written in. Embeddings may come
+  later, in the same index.
+- *The pointer* (`read`) is the call that gives the passage as the
+  asking model reads the file: of a text version, or of a file given as
+  text, the part of its text the passage is in (`file_part`, as
+  `splitText` cuts it, which the index records with each passage); of a
+  PDF, a deck or a document given to a model that takes files as its
+  pages, the page or slide itself (`file_pages`); of the version's own
+  text, the version. A version of several files names the file
+  (`file_id`).
+- *Who wrote it does not weigh.* Staff's text, an AI transcription and the
+  runtime's reading of a file are ranked by how well they match alone: a
+  file has one text at a time (the text version where it is done, which a
+  staff edit replaces), so no passage is found twice by its sources, and
+  a transcription's mistakes are misreadings, not a passage less about
+  the question, while it is often a scanned file's only text. The hit says
+  whose the text is, and the note that an AI transcription may hold
+  mistakes; ties break by the course's order.
+- *Counted*: `search_requests_total{result}` (`hits`, `none`, `refused`,
+  `unavailable`) and `search_files_total{outcome}` (`text`, `empty`,
+  `failed`, `not_yet`); one log line a search, with its counts and time,
+  never its query.
+
+*Where the index belongs.* It could be Core's, as `document.search`,
+which MCP agents and the front end would have too, and which would check
+the reader's permissions in its own query instead of a `document_get` a
+document. It is the runtime's for now: much of what it searches is the
+runtime's own reading of files that have no text version yet, which Core
+does not have; and it changes no API and moves no pin. Once Core's text
+versions cover every file of a course's material, the index belongs in
+Core: the runtime's tool then calls it, gated as `document_get` is, and
+the runtime's tables are dropped by a migration. That is a Core issue of
+its own.
+
 Every write sent is recorded, in ids, counts and codes, never its
 arguments: in the answer's ledger row (the writes sent, and how many Core
 executed, proposed, denied and failed), in `tool_writes_total{tool,
@@ -1658,7 +1787,12 @@ prompt says:
 
 - the seat's facts: the course, whom it answers, what it can read, whether a
   person approves its answers;
-- the tools that read the course; when the model is offered writes (only in
+- the tools that read the course, and, where it is offered, that
+  `course_materials_search` finds where the course's documents say
+  something, that a hit is read with the call it names before it is relied
+  on, and that a search that finds nothing does not show the course never
+  says it (§4, Search);
+- when the model is offered writes (only in
   its owner's conversation, §4), the tools that change it, that it uses them
   only for what the owner asks in their own messages in this conversation
   and only as far as they ask, asking first when a request is unclear, what
@@ -1778,6 +1912,8 @@ The prompt's hash is kept per answer.
 | `registry_rev` | one row: the revision every write to `hosted_agent` or `hosted_course` moves on, by trigger, with `NOTIFY aishie_registry` |
 | `audit` | the API's audit (§11.4): when, who, with which of Core's sessions, from where, what, to what, the outcome, and a detail of ids, hints, providers, models and results; kept 400 days |
 | `ocr_text` | what OCR recognized of a file (§4, OCR), by the sha256 of its bytes: done or failed, pdf or image, the text (at most 4 MB), pages recognized and of how many, where each begins, notes, why it failed, the engine and how long it took; kept 180 days, a failure a day |
+| `search_file` | the search of a course's materials (§4, Search): (version, file key) → course, document, the revision of the text read, whose it is (`staff`, `ai`, `runtime`, `body`), the file's name and place, how many passages and terms, when it was read and last needed; dropped when its version is purged, or unneeded for 30 days (0014) |
+| `search_passage` | (version, file key, place) → the slide, page or sheet it is on, where it begins in the text and the part of it `document_get` gives it in, its text, its terms (`text[]`, under a GIN index) and how many; goes with its file |
 | `site_setting` | what the runtime's administrators set (§11.5), by name (`ocr`, `school_quotas`, `agent_budgets`, `transcription`): a JSON object, who wrote it, when; every write moves `registry_rev` on |
 | `school_offer` | the offers of the school's plan the administrators made (§11.5): id, label, adapter, provider, model, base_url, region, output bound, effort, on or off, the school's key (a secret of the tenant `school`, with its hint, and whether it was tried with the model), version, who made and changed it, when; every write moves `registry_rev` on |
 | `site_price` | the site's rows of the price table (§11.5): id, provider, model (exact or a glob), from (a day), the four prices in pUSD a token, version, who made and changed it, when; one row per (provider, model, from); every write moves `registry_rev` on |
@@ -1909,6 +2045,38 @@ Chinese with a table, overran, and was cut off.
   uploads an essay and a deck with a question as the front end does, and
   sees each model given what it takes, LibreOffice's PDF of the deck to the
   one that takes files, and the answers posted.
+- Search (§4, Search): `internal/search`'s terms of English, Traditional
+  Chinese and katakana, the queries' terms, the passages cut on slides and
+  pages and never inside a character, BM25 with a rare term above a common
+  one and the phrase as written above its words apart, and the excerpts.
+  `storetest` holds both stores to the index's contract (files at their
+  revisions and in their course alone, passages replaced, the candidates'
+  order, dropped by version, by document and unused), and `pgstore` runs a
+  Traditional Chinese and an English search in a database whose ctype is
+  C. Against a Core of the test's own: a student's search finds a deck's
+  slide by a Chinese question, a PDF's page, a text version's page and
+  the syllabus's own text by English ones, each hit naming where it is,
+  whose its text is and the call that reads it; once staff have searched,
+  so that the shared index holds a draft, a draft version newer than the
+  published one and instructions withheld from students, a student's
+  searches find none of them and say what they could not read; each file
+  is read once, a text version in place of its scan, one answer's
+  searches ask Core once and a later answer's again without reading a
+  file, and a text edited is read again and found as edited alone; a scan
+  without a text version is said to have no text, and kept so, and files
+  the time ran out for are said not to be read yet; a version Core gives
+  as purged, and a document it lists as purged, leave the index; hits a
+  page at a time to the last, a long text version's hit naming the part
+  that `document_get`, called as it is, gives it in, and a PDF's, to a
+  model that takes files, its page; arguments refused before anything is
+  read; and the tool offered with `document_list` and `document_get`
+  alone, never where denied. Against the fake Core, Yuki's agent and
+  Sato's, which reads drafts, sharing the worker's index, find the
+  published slide, and Sato's alone the draft, counted and logged without
+  the query; the draft purged, it leaves the index as Sato's seat reads
+  the news. The end to end (`search-of-the-materials`) does the same
+  against the pinned Core, the first hit read with the call it names, and
+  an administrator's purge of the draft's version.
 - A version's files (§4, A version's files; AIShie-Core #49): a version of
   a PDF, a Word file and notes given file by file, in order, under their
   names, to a model that takes files and to one that takes none, no URL in

@@ -1023,6 +1023,16 @@ machine's loopback, should `HTTP_ADDR` listen wider).
   `failed` (after one retry, or refused);
   a steady `failed` is Core refusing them, which `/status` also shows per
   agent (`drafts`, `draft_writes`). They never hold an answer back.
+  `search_requests_total{result}` counts the models' searches of a course's
+  materials (`hits`, `none`, `refused`, `unavailable`), and
+  `search_files_total{outcome}` the files read into the search's index as
+  searches needed them (`text`, `empty`: no text to search, such as a scan
+  whose text version is not done, `failed`, `not_yet`: the search's 20 s
+  ran out first, left to the next search). The index is in the runtime's
+  database (migration 0014, tables `search_file` and `search_passage`):
+  the text of the course's files the models read, kept per version,
+  dropped when Core purges the version and after 30 days unused; it needs
+  no extension, so the stack's `postgres:18` serves it as it is.
   `budget_exhausted_total{budget}` counts the budgets answers ran into, and
   `truncated` the answers posted cut short, with `on_truncated_text` after
   them: many of those call for a higher `budgets.per_answer.output_tokens`

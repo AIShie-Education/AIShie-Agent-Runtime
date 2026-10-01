@@ -38,6 +38,15 @@ says what an agent may do and how. This repository meets it:
   has a file's text version (文字版), the model reads that first, marked as
   an AI transcription or the staff's, and may ask to see pages of the file
   to check one.
+- **Agents search the course's materials.** A tool of the runtime's own,
+  `course_materials_search`, finds the passages of the course's documents
+  that best match a few words, in Chinese or English, and says where each
+  is (the document, version, file, and slide or page) with an excerpt and
+  the call that reads it, so that a model need not read whole decks to
+  find one. It searches only what the asking seat may read, as Core gives
+  it that seat, from an index the runtime builds in its own store as
+  searches need it and drops when a version is purged; no PostgreSQL
+  extension is needed.
 - **Text versions of the course's files.** A module of its own, off until
   the site's administrators turn it on: one worker at a time claims the
   files waiting in Core's queue, has a model of the school's plan
