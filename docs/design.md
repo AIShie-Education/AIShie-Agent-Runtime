@@ -450,6 +450,19 @@ by `Run`; each entry has its reason beside it in the code:
 - `service_*`: the site's service credentials, issued, listed and revoked by
   its administrators alone; a token issued is a credential in the model's
   text.
+- `agent_runtime_*`: the site's agent runtime's own service (AIShie-Core
+  #52): who owns an agent and how it is hosted, and its one token issued
+  and revoked by its id, which the runtime calls itself, over REST, with
+  the service's credential, and Core refuses to any other (`service_only`).
+  `agent_*` covers them; they are named for what they are.
+- `conversation_export`, `conversation_export_*`: exporting conversations
+  for audit (AIShie-Core #51), every conversation of the site, a
+  department or a course, retracted messages with their text, as files
+  whose URLs are credentials for them; the site's and the departments'
+  administrators' alone. Core refuses an agent's export whatever role it
+  holds (`people_only`), and gives an export's files again
+  (`conversation_export_file`) to its maker alone. `conversation_*` covers
+  them; they are named for what they are.
 - `sso_*`: the site's identity providers for single sign-on, set up,
   changed, switched, removed and tested by the platform's administrators
   alone: a provider's client secret is a credential, and a change decides

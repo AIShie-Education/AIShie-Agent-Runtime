@@ -77,6 +77,11 @@ type liveCore struct {
 	yuki  person
 	ken   person
 	n     int
+	// svc is the site's agent runtime's credential (the agent_runtime
+	// service's), which the administrator issues once: the runtime agents'
+	// tokens are issued through it, by the agents' ids, as the site's
+	// runtime is issued them.
+	svc string
 }
 
 type person struct{ id, token string }
@@ -86,7 +91,27 @@ func newLiveCore(t *testing.T, base, root string) *liveCore {
 	lc.admin = lc.person(root, "Admin", map[string]any{"platform_role": "admin"}).token
 	lc.dept = str(lc.result(lc.admin, "POST", "/v1/departments", map[string]any{"name": "Computing " + uuid.NewString()[:8]}), "id")
 	lc.mori, lc.yuki, lc.ken = lc.register("Mori"), lc.register("Yuki"), lc.register("Ken")
+	// replace: a Core recorded from again keeps no more than this one.
+	lc.svc = str(lc.result(lc.admin, "POST", "/v1/services/agent_runtime/credentials", map[string]any{"label": "record", "replace": true}), "token")
 	return lc
+}
+
+// runtimeAgent is owner making an agent of their own hosted by the site's
+// runtime (agent.create, hosting runtime), and the runtime being issued its
+// token through the service: its id, token and credential's id.
+func (lc *liveCore) runtimeAgent(ownerToken, name string) (id, token, credentialID string) {
+	lc.t.Helper()
+	id = str(lc.result(ownerToken, "POST", "/v1/me/agents", map[string]any{"display_name": name, "hosting": "runtime"}), "actor_id")
+	token, credentialID = lc.issueRuntimeToken(id)
+	return id, token, credentialID
+}
+
+// issueRuntimeToken is the site's runtime issued the agent's token through
+// the service, which revokes the one before.
+func (lc *liveCore) issueRuntimeToken(agentID string) (token, credentialID string) {
+	lc.t.Helper()
+	tok := lc.result(lc.svc, "POST", "/v1/services/agent_runtime/agents/"+agentID+"/token", map[string]any{})
+	return str(tok, "token"), str(tok, "credential_id")
 }
 
 func str(m map[string]any, key string) string {
@@ -213,7 +238,6 @@ type liveWorld struct {
 	sato     person
 	satoM    string
 	tutor    person
-	tokenID  string
 	tutorM   string
 	seats    []string
 	people   []person
@@ -246,24 +270,13 @@ func (lc *liveCore) newWorld(t *testing.T) *liveWorld {
 	for _, p := range w.people {
 		w.seats = append(w.seats, str(lc.result(w.sato.token, "POST", c+"/members", map[string]any{"actor_id": p.id, "preset": "student"}), "member_id"))
 	}
-	w.tutor.id = str(lc.result(w.sato.token, "POST", "/v1/me/agents", map[string]any{"display_name": "CS101 Tutor"}), "actor_id")
-	tok := lc.result(w.sato.token, "POST", "/v1/me/agents/"+w.tutor.id+"/tokens", map[string]any{"label": "runtime"})
-	w.tutor.token, w.tokenID = str(tok, "token"), str(tok, "credential_id")
+	w.tutor.id, w.tutor.token, _ = lc.runtimeAgent(w.sato.token, "CS101 Tutor")
 	w.tutorM = str(lc.result(w.sato.token, "POST", c+"/delegates", map[string]any{"actor_id": w.tutor.id, "preset": "course_tutor"}), "member_id")
-	lc.declareSiteChat(w.tutor.token)
 	w.agentC = newMCPClient(lc.base, w.tutor.token, lc.hc)
 	if a, err := w.agentC.initialize(context.Background()); err != nil || a.Status != http.StatusOK {
 		t.Fatalf("initialize: %v %d %s", err, a.Status, a.Body)
 	}
 	return w
-}
-
-// declareSiteChat declares, with an agent's token, that it takes
-// conversations in the site, as the runtime running it does: without it,
-// Core refuses anyone a conversation with the agent (agent_answers_elsewhere).
-func (lc *liveCore) declareSiteChat(token string) {
-	lc.t.Helper()
-	lc.result(token, "POST", "/v1/me/site-chat", map[string]any{"on": true})
 }
 
 func (w *liveWorld) course() string           { return w.courseID }
@@ -274,6 +287,9 @@ func (w *liveWorld) base() string             { return w.lc.base }
 func (w *liveWorld) tutorToken() string       { return w.tutor.token }
 func (w *liveWorld) rest() *restClient {
 	return &restClient{base: w.lc.base, token: w.tutor.token, hc: w.lc.hc}
+}
+func (w *liveWorld) runtimeService() *restClient {
+	return &restClient{base: w.lc.base, token: w.lc.svc, hc: w.lc.hc}
 }
 
 func (w *liveWorld) path(rest string) string { return "/v1/courses/" + w.courseID + rest }
@@ -346,8 +362,7 @@ func (w *liveWorld) ownAgent() *mcpClient {
 		return w.own
 	}
 	yuki := w.people[0]
-	id := str(w.lc.result(yuki.token, "POST", "/v1/me/agents", map[string]any{"display_name": "Yuki's helper"}), "actor_id")
-	token := str(w.lc.result(yuki.token, "POST", "/v1/me/agents/"+id+"/tokens", map[string]any{"label": "runtime"}), "token")
+	id, token, _ := w.lc.runtimeAgent(yuki.token, "Yuki's helper")
 	a := w.lc.raw(yuki.token, "POST", w.path("/delegates"), map[string]any{"actor_id": id, "preset": "delegate"})
 	var prop struct {
 		Status   string `json:"status"`
@@ -361,7 +376,6 @@ func (w *liveWorld) ownAgent() *mcpClient {
 	if w.ownM = str(inner, "member_id"); w.ownM == "" {
 		w.t.Fatalf("the delegate approved, but: %v", res)
 	}
-	w.lc.declareSiteChat(token)
 	w.own = newMCPClient(w.lc.base, token, w.lc.hc)
 	if h, err := w.own.initialize(context.Background()); err != nil || h.Status != http.StatusOK {
 		w.t.Fatalf("initialize: %v %d %s", err, h.Status, h.Body)
@@ -397,11 +411,9 @@ func (w *liveWorld) as(who string) *mcpClient {
 // as an instructor seats a tutor for some students.
 func (w *liveWorld) listedTutor(student int) (string, *mcpClient) {
 	w.t.Helper()
-	id := str(w.lc.result(w.sato.token, "POST", "/v1/me/agents", map[string]any{"display_name": "Lab Tutor"}), "actor_id")
-	token := str(w.lc.result(w.sato.token, "POST", "/v1/me/agents/"+id+"/tokens", map[string]any{"label": "runtime"}), "token")
+	id, token, _ := w.lc.runtimeAgent(w.sato.token, "Lab Tutor")
 	seat := str(w.lc.result(w.sato.token, "POST", w.path("/delegates"), map[string]any{"actor_id": id, "preset": "tutor",
 		"student_scope": "listed", "listed_students": []string{w.seats[student]}, "answers_course": true}), "member_id")
-	w.lc.declareSiteChat(token)
 	c := newMCPClient(w.lc.base, token, w.lc.hc)
 	if h, err := c.initialize(context.Background()); err != nil || h.Status != http.StatusOK {
 		w.t.Fatalf("initialize: %v %d %s", err, h.Status, h.Body)
@@ -413,11 +425,9 @@ func (w *liveWorld) listedTutor(student int) (string, *mcpClient) {
 // instructor seats an assistant of their own.
 func (w *liveWorld) ownerAgent(perms map[string]string) (string, *mcpClient) {
 	w.t.Helper()
-	id := str(w.lc.result(w.sato.token, "POST", "/v1/me/agents", map[string]any{"display_name": "Sato's assistant"}), "actor_id")
-	token := str(w.lc.result(w.sato.token, "POST", "/v1/me/agents/"+id+"/tokens", map[string]any{"label": "runtime"}), "token")
+	id, token, _ := w.lc.runtimeAgent(w.sato.token, "Sato's assistant")
 	seat := str(w.lc.result(w.sato.token, "POST", w.path("/delegates"), map[string]any{"actor_id": id, "preset": "delegate",
 		"perms": perms}), "member_id")
-	w.lc.declareSiteChat(token)
 	c := newMCPClient(w.lc.base, token, w.lc.hc)
 	if h, err := c.initialize(context.Background()); err != nil || h.Status != http.StatusOK {
 		w.t.Fatalf("initialize: %v %d %s", err, h.Status, h.Body)
@@ -425,14 +435,15 @@ func (w *liveWorld) ownerAgent(perms map[string]string) (string, *mcpClient) {
 	return seat, c
 }
 
-// registrar is an agent nobody owns: the administrator registers it and
-// issues its token, and Sato seats it with member.add.
+// registrar is an agent nobody owns: the administrator registers it, hosted
+// by the site's runtime, which is issued its token, and Sato seats it with
+// member.add.
 func (w *liveWorld) registrar(perms map[string]string) (string, *mcpClient) {
 	w.t.Helper()
-	id := str(w.lc.result(w.lc.admin, "POST", "/v1/actors", map[string]any{"kind": "agent", "display_name": "CS101 Registrar"}), "actor_id")
-	token := str(w.lc.result(w.lc.admin, "POST", "/v1/actors/"+id+"/tokens", map[string]any{"label": "runtime"}), "token")
+	id := str(w.lc.result(w.lc.admin, "POST", "/v1/actors", map[string]any{"kind": "agent", "display_name": "CS101 Registrar",
+		"hosting": "runtime"}), "actor_id")
+	token, _ := w.lc.issueRuntimeToken(id)
 	seat := str(w.lc.result(w.sato.token, "POST", w.path("/members"), map[string]any{"actor_id": id, "preset": "ta", "perms": perms}), "member_id")
-	w.lc.declareSiteChat(token)
 	c := newMCPClient(w.lc.base, token, w.lc.hc)
 	if h, err := c.initialize(context.Background()); err != nil || h.Status != http.StatusOK {
 		w.t.Fatalf("initialize: %v %d %s", err, h.Status, h.Body)
@@ -447,11 +458,27 @@ func (w *liveWorld) newcomer(name string) string {
 	return str(w.lc.result(w.lc.admin, "POST", "/v1/actors", map[string]any{"kind": "human", "display_name": name}), "actor_id")
 }
 
+// mcpAgent is an agent of Sato's hosted mcp: his own tools reach it over
+// MCP with a token he issues, and he seats it as the course's tutor.
+func (w *liveWorld) mcpAgent() (string, string, *mcpClient) {
+	w.t.Helper()
+	id := str(w.lc.result(w.sato.token, "POST", "/v1/me/agents", map[string]any{"display_name": "Sato's tools", "hosting": "mcp"}), "actor_id")
+	token := str(w.lc.result(w.sato.token, "POST", "/v1/me/agents/"+id+"/tokens", map[string]any{"label": "my editor"}), "token")
+	seat := str(w.lc.result(w.sato.token, "POST", w.path("/delegates"), map[string]any{"actor_id": id, "preset": "course_tutor"}), "member_id")
+	c := newMCPClient(w.lc.base, token, w.lc.hc)
+	if h, err := c.initialize(context.Background()); err != nil || h.Status != http.StatusOK {
+		w.t.Fatalf("initialize: %v %d %s", err, h.Status, h.Body)
+	}
+	return id, seat, c
+}
+
 func (w *liveWorld) actorOf(who string) string {
 	w.t.Helper()
 	switch who {
 	case "yuki":
 		return w.lc.yuki.id
+	case "sato":
+		return w.sato.id
 	case "tutor":
 		return w.tutor.id
 	}
@@ -517,12 +544,6 @@ func (w *liveWorld) expire(actionID string) bool {
 	return false
 }
 
-func (w *liveWorld) issueTutorToken(label string) (string, string) {
-	w.t.Helper()
-	tok := w.lc.result(w.sato.token, "POST", "/v1/me/agents/"+w.tutor.id+"/tokens", map[string]any{"label": label})
-	return str(tok, "token"), str(tok, "credential_id")
-}
-
 func (w *liveWorld) suspendTutor() {
 	w.t.Helper()
 	w.lc.result(w.sato.token, "POST", "/v1/me/agents/"+w.tutor.id+"/suspend", map[string]any{})
@@ -533,9 +554,11 @@ func (w *liveWorld) reactivateTutor() {
 	w.lc.result(w.sato.token, "POST", "/v1/me/agents/"+w.tutor.id+"/reactivate", map[string]any{})
 }
 
+// revokeTutorToken is the site's runtime ending the tutor's hosting: its
+// token revoked through the service.
 func (w *liveWorld) revokeTutorToken() {
 	w.t.Helper()
-	w.lc.result(w.sato.token, "POST", "/v1/me/agents/"+w.tutor.id+"/credentials/"+w.tokenID+"/revoke", map[string]any{})
+	w.lc.result(w.lc.svc, "POST", "/v1/services/agent_runtime/agents/"+w.tutor.id+"/token/revoke", map[string]any{})
 }
 
 // assignment is HW1, published: Sato makes a component for it and it, as

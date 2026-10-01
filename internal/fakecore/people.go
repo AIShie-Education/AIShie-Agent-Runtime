@@ -24,7 +24,7 @@ type openIn struct {
 
 // checkOpen is conversation_open's rule: a title and a body that fit, a
 // respondent that is an agent (errWithAgents) the caller may address, and
-// then that it takes conversations in the site.
+// then that people in the site may ask it (notAskable).
 func (c *Core) checkOpen(m, respondent *member, in openIn) error {
 	if _, err := optionalText("title", in.Title, 200); err != nil {
 		return err
@@ -42,7 +42,7 @@ func (c *Core) checkOpen(m, respondent *member, in openIn) error {
 	if why := refusal(m, respondent, c.now()); why != "" {
 		return notAddressable("you may not address that member", why)
 	}
-	return c.answersElsewhere(respondent)
+	return c.notAskable(respondent)
 }
 
 func conversationOpen() *impl {
@@ -104,7 +104,7 @@ var errNotOpener = forbid("only whoever opened a conversation asks in it; the me
 
 // checkAsk is conversation_ask's rule: the caller opened it, it is open, the
 // body fits, its respondent is an agent (errWithAgents) the caller may still
-// address, and it still takes conversations in the site.
+// address, and people in the site may still ask it (notAskable).
 func (c *Core) checkAsk(m *member, cv *conversation, body string) error {
 	if cv.opener != m {
 		return errNotOpener
@@ -121,7 +121,7 @@ func (c *Core) checkAsk(m *member, cv *conversation, body string) error {
 	if why := refusal(m, cv.respondent, c.now()); why != "" {
 		return notAddressable("the respondent is no longer available to you; start a new conversation with someone who is", why)
 	}
-	return c.answersElsewhere(cv.respondent)
+	return c.notAskable(cv.respondent)
 }
 
 func conversationAsk() *impl {

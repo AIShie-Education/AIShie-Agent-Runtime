@@ -34,7 +34,8 @@ type world interface {
 	rest() *restClient
 	// base is the server's URL, for requests made by hand.
 	base() string
-	// tutorToken is the tutor's live token.
+	// tutorToken is the tutor's live token: the one the site's runtime was
+	// issued for it.
 	tutorToken() string
 
 	// The people.
@@ -53,6 +54,8 @@ type world interface {
 	// expire waits for, or makes, the proposal's expiry; false when this
 	// world cannot.
 	expire(actionID string) bool
+	// revokeTutorToken is the site's runtime revoking the tutor's token
+	// (agent_runtime.revoke_token).
 	revokeTutorToken()
 
 	// Yuki's own agent, seated as her delegate (preset delegate): its MCP
@@ -72,13 +75,18 @@ type world interface {
 	listedTutor(student int) (seat string, c *mcpClient)
 	// pausePrincipal pauses Sato's seat, which the tutor is the delegate of.
 	pausePrincipal()
-	// issueTutorToken is Sato issuing the tutor another token labelled
-	// label: the token and its credential's id.
-	issueTutorToken(label string) (token, credentialID string)
 	// suspendTutor and reactivateTutor are Sato suspending the tutor, and
 	// lifting it (agent.suspend, agent.reactivate).
 	suspendTutor()
 	reactivateTutor()
+	// runtimeService is the site's agent runtime over REST, with the agent_runtime
+	// service's credential: the tutor, and every agent of the world but
+	// mcpAgent's, is a runtime agent whose token it was issued.
+	runtimeService() *restClient
+	// mcpAgent is an agent of Sato's hosted mcp, with a token he issued
+	// it, seated as the course's tutor: its actor id, its seat and its
+	// client.
+	mcpAgent() (agentID, seat string, c *mcpClient)
 	// ownerAgent seats an agent of Sato's as his delegate (preset
 	// delegate), with perms over the preset's, as an instructor seats an
 	// assistant of their own: its seat and its client.
@@ -91,7 +99,7 @@ type world interface {
 	registrar(perms map[string]string) (seat string, c *mcpClient)
 	// newcomer registers a person, seated nowhere: their actor id.
 	newcomer(name string) string
-	// actorOf is the actor id of "yuki" or of "tutor".
+	// actorOf is the actor id of "yuki", "sato" or "tutor".
 	actorOf(who string) string
 	// assignment is a published assignment (HW1), material a published
 	// material of text (the syllabus), and submit a student handing in
@@ -621,42 +629,96 @@ var scenarios = []scenario{
 		}
 		s.http("revoked_token", a)
 	}},
-	{name: "credentials", about: "credential_list and credential_revoke with an agent's own token (D7): its tokens newest first, a revocation, its replay, one not live, a revoked token's 401, a suspended agent denied, and a token revoking itself", run: func(t *testing.T, w world, s *steps) {
-		ctx := context.Background()
-		first := call(t, w, s, "list", "credential_list", map[string]any{})
-		own := ""
-		if creds, ok := resultOf(first, "credentials").([]any); ok && len(creds) == 1 {
-			own, _ = creds[0].(map[string]any)["id"].(string)
-		}
-		if own == "" {
-			t.Fatalf("the tutor's one credential is not listed: %s", first.Body)
-		}
-		second, id := w.issueTutorToken("second runtime")
-		call(t, w, s, "list_two", "credential_list", map[string]any{})
-		revoke := map[string]any{"credential_id": id, "idempotency_key": "aishie-revoke:" + id}
-		wantStatus(t, call(t, w, s, "revoke", "credential_revoke", revoke), "executed")
-		call(t, w, s, "replay", "credential_revoke", revoke)
-		call(t, w, s, "revoke_again", "credential_revoke", map[string]any{"credential_id": id, "idempotency_key": "aishie-revoke:" + id + ":again"})
-		call(t, w, s, "revoke_unknown", "credential_revoke", map[string]any{"credential_id": uuid.NewString(), "idempotency_key": "aishie-revoke:unknown"})
-		ping := map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "me_get", "arguments": map[string]any{}}}
-		a, err := newMCPClient(w.base(), second, nil).post(ctx, ping)
-		if err != nil {
-			t.Fatal(err)
-		}
-		s.http("revoked_token", a)
-		call(t, w, s, "list_after", "credential_list", map[string]any{})
-		w.suspendTutor()
-		call(t, w, s, "me_suspended", "me_get", map[string]any{})
-		call(t, w, s, "list_suspended", "credential_list", map[string]any{})
-		call(t, w, s, "revoke_suspended", "credential_revoke", map[string]any{"credential_id": own, "idempotency_key": "aishie-revoke:" + own + ":suspended"})
-		w.reactivateTutor()
-		wantStatus(t, call(t, w, s, "revoke_self", "credential_revoke", map[string]any{"credential_id": own, "idempotency_key": "aishie-revoke:" + own}), "executed")
-		a, err = w.agent().post(ctx, ping)
-		if err != nil {
-			t.Fatal(err)
-		}
-		s.http("after_revoking_itself", a)
-	}},
+	{name: "hosting", about: "the site's agent runtime (agent_runtime, a site service): check_owner and agent of a runtime agent, an mcp agent, a suspended one and ids that are no agent's; issue_token replacing the runtime's token, a replay without it, refused for an mcp agent, a suspended one and nobody; revoke_token, and again with none; a question to a runtime agent not hosted and to an mcp agent; me_site_chat, deprecated; the service's credential anywhere else, and an agent's at the service's routes",
+		run: func(t *testing.T, w world, s *steps) {
+			ctx := context.Background()
+			svc := w.runtimeService()
+			const base = "/v1/services/agent_runtime"
+			do := func(name string, r *restClient, method, path string, body any, key string) httpAnswer {
+				t.Helper()
+				a, err := r.do(ctx, method, path, body, key)
+				if err != nil {
+					t.Fatal(err)
+				}
+				s.rest(name, method, path, body, a)
+				return a
+			}
+			tutor, sato, yuki := w.actorOf("tutor"), w.actorOf("sato"), w.actorOf("yuki")
+			const nobody = "0192f3c1-0000-7000-8000-00000000abcd"
+			ping := map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "me_get", "arguments": map[string]any{}}}
+			do("check_owner", svc, "GET", base+"/owners/"+sato+"/agents/"+tutor, nil, "")
+			do("check_owner_not_theirs", svc, "GET", base+"/owners/"+yuki+"/agents/"+tutor, nil, "")
+			do("check_owner_no_agent", svc, "GET", base+"/owners/"+sato+"/agents/"+nobody, nil, "")
+			do("check_owner_a_person", svc, "GET", base+"/owners/"+sato+"/agents/"+yuki, nil, "")
+			do("agent", svc, "GET", base+"/agents/"+tutor, nil, "")
+			do("agent_no_agent", svc, "GET", base+"/agents/"+nobody, nil, "")
+			do("agent_a_person", svc, "GET", base+"/agents/"+yuki, nil, "")
+			call(t, w, s, "me_runtime", "me_get", map[string]any{})
+			call(t, w, s, "site_chat_on", "me_site_chat", map[string]any{"on": true, "idempotency_key": "site-chat:on"})
+			call(t, w, s, "site_chat_off", "me_site_chat", map[string]any{"on": false, "idempotency_key": "site-chat:off"})
+			do("agent_as_an_agent", w.rest(), "GET", base+"/agents/"+tutor, nil, "")
+			do("me_as_the_service", svc, "GET", "/v1/me", nil, "")
+			a, err := newMCPClient(w.base(), svc.token, nil).post(ctx, ping)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.http("service_over_mcp", a)
+
+			mcpID, mcpSeat, mcp := w.mcpAgent()
+			do("agent_mcp", svc, "GET", base+"/agents/"+mcpID, nil, "")
+			do("check_owner_mcp", svc, "GET", base+"/owners/"+sato+"/agents/"+mcpID, nil, "")
+			do("issue_mcp", svc, "POST", base+"/agents/"+mcpID+"/token", map[string]any{}, "issue:mcp")
+			do("revoke_mcp", svc, "POST", base+"/agents/"+mcpID+"/token/revoke", map[string]any{}, "revoke:mcp")
+			callAs(t, mcp, s, "me_mcp", "me_get", map[string]any{})
+			callAs(t, mcp, s, "site_chat_mcp", "me_site_chat", map[string]any{"on": true, "idempotency_key": "site-chat:mcp"})
+			callAs(t, w.as("ken"), s, "open_mcp", "conversation_open", inCourseArgs(w, "respondent_member_id", mcpSeat,
+				"body", "Can you help me?", "idempotency_key", "open:ken:mcp"))
+
+			issue := map[string]any{"label": "agent runtime"}
+			issued := do("issue", svc, "POST", base+"/agents/"+tutor+"/token", issue, "issue:1")
+			do("issue_replay", svc, "POST", base+"/agents/"+tutor+"/token", issue, "issue:1")
+			do("issue_bad_label", svc, "POST", base+"/agents/"+tutor+"/token", map[string]any{"label": " "}, "issue:bad")
+			do("issue_no_agent", svc, "POST", base+"/agents/"+nobody+"/token", map[string]any{}, "issue:nobody")
+			a, err = w.agent().post(ctx, ping)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.http("replaced_token", a)
+			var res struct {
+				Result struct {
+					Token string `json:"token"`
+				} `json:"result"`
+			}
+			if err := json.Unmarshal(issued.Body, &res); err != nil || res.Result.Token == "" {
+				t.Fatalf("issue_token gave no token: %d %s", issued.Status, issued.Body)
+			}
+			fresh := newMCPClient(w.base(), res.Result.Token, nil)
+			if h, err := fresh.initialize(ctx); err != nil || h.Status != http.StatusOK {
+				t.Fatalf("initialize: %v %d %s", err, h.Status, h.Body)
+			}
+			callAs(t, fresh, s, "me_issued", "me_get", map[string]any{})
+			do("agent_issued", svc, "GET", base+"/agents/"+tutor, nil, "")
+
+			do("revoke", svc, "POST", base+"/agents/"+tutor+"/token/revoke", map[string]any{}, "revoke:1")
+			do("revoke_replay", svc, "POST", base+"/agents/"+tutor+"/token/revoke", map[string]any{}, "revoke:1")
+			do("revoke_none", svc, "POST", base+"/agents/"+tutor+"/token/revoke", map[string]any{}, "revoke:2")
+			do("revoke_no_agent", svc, "POST", base+"/agents/"+nobody+"/token/revoke", map[string]any{}, "revoke:nobody")
+			a, err = fresh.post(ctx, ping)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.http("revoked_token", a)
+			do("agent_not_hosted", svc, "GET", base+"/agents/"+tutor, nil, "")
+			callAs(t, w.as("yuki"), s, "open_not_hosted", "conversation_open", inCourseArgs(w, "respondent_member_id", w.tutorSeat(),
+				"body", "Are you there?", "idempotency_key", "open:yuki:not-hosted"))
+
+			w.suspendTutor()
+			do("agent_suspended", svc, "GET", base+"/agents/"+tutor, nil, "")
+			do("issue_suspended", svc, "POST", base+"/agents/"+tutor+"/token", map[string]any{}, "issue:suspended")
+			w.reactivateTutor()
+			do("issue_reactivated", svc, "POST", base+"/agents/"+tutor+"/token", map[string]any{}, "issue:2")
+			do("check_owner_hosted", svc, "GET", base+"/owners/"+sato+"/agents/"+tutor, nil, "")
+		}},
 	{name: "rate_limited", about: "429 with Retry-After and details.retry_after_seconds, at Core's default limit (600 a minute, bursts of 100); REST shares the allowance", rateLimited: true,
 		run: func(t *testing.T, w world, s *steps) {
 			ctx := context.Background()

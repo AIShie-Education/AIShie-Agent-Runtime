@@ -122,15 +122,21 @@ const (
 	statusArchived  = "archived"
 )
 
-// actor is a person, an agent or the system.
+// actor is a person, an agent, a site service or the system.
 type actor struct {
 	id     string
-	kind   string // human, agent or system
+	kind   string // human, agent, service or system
 	name   string
 	status string // active or suspended
 	// owner is the person who owns an agent; an owned agent acts only as its
 	// owner's delegate.
 	owner *actor
+	// hosting is how an agent is run, for good: hostingRuntime, by the
+	// site's agent runtime, which alone holds its one token, or
+	// hostingMCP, by its owner's own tools; "" for anyone else.
+	hosting string
+	// scope is a site service's: document_text or agent_runtime.
+	scope string
 }
 
 func (a *actor) active() bool { return a.status == statusActive }
@@ -148,6 +154,9 @@ type credential struct {
 	createdAt time.Time
 	revokedAt *time.Time
 	lastUsed  *time.Time
+	// issuedTo is scopeAgentRuntime for a runtime agent's token, issued to
+	// the site's agent runtime; "" for any other.
+	issuedTo string
 }
 
 // revoked reports whether the credential has been revoked.

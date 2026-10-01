@@ -89,10 +89,18 @@ func TestCatalogueSnapshot(t *testing.T) {
 			reads++
 		}
 	}
-	if len(cat.tools) != 155 || reads != 58 || writes != 94 || ephemeral != 3 {
-		t.Errorf("%d tools, %d reads, %d writes, %d ephemeral; the snapshot holds 155, 58, 94, 3", len(cat.tools), reads, writes, ephemeral)
+	if len(cat.tools) != 161 || reads != 61 || writes != 97 || ephemeral != 3 {
+		t.Errorf("%d tools, %d reads, %d writes, %d ephemeral; the snapshot holds 161, 61, 97, 3", len(cat.tools), reads, writes, ephemeral)
 	}
-	older, err := catalogueOf(Options{WithoutSiteChat: true})
+	for _, name := range []string{"agent_runtime.agent", "agent_runtime.check_owner", "agent_runtime.issue_token", "agent_runtime.revoke_token"} {
+		if tl := cat.byName[name]; tl == nil || !tl.restOnly || tl.service != scopeAgentRuntime {
+			t.Errorf("%s is not the agent runtime's alone, over REST: %+v", name, tl)
+		}
+	}
+	if tl := cat.byName["document_text.queue"]; tl == nil || !tl.restOnly || tl.service != scopeDocumentText {
+		t.Errorf("document_text.queue is not the transcription service's alone, over REST: %+v", tl)
+	}
+	older, err := catalogueOf(Options{WithoutHosting: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,35 +119,123 @@ func TestCatalogueSnapshot(t *testing.T) {
 	if len(before.tools) != len(cat.tools)-1 || before.byName["conversation.draft"] != nil {
 		t.Errorf("the catalogue without conversation.draft has %d tools", len(before.tools))
 	}
-	if len(older.tools) != len(cat.tools)-1 || older.byName["me.site_chat"] != nil {
-		t.Errorf("the catalogue without me.site_chat has %d tools", len(older.tools))
+	if len(older.tools) != len(cat.tools)-4 || older.byName["agent_runtime.issue_token"] != nil {
+		t.Errorf("the catalogue without the agent runtime's service has %d tools", len(older.tools))
 	}
 }
 
-// TestSiteChat: the fake offers me.site_chat, as the pinned Core does, and
-// keeps each actor's declaration; one with Options.WithoutSiteChat, as a
-// Core from before it, knows no such tool.
-func TestSiteChat(t *testing.T) {
+// TestHosting: an agent is asked in the site while it is a runtime agent
+// with a live runtime token, it and its owner active; an mcp agent never.
+// me_site_chat declares nothing, and refuses all but a runtime token. The
+// controls issue and revoke a runtime agent's one token, as the agent
+// runtime's service does, and refuse an owner's token for one.
+func TestHosting(t *testing.T) {
 	w := newFakeWorld(t, Options{})
-	a := mustCall(t, w.agentC, "me_site_chat", map[string]any{"on": true, "idempotency_key": "site-chat:1"})
-	if wantEnvelope(t, a, "executed", "", ""); a.Structured["result"].(map[string]any)["on"] != true || !w.fc.SiteChat(w.tutorA.ID) {
-		t.Errorf("declared: %s", a.Text)
+	if !w.fc.SiteChat(w.tutorA.ID) || w.fc.Hosting(w.tutorA.ID) != hostingRuntime {
+		t.Fatal("a runtime agent the runtime holds a token for is not asked in the site")
 	}
-	if w.fc.SiteChat(w.satoA.ID) {
-		t.Error("someone who never declared is declared")
+	if w.fc.SiteChat(w.satoA.ID) || w.fc.Hosting(w.satoA.ID) != "" {
+		t.Error("a person is asked in the site")
 	}
-	wantEnvelope(t, mustCall(t, w.agentC, "me_site_chat", map[string]any{"on": false, "idempotency_key": "site-chat:1"}),
-		"error", codeIdempotencyConflict, "")
-	wantEnvelope(t, mustCall(t, w.agentC, "me_site_chat", map[string]any{"on": false, "idempotency_key": "site-chat:2"}), "executed", "", "")
-	if w.fc.SiteChat(w.tutorA.ID) {
-		t.Error("the declaration was not taken back")
+	// me_site_chat changes nothing, either way.
+	a := mustCall(t, w.agentC, "me_site_chat", map[string]any{"on": false, "idempotency_key": "site-chat:1"})
+	if wantEnvelope(t, a, "executed", "", ""); a.Structured["result"].(map[string]any)["site_chat"] != true || !w.fc.SiteChat(w.tutorA.ID) {
+		t.Errorf("me_site_chat off: %s", a.Text)
 	}
-	wantEnvelope(t, mustCall(t, w.agentC, "me_site_chat", map[string]any{"on": true}), "error", codeInvalidArgument, "")
+	wantEnvelope(t, mustCall(t, w.as("sato"), "me_site_chat", map[string]any{"on": true, "idempotency_key": "site-chat:2"}),
+		"failed", codeFailedPrecondition, "not_an_agent")
+	if _, err := w.fc.IssueToken(w.tutorA.ID); err == nil {
+		t.Error("an owner's token issued for a runtime agent")
+	}
 
-	old := newFakeWorld(t, Options{WithoutSiteChat: true})
-	if a, err := old.agentC.call(context.Background(), "me_site_chat", map[string]any{"on": true, "idempotency_key": "k"}); err != nil ||
-		(a.RPCError == nil && a.status() != "error") {
-		t.Errorf("an older Core's fake took me.site_chat: %v %s", err, a.Body)
+	mcpID, mcpSeat, mcp := w.mcpAgent()
+	if w.fc.SiteChat(mcpID) || w.fc.Hosting(mcpID) != hostingMCP {
+		t.Error("an mcp agent is asked in the site")
+	}
+	wantEnvelope(t, mustCall(t, mcp, "me_site_chat", map[string]any{"on": true, "idempotency_key": "site-chat:3"}),
+		"failed", codeFailedPrecondition, "not_runtime_hosted")
+	if _, _, err := w.fc.Ask(w.co.ID, w.seats[1].ID, mcpSeat, "Q"); !isRefusal(err, "mcp_agent") {
+		t.Errorf("a question to an mcp agent: %v", err)
+	}
+	if _, err := w.fc.IssueRuntimeToken(mcpID); err == nil {
+		t.Error("an mcp agent was issued a runtime token")
+	}
+
+	// A new runtime token replaces the one before; revoked, the agent is
+	// not asked until another is issued.
+	first := w.tutorA.Token
+	next, err := w.fc.IssueRuntimeToken(w.tutorA.ID)
+	w.ok(err)
+	if a, err := newMCPClient(w.srv.URL, first, nil).call(context.Background(), "me_get", map[string]any{}); err != nil || a.Status != http.StatusUnauthorized {
+		t.Errorf("the token a new one replaced: %d %v", a.Status, err)
+	}
+	if got := w.fc.RuntimeToken(w.tutorA.ID); got != next {
+		t.Errorf("RuntimeToken is %+v, not the one issued", got)
+	}
+	creds := w.fc.Credentials(w.tutorA.ID)
+	if len(creds) != 2 || creds[0].ID != next.CredentialID || creds[0].IssuedTo != scopeAgentRuntime || creds[1].RevokedAt == nil {
+		t.Errorf("the tutor's credentials: %+v", creds)
+	}
+	revoked, err := w.fc.RevokeRuntimeToken(w.tutorA.ID)
+	w.ok(err)
+	if len(revoked) != 1 || revoked[0] != next.CredentialID || w.fc.SiteChat(w.tutorA.ID) || w.fc.RuntimeToken(w.tutorA.ID) != (Token{}) {
+		t.Errorf("revoked %v; asked %v", revoked, w.fc.SiteChat(w.tutorA.ID))
+	}
+	if _, _, err := w.fc.Ask(w.co.ID, w.seats[0].ID, w.tutorM.ID, "Q"); !isRefusal(err, "agent_not_hosted") {
+		t.Errorf("a question to a runtime agent not hosted: %v", err)
+	}
+	if _, err := w.fc.IssueRuntimeToken(w.tutorA.ID); err != nil {
+		t.Fatal(err)
+	}
+	w.ok(w.fc.SuspendActor(w.satoA.ID))
+	if w.fc.SiteChat(w.tutorA.ID) {
+		t.Error("an agent whose owner is suspended is asked")
+	}
+	if _, err := w.fc.IssueRuntimeToken(w.tutorA.ID); err == nil {
+		t.Error("an agent whose owner is suspended was issued a token")
+	}
+	w.ok(w.fc.ReactivateActor(w.satoA.ID))
+	if !w.fc.SiteChat(w.tutorA.ID) || w.fc.RuntimeIssues(w.tutorA.ID) != 3 {
+		t.Errorf("asked %v after %d issues", w.fc.SiteChat(w.tutorA.ID), w.fc.RuntimeIssues(w.tutorA.ID))
+	}
+}
+
+// TestServiceScopes: each site service calls its own tools and nothing
+// else, and nobody else calls them; over MCP, a service's credential is
+// refused at the door.
+func TestServiceScopes(t *testing.T) {
+	w := newFakeWorld(t, Options{})
+	ctx := t.Context()
+	text := &restClient{base: w.srv.URL, token: w.fc.IssueServiceToken("transcriber").Token, hc: w.srv.Client()}
+	for _, c := range []struct {
+		name   string
+		r      *restClient
+		path   string
+		status int
+		reason string
+	}{
+		{"the transcriber at the runtime's", text, "/v1/services/agent_runtime/agents/" + w.tutorA.ID, http.StatusForbidden, "not_for_services"},
+		{"the runtime at the transcriber's", w.runtimeService(), "/v1/services/document_text/queue", http.StatusForbidden, "not_for_services"},
+		{"the runtime at an agent's", w.runtimeService(), "/v1/me", http.StatusForbidden, "not_for_services"},
+		{"an agent at the runtime's", w.rest(), "/v1/services/agent_runtime/agents/" + w.tutorA.ID, http.StatusForbidden, "service_only"},
+		{"the runtime at its own", w.runtimeService(), "/v1/services/agent_runtime/agents/" + w.tutorA.ID, http.StatusOK, ""},
+	} {
+		method := "GET"
+		var body any
+		if strings.HasSuffix(c.path, "/queue") {
+			method, body = "POST", map[string]any{"max": 1}
+		}
+		h, err := c.r.do(ctx, method, c.path, body, "k:"+c.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if h.Status != c.status || (c.reason != "" && !strings.Contains(string(h.Body), c.reason)) {
+			t.Errorf("%s: %d %s", c.name, h.Status, h.Body)
+		}
+	}
+	a, err := newMCPClient(w.srv.URL, w.svc.Token, nil).call(ctx, "me_get", map[string]any{})
+	if err != nil || a.Status != http.StatusUnauthorized || !strings.Contains(string(a.Body), "service's REST routes alone") {
+		t.Errorf("the runtime's credential over MCP: %d %s %v", a.Status, a.Body, err)
 	}
 }
 
@@ -460,9 +556,6 @@ func TestProposals(t *testing.T) {
 		tutorM, err := fc.Seat(tutor.ID, co.ID, SeatOptions{Preset: "course_tutor", Principal: satoM.ID,
 			Perms: map[string]string{permConversationAnswer: "confirm_required"}})
 		if err != nil {
-			t.Fatal(err)
-		}
-		if err := fc.DeclareSiteChat(tutor.ID); err != nil {
 			t.Fatal(err)
 		}
 		propose := func(body string) string {
@@ -801,9 +894,9 @@ func TestRevoke(t *testing.T) {
 	}
 }
 
-// Tokens are in Core's shape, listed by their prefix. An agent revokes its
-// own tokens, not another's; the controls record what it did; a suspended
-// agent is denied, and a reactivated one is not.
+// Tokens are in Core's shape, listed by their prefix: a runtime agent's
+// one token is issued to the site's agent runtime, by its service; an mcp
+// agent's by its owner, as many as they like.
 func TestCredentials(t *testing.T) {
 	w := newFakeWorld(t, Options{})
 	tokenRe := regexp.MustCompile(`^ais_([a-z2-7]{12})_[A-Za-z0-9_-]{43}$`)
@@ -812,37 +905,24 @@ func TestCredentials(t *testing.T) {
 		t.Fatalf("the tutor's token is not in Core's shape")
 	}
 	creds := w.fc.Credentials(w.tutorA.ID)
-	if len(creds) != 1 || creds[0].Prefix != m[1] || creds[0].Label != "runtime" || creds[0].RevokedAt != nil {
+	if len(creds) != 1 || creds[0].Prefix != m[1] || creds[0].Label != defaultRuntimeLabel || creds[0].IssuedTo != scopeAgentRuntime ||
+		creds[0].RevokedAt != nil {
 		t.Fatalf("the tutor's credentials: %+v", creds)
 	}
-	// Ken's own agent's token revokes nothing of the tutor's.
-	ken, err := w.fc.AddAgent("Ken's helper", w.people[1].ID)
+	tools, err := w.fc.AddMCPAgent("Ken's tools", w.people[1].ID)
 	w.ok(err)
-	kc := w.client(ken.Token)
-	a := mustCall(t, kc, "credential_revoke", map[string]any{"credential_id": creds[0].ID, "idempotency_key": "k1"})
-	wantEnvelope(t, a, "failed", codeNotFound, "")
-	if c := w.fc.Credentials(w.tutorA.ID); c[0].RevokedAt != nil {
-		t.Error("another agent revoked the tutor's token")
-	}
-	if l := list(mustCall(t, kc, "credential_list", map[string]any{}), "credentials"); len(l) != 1 {
-		t.Errorf("Ken's agent lists %d credentials", len(l))
-	}
-	w.ok(w.fc.SuspendActor(w.tutorA.ID))
-	if err := w.fc.SuspendActor(w.tutorA.ID); err == nil {
-		t.Error("an actor suspended twice")
-	}
-	wantEnvelope(t, mustCall(t, w.agentC, "credential_list", map[string]any{}), "denied", codeForbidden, reasonActorNotActive)
-	w.ok(w.fc.ReactivateActor(w.tutorA.ID))
-	tok, err := w.fc.IssueLabelledToken(w.tutorA.ID, "second")
+	second, err := w.fc.IssueLabelledToken(tools.ID, "second")
 	w.ok(err)
-	a = mustCall(t, w.agentC, "credential_revoke", map[string]any{"credential_id": tok.CredentialID, "idempotency_key": "r1"})
-	wantEnvelope(t, a, "executed", "", "")
-	if c := w.fc.Credentials(w.tutorA.ID); len(c) != 2 || c[0].ID != tok.CredentialID || c[0].RevokedAt == nil || c[0].Label != "second" {
-		t.Errorf("after the revocation: %+v", c)
+	c := w.fc.Credentials(tools.ID)
+	if len(c) != 2 || c[0].ID != second.CredentialID || c[0].Label != "second" || c[0].IssuedTo != "" || c[1].RevokedAt != nil {
+		t.Errorf("an mcp agent's credentials: %+v", c)
 	}
-	if a, err := newMCPClient(w.srv.URL, tok.Token, nil).call(context.Background(), "me_get", map[string]any{}); err != nil || a.Status != http.StatusUnauthorized {
+	w.ok(w.fc.Revoke(second.Token))
+	if a, err := newMCPClient(w.srv.URL, second.Token, nil).call(context.Background(), "me_get", map[string]any{}); err != nil ||
+		a.Status != http.StatusUnauthorized {
 		t.Errorf("the revoked token: %d %v", a.Status, err)
 	}
+	wantEnvelope(t, mustCall(t, w.client(tools.Token), "me_get", map[string]any{}), "executed", "", "")
 }
 
 func TestInject(t *testing.T) {
@@ -1414,138 +1494,63 @@ func TestAStudentSeatListsItself(t *testing.T) {
 }
 
 // me_get names the person who owns an agent, and nobody for a person or an
-// agent nobody owns. SetOwner changes it as an administrator could in a
-// Core from before 169cf50: refused while the agent is seated in a course
-// that is not archived, and revoking every token the agent has. A fake from before C1 names no owner,
-// and describes none, over GET /v1/tools and tools/list alike.
+// agent nobody owns, and an agent's hosting; tools/list lists neither
+// service's tools, which are REST's alone.
 func TestOwners(t *testing.T) {
 	ctx := context.Background()
-	for _, before := range []bool{false, true} {
-		t.Run(fmt.Sprintf("before C1 %v", before), func(t *testing.T) {
-			fc := New(Options{BeforeOwners: before})
-			srv := httptest.NewServer(fc.Handler())
-			t.Cleanup(srv.Close)
-			owner := func(token string) (string, bool) {
-				t.Helper()
-				c := newMCPClient(srv.URL, token, nil)
-				if h, err := c.initialize(ctx); err != nil || h.Status != http.StatusOK {
-					t.Fatalf("initialize: %v %d", err, h.Status)
-				}
-				res, _ := mustCall(t, c, "me_get", map[string]any{}).Structured["result"].(map[string]any)
-				v, ok := res["owner_actor_id"]
-				s, _ := v.(string)
-				return s, ok
-			}
-			co := fc.AddCourse("CS101")
-			yuki, ken := fc.AddPerson("Yuki"), fc.AddPerson("Ken")
-			helper, err := fc.AddAgent("Yuki's helper", yuki.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if o, ok := owner(yuki.Token); ok {
-				t.Errorf("a person's me_get names an owner: %q", o)
-			}
-			o, ok := owner(helper.Token)
-			switch {
-			case before && ok:
-				t.Errorf("a Core from before C1 names an owner: %q", o)
-			case !before && o != yuki.ID:
-				t.Errorf("the agent's owner is %q, %v; want Yuki", o, ok)
-			}
-			schemaNames := func(raw []byte, path ...string) bool {
-				t.Helper()
-				var v any
-				if err := json.Unmarshal(raw, &v); err != nil {
-					t.Fatal(err)
-				}
-				for _, p := range path {
-					m, _ := v.(map[string]any)
-					v = m[p]
-				}
-				_, ok := v.(map[string]any)["owner_actor_id"]
-				return ok
-			}
-			var cat struct {
-				Tools []struct {
-					Name         string          `json:"name"`
-					Description  string          `json:"description"`
-					OutputSchema json.RawMessage `json:"output_schema"`
-				} `json:"tools"`
-			}
-			h, err := (&restClient{base: srv.URL, hc: http.DefaultClient}).do(ctx, "GET", "/v1/tools", nil, "")
-			if err != nil || json.Unmarshal(h.Body, &cat) != nil {
-				t.Fatalf("GET /v1/tools: %v %d", err, h.Status)
-			}
-			for _, tl := range cat.Tools {
-				if tl.Name == "me.get" && (schemaNames(tl.OutputSchema, "properties") == before || (tl.Description == meGetBeforeOwners) != before) {
-					t.Errorf("GET /v1/tools' me.get: %s %s", tl.Description, tl.OutputSchema)
-				}
-			}
-			c := newMCPClient(srv.URL, yuki.Token, nil)
-			l, err := c.post(ctx, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
-			var list struct {
-				Result struct {
-					Tools []struct {
-						Name         string          `json:"name"`
-						OutputSchema json.RawMessage `json:"outputSchema"`
-					} `json:"tools"`
-				} `json:"result"`
-			}
-			if err != nil || json.Unmarshal(l.Body, &list) != nil || len(list.Result.Tools) != 151 {
-				t.Fatalf("tools/list: %v %d", err, l.Status)
-			}
-			for _, tl := range list.Result.Tools {
-				if tl.Name == "me_get" && schemaNames(tl.OutputSchema, "properties", "result", "properties") == before {
-					t.Errorf("tools/list's me_get: %s", tl.OutputSchema)
-				}
-			}
-			if before {
-				return
-			}
-
-			ys, err := fc.Seat(yuki.ID, co.ID, SeatOptions{Preset: "student"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			hs, err := fc.Seat(helper.ID, co.ID, SeatOptions{Preset: "delegate", Principal: ys.ID})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := fc.SetOwner(helper.ID, ken.ID); err == nil {
-				t.Error("the owner of an agent seated in an active course was changed")
-			}
-			if err := fc.RemoveSeat(hs.ID); err != nil {
-				t.Fatal(err)
-			}
-			if err := fc.SetOwner(helper.ID, ken.ID); err != nil {
-				t.Fatal(err)
-			}
-			a, err := newMCPClient(srv.URL, helper.Token, nil).call(ctx, "me_get", map[string]any{})
-			if err != nil || a.Status != http.StatusUnauthorized {
-				t.Errorf("the token of an agent whose owner changed: %v %d", err, a.Status)
-			}
-			token, err := fc.IssueToken(helper.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if o, _ := owner(token); o != ken.ID {
-				t.Errorf("the owner is %q, not Ken", o)
-			}
-			if err := fc.SetOwner(helper.ID, ""); err != nil {
-				t.Fatal(err)
-			}
-			if token, err = fc.IssueToken(helper.ID); err != nil {
-				t.Fatal(err)
-			}
-			if o, ok := owner(token); ok {
-				t.Errorf("an agent nobody owns names an owner: %q", o)
-			}
-			for _, bad := range [][2]string{{helper.ID, ""}, {yuki.ID, ken.ID}, {helper.ID, helper.ID}} {
-				if err := fc.SetOwner(bad[0], bad[1]); err == nil {
-					t.Errorf("SetOwner(%s, %s) passed", bad[0], bad[1])
-				}
-			}
-		})
+	fc := New(Options{})
+	srv := httptest.NewServer(fc.Handler())
+	t.Cleanup(srv.Close)
+	me := func(token string) map[string]any {
+		t.Helper()
+		c := newMCPClient(srv.URL, token, nil)
+		if h, err := c.initialize(ctx); err != nil || h.Status != http.StatusOK {
+			t.Fatalf("initialize: %v %d", err, h.Status)
+		}
+		res, _ := mustCall(t, c, "me_get", map[string]any{}).Structured["result"].(map[string]any)
+		return res
+	}
+	yuki := fc.AddPerson("Yuki")
+	helper, err := fc.AddAgent("Yuki's helper", yuki.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools, err := fc.AddMCPAgent("Yuki's tools", yuki.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registrar := fc.AddUnownedAgent("Registrar")
+	for _, c := range []struct {
+		name, token, owner, hosting string
+	}{
+		{"a person", yuki.Token, "", ""},
+		{"a runtime agent", helper.Token, yuki.ID, hostingRuntime},
+		{"an mcp agent", tools.Token, yuki.ID, hostingMCP},
+		{"an agent nobody owns", registrar.Token, "", hostingRuntime},
+	} {
+		res := me(c.token)
+		owner, _ := res["owner_actor_id"].(string)
+		hosting, _ := res["hosting"].(string)
+		if owner != c.owner || hosting != c.hosting {
+			t.Errorf("%s: owner %q, hosting %q", c.name, owner, hosting)
+		}
+	}
+	c := newMCPClient(srv.URL, yuki.Token, nil)
+	l, err := c.post(ctx, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+	var list struct {
+		Result struct {
+			Tools []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+		} `json:"result"`
+	}
+	if err != nil || json.Unmarshal(l.Body, &list) != nil || len(list.Result.Tools) != 153 {
+		t.Fatalf("tools/list: %v %d %d", err, l.Status, len(list.Result.Tools))
+	}
+	for _, tl := range list.Result.Tools {
+		if def := fc.cat.byMCP[tl.Name]; def == nil || def.restOnly {
+			t.Errorf("tools/list lists %s", tl.Name)
+		}
 	}
 }
 
@@ -1600,4 +1605,10 @@ func TestAddFile(t *testing.T) {
 	if got["has_file"] != true || got["published"] != true || got["content_type"] != pptx || fmt.Sprint(got["byte_size"]) != fmt.Sprint(len(deck)) {
 		t.Errorf("version %v", got)
 	}
+}
+
+// isRefusal reports whether err is a control Core refused for reason.
+func isRefusal(err error, reason string) bool {
+	var re *RefusedError
+	return errors.As(err, &re) && re.Reason == reason
 }

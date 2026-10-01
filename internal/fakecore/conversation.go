@@ -507,13 +507,16 @@ func unread(cv *conversation, m *member) *bool {
 	return &u
 }
 
-// Who can read what is written in a conversation, as codes.
+// Who can read what is written in a conversation, as codes: and, said
+// last of every conversation, the site's administrators and those of the
+// course's department, who may export it for audit (AIShie-Core #51's
+// audit_export).
 func visibleTo(v conversationView) []string {
 	out := []string{"participants", "overseers", "action_record"}
 	if !v.Respondent.IsDelegateOfOpener {
 		out = append(out, "respondent_answers_others")
 	}
-	return out
+	return append(out, "audit_export")
 }
 
 type conversationIDIn struct {

@@ -278,10 +278,27 @@ var BuiltinDeny = []string{
 	// transcription service's, which the runtime's transcriber calls with
 	// the service's own credential, and Core refuses to any other.
 	"document_text", "document_text_*",
-	// The site's service credentials (the transcriber's): issued, listed
-	// and revoked by the platform's administrators alone, and a token
-	// issued is a credential in the model's text.
+	// The site's service credentials (the transcriber's, the agent
+	// runtime's): issued, listed and revoked by the platform's
+	// administrators alone, and a token issued is a credential in the
+	// model's text.
 	"service_*",
+	// The site's agent runtime's own service (AIShie-Core #52): who
+	// owns an agent and how it is hosted, and its one token issued and
+	// revoked by its id, which the runtime calls with the agent_runtime
+	// service's credential, over REST, as it hosts an agent, and Core
+	// refuses to any other (service_only). agent_* covers them; they are
+	// named for what they are.
+	"agent_runtime_*",
+	// Exporting conversations for audit (AIShie-Core #51): every
+	// conversation of the site, a department or a course, retracted
+	// messages with their text, as files whose URLs are credentials for
+	// them, by the site's and the departments' administrators alone. Core
+	// refuses an agent's export whatever role it holds (people_only): an
+	// export is a person's, who answers for taking it away; and gives an
+	// export's files again (conversation_export_file) to its maker alone.
+	// conversation_* covers them; they are named for what they are.
+	"conversation_export", "conversation_export_*",
 	// The site's identity providers for single sign-on, set up, changed,
 	// switched, removed and tested by the platform's administrators
 	// alone: a provider's client secret is a credential, and a change

@@ -1,10 +1,8 @@
 package fakecore
 
 import (
-	"bytes"
 	_ "embed"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -43,9 +41,12 @@ type toolDef struct {
 	// idempotency key, authorized as a write, carried out at once.
 	ephemeral bool
 	// restOnly: a tool Core serves at its REST route alone, and never
-	// lists or takes over MCP: the transcription service's
-	// (document_text.*), which no agent's token may call.
+	// lists or takes over MCP: a site service's, the transcription
+	// service's (document_text.*) or the site's agent runtime's
+	// (agent_runtime.*), which no agent's token may call. service is the
+	// scope of the service it is for.
 	restOnly bool
+	service  string
 	// schema is the tool's own input schema, resolved for validation: what
 	// a REST body, or MCP arguments without the key, are judged by.
 	schema *jsonschema.Resolved
@@ -95,47 +96,22 @@ func loadCatalogue(raw []byte) (*catalogue, error) {
 	return c, nil
 }
 
-// meGetBeforeOwners is me.get's description before C1.
-const meGetBeforeOwners = "Who the caller is: the actor this credential belongs to."
-
-// withoutOwners is the catalogue raw as a Core from before C1 served it:
-// me.get's result without owner_actor_id, and its description as it was.
-func withoutOwners(raw []byte) ([]byte, error) {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber()
-	var doc map[string]any
-	if err := dec.Decode(&doc); err != nil {
-		return nil, fmt.Errorf("fakecore: the catalogue: %w", err)
-	}
-	tools, _ := doc["tools"].([]any)
-	found := false
-	for _, t := range tools {
-		tool, _ := t.(map[string]any)
-		if tool == nil || tool["name"] != "me.get" {
-			continue
-		}
-		out, _ := tool["output_schema"].(map[string]any)
-		props, _ := out["properties"].(map[string]any)
-		if _, ok := props["owner_actor_id"]; !ok {
-			return nil, errors.New("fakecore: the catalogue's me.get has no owner_actor_id to take out")
-		}
-		delete(props, "owner_actor_id")
-		tool["description"] = meGetBeforeOwners
-		found = true
-	}
-	if !found {
-		return nil, errors.New("fakecore: the catalogue has no me.get")
-	}
-	return json.Marshal(doc)
-}
-
-// restOnlyPrefix begins the names of the tools Core serves over REST
-// alone: the transcription service's queue, file, renew and complete.
-const restOnlyPrefix = "document_text."
+// The site services, each one's tools named by its scope, which Core serves
+// over REST alone and to that service alone: the transcription service's
+// queue, file, renew and complete, and the agent runtime's agent,
+// check_owner, issue_token and revoke_token.
+const (
+	scopeDocumentText = "document_text"
+	scopeAgentRuntime = "agent_runtime"
+)
 
 func (t *toolDef) prepare() error {
 	t.mcpName = mcpName(t.Name)
-	t.restOnly = strings.HasPrefix(t.Name, restOnlyPrefix)
+	for _, scope := range []string{scopeDocumentText, scopeAgentRuntime} {
+		if strings.HasPrefix(t.Name, scope+".") {
+			t.restOnly, t.service = true, scope
+		}
+	}
 	switch t.Kind {
 	case "read":
 	case "write":

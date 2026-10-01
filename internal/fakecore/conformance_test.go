@@ -42,6 +42,9 @@ type fakeWorld struct {
 	own     *mcpClient
 	ownM    Member
 	clients map[string]*mcpClient
+	// svc is the site's agent runtime's credential, the agent_runtime
+	// service's.
+	svc Token
 }
 
 func newFakeWorld(t *testing.T, o Options) *fakeWorld {
@@ -75,9 +78,10 @@ func newFakeWorld(t *testing.T, o Options) *fakeWorld {
 		t.Fatal(err)
 	}
 	w.tutorM = must(fc.Seat(w.tutorA.ID, w.co.ID, SeatOptions{Preset: "course_tutor", Principal: w.sato.ID}))
-	// Every agent of the world takes conversations in the site, as the
-	// runtime running it declares (me.site_chat).
-	w.ok(fc.DeclareSiteChat(w.tutorA.ID))
+	// Every agent of the world but mcpAgent's is a runtime agent whose
+	// token the site's runtime was issued (AddAgent), which people in the
+	// site ask.
+	w.svc = fc.IssueRuntimeServiceToken("record")
 	w.agentC = newMCPClient(srv.URL, w.tutorA.Token, srv.Client())
 	if a, err := w.agentC.initialize(context.Background()); err != nil || a.Status != 200 {
 		t.Fatalf("initialize: %v %d %s", err, a.Status, a.Body)
@@ -149,7 +153,6 @@ func (w *fakeWorld) ownAgent() *mcpClient {
 	w.ok(err)
 	w.ownM, err = w.fc.Seat(a.ID, w.co.ID, SeatOptions{Preset: "delegate", Principal: w.seats[0].ID})
 	w.ok(err)
-	w.ok(w.fc.DeclareSiteChat(a.ID))
 	w.own = newMCPClient(w.srv.URL, a.Token, w.srv.Client())
 	if h, err := w.own.initialize(context.Background()); err != nil || h.Status != 200 {
 		w.t.Fatalf("initialize: %v %d %s", err, h.Status, h.Body)
@@ -193,17 +196,22 @@ func (w *fakeWorld) listedTutor(student int) (string, *mcpClient) {
 	m, err := w.fc.Seat(a.ID, w.co.ID, SeatOptions{Preset: "tutor", Principal: w.sato.ID, StudentScope: scopeListed,
 		ListedStudents: []string{w.seats[student].ID}, AnswersCourse: &yes})
 	w.ok(err)
-	w.ok(w.fc.DeclareSiteChat(a.ID))
 	return m.ID, w.client(a.Token)
 }
 
 func (w *fakeWorld) pausePrincipal() { w.t.Helper(); w.ok(w.fc.PauseSeat(w.sato.ID)) }
 
-func (w *fakeWorld) issueTutorToken(label string) (string, string) {
+func (w *fakeWorld) runtimeService() *restClient {
+	return &restClient{base: w.srv.URL, token: w.svc.Token, hc: w.srv.Client()}
+}
+
+func (w *fakeWorld) mcpAgent() (string, string, *mcpClient) {
 	w.t.Helper()
-	tok, err := w.fc.IssueLabelledToken(w.tutorA.ID, label)
+	a, err := w.fc.AddMCPAgent("Sato's tools", w.satoA.ID)
 	w.ok(err)
-	return tok.Token, tok.CredentialID
+	m, err := w.fc.Seat(a.ID, w.co.ID, SeatOptions{Preset: "course_tutor", Principal: w.sato.ID})
+	w.ok(err)
+	return a.ID, m.ID, w.client(a.Token)
 }
 
 func (w *fakeWorld) suspendTutor()    { w.t.Helper(); w.ok(w.fc.SuspendActor(w.tutorA.ID)) }
@@ -215,7 +223,6 @@ func (w *fakeWorld) ownerAgent(perms map[string]string) (string, *mcpClient) {
 	w.ok(err)
 	m, err := w.fc.Seat(a.ID, w.co.ID, SeatOptions{Preset: "delegate", Principal: w.sato.ID, Perms: perms})
 	w.ok(err)
-	w.ok(w.fc.DeclareSiteChat(a.ID))
 	return m.ID, w.client(a.Token)
 }
 
@@ -229,7 +236,6 @@ func (w *fakeWorld) registrar(perms map[string]string) (string, *mcpClient) {
 	a := w.fc.AddUnownedAgent("CS101 Registrar")
 	m, err := w.fc.Seat(a.ID, w.co.ID, SeatOptions{Preset: "ta", Perms: perms})
 	w.ok(err)
-	w.ok(w.fc.DeclareSiteChat(a.ID))
 	return m.ID, w.client(a.Token)
 }
 
@@ -240,6 +246,8 @@ func (w *fakeWorld) actorOf(who string) string {
 	switch who {
 	case "yuki":
 		return w.people[0].ID
+	case "sato":
+		return w.satoA.ID
 	case "tutor":
 		return w.tutorA.ID
 	}
@@ -274,7 +282,8 @@ func (w *fakeWorld) expire(actionID string) bool {
 
 func (w *fakeWorld) revokeTutorToken() {
 	w.t.Helper()
-	w.ok(w.fc.Revoke(w.tutorA.Token))
+	_, err := w.fc.RevokeRuntimeToken(w.tutorA.ID)
+	w.ok(err)
 }
 
 func (w *fakeWorld) assignment() string { return w.co.AssignmentID }

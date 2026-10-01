@@ -27,12 +27,17 @@ func meGet() *impl {
 				DisplayName string `json:"display_name"`
 				Status      string `json:"status"`
 				// OwnerActorID is the person who owns an agent, absent for
-				// a person and for an agent nobody owns (Core's C1), and
-				// for everyone on a Core from before (Options.BeforeOwners).
+				// a person and for an agent nobody owns (Core's C1).
 				OwnerActorID *string `json:"owner_actor_id,omitempty"`
+				// Hosting is an agent's, runtime or mcp; absent for a
+				// person.
+				Hosting *string `json:"hosting,omitempty"`
 			}{ID: a.id, Kind: a.kind, DisplayName: a.name, Status: a.status}
-			if a.owner != nil && !c.opts.BeforeOwners {
+			if a.owner != nil {
 				out.OwnerActorID = &a.owner.id
+			}
+			if a.hosting != "" {
+				out.Hosting = ptr(a.hosting)
 			}
 			return out, nil
 		},

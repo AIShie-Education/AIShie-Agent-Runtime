@@ -42,9 +42,10 @@ type memberView struct {
 	OwnerActorID      *string           `json:"owner_actor_id,omitempty"`
 	OwnerName         *string           `json:"owner_name,omitempty"`
 	AnswersCourse     bool              `json:"answers_course"`
-	// SiteChat, for an agent's seat: whether people in the site may ask
-	// it (me_site_chat); absent for a person's.
-	SiteChat *bool `json:"site_chat,omitempty"`
+	// Hosting and SiteChat, for an agent's seat: how it is run, and
+	// whether people in the site may ask it now; absent for a person's.
+	Hosting  *string `json:"hosting,omitempty"`
+	SiteChat *bool   `json:"site_chat,omitempty"`
 	ceilings
 }
 
@@ -65,7 +66,7 @@ func (c *Core) viewMember(m *member) memberView {
 		v.OwnerActorID, v.OwnerName = ptr(o.id), ptr(o.name)
 	}
 	if m.actor.kind == "agent" {
-		v.SiteChat = ptr(c.takesSiteChat(m.actor))
+		v.Hosting, v.SiteChat = ptr(m.actor.hosting), ptr(c.askable(m.actor))
 	}
 	v.ceilings = ceilingsOf(m)
 	return v

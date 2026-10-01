@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -301,29 +300,9 @@ func leaseSeconds(d time.Duration) int {
 	return int(min(max(d, MinLease), MaxLease) / time.Second)
 }
 
-// call makes one of the service's calls: executed decodes into out, and
-// anything else is a *ServiceError (a 401, ErrUnauthenticated; a 429, a
-// *RateLimitedError; a 5xx or the network, a *TransientError).
+// call makes one of the service's calls (serviceCall).
 func (s *Service) call(ctx context.Context, tool string, args, out any) error {
-	raw, err := json.Marshal(args)
-	if err != nil {
-		return fmt.Errorf("core: %s: %w", tool, err)
-	}
-	env, err := s.c.Call(ctx, tool, raw)
-	if err != nil {
-		return err
-	}
-	if env.Status != StatusExecuted {
-		se := &ServiceError{Tool: tool, Status: env.Status, Code: env.Code(), Reason: env.Reason()}
-		if env.Error != nil {
-			se.Message = env.Error.Message
-		}
-		return se
-	}
-	if err := env.Decode(out); err != nil {
-		return &ProtocolError{Message: fmt.Sprintf("%s: the result does not decode: %v", tool, err)}
-	}
-	return nil
+	return serviceCall(ctx, s.c, tool, args, out)
 }
 
 // TextView is a version's text version as Core shows it beside the

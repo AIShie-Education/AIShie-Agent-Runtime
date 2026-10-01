@@ -206,25 +206,33 @@ func (c *Core) textFile(versionID, fileID, leaseID string) *versionFile {
 	return nil
 }
 
-// serviceRefusal is what a service's call that is not the service's, or a
-// call of the service's elsewhere, is told, or nil.
+// serviceRefusal is what a service's call of a tool that is not its own, or
+// anyone else's call of a service's tool, is told, or nil: a site service
+// calls its own tools and nothing else, and nobody else calls them, as
+// Core's authz.Services has it, by the service's scope.
 func serviceRefusal(caller *actor, t *toolDef) *apiError {
 	switch {
-	case caller.kind == kindService && !t.restOnly:
+	case caller.kind == kindService && caller.scope == t.service:
+		return nil
+	case caller.kind == kindService:
 		return denial("not_for_services")
-	case t.restOnly && caller.kind != kindService:
+	case t.restOnly:
 		return denial("service_only")
 	}
 	return nil
 }
 
-// invokeService carries out one of the service's four tools, called with
-// the credential cred. The lock is held.
+// invokeService carries out one of a service's tools, called with the
+// credential cred: the transcription service's four, or the agent
+// runtime's (hosting.go). The lock is held.
 func (c *Core) invokeService(caller *actor, cred *credential, t *toolDef, raw []byte, key, base string) outcome {
 	if _, err := t.decodeArgs(raw); err != nil {
 		return c.failure(err)
 	}
 	now := c.now()
+	if t.service == scopeAgentRuntime {
+		return c.invokeRuntime(caller, t, raw, key, now)
+	}
 	switch t.Name {
 	case "document_text.queue":
 		var in struct {
@@ -563,20 +571,46 @@ func serviceToken() (token, prefix string) {
 }
 
 // IssueServiceToken issues the site's transcription service a credential,
-// as a platform administrator's service.issue_credential does; the
-// service's actor is made by the first.
+// as a platform administrator's service.issue_credential with scope
+// document_text does; the service's actor is made by the first.
 func (c *Core) IssueServiceToken(label string) Token {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.service == nil {
-		c.service = &actor{id: newID(), kind: kindService, name: "document_text", status: statusActive}
-		c.actors[c.service.id] = c.service
-	}
+	return c.issueServiceToken(scopeDocumentText, label)
+}
+
+// IssueRuntimeServiceToken issues the site's agent runtime a credential, as
+// service.issue_credential with scope agent_runtime does (and the
+// operator's aishie-core service issue agent_runtime): the agent_runtime
+// service's tools take it, and nothing else does.
+func (c *Core) IssueRuntimeServiceToken(label string) Token {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.issueServiceToken(scopeAgentRuntime, label)
+}
+
+// issueServiceToken issues the service of scope a credential, making its
+// actor the first time. Called with the lock held.
+func (c *Core) issueServiceToken(scope, label string) Token {
+	svc := c.serviceOf(scope)
 	token, prefix := serviceToken()
-	cr := &credential{id: newID(), token: token, prefix: prefix, actor: c.service, issuer: c.system, label: label, createdAt: c.now()}
+	cr := &credential{id: newID(), token: token, prefix: prefix, actor: svc, issuer: c.system, label: label, createdAt: c.now()}
 	c.tokens[token] = cr
 	c.serviceCreds[cr.id] = cr
 	return Token{Token: token, CredentialID: cr.id, Prefix: prefix}
+}
+
+// serviceOf is the site service of scope, made the first time it is
+// needed, as Core makes it with its first credential. Called with the lock
+// held.
+func (c *Core) serviceOf(scope string) *actor {
+	if svc := c.services[scope]; svc != nil {
+		return svc
+	}
+	svc := &actor{id: newID(), kind: kindService, name: scope, status: statusActive, scope: scope}
+	c.services[scope] = svc
+	c.actors[svc.id] = svc
+	return svc
 }
 
 // RevokeServiceToken revokes one of the service's credentials, as

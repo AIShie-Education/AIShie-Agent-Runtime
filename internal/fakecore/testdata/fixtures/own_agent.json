@@ -160,7 +160,8 @@
      "visible_to": [
       "participants",
       "overseers",
-      "action_record"
+      "action_record",
+      "audit_export"
      ]
     },
     "status": "executed"
