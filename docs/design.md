@@ -540,9 +540,11 @@ title.
   what the runtime's OCR recognizes of it (OCR, below).
 - A presentation or a document (PowerPoint's `.pptx`, `.ppt`, `.ppsx`,
   `.potx` and their kinds, OpenDocument's `.odp`; Word's `.docx`, `.doc`
-  and their kinds, OpenDocument's `.odt`, RTF) is converted to PDF by
-  LibreOffice where the runtime converts Office files (`OFFICE_PDF`), for
-  every model, and goes the way a PDF does: a file part where the model
+  and their kinds, OpenDocument's `.odt`, RTF) is given as its PDF: the one
+  Core keeps of it, its rendition (§13), where Core says it is done, and
+  otherwise the one LibreOffice makes of it where the runtime converts
+  Office files (`OFFICE_PDF`), for every model (Office files, below); and
+  goes the way a PDF does: a file part where the model
   takes files and its provider a PDF of its size, in parts of its pages
   when it has more than a part holds (Reading in parts), a deck's speaker
   notes beside it in `file_text`, which the PDF does not show; and
@@ -551,7 +553,9 @@ title.
   `.xls` or `.ods` one as LibreOffice converts it to `.xlsx`: a spreadsheet
   reads better as its rows than as pages.
 - Without the conversion (`OFFICE_PDF=off`, or LibreOffice not
-  installed), a PowerPoint, Word or Excel file (Office Open XML: `.pptx`,
+  installed), a presentation or a document whose rendition Core has done
+  is still Core's PDF to a model that takes files, as above; otherwise a
+  PowerPoint, Word or Excel file (Office Open XML: `.pptx`,
   `.docx`, `.xlsx`, and their macro-enabled and template forms) is the
   runtime's text of it (`internal/doctext`), to every model; so is a
   workbook, and a Word document to a model that takes no files, with the
@@ -875,11 +879,47 @@ and a model that takes files sees its pages as they look.
   file is (a zip, a Compound File Binary file, RTF) never reaches
   LibreOffice, which would take it for text or a web page and make a PDF
   of that.
-- *To a model that takes files*: LibreOffice's PDF, as a PDF is given (its
-  size held to its provider's, in parts of its pages), `converted_to:
-  "pdf"`, the note saying what it is; a deck's speaker notes of the slides
-  given in `file_text`, each `## Slide N` and `Notes:` as the runtime's
-  text has them. A deck of `.ppt` or `.odp` has its notes from its `.pptx`.
+- *Core's PDF first* (`toolset.pdfOf`, `internal/toolset/rendition.go`).
+  Core keeps one PDF of every Office and OpenDocument file, made once for
+  the whole site (§13), the one people see in the viewer. Where
+  `document_get`, `document_file` or `conversation_attachment` say a
+  file's `rendition.state` is `done`, the PDF of it the runtime gives a
+  model, cuts into parts, and reads text and OCR from where it reads them
+  from a PDF, is that one: fetched
+  by the runtime, never the model, from `rendition.download_url`, a URL
+  good for some 15 minutes that is a credential for the PDF, with no
+  credential of the runtime's, at most `MaxFileBytes` (50 MiB; one Core
+  says is larger is not fetched), and kept by the file's checksum as
+  LibreOffice's PDF is (`office.Service.TakeRendition`, below), so that it
+  is fetched once a worker, and a conversion of the file after finds it.
+  Its pages are counted, and past `OFFICE_PDF_MAX_PAGES` it is cut to its
+  first so many, as LibreOffice's is made, and said so. A URL that has
+  lapsed, by its `download_expires_at` (30 s before it) or by the file
+  server's refusal (403, 404, 410), is asked of Core again, once, with the
+  caller's own token (`document_file` for a version's file named by its
+  id, `conversation_attachment` for a message's), and taken only for the
+  same file (version, checksum). The deck's speaker notes are read from
+  the deck as before. Where Core has no PDF to give (the rendition queued
+  or claimed, failed or skipped, none for the file, a Core from before
+  renditions), or its PDF cannot be had (not fetched, not a PDF that
+  reads, past the pages with nothing to cut it), the runtime converts the
+  file itself, as below. The URL reaches no model (Core's result is
+  stripped of every `download_url`) and no log: what the fetch said is
+  dropped, leaving the server's status or that it was too large, and the
+  conversions log a PDF taken or not by the start of the file's checksum
+  and an outcome (`taken`, `not_fetched`, `not_a_pdf`, `too_large`,
+  `too_many_pages`, `not_cut`, `cancelled`). Where LibreOffice does not
+  convert here at all, a presentation or a document whose rendition is
+  done is given to a model that takes files as Core's PDF all the same
+  (`toolset.Runner.rendered`), its notes beside it where the runtime reads
+  them itself (an Office Open XML deck), and is otherwise what it was
+  without the conversion.
+- *To a model that takes files*: the file's PDF, Core's or LibreOffice's,
+  as a PDF is given (its size held to its provider's, in parts of its
+  pages), `converted_to: "pdf"`, the note saying what it is; a deck's
+  speaker notes of the slides given in `file_text`, each `## Slide N` and
+  `Notes:` as the runtime's text has them. A deck of `.ppt` or `.odp` has
+  its notes from its `.pptx`.
 - *To a model that takes none*, or past its provider's size: a deck is the
   runtime's text of its PowerPoint form (the file's own, or LibreOffice's),
   which keeps titles, bullets, tables and notes as a PDF's text would not
@@ -915,8 +955,9 @@ and a model that takes files sees its pages as they look.
   protected by a password, not what it says it is) or convert in time is
   said so (`conversion: "failed"`): a PowerPoint or Word file is still its
   text, another not given.
-- *Kept in memory.* What LibreOffice made, and the ranges of pages cut
-  from it, are kept in the worker's memory by the file's checksum (64 MiB
+- *Kept in memory.* What LibreOffice made, the PDFs fetched of Core, and
+  the ranges of pages cut from them (those of Core's PDF apart from
+  LibreOffice's), are kept in the worker's memory by the file's checksum (64 MiB
   in all, the least recently used going first), and a failure for an hour;
   not in the store, as OCR's text is: a PDF is megabytes, which PostgreSQL
   would keep, back up and replicate for every deck, while making it again
@@ -946,11 +987,14 @@ and a model that takes files sees its pages as they look.
   start, where they are not; `OFFICE_PDF=on` refuses to start (and `check`
   fails) without them; `OFFICE_PDF=off` is off. Off, files are given as
   they were before it: a PowerPoint, Word or Excel file as the runtime's
-  text, an older or OpenDocument one not at all. PDFs are cut into parts
+  text, an older or OpenDocument one not at all; but for one whose PDF
+  Core made, which a model that takes files is given (Core's PDF first,
+  above). PDFs are cut into parts
   wherever poppler's programs are, whatever `OFFICE_PDF` says. The start's
   log line and `check` say which.
 - *Counted*: `office_requests_total{result}` (`cached`, `failed`,
-  `started`, `in_progress`, `busy`, `off`),
+  `started`, `in_progress`, `busy`, `off`; and `rendition`, a PDF of
+  Core's fetched, `rendition_failed`, one not taken),
   `office_conversions_total{to,outcome}` (`done`, `failed`, `timeout`,
   `too_large`, `cancelled`), `office_conversion_seconds{to}`,
   `pdf_cuts_total{op,outcome}` and `pdf_cut_seconds{op}` (`range`: a
@@ -1489,7 +1533,9 @@ model:
   PDF is a file part to a model that takes files, in parts of its pages
   when it has more than a part holds, and otherwise its text, page by
   page, or what OCR reads of a scan; a presentation or a document is
-  LibreOffice's PDF of it, a deck's speaker notes beside it (as
+  its PDF, Core's where Core says it has one done (with a fresh URL of
+  `conversation_attachment` should it lapse), LibreOffice's otherwise, a
+  deck's speaker notes beside it (as
   `toolset.notesBeside` reads them, from the deck, as the transcriber
   does), or its text where the model takes no files or the conversion is
   off; a workbook is its text; an image is a file part to a model that
@@ -1527,8 +1573,9 @@ model:
   message carries it, and a reading is reached only through a file of
   those very bytes that Core gives the caller; by the file's id where Core
   has only an object store's tag (`etag:`). Every reading is tagged with
-  the file's id and its message's. LibreOffice's PDFs and OCR's text are
-  kept by the runtime's own checksum of the bytes, as a document's are, and
+  the file's id and its message's. Its PDF, LibreOffice's or Core's, and
+  OCR's text are kept by the runtime's own checksum of the bytes, as a
+  document's are, and
   reached the same way. A retracted message's files are withheld by Core
   (not listed, and `conversation_attachment` answers `not_found`,
   `retracted`): the worker drops what it kept of them as it reads the
@@ -1831,8 +1878,10 @@ Chinese with a table, overran, and was cut off.
   Office file of a version or of a message queued by Core's table of its
   own, the `agent_runtime` service's claim (a long poll), file, renew,
   upload URL and its PUT, and complete, with Core's order, attempts,
-  refusals and leases, and the rendition each file's reader is shown;
-  and a Core from before them (`WithoutRenditions`). The `renditions`
+  refusals and leases, and the rendition each file's reader is shown,
+  with a URL that serves its PDF once it is done, which a test makes
+  done itself (`RenderFile`); and a Core from before them
+  (`WithoutRenditions`). The `renditions`
   fixture holds it to the rendition Core, a real Core's queue drained,
   unrecorded, first.
 - Attachments (§5.3): each kind of file (text, code of no telling type, a
@@ -2034,7 +2083,24 @@ Chinese with a table, overran, and was cut off.
   Word file of scans, an Excel 97
   workbook in its `.xlsx`, each known by what it holds when Core names no
   type; a file with a password not converted; and with the conversion off,
-  every file as before. The fake Core
+  every file as before. Core's PDF of a file (`rendition_test.go`): a deck
+  whose rendition is done given to a model that takes files as that PDF
+  with its notes, LibreOffice never asked, the PDF fetched once and kept;
+  none, queued, claimed, failed or skipped, the deck converted here as
+  before, no PDF fetched; a URL the server refuses asked of
+  `document_file` again and the fresh one fetched, one past its
+  `download_expires_at` not tried, and where the fresh one is refused too,
+  or the server fails, the deck converted here; a PDF past `MaxFileBytes`
+  not fetched, or not read past it where Core said it was smaller; a
+  message's deck given as Core's PDF by `attachment_get` and with the
+  question, a lapsed URL asked of `conversation_attachment` again; to a
+  model that takes no files, a deck's slides picked for OCR out of Core's
+  PDF and a Word 97 document read in it; without LibreOffice, a deck and
+  an OpenDocument deck given as Core's PDF to a model that takes files,
+  and as before to one that takes none, or without a PDF of Core's; and,
+  with the worker's own conversions, Core's PDF taken, or not taken for
+  each refusal, no URL, its signature or its path in a result or in their
+  log, and a conversion of the file after finding Core's PDF. The fake Core
   carries out `document_create` through its pipeline, held to the
   `model_writes` fixture recorded from Core; `member_add`, `member_get`,
   `member_list` and `member_lookup_actor`, held to `member_writes`; and
@@ -2077,7 +2143,12 @@ Chinese with a table, overran, and was cut off.
   question waiting half its time left at most, the conversion going on; a
   failure kept its hour, then tried again; turns and a full queue; nothing
   kept when the process stops; ranges cut once and kept, picked pages cut
-  every time. `Sniff` knows each older format by its stream, an
+  every time; Core's PDF of a file taken once and kept, a conversion after
+  finding it, whatever LibreOffice said of the file before and whether it
+  is here or not, cut to `MaxPages` past it, and not taken past them with
+  nothing to cut it, nor when it is not a PDF or was not fetched, nothing
+  kept then and the fetch's error, a URL in it, neither returned nor
+  logged. `Sniff` knows each older format by its stream, an
   OpenDocument file by its `mimetype`, RTF by its first bytes. With the
   real programs (skipped only where they are not installed, and never with
   `OFFICE_PDF_REQUIRED=1`): a deck in Chinese with a picture, a hidden
@@ -2151,7 +2222,10 @@ Chinese with a table, overran, and was cut off.
   exactly and the file fetched once; a scanned handout read by a model
   that takes no files: told its OCR is in progress, it asks again with
   `ask_again` and answers from the text, the file fetched and recognized
-  once and the text kept by its checksum; an operator's agent named by its
+  once and the text kept by its checksum; Yuki's question's deck and Sato's
+  lecture, whose PDFs Core made, given to her agent's model as those PDFs,
+  LibreOffice run only for a handout whose rendition is queued, and no log
+  holding a URL of Core's; an operator's agent named by its
   id, issued its token once and keeping it through restarts, its token
   revoked as it names another agent in Core, is paused or is removed, and
   forgotten on a 401 for a reload to be issued another; the runtime's own
@@ -2191,7 +2265,12 @@ Chinese with a table, overran, and was cut off.
   never with `OFFICE_PDF_REQUIRED=1`), Sato uploads a lecture of twelve
   slides, and Yuki's own agent, whose model takes files, is given its
   first ten slides as a PDF of ten pages, the notes beside them, and told
-  there is a second part.
+  there is a second part; and (`slides-as-cores-pdf`, where Core has
+  renditions) Sato puts up a lecture whose rendition the test makes in
+  Core as the site's runtime does, with its credential (claimed, the PDF
+  put, completed), and Yuki's own agent, run where LibreOffice converts
+  nothing, is given Core's PDF of it, page for page, with its notes, no
+  download URL reaching the model or the runtime's log.
 
 ## 11. Hosted agents
 
@@ -3122,7 +3201,11 @@ site's: it is plumbing, on by default.
   file: the rendition's, course's and file's ids, the attempt, the
   extension, sizes, pages, outcome, reason and time; never the file's
   name, a URL, an upload's token, the credential or what the file holds.
-- **What the models read** is unchanged: a model given an Office file is
-  given LibreOffice's PDF of it as §4 (Office files) says, made in the
-  worker's own conversions, not Core's rendition; `document_rendition_retry`
-  and the rendition tools are on the built-in deny list (§4).
+- **What the models read**: a model given an Office file whose rendition
+  is done is given that PDF, which the runtime reads of Core as any
+  reader of the file does, with the agent's own token, and fetches from
+  the URL Core gives every reader, never with the service's credential;
+  while it is not, and where Core has
+  none, the worker converts the file itself, as §4 (Office files, Core's
+  PDF first) says. `document_rendition_retry` and the rendition tools are
+  on the built-in deny list (§4).

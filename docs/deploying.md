@@ -332,9 +332,12 @@ are converted to `.xlsx` and read as any workbook. `docs/design.md` §4
   file is cut into parts of ten pages (`PDF_PART_PAGES`), so that a long
   deck does not cost a model a hundred thousand tokens a turn; each part
   is a PDF of its own, in a second or less.
-- **How the model sees it:** the first question about a file converts it
-  and waits for it up to 2 min (`OFFICE_PDF_TIMEOUT`), never past half the
-  answer's time left. A file not ready by then is given as its text
+- **How the model sees it:** a file whose PDF Core keeps already (its
+  rendition, [below](#office-files-previewed-as-pdf-renditions)) is given
+  as that PDF, fetched from Core and not converted here, even where
+  LibreOffice is missing. Otherwise the first question about a file
+  converts it and waits for it up to 2 min (`OFFICE_PDF_TIMEOUT`), never
+  past half the answer's time left. A file not ready by then is given as its text
   meanwhile, where the runtime reads it without LibreOffice, and the model
   is told to ask again in a minute to see its pages; a file LibreOffice
   cannot open (damaged, protected by a password) is said so.
@@ -352,10 +355,11 @@ are converted to `.xlsx` and read as any workbook. `docs/design.md` §4
   1 at once, 300 pages a file at most, 2m0s a file` and `pdf parts: 10
   pages a file part, at most`. With `OFFICE_PDF=auto` (the default) and
   LibreOffice missing (a binary run outside the image), it is off with a
-  warning, and files are given as before; `OFFICE_PDF=on` refuses to start
-  without it.
+  warning, and files are given as before, but for those whose PDF Core
+  keeps; `OFFICE_PDF=on` refuses to start without it.
 - **Watching it:** `office_conversions_total{to,outcome}`,
-  `office_conversion_seconds{to}`, `office_requests_total{result}`,
+  `office_conversion_seconds{to}`, `office_requests_total{result}` (Core's
+  PDFs fetched are `rendition`, those not taken `rendition_failed`),
   `pdf_cuts_total{op,outcome}`, `pdf_cut_seconds{op}`,
   `office_conversions_running` and `office_conversions_waiting` in
   `/metrics`. One log line a conversion, with the start of the file's
@@ -394,6 +398,14 @@ whoever may read the file. `docs/design.md` §13 has how it works.
   LibreOffice runs as every conversion does
   ([above](#presentations-and-documents-libreoffice)): no network, a fresh
   profile, macros off, held in memory and time.
+- **What the models are given:** a model reading an Office file whose PDF
+  is done is given that PDF, the one people see in the viewer: the
+  runtime fetches it from Core with the agent's own read of the file (a
+  URL good for 15 minutes, asked for again when it has lapsed, never
+  logged and never shown to the model), at most 50 MiB, keeps it in
+  memory as it keeps its own conversions, and gives at most
+  `OFFICE_PDF_MAX_PAGES` of its pages. A file whose PDF is still waiting,
+  failed or skipped is converted by the runtime itself, as before.
 - **What becomes of a file:** done, with its pages; skipped,
   `password_protected` (an encrypted Office Open XML or OpenDocument file),
   `unsupported` (not an Office file at all) or `too_large` (the file past
