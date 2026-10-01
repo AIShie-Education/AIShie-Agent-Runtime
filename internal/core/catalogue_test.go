@@ -275,3 +275,25 @@ func TestFetchCatalogue(t *testing.T) {
 		t.Fatalf("nothing listening: %v", err)
 	}
 }
+
+// TestCatalogueTakes: an argument a tool takes is one its input schema
+// names, as the snapshot's document_text_renew names file_id; not one a
+// Core from before names, nor any of a tool it does not offer.
+func TestCatalogueTakes(t *testing.T) {
+	snap := testCatalogue(t)
+	if !snap.Takes(ToolTextRenew, "file_id") || !snap.Takes(ToolTextRenew, "lease_id") || snap.Takes(ToolTextRenew, "on") {
+		t.Error("the snapshot's document_text_renew")
+	}
+	if snap.Takes("no_such_tool", "file_id") || (*Catalogue)(nil).Takes(ToolTextRenew, "file_id") {
+		t.Error("a tool not offered takes nothing")
+	}
+	before, err := ParseCatalogue([]byte(`{"tools":[{"name":"document_text.renew","kind":"ephemeral","method":"POST",` +
+		`"path":"/v1/services/document_text/versions/{version_id}/renew","input_schema":{"type":"object","properties":` +
+		`{"version_id":{"type":"string"},"lease_id":{"type":"string"}}},"output_schema":{}}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Takes(ToolTextRenew, "file_id") || !before.Takes(ToolTextRenew, "lease_id") {
+		t.Error("a Core's from before files: file_id")
+	}
+}

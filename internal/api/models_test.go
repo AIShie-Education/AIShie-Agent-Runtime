@@ -96,13 +96,19 @@ prices:
 // provider behind the hosted-model client.
 func newModelWorld(t *testing.T, rt config.Runtime) (*hostWorld, *provider, *fakeHosting) {
 	t.Helper()
+	return newModelWorldOf(t, rt, fakecore.Options{})
+}
+
+// newModelWorldOf is a model world against a fake Core of o.
+func newModelWorldOf(t *testing.T, rt config.Runtime, o fakecore.Options) (*hostWorld, *provider, *fakeHosting) {
+	t.Helper()
 	prices, err := pricing.Parse([]byte(table))
 	if err != nil {
 		t.Fatal(err)
 	}
 	fh := &fakeHosting{yaml: &config.Config{Runtime: rt}, prices: prices}
 	p := &provider{status: http.StatusOK}
-	h := newHostWorld(t, fakecore.Options{}, func(o *Options) {
+	h := newHostWorld(t, o, func(o *Options) {
 		o.Hosting = fh
 		o.ModelHTTP = netguard.NoRedirects(&http.Client{Transport: p})
 	})

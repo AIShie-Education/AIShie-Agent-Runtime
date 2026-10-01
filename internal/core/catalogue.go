@@ -198,6 +198,22 @@ func (c *Catalogue) MaxWait(mcpName string) time.Duration {
 	return min(time.Duration(*p.Maximum)*time.Second, MaxWait)
 }
 
+// Takes reports whether the tool Core offers as mcpName takes the argument
+// arg, as its input schema says: false for a tool it does not offer. It is
+// read from the catalogue Core serves, never from the snapshot, as MaxWait
+// is: an argument a Core's schema does not name, it refuses.
+func (c *Catalogue) Takes(mcpName, arg string) bool {
+	if c == nil {
+		return false
+	}
+	t, ok := c.Tool(mcpName)
+	if !ok {
+		return false
+	}
+	_, ok = properties(t.InputSchema)[arg]
+	return ok
+}
+
 // Drafts reports whether this Core takes the drafts of answers being
 // written (ToolDraft): its catalogue offers conversation_draft, an
 // ephemeral write. A Core from before it has no such tool, and is sent no

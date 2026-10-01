@@ -2895,7 +2895,9 @@ time: not money) stay `runtime.yaml`'s.
     "skip_test"?}`: Core's service token (`aissvc_…`, else `invalid_field`
     at `/token`), tried with Core unless `skip_test` by a call that claims
     nothing (the renewal of a claim of the nil uuid under a lease of
-    chance, which Core answers 404 or 409 to the service's token): Core's
+    chance, of the nil uuid's file where Core's renewal takes `file_id`,
+    which it requires since AIShie-Core #54, and of none where it does
+    not, which Core answers 404 or 409 to the service's token): Core's
     401, or 403 `service_only`, is 422 `credential_rejected` with Core's
     status in `details.status`; a Core that cannot be reached, 503
     `core_unavailable`; a Core without the service, or no `CORE_BASE_URL`,
