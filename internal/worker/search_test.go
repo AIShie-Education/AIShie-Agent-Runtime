@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext/doctexttest"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/fakecore"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
@@ -126,4 +128,72 @@ func TestModelsSearchTheCourseMaterials(t *testing.T) {
 		have, err := st.UseSearchFiles(context.Background(), w.co.ID, []store.SearchFileKey{key}, time.Time{})
 		return err == nil && len(have) == 0
 	})
+}
+
+// TestSearchIndexDropsWhatCoreSaysIsPurged: Core's news of a purge drops
+// what the search's index keeps of it: a version, named by the event's
+// version_id, of a document.purged or a document.purged_unreleased (an
+// assignment's instructions not yet released); a whole document, the
+// event's subject, when it names no version; nothing else. Housekeeping
+// then drops the files no search has needed for SearchRetention.
+func TestSearchIndexDropsWhatCoreSaysIsPurged(t *testing.T) {
+	ctx := context.Background()
+	st := memstore.New()
+	now := time.Now()
+	sup, err := NewSupervisor(Options{Config: &config.Config{}, Store: st, WorkerID: "w", Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &Seat{a: newAgent(sup, &config.Agent{ID: "a"}), id: "m", course: "c", log: discardLog()}
+	type file struct{ doc, version string }
+	files := []file{{"d1", "v1"}, {"d1", "v2"}, {"d2", "v3"}, {"d2", "v4"}, {"d3", "v5"}, {"d4", "v6"}, {"d5", "v7"}}
+	for _, f := range files {
+		used := now
+		if f.doc == "d5" {
+			used = now.Add(-toolset.SearchRetention - time.Hour)
+		}
+		if err := st.PutSearchFile(ctx, store.SearchFile{CourseID: "c", DocumentID: f.doc, VersionID: f.version, Key: "f", Revision: "r",
+			Source: store.SourceRuntime, UsedAt: used}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	kept := func() []string {
+		var keys []store.SearchFileKey
+		for _, f := range files {
+			keys = append(keys, store.SearchFileKey{VersionID: f.version, Key: "f"})
+		}
+		// Used at a time long past, which marks none of them used.
+		have, err := st.UseSearchFiles(ctx, "c", keys, time.Unix(0, 0))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, f := range files {
+			if _, ok := have[store.SearchFileKey{VersionID: f.version, Key: "f"}]; ok {
+				out = append(out, f.version)
+			}
+		}
+		return out
+	}
+	event := func(typ, doc, payload string) core.Event {
+		return core.Event{Type: typ, SubjectType: "document", SubjectID: &doc, Payload: json.RawMessage(payload)}
+	}
+	for _, ev := range []core.Event{
+		event(core.EventDocumentPurged, "d1", `{"versions":1,"version_id":"v1","kind":"material"}`),
+		event(core.EventDocumentPurgedUnreleased, "d2", `{"versions":1,"version_id":"v3","kind":"instructions"}`),
+		event(core.EventDocumentPurged, "d3", `{"versions":1,"kind":"material"}`),
+		event(core.EventDocumentPurgedUnreleased, "d4", `{"versions":2,"kind":"rubric"}`),
+		event("document.archived", "d2", `{"kind":"instructions"}`),
+	} {
+		if err := s.onEvent(ctx, ev, nil); err != nil {
+			t.Fatalf("%s: %v", ev.Type, err)
+		}
+	}
+	if got := strings.Join(kept(), " "); got != "v2 v4 v7" {
+		t.Errorf("kept after the purges: %s, want v2 v4 v7", got)
+	}
+	sup.housekeep(ctx)
+	if got := strings.Join(kept(), " "); got != "v2 v4" {
+		t.Errorf("kept after housekeeping: %s, want v2 v4", got)
+	}
 }
