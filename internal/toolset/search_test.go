@@ -52,11 +52,13 @@ const (
 )
 
 // sfile is a file of a version as the search tests' Core lists it: its
-// id, name, type and bytes, and its text version, nil for none.
+// id, name, type and bytes, its text version, nil for none, and the PDF
+// Core made of it (its rendition, done), nil for none.
 type sfile struct {
 	id, name, ct string
 	data         []byte
 	text         *core.TextView
+	pdf          []byte
 }
 
 // sversion is a version of a document: its files and its own text.
@@ -85,7 +87,7 @@ type sdoc struct {
 // lists the documents the seat may read, document_get gives each the
 // version it reads (the published one, or for staff the latest), and the
 // files are served from its own server, which counts what it is asked
-// for. Every call is counted.
+// for, and the PDFs Core made of them. Every call is counted.
 type searchCore struct {
 	t     *testing.T
 	staff bool
@@ -121,14 +123,18 @@ func newSearchCore(t *testing.T, docs ...*sdoc) *searchCore {
 		id := strings.TrimPrefix(r.URL.Path, "/")
 		c.mu.Lock()
 		c.hits[id]++
-		f, ok := c.files[id]
+		f, ok := c.files[strings.TrimSuffix(id, ".pdf")]
 		c.mu.Unlock()
-		if !ok {
+		switch {
+		case !ok || strings.HasSuffix(id, ".pdf") && f.pdf == nil:
 			http.NotFound(w, r)
-			return
+		case strings.HasSuffix(id, ".pdf"):
+			w.Header().Set("Content-Type", "application/pdf")
+			_, _ = w.Write(f.pdf)
+		default:
+			w.Header().Set("Content-Type", f.ct)
+			_, _ = w.Write(f.data)
 		}
-		w.Header().Set("Content-Type", f.ct)
-		_, _ = w.Write(f.data)
 	}))
 	t.Cleanup(c.srv.Close)
 	return c
@@ -227,8 +233,8 @@ func (c *searchCore) respond(_ context.Context, tool string, args json.RawMessag
 }
 
 // documentResult is document_get's result of v, a version of d, as Core
-// gives it: its files with their URLs and their text versions, bodies
-// whole.
+// gives it: its files with their URLs, their text versions, bodies
+// whole, and their renditions.
 func (c *searchCore) documentResult(d *sdoc, v *sversion) string {
 	var files []string
 	for i, f := range v.files {
@@ -236,6 +242,9 @@ func (c *searchCore) documentResult(d *sdoc, v *sversion) string {
 		if f.text != nil {
 			raw, _ := json.Marshal(f.text)
 			text = `,"text":` + string(raw)
+		}
+		if f.pdf != nil {
+			text += fmt.Sprintf(`,"rendition":{"state":"done","byte_size":%d,"download_url":%q}`, len(f.pdf), c.srv.URL+"/"+f.id+".pdf")
 		}
 		files = append(files, fmt.Sprintf(`{"id":%q,"position":%d,"filename":%q,"content_type":%q,"byte_size":%d,"checksum":"sha256:%x","download_url":%q%s}`,
 			f.id, i+1, f.name, f.ct, len(f.data), len(f.data)+i, c.srv.URL+"/"+f.id, text))
@@ -898,6 +907,88 @@ func TestSearchSaysWhenThePageIsNotKnown(t *testing.T) {
 	}
 	if got := readHit(t, r, h.Read); !strings.Contains(got["file_text"].(string), "The zebra crossing theorem") {
 		t.Errorf("its read gives %v", got["file"])
+	}
+}
+
+// TestSearchPointsIntoCoresPDF: where LibreOffice does not convert here, a
+// deck and a Word file whose PDF Core made are given to a model that takes
+// files as that PDF's pages (rendered), and their hits point as for
+// LibreOffice's: the deck's by its slide, which gives that page of Core's
+// PDF, and the Word file's, whose page the index does not know, by saying
+// so, its read giving Core's PDF from its first page. A Word file whose PDF
+// Core has not made is given as its text, and its hit read by its part.
+func TestSearchPointsIntoCoresPDF(t *testing.T) {
+	var slides []doctexttest.Slide
+	for i := 1; i <= 3; i++ {
+		body := fmt.Sprintf("point %d", i)
+		if i == 2 {
+			body = "the zebra crossing theorem"
+		}
+		slides = append(slides, doctexttest.Slide{Title: fmt.Sprintf("Slide %d", i), Body: []doctexttest.Bullet{{Text: body}}})
+	}
+	deck := oneFile("week5.pptx", doctexttest.PPTXType, doctexttest.PPTX(slides...), nil)
+	deck[0].published.files[0].pdf = corePDF(3)
+	c := newSearchCore(t, deck...)
+	o := &stubOffice{off: "LibreOffice is not installed"}
+	r := searchRunner(c, memstore.New(), &SearchScope{}, true)
+	r.Office = o
+	res, part := searchFor(t, r, `{"query":"zebra crossing"}`)
+	if len(res.Result.Hits) != 1 {
+		t.Fatalf("zebra crossing, in a deck: %s", part.Content)
+	}
+	h := res.Result.Hits[0]
+	if h.Where != "slide 2" || h.Read.Arguments[FilePagesArg] != "2" || h.ReadNote != "" {
+		t.Fatalf("the deck's hit: %+v %+v", h, h.Read)
+	}
+	args, _ := json.Marshal(h.Read.Arguments)
+	parts, err := searchSet(t).Run(context.Background(), r, courseID, []llm.Part{call("g", FilePartTool, string(args))})
+	if err != nil || len(parts) != 2 || parts[1].File == nil || fileRecordOf(t, parts[0])["part_holds"] != "slide 2" {
+		t.Fatalf("the deck's hit read: %v %+v", err, parts)
+	}
+	if _, ranges, _ := o.record(); fmt.Sprint(ranges) != "[[2 2]]" || !strings.HasSuffix(fmt.Sprint(o.rangeNames()), "/rendition]") {
+		t.Errorf("cut %v from %v, not slide 2 of Core's PDF", ranges, o.rangeNames())
+	}
+
+	var blocks []doctexttest.Block
+	for i := range 400 {
+		text := fmt.Sprintf("Paragraph %d of the notes, which say a little about sorting and searching, at some length.", i)
+		if i == 380 {
+			text = "The zebra crossing theorem is proved here."
+		}
+		blocks = append(blocks, doctexttest.Block{Text: text})
+	}
+	notes := doctexttest.DOCX(doctexttest.Doc{Blocks: blocks})
+	for _, pdf := range [][]byte{corePDF(3), nil} {
+		doc := oneFile("notes.docx", doctexttest.DOCXType, notes, nil)
+		doc[0].published.files[0].pdf = pdf
+		r := searchRunner(newSearchCore(t, doc...), memstore.New(), &SearchScope{}, true)
+		r.Office = o
+		res, part := searchFor(t, r, `{"query":"zebra crossing"}`)
+		if len(res.Result.Hits) != 1 {
+			t.Fatalf("zebra crossing, in a Word file: %s", part.Content)
+		}
+		h := res.Result.Hits[0]
+		if pdf == nil {
+			if h.Read.Arguments[FilePartArg] != float64(2) || h.ReadNote != "" {
+				t.Errorf("a Word file whose PDF Core has not made: %+v %+v", h, h.Read)
+			}
+			if got := readHit(t, r, h.Read); !strings.Contains(got["file_text"].(string), "The zebra crossing theorem") {
+				t.Errorf("its read gives %v", got["file"])
+			}
+			continue
+		}
+		if h.Read.Arguments[FilePagesArg] != nil || h.Read.Arguments[FilePartArg] != nil ||
+			!strings.Contains(h.ReadNote, "the page this passage is on is not known") {
+			t.Errorf("a Word file whose PDF Core made: %+v %+v", h, h.Read)
+		}
+		args, _ := json.Marshal(h.Read.Arguments)
+		parts, err := searchSet(t).Run(context.Background(), r, courseID, []llm.Part{call("g", FilePartTool, string(args))})
+		if err != nil || len(parts) != 2 || parts[1].File == nil || string(parts[1].File.Data) != string(pdf) {
+			t.Errorf("its read: %v %+v", err, parts)
+		}
+	}
+	if converted, _, _ := o.record(); len(converted) != 0 {
+		t.Errorf("LibreOffice was asked %v", converted)
 	}
 }
 
