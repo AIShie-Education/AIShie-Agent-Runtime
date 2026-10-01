@@ -21,6 +21,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/memstore"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/version"
@@ -288,18 +289,20 @@ func wantRefused(t *testing.T, a answer, status int, code, reason string) refusa
 
 // GET /info answers anyone, cached a minute: what the runtime is, its
 // version, the audience to ask Core for, the issuer, and what it offers:
-// hosting only when it has a Core to ask and a vault to seal with, as run
-// gives it both.
+// hosting only when it has a Core to ask, the runtime's credential to ask
+// it with, and a vault to seal with, as run gives it all three.
 func TestInfo(t *testing.T) {
+	svc := core.NewRuntimeService(core.RuntimeCaller(core.RuntimeOptions{BaseURL: issuer}))
 	for _, tc := range []struct {
 		name  string
 		edit  func(*Options)
 		hosts bool
 	}{
 		{"no vault, no Core", nil, false},
-		{"no Core", func(o *Options) { o.Vault = testVault(t) }, false},
-		{"no vault", func(o *Options) { o.CoreBaseURL = issuer }, false},
-		{"both", func(o *Options) { o.Vault, o.CoreBaseURL = testVault(t), issuer }, true},
+		{"no Core", func(o *Options) { o.Vault, o.Runtime = testVault(t), svc }, false},
+		{"no vault", func(o *Options) { o.CoreBaseURL, o.Runtime = issuer, svc }, false},
+		{"no credential", func(o *Options) { o.Vault, o.CoreBaseURL = testVault(t), issuer }, false},
+		{"all three", func(o *Options) { o.Vault, o.CoreBaseURL, o.Runtime = testVault(t), issuer, svc }, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFixture(t, tc.edit)
@@ -308,7 +311,7 @@ func TestInfo(t *testing.T) {
 			var info Info
 			a.decode(t, &info)
 			want := Info{API: "aishie-runtime", APIVersion: 1, Version: version.Version, Commit: version.Commit, Audience: audience, Issuer: issuer,
-				Features: Features{ConnectByToken: tc.hosts, OwnKey: tc.hosts}}
+				Features: Features{HostByID: tc.hosts, OwnKey: tc.hosts}}
 			if a.code != http.StatusOK || info != want {
 				t.Errorf("info: %d %+v", a.code, info)
 			}

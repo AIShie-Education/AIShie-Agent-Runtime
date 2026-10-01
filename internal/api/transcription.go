@@ -484,7 +484,7 @@ func (s *Server) putCredential(w http.ResponseWriter, r *http.Request, c *Caller
 		WriteError(w, Error{Code: CodeInternal, Reason: ReasonInternal, Message: "the runtime cannot keep credentials now"})
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), inspectTimeout)
+	ctx, cancel := context.WithTimeout(r.Context(), askTimeout)
 	defer cancel()
 	if !req.SkipTest && !s.testCredential(ctx, w, req.Token) {
 		return

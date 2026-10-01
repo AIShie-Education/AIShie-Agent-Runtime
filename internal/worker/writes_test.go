@@ -27,7 +27,7 @@ func (w *world) ownerAgent(id string, perms map[string]string) agent {
 	a, err := w.fc.AddAgent("Sato's assistant", w.sato.ID)
 	w.ok(err)
 	m := w.must(w.fc.Seat(a.ID, w.co.ID, fakecore.SeatOptions{Preset: "delegate", Principal: w.satoSeat.ID, Perms: perms}))
-	w.env.Store(tokenVar(id), a.Token)
+	w.inCore(id, a.ID)
 	return agent{id: id, actor: a, seat: m, owner: w.sato}
 }
 
@@ -192,7 +192,7 @@ func TestWritesOnlyForTheOwner(t *testing.T) {
 	// address the tutor (Core's addressing).
 	seat := w.must(w.fc.Seat(a.ID, w.co.ID, fakecore.SeatOptions{Preset: "course_tutor", Principal: w.satoSeat.ID,
 		Perms: map[string]string{"submission_write": "autonomous"}}))
-	w.env.Store(tokenVar("tutor"), a.Token)
+	w.inCore("tutor", a.ID)
 	tu := agent{id: "tutor", actor: a, seat: seat, owner: w.sato}
 	model := scripted.New(
 		scripted.CallTools(

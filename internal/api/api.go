@@ -28,6 +28,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/netguard"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
@@ -53,17 +54,21 @@ type Options struct {
 	Verifier *webauth.Verifier
 	// Store is the runtime's store: the registry, the people, the audit.
 	Store store.Store
-	// CoreBaseURL is the Core hosted agents connect to (CORE_BASE_URL):
-	// the one Core an agent's token is ever sent to.
+	// CoreBaseURL is the Core hosted agents run at (CORE_BASE_URL): the
+	// one Core the API asks about an agent.
 	CoreBaseURL string
 	// CoreHTTP carries the calls to Core: the egress client, bounded by
 	// core.DefaultTimeout when it has no timeout of its own.
 	// http.DefaultClient when nil.
 	CoreHTTP *http.Client
-	// Vault seals the tokens and keys people give, and opens a hosted
-	// agent's token to revoke it in Core as the agent is deleted: the one
-	// stored secret the API opens.
+	// Vault seals the keys people give; a hosted agent is hosted only
+	// with one, since the worker seals the token it is issued with it too.
 	Vault *vault.Vault
+	// Runtime is the runtime's client of Core's agent_runtime service,
+	// with its own credential (CORE_SERVICE_CREDENTIAL): whether a person
+	// owns an agent and may host it, and revoking its token as its hosting
+	// ends. Nil when the runtime has no credential: nothing is hosted.
+	Runtime *core.RuntimeService
 	// Actors says which of the worker's agents runs as a Core actor (the
 	// supervisor); nil knows of none.
 	Actors Actors
@@ -180,13 +185,13 @@ func New(o Options) *Server {
 	s.mux.Handle("GET "+Prefix+"info", s.public(s.info))
 	s.mux.Handle("GET "+Prefix+"me", s.authed(s.me))
 	s.mux.Handle("POST "+Prefix+"agents/inspect", s.authedBody(s.limited(s.token, s.audited("agent.inspect", s.inspect))))
-	s.mux.Handle("POST "+Prefix+"agents", s.authedBody(s.limited(s.token, s.audited("agent.connect", s.connect))))
+	s.mux.Handle("POST "+Prefix+"agents", s.authedBody(s.limited(s.token, s.audited("agent.host", s.host))))
 	s.mux.Handle("GET "+Prefix+"agents", s.authed(s.list))
 	s.mux.Handle("GET "+Prefix+"agents/{id}", s.authed(s.get))
-	s.mux.Handle("PUT "+Prefix+"agents/{id}/token", s.authedBody(s.limited(s.token, s.audited("agent.token_replace", s.replaceToken))))
+	s.mux.Handle("POST "+Prefix+"agents/{id}/token", s.authed(s.limited(s.token, s.audited("agent.token_renew", s.renewToken))))
 	s.mux.Handle("POST "+Prefix+"agents/{id}/pause", s.authed(s.audited("agent.pause", s.pause(true))))
 	s.mux.Handle("POST "+Prefix+"agents/{id}/resume", s.authed(s.audited("agent.resume", s.pause(false))))
-	s.mux.Handle("DELETE "+Prefix+"agents/{id}", s.authedBody(s.audited("agent.delete", s.remove)))
+	s.mux.Handle("DELETE "+Prefix+"agents/{id}", s.authed(s.audited("agent.delete", s.remove)))
 	s.mux.Handle("PATCH "+Prefix+"agents/{id}", s.authedBody(s.audited("agent.update", s.update)))
 	s.mux.Handle("GET "+Prefix+"models", s.authed(s.models))
 	s.mux.Handle("POST "+Prefix+"keys/test", s.authedBody(s.limitedKeyTest(s.audited("key.test", s.testKey))))

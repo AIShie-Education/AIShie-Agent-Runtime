@@ -25,7 +25,7 @@ func baseAgent() map[string]any {
 		"id":           "a1",
 		"display_name": "A1",
 		"tenant_id":    "ten_1",
-		"core":         map[string]any{"base_url": "https://lms.example.edu", "token_ref": "secret://ten_1/agents/a1/core_token"},
+		"core":         map[string]any{"base_url": "https://lms.example.edu", "agent_id": "0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0aa1"},
 		"model": map[string]any{
 			"adapter": "anthropic", "model": "claude-sonnet-4-5", "key_ref": "secret://school/keys/anthropic", "key_source": "school",
 		},
@@ -110,13 +110,14 @@ func TestValidate(t *testing.T) {
 		{name: "mcp protocol", agent: map[string]any{"core.mcp_protocol": "2026-07-28"}, want: []problem{{agent: "a1", path: "agent.core.mcp_protocol", msg: "not a revision Core takes"}}},
 		{name: "an older mcp protocol", agent: map[string]any{"core.mcp_protocol": "2024-11-05"}},
 
-		{name: "token ref required", agent: map[string]any{"core.token_ref": del{}}, want: []problem{{agent: "a1", path: "agent.core.token_ref", msg: "required"}}},
-		{name: "a token written in", agent: map[string]any{"core.token_ref": "ais_k7v2m4qhx3ab_9Jx2abcDEFghiJKLmnoPQRstuVWXyz0123456789_-abcd"}, want: []problem{{agent: "a1", path: "agent.core.token_ref", msg: "tokens are never written in configuration"}}},
-		{name: "a token inside a reference", agent: map[string]any{"core.token_ref": "secret://ais_k7v2m4qhx3ab_9Jx2abcDEFghiJKLmnoPQRstuVWX"}, want: []problem{{agent: "a1", path: "agent.core.token_ref", msg: "never written"}}},
-		{name: "a reference named like a token is fine", agent: map[string]any{"core.token_ref": "secret://school/ais_helper/core_token"}},
-		{name: "not a reference", agent: map[string]any{"core.token_ref": "/run/secrets/token"}, want: []problem{{agent: "a1", path: "agent.core.token_ref", msg: "is not a reference"}}},
-		{name: "a bad reference", agent: map[string]any{"core.token_ref": "secret://a/../b"}, want: []problem{{agent: "a1", path: "agent.core.token_ref", msg: "not '.' or '..' alone"}}},
-		{name: "env and file references", agent: map[string]any{"core.token_ref": "env://A1_TOKEN", "model.key_ref": "file:///run/secrets/key"}},
+		{name: "the agent's id required", agent: map[string]any{"core.agent_id": del{}}, want: []problem{{agent: "a1", path: "agent.core.agent_id", msg: "required"}}},
+		{name: "the agent's id not a UUID", agent: map[string]any{"core.agent_id": "yuki-helper"}, want: []problem{{agent: "a1", path: "agent.core.agent_id", msg: "is not an agent's id in Core: a UUID"}}},
+		{name: "the agent's id in upper case", agent: map[string]any{"core.agent_id": "0192F3C1-7D2E-7C3A-9B1F-2A4C6E8F0AA1"}},
+		{name: "a token's file named, in place of the agent's id", agent: map[string]any{"core.agent_id": del{}, "core.token_ref": "secret://ten_1/agents/a1/core_token"}, want: []problem{{agent: "a1", path: "agent.core.token_ref", msg: "replace core.token_ref with core.agent_id"}}},
+		{name: "a token's file named beside the agent's id", agent: map[string]any{"core.token_ref": "env://A1_TOKEN"}, want: []problem{{agent: "a1", path: "agent.core.token_ref", msg: "the runtime takes no agent's token any more"}}},
+		{name: "a token written in", agent: map[string]any{"core.token_ref": "ais_k7v2m4qhx3ab_9Jx2abcDEFghiJKLmnoPQRstuVWXyz0123456789_-abcd"}, want: []problem{{agent: "a1", path: "agent.core.token_ref", msg: "delete the token's file"}}},
+		{name: "env and file references", agent: map[string]any{"model.key_ref": "file:///run/secrets/key"}},
+		{name: "not a reference", agent: map[string]any{"model.key_ref": "/run/secrets/key"}, want: []problem{{agent: "a1", path: "agent.model.key_ref", msg: "is not a reference"}}},
 
 		{name: "adapter", agent: map[string]any{"model.adapter": "openai"}, want: []problem{{agent: "a1", path: "agent.model.adapter", msg: "is not one of openai_chat"}}},
 		{name: "model required", agent: map[string]any{"model.model": ""}, want: []problem{{agent: "a1", path: "agent.model.model", msg: "required"}}},
@@ -192,8 +193,8 @@ func TestValidate(t *testing.T) {
 		{name: "a system prompt of whitespace", agent: map[string]any{"prompt.system_text": " \n\t"}, want: []problem{{agent: "a1", path: "agent.prompt.system_text", msg: "holds no text"}}},
 		{name: "a system prompt too long", agent: map[string]any{"prompt.system_text": strings.Repeat("é", 20001)}, want: []problem{{agent: "a1", path: "agent.prompt.system_text", msg: "is 20001 characters; at most 20000"}}},
 		{name: "a system prompt at its limit", agent: map[string]any{"prompt.system_text": strings.Repeat("é", 20000)}},
-		{name: "sealed references", agent: map[string]any{"core.token_ref": "sealed://sec_0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0a1b", "model.key_ref": "sealed://sec_key"}},
-		{name: "a sealed reference to no secret", agent: map[string]any{"core.token_ref": "sealed://token"}, want: []problem{{agent: "a1", path: "agent.core.token_ref", msg: "not a secret's id"}}},
+		{name: "sealed references", agent: map[string]any{"model.key_ref": "sealed://sec_0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0a1b"}},
+		{name: "a sealed reference to no secret", agent: map[string]any{"model.key_ref": "sealed://key"}, want: []problem{{agent: "a1", path: "agent.model.key_ref", msg: "not a secret's id"}}},
 
 		{name: "tools mode", agent: map[string]any{"tools.mode": "all"}, want: []problem{{agent: "a1", path: "agent.tools.mode"}}},
 		{name: "tool names", agent: map[string]any{"tools.allow": []any{"course_get", "course.get"}, "tools.deny": []any{"Member_add"}}, want: []problem{{agent: "a1", path: "agent.tools.allow[1]"}, {agent: "a1", path: "agent.tools.deny[0]"}}},
@@ -422,4 +423,25 @@ func TestDeniedModel(t *testing.T) {
 	if _, denied := DeniedModel(Runtime{}, "anthropic", "anthropic", "m"); denied {
 		t.Error("no list denies")
 	}
+}
+
+// Two agents of the configuration on one agent in Core, in any case, are
+// refused: each would be issued the agent's one token, revoking the
+// other's.
+func TestValidateOneAgentInCore(t *testing.T) {
+	two := `
+agent:
+  id: a1
+  display_name: A1
+  core: {base_url: "https://lms.example.edu", agent_id: "0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0aa1"}
+  model: {adapter: openai_chat, model: gpt-4.1-mini, key_ref: "env://OPENAI_API_KEY"}
+---
+agent:
+  id: a2
+  display_name: A2
+  core: {base_url: "https://lms.example.edu", agent_id: "0192F3C1-7D2E-7C3A-9B1F-2A4C6E8F0AA1"}
+  model: {adapter: openai_chat, model: gpt-4.1-mini, key_ref: "env://OPENAI_API_KEY"}
+`
+	_, err := Load(write(t, map[string]string{"a.yaml": two}))
+	expectProblems(t, err, []problem{{agent: "a2", path: "agent.core.agent_id", msg: "agent a1 is this agent in Core too"}})
 }

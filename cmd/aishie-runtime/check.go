@@ -36,13 +36,15 @@ const liveTimeout = 60 * time.Second
 
 // cmdCheck is `aishie-runtime check [--live]`: the configuration loaded and
 // validated as run loads it, and each agent and course shown. With --live,
-// each agent is connected to Core as run connects it: its seats are shown as
-// the handout words them, with the tools each offers its model, and its
+// each agent is read as Core hosts it, with the runtime's own credential
+// (CORE_SERVICE_CREDENTIAL), and connected with the token the runtime
+// holds for it, if any (check is issued none): its seats are shown as the
+// handout words them, with the tools each offers its model, and its
 // model's key is tried with one call of one output token.
 func cmdCheck(ctx context.Context, args []string, getenv func(string) string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("check", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	live := fs.Bool("live", false, "connect each agent to Core and try its model's key")
+	live := fs.Bool("live", false, "read each agent in Core, connect it, and try its model's key")
 	if err := fs.Parse(args); err != nil || fs.NArg() > 0 {
 		return usageError(stderr, "check takes only --live")
 	}
@@ -179,8 +181,12 @@ func cmdCheck(ctx context.Context, args []string, getenv func(string) string, st
 	}
 	failed := 0
 	cats := map[string]*core.Catalogue{}
+	ls := liveService{credential: serviceCredential(env, res)}
+	if pg != nil {
+		ls.st = pg
+	}
 	for _, a := range cfg.Agents {
-		if !checkLive(ctx, p, a, res, clients, cats) {
+		if !checkLive(ctx, p, a, res, clients, cats, ls) {
 			failed++
 		}
 	}
@@ -344,10 +350,16 @@ func (c liveClients) model(a *config.Agent, m config.Model) *http.Client {
 	return c.egress
 }
 
-// checkLive connects one agent as run would, shows its seats, and tries
-// its model's key, over the client run would call it with. It reports
-// whether all went well.
-func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, res secrets.Resolver, clients liveClients, cats map[string]*core.Catalogue) bool {
+// checkLive reads one agent as Core hosts it, with the runtime's own
+// credential, as run reads it at the agent's start, and is issued nothing:
+// an mcp agent, one Core has not, one suspended (or whose owner is), and a
+// hosted agent whose owner in Core is not the person who hosted it each
+// fail. With the token the runtime holds for it (a hosted agent's row, or
+// the store's for an operator's agent), it connects as run would and shows
+// its seats; then it tries the model's key, over the client run would call
+// it with. It reports whether all went well.
+func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, res secrets.Resolver, clients liveClients, cats map[string]*core.Catalogue,
+	l liveService) bool {
 	if a.Paused {
 		p("agent %s: paused, not connected", a.ID)
 		return true
@@ -358,14 +370,11 @@ func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, res
 		p("agent %s: FAILED: %s: %s", a.ID, what, redact.String(err.Error()))
 		return false
 	}
-	token, err := res.Resolve(ctx, a.Core.TokenRef, a.Dir)
-	if err != nil {
-		return fail("the Core token", err)
-	}
 	coreHTTP := *clients.egress
 	coreHTTP.Timeout = core.DefaultTimeout
 	cat := cats[a.Core.BaseURL]
 	if cat == nil {
+		var err error
 		if cat, err = core.FetchCatalogue(ctx, &coreHTTP, a.Core.BaseURL); err != nil {
 			return fail("Core's catalogue", err)
 		}
@@ -375,6 +384,49 @@ func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, res
 		cats[a.Core.BaseURL] = cat
 		p("core %s: catalogue %s (%d tools)", a.Core.BaseURL, cat.Hash(), cat.Len())
 	}
+	if !core.HasRuntimeService(cat) {
+		return fail("Core", errors.New("it has no agent_runtime service (it is older than AIShie-Core #52): it hosts no agent by its id"))
+	}
+	agentID := strings.ToLower(a.Core.AgentID)
+	rs := core.NewRuntimeService(core.RuntimeCaller(core.RuntimeOptions{BaseURL: a.Core.BaseURL, Credential: l.credential,
+		HTTPClient: &coreHTTP, Catalogue: cat, Once: true}))
+	view, err := rs.Agent(ctx, agentID)
+	var ce *core.CredentialError
+	switch {
+	case errors.As(err, &ce):
+		return fail("the runtime's own credential (CORE_SERVICE_CREDENTIAL)", ce.Err)
+	case core.CredentialRefused(err):
+		return fail("the runtime's own credential (CORE_SERVICE_CREDENTIAL)",
+			errors.New("refused by Core: it was revoked, has expired, or is not the agent_runtime service's (aishie-core service issue agent_runtime)"))
+	case core.IsNotFound(err):
+		return fail("agent_runtime.agent", errors.New("no agent of this id in Core (core.agent_id)"))
+	case err != nil:
+		return fail("agent_runtime.agent", err)
+	}
+	asked := "not asked in the site now"
+	if view.SiteChat {
+		asked = "asked in the site"
+	}
+	p("agent %s: in Core %q (%s), hosted %s, %s; %d live seats; %s", a.ID, redact.String(view.DisplayName), view.AgentID, view.Hosting,
+		view.Status, view.LiveSeats, asked)
+	switch h := a.Hosted; {
+	case view.Hosting != core.HostingRuntime:
+		return fail("hosting", errors.New("an mcp agent: its owner's own tools reach it over MCP, and the runtime cannot host it"))
+	case h != nil && !strings.EqualFold(view.OwnerActorID, h.OwnerActorID):
+		return fail(store.AgentOwnerChanged, errors.New("the agent's owner in Core is not the person who hosted it here"))
+	case !view.Hostable:
+		return fail("hosting", fmt.Errorf("the runtime may not host it now, Core says (%s)", view.Reason))
+	case h != nil:
+		p("  owner: Core names the person who hosted it")
+	}
+	token, err := l.held(ctx, a, res)
+	switch {
+	case err != nil:
+		return fail("the token the runtime holds", err)
+	case token == "":
+		p("  token: none held here yet; the worker is issued one by the agent's id as it starts it")
+		return tryModels(ctx, p, a, res, clients)
+	}
 	caller, err := worker.DefaultCaller(a, token, cat, &coreHTTP, nil, core.RetryOptions{}, nil)
 	if err != nil {
 		return fail("connecting", err)
@@ -382,23 +434,16 @@ func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, res
 	c := core.NewClient(caller)
 	me, err := c.Me(ctx)
 	if errors.Is(err, core.ErrUnauthenticated) {
-		return fail("me_get", errors.New("the token was refused (401): issue a new one for the agent in Core"))
+		return fail("me_get", errors.New("the token the runtime holds was refused (401): it was revoked in Core; the worker is issued "+
+			"another once the agent's owner asks for one (a hosted agent), or at a reload (an operator's)"))
 	}
 	if err != nil {
 		return fail("me_get", err)
 	}
-	p("agent %s: connected as %q (%s, %s)", a.ID, redact.String(me.DisplayName), me.ID, me.Kind)
-	if _, msg := worker.HostedActorProblem(a, me); msg != "" {
-		return fail("me_get", errors.New(msg))
+	if !strings.EqualFold(me.ID, agentID) {
+		return fail("me_get", errors.New("the token the runtime holds is another agent's"))
 	}
-	// A hosted agent's owner is checked as run checks it at the agent's
-	// start, and a failure named by the state run would give it.
-	if prob := worker.HostedOwnerProblem(a, me, cat); prob != nil {
-		return fail(prob.State, prob)
-	}
-	if a.Hosted != nil {
-		p("  owner: Core names the person who connected it")
-	}
+	p("  connected with the token the runtime holds")
 	ms, err := c.Memberships(ctx)
 	if err != nil {
 		return fail("me_memberships", err)
@@ -445,13 +490,52 @@ func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, res
 			p("    writes: none its seat allows")
 		}
 	}
-	if !tryModel(ctx, p, a, a.Model, res, clients.model(a, a.Model)) {
-		ok = false
-	}
+	return tryModels(ctx, p, a, res, clients) && ok
+}
+
+// tryModels tries the agent's model's key, and its fallback's, over the
+// clients run would call them with.
+func tryModels(ctx context.Context, p func(string, ...any), a *config.Agent, res secrets.Resolver, clients liveClients) bool {
+	ok := tryModel(ctx, p, a, a.Model, res, clients.model(a, a.Model))
 	if fb := a.Model.Fallback; fb != nil && !tryModel(ctx, p, a, *fb, res, clients.model(a, *fb)) {
 		ok = false
 	}
 	return ok
+}
+
+// liveService is what check --live asks Core's agent_runtime service with:
+// the runtime's own credential, and the token the runtime holds for an
+// agent, if any.
+type liveService struct {
+	credential func(context.Context) (string, error)
+	// st is the store, nil when it is not read: an operator's agent's
+	// token is kept there, sealed, when the runtime has a keyring.
+	st store.Store
+}
+
+// held is the token the runtime holds for the agent, "" for none: a
+// hosted agent's issued token, sealed in its row; an operator's agent's
+// sealed in the store, while it is for the agent core.agent_id names.
+func (l liveService) held(ctx context.Context, a *config.Agent, res secrets.Resolver) (string, error) {
+	if h := a.Hosted; h != nil {
+		if h.TokenSecretID == "" || !h.TokenIssued {
+			return "", nil
+		}
+		return res.Resolve(ctx, secrets.SchemeSealed+h.TokenSecretID, "")
+	}
+	if l.st == nil || res.Sealed == nil {
+		return "", nil
+	}
+	t, err := l.st.AgentToken(ctx, a.ID)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		return "", nil
+	case err != nil:
+		return "", err
+	case !strings.EqualFold(t.CoreActorID, a.Core.AgentID):
+		return "", nil
+	}
+	return res.Resolve(ctx, secrets.SchemeSealed+t.SecretID, "")
 }
 
 // seatWords words a seat as the handout's example does (§5.1): "Delegate

@@ -7,8 +7,10 @@
 // merge key by key; anything else is replaced whole. Over all of it stand
 // the seat's perms in Core, which the runtime only narrows.
 //
-// Secrets are references (token_ref, key_ref), never values: secret://…,
-// env://NAME or file:///path (package secrets).
+// Secrets are references (key_ref), never values: secret://…, env://NAME
+// or file:///path (package secrets). An agent is named by its id in Core
+// (core.agent_id), and the runtime is issued its token through Core's
+// agent_runtime service: no configuration holds an agent's token.
 package config
 
 import (
@@ -56,14 +58,23 @@ type Agent struct {
 }
 
 // Hosted is what the registry knows of a hosted agent beside its
-// configuration: the Core actor its token must be, its owner, and the
-// version of its row this configuration was built from.
+// configuration: the agent in Core, the person who hosted it, the token its
+// row holds, and the version of its row this configuration was built from.
 type Hosted struct {
-	// CoreActorID is the actor me_get must name: a token of any other is
-	// not this agent's.
-	CoreActorID   string
+	// CoreActorID is the agent in Core (core.agent_id), and the actor
+	// me_get must name.
+	CoreActorID string
+	// OwnerActorID is the person who hosted it, who must be its owner of
+	// record in Core (agent_runtime.agent).
 	OwnerActorID  string
 	OwnerVerified bool
+	// TokenSecretID is the agent's token sealed in its row: the one Core
+	// issued the runtime for it (TokenIssued), or, from before hosting by
+	// id, one its owner pasted, which the agent's next start replaces with
+	// one issued; "" while its row holds none (before its model is chosen,
+	// paused, or its owner asked for a new one).
+	TokenSecretID string
+	TokenIssued   bool
 	// Version is the row's version (store.HostedAgent.Version): the worker
 	// records it with every state it writes, so that the API tells a
 	// change not yet in force from one that is.
@@ -87,7 +98,15 @@ type Core struct {
 	Transport string `yaml:"transport"`
 	// MCPProtocol is the pinned MCP revision.
 	MCPProtocol string `yaml:"mcp_protocol"`
-	TokenRef    string `yaml:"token_ref"`
+	// AgentID is the agent in Core, an agent hosted runtime, by its id:
+	// the runtime is issued its one token by it, through Core's
+	// agent_runtime service with the runtime's own credential
+	// (CORE_SERVICE_CREDENTIAL). Required.
+	AgentID string `yaml:"agent_id"`
+	// TokenRef was the agent's token, kept in a file or the environment,
+	// before Core issued the runtime its agents' tokens. It is read only to
+	// be refused, saying to give AgentID in its place.
+	TokenRef string `yaml:"token_ref,omitempty"`
 }
 
 // Model is the model the agent answers with.

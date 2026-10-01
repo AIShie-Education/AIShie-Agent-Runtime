@@ -33,6 +33,20 @@ func TestFromEnvDefaults(t *testing.T) {
 	if e.Transcribe != TranscribeAuto {
 		t.Fatalf("TRANSCRIBE's default: %q", e.Transcribe)
 	}
+	if e.CoreServiceCredential != "secret://core/agent_runtime" {
+		t.Fatalf("CORE_SERVICE_CREDENTIAL's default: %q", e.CoreServiceCredential)
+	}
+}
+
+// CORE_SERVICE_CREDENTIAL names where the runtime's own credential is kept:
+// a file, the environment, or a secret under SECRETS_DIR.
+func TestFromEnvServiceCredential(t *testing.T) {
+	for _, ref := range []string{"secret://core/agent_runtime", "env://AGENT_RUNTIME_CREDENTIAL", "file:///run/secrets/agent_runtime"} {
+		e, err := FromEnv(envOf(map[string]string{"CORE_SERVICE_CREDENTIAL": ref}))
+		if err != nil || e.CoreServiceCredential != ref {
+			t.Errorf("CORE_SERVICE_CREDENTIAL=%s: %q, %v", ref, e.CoreServiceCredential, err)
+		}
+	}
 }
 
 func TestFromEnvTranscribe(t *testing.T) {
@@ -165,6 +179,10 @@ func TestFromEnvRefuses(t *testing.T) {
 		{"PDF_PART_PAGES", "0", "PDF_PART_PAGES"},
 		{"PDF_PART_PAGES", "ten", "PDF_PART_PAGES"},
 		{"TRANSCRIBE", "yes", `TRANSCRIBE: "yes" is not auto, on or off`},
+		{"CORE_SERVICE_CREDENTIAL", "aissvc_k7v2m4qhx3ab_SecretOfTheServiceNeverRepeated0123456789", "CORE_SERVICE_CREDENTIAL: not a reference"},
+		{"CORE_SERVICE_CREDENTIAL", "/run/secrets/agent_runtime", "CORE_SERVICE_CREDENTIAL: not a reference"},
+		{"CORE_SERVICE_CREDENTIAL", "secret://core/../agent_runtime", "CORE_SERVICE_CREDENTIAL"},
+		{"CORE_SERVICE_CREDENTIAL", "sealed://sec_0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0a1b", "CORE_SERVICE_CREDENTIAL: the runtime's own credential is the operator's"},
 	} {
 		t.Run(tc.key+"="+tc.value, func(t *testing.T) {
 			_, err := FromEnv(envOf(map[string]string{tc.key: tc.value}))
@@ -173,7 +191,7 @@ func TestFromEnvRefuses(t *testing.T) {
 			}
 			// A proxy's password, or a pattern that spells a secret, is
 			// never repeated.
-			for _, secret := range []string{"hunter2", "secret-(value", "WlpaWlpa"} {
+			for _, secret := range []string{"hunter2", "secret-(value", "WlpaWlpa", "SecretOfTheService"} {
 				if strings.Contains(err.Error(), secret) {
 					t.Fatalf("the error repeats %q: %v", secret, err)
 				}

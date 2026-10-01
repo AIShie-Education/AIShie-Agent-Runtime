@@ -6,177 +6,288 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/fakecore"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/probe"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
-// inspect says what a token is before it is connected, and refuses it in
-// the contract's order, each refusal audited with its reason; a token not
-// of Core's shape is never sent to Core. Nothing is written.
+// serviceCalls counts the calls of the agent runtime's tool Core was
+// made.
+func (h *hostWorld) serviceCalls(tool string) int {
+	n := 0
+	for _, c := range h.fc.Calls() {
+		if c.Tool == tool {
+			n++
+		}
+	}
+	return n
+}
+
+// inspect says what an agent of the caller's is in Core, by its id, asked
+// with the runtime's own credential: whether it may be hosted here, and
+// why not, and whether it is; another's, nobody's, a person's or no agent
+// at all is 404, as Core's check_owner says nothing of them. Nothing is
+// written, and each request is audited.
 func TestInspect(t *testing.T) {
 	h := newHostWorld(t, fakecore.Options{}, nil)
-	a := h.call("POST", "agents/inspect", h.yuki, tokenBody(h.helper.Token, h.helper.ID))
+	a := h.call("POST", "agents/inspect", h.yuki, agentBody(h.helper.ID))
 	wantSecured(t, a, "no-store")
 	var ins Inspection
 	a.decode(t, &ins)
 	if a.code != http.StatusOK || ins.CoreActorID != h.helper.ID || ins.OwnerActorID != h.yuki.ID || ins.DisplayName != "Yuki's helper" ||
-		ins.Token.Prefix != probe.Prefix(h.helper.Token) || ins.Token.Hint != "ais_"+ins.Token.Prefix+"…" || ins.Hosted != nil {
+		ins.Hosting != core.HostingRuntime || !ins.Hostable || ins.Reason != nil || ins.LiveSeats != 1 || !ins.SiteChat || ins.Hosted != nil {
 		t.Fatalf("%d %s", a.code, a.body)
 	}
-	if len(ins.Seats) != 1 || ins.Seats[0].Kind != "delegate" || ins.Seats[0].CourseCode != "CS101" || !ins.Seats[0].Answers ||
-		ins.Seats[0].CourseStatus == nil || *ins.Seats[0].CourseStatus != "active" || ins.Seats[0].ProposalsWaiting != 0 {
-		t.Errorf("seats: %+v", ins.Seats)
+	if !strings.Contains(a.body, `"reason":null`) || !strings.Contains(a.body, `"hosted":null`) || strings.Contains(a.body, "token") {
+		t.Errorf("the answer: %s", a.body)
 	}
 	if n, err := h.st.HostedAgents(context.Background()); err != nil || len(n) != 0 {
 		t.Errorf("inspect wrote %+v %v", n, err)
 	}
+	if ev := h.events("agent.inspect"); len(ev) != 1 || ev[0].Outcome != "ok" || ev[0].TargetType != "core_actor" || ev[0].TargetID != h.helper.ID {
+		t.Errorf("the audit: %+v", ev)
+	}
+	// In any case, as Core writes it.
+	a = h.call("POST", "agents/inspect", h.yuki, agentBody(strings.ToUpper(h.helper.ID)))
+	if a.decode(t, &ins); a.code != http.StatusOK || ins.CoreActorID != h.helper.ID {
+		t.Errorf("an id in upper case: %d %s", a.code, a.body)
+	}
 
-	unowned, err := h.fc.AddAgent("Nobody's", h.ken.ID)
+	tools, err := h.fc.AddMCPAgent("Yuki's tools", h.yuki.ID)
 	h.ok(err)
-	h.ok(h.fc.SetOwner(unowned.ID, ""))
-	unownedToken := h.token(unowned.ID).Token
-	revoked := h.token(h.helper.ID).Token
-	h.ok(h.fc.Revoke(revoked))
+	h.tokens = append(h.tokens, tools.Token)
 	suspended, err := h.fc.AddAgent("Suspended", h.yuki.ID)
 	h.ok(err)
 	h.tokens = append(h.tokens, suspended.Token)
 	h.ok(h.fc.SuspendActor(suspended.ID))
+	yaml, err := h.fc.AddAgent("Yuki's operator agent", h.yuki.ID)
+	h.ok(err)
+	h.tokens = append(h.tokens, yaml.Token)
+	h.actors.mu.Lock()
+	h.actors.yaml[yaml.ID] = "yuki-yaml"
+	h.actors.mu.Unlock()
+	for _, tc := range []struct {
+		name, id, reason, hosting string
+	}{
+		{"an mcp agent", tools.ID, ReasonMCPAgent, core.HostingMCP},
+		{"a suspended agent", suspended.ID, ReasonAgentSuspended, core.HostingRuntime},
+		{"an agent the operator runs", yaml.ID, ReasonOperatorAgent, core.HostingRuntime},
+	} {
+		var got Inspection
+		a := h.call("POST", "agents/inspect", h.yuki, agentBody(tc.id))
+		if a.decode(t, &got); a.code != http.StatusOK || got.Hostable || got.Reason == nil || *got.Reason != tc.reason || got.Hosting != tc.hosting {
+			t.Errorf("%s: %d %s", tc.name, a.code, a.body)
+		}
+	}
+
 	kens, err := h.fc.AddAgent("Ken's helper", h.ken.ID)
 	h.ok(err)
 	h.tokens = append(h.tokens, kens.Token)
-	old := newHostWorld(t, fakecore.Options{BeforeOwners: true}, nil)
-
+	unowned := h.fc.AddUnownedAgent("Nobody's")
+	h.tokens = append(h.tokens, unowned.Token)
 	for _, tc := range []struct {
-		name, token, actor string
-		w                  *hostWorld
-		code               int
-		reason             string
+		name, body string
+		code       int
+		reason     string
 	}{
-		{"not a token", "sk-proj-abcdefghijklmnopqrstuvwxyz", "", h, 400, ReasonTokenMalformed},
-		{"an invitation", "aisinv_abcdefghijkl_" + strings.Repeat("A", 43), "", h, 400, ReasonTokenMalformed},
-		{"a core_actor_id not a UUID", h.helper.Token, "agent-1", h, 400, ReasonInvalidField},
-		{"revoked", revoked, "", h, 422, probe.ReasonTokenRefused},
-		{"a person's", h.yuki.Token, "", h, 422, probe.ReasonTokenNotAgent},
-		{"a suspended agent's", suspended.Token, "", h, 422, probe.ReasonAgentSuspended},
-		{"another agent's than meant", h.helper.Token, suspended.ID, h, 422, probe.ReasonTokenOtherAgent},
-		{"a Core that does not name owners", old.helper.Token, "", old, 422, probe.ReasonCoreTooOld},
-		{"an agent nobody owns", unownedToken, "", h, 403, probe.ReasonAgentUnowned},
-		{"another's agent", kens.Token, "", h, 403, probe.ReasonNotOwner},
+		{"another's agent", agentBody(kens.ID), 404, ReasonAgentNotFound},
+		{"an agent nobody owns", agentBody(unowned.ID), 404, ReasonAgentNotFound},
+		{"a person", agentBody(h.ken.ID), 404, ReasonAgentNotFound},
+		{"no one", agentBody("0192f3c1-0000-7000-8000-00000000abcd"), 404, ReasonAgentNotFound},
+		{"not a UUID", agentBody("agent-1"), 400, ReasonInvalidField},
+		{"a UUID braced", agentBody("{" + h.helper.ID + "}"), 400, ReasonInvalidField},
+		{"no id", `{}`, 400, ReasonMissingField},
+		{"a token", `{"token":"` + h.helper.Token + `"}`, 400, ReasonUnknownField},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			before := len(tc.w.fc.Calls())
-			a := tc.w.call("POST", "agents/inspect", tc.w.yuki, tokenBody(tc.token, tc.actor))
+			a := h.call("POST", "agents/inspect", h.yuki, tc.body)
 			wantSecured(t, a, "no-store")
-			wantRefused(t, a, tc.code, map[int]string{400: CodeInvalidArgument, 422: CodeFailedPrecondition, 403: CodeForbidden}[tc.code], tc.reason)
-			if tc.code == 400 && len(tc.w.fc.Calls()) != before {
-				t.Error("Core was asked about a token not of its shape")
-			}
-			ev := tc.w.events("agent.inspect")
-			if len(ev) == 0 || ev[len(ev)-1].Outcome != tc.reason || ev[len(ev)-1].ActorID != tc.w.yuki.ID {
+			wantRefused(t, a, tc.code, map[int]string{400: CodeInvalidArgument, 404: CodeNotFound}[tc.code], tc.reason)
+			ev := h.events("agent.inspect")
+			if len(ev) == 0 || ev[len(ev)-1].Outcome != tc.reason || ev[len(ev)-1].ActorID != h.yuki.ID {
 				t.Errorf("the audit: %+v", ev)
 			}
 		})
 	}
 
-	// Core not answering: 503 core_unavailable.
-	h.fc.Inject(func(fakecore.InjectedCall) *fakecore.Injection {
-		return &fakecore.Injection{Status: http.StatusBadGateway}
-	})
-	wantRefused(t, h.call("POST", "agents/inspect", h.yuki, tokenBody(h.helper.Token, "")), 503, CodeUnavailable, probe.ReasonCoreUnavailable)
-	h.fc.Inject(nil)
-
-	// Hosted here: by Yuki, with this token, or another.
-	v := h.connect(h.yuki, h.helper.Token)
-	a = h.call("POST", "agents/inspect", h.yuki, tokenBody(h.helper.Token, ""))
+	// Hosted here: by Yuki, or by someone else.
+	v := h.host(h.yuki, h.helper.ID)
+	a = h.call("POST", "agents/inspect", h.yuki, agentBody(h.helper.ID))
 	a.decode(t, &ins)
-	if ins.Hosted == nil || !ins.Hosted.ByYou || !ins.Hosted.SameToken || ins.Hosted.AgentID == nil || *ins.Hosted.AgentID != v.ID {
-		t.Errorf("hosted with this token: %s", a.body)
-	}
-	next := h.token(h.helper.ID)
-	a = h.call("POST", "agents/inspect", h.yuki, tokenBody(next.Token, ""))
-	a.decode(t, &ins)
-	if ins.Hosted == nil || !ins.Hosted.ByYou || ins.Hosted.SameToken {
-		t.Errorf("hosted with another token: %s", a.body)
+	if ins.Hosted == nil || !ins.Hosted.ByYou || ins.Hosted.ID == nil || *ins.Hosted.ID != v.ID {
+		t.Errorf("hosted by Yuki: %s", a.body)
 	}
 	h.noSecrets(a)
 }
 
-// connect hosts the agent: 201, needs_model, its token sealed and never
-// shown, its seats recorded at once; the same token again replays it; the
-// agent's other token is already_hosted; every outcome is audited.
-func TestConnect(t *testing.T) {
+// inspect, and POST /agents, refuse as Core cannot be asked: Core not
+// answering (core_unavailable); the runtime with no credential of its own,
+// or one Core refuses (runtime_misconfigured); a Core from before hosting
+// by id (core_too_old).
+func TestInspectCoreRefusals(t *testing.T) {
 	h := newHostWorld(t, fakecore.Options{}, nil)
-	a := h.call("POST", "agents", h.yuki, tokenBody(h.helper.Token, h.helper.ID))
+	h.fc.Inject(func(c fakecore.InjectedCall) *fakecore.Injection {
+		if c.Tool == core.ToolRuntimeCheckOwner {
+			return &fakecore.Injection{Status: http.StatusBadGateway}
+		}
+		return nil
+	})
+	for _, path := range []string{"agents/inspect", "agents"} {
+		wantRefused(t, h.call("POST", path, h.yuki, agentBody(h.helper.ID)), 503, CodeUnavailable, ReasonCoreUnavailable)
+	}
+	h.fc.Inject(nil)
+
+	revoked := h.fc.IssueRuntimeServiceToken("revoked")
+	h.ok(h.fc.RevokeServiceToken(revoked.CredentialID))
+	transcriber := h.fc.IssueServiceToken("transcriber")
+	h.tokens = append(h.tokens, revoked.Token, transcriber.Token)
+	for name, rs := range map[string]*core.RuntimeService{
+		"no credential":                 nil,
+		"a revoked credential":          h.runtime(revoked.Token),
+		"the transcription service's":   h.runtime(transcriber.Token),
+		"a credential not a service's":  h.runtime(h.helper.Token),
+		"a credential not read at hand": core.NewRuntimeService(core.RuntimeCaller(core.RuntimeOptions{BaseURL: h.srv.URL, Once: true, Credential: func(context.Context) (string, error) { return "", errors.New("secrets: no such file") }})),
+	} {
+		h.s.o.Runtime = rs
+		for _, path := range []string{"agents/inspect", "agents"} {
+			a := h.call("POST", path, h.yuki, agentBody(h.helper.ID))
+			if e := wantRefused(t, a, 503, CodeUnavailable, ReasonRuntimeMisconfigured); e.Message == "" {
+				t.Errorf("%s: %s", name, a.body)
+			}
+		}
+	}
+	if rows, _ := h.st.HostedAgents(context.Background()); len(rows) != 0 {
+		t.Errorf("hosted without a credential: %+v", rows)
+	}
+
+	old := newHostWorld(t, fakecore.Options{WithoutHosting: true}, nil)
+	for _, path := range []string{"agents/inspect", "agents"} {
+		wantRefused(t, old.call("POST", path, old.yuki, agentBody(old.helper.ID)), 422, CodeFailedPrecondition, ReasonCoreTooOld)
+	}
+	h.noSecrets()
+}
+
+// POST /agents hosts the caller's agent by its id: 201, needs_model, its
+// row naming the agent and its owner, holding no token (the worker running
+// it is issued one once it has a model); asked again, it replays the row;
+// every outcome is audited.
+func TestHost(t *testing.T) {
+	h := newHostWorld(t, fakecore.Options{}, nil)
+	issues := h.serviceCalls(core.ToolRuntimeIssueToken)
+	a := h.call("POST", "agents", h.yuki, agentBody(h.helper.ID))
 	wantSecured(t, a, "no-store")
-	var v Connected
+	var v HostedAgent
 	a.decode(t, &v)
 	if a.code != http.StatusCreated || !store.IsHostedAgentID(v.ID) || v.Status != StatusNeedsModel || v.Version != 1 ||
 		v.CoreActorID != h.helper.ID || v.OwnerActorID != h.yuki.ID || v.DisplayName != "Yuki's helper" || v.Paused || v.Problem != nil ||
-		v.Model.Own != nil || v.Model.School != nil || v.OwnKey != nil || v.Token.Prefix != probe.Prefix(h.helper.Token) {
+		v.Model.Own != nil || v.Model.School != nil || v.OwnKey != nil {
 		t.Fatalf("%d %s", a.code, a.body)
 	}
 	if a.header.Get("Location") != Prefix+"agents/"+v.ID || a.header.Get("ETag") != `"1"` {
 		t.Errorf("Location %q, ETag %q", a.header.Get("Location"), a.header.Get("ETag"))
 	}
-	if len(v.Seats) != 1 || v.Seats[0].Kind != "delegate" || v.SeatsAsOf == nil || v.Today.CostUSD != "0.000000" || !v.Today.Since.Equal(store.UTCDay(at)) {
+	if len(v.Seats) != 0 || v.SeatsAsOf != nil || v.Today.CostUSD != "0.000000" || !v.Today.Since.Equal(store.UTCDay(at)) {
 		t.Errorf("seats and today: %s", a.body)
 	}
-	if !strings.Contains(a.body, `"model":{"own":null,"school":null}`) || !strings.Contains(a.body, `"problem":null`) {
-		t.Errorf("the null members: %s", a.body)
+	if !strings.Contains(a.body, `"model":{"own":null,"school":null}`) || !strings.Contains(a.body, `"problem":null`) ||
+		strings.Contains(a.body, `"token"`) {
+		t.Errorf("the members: %s", a.body)
 	}
 	row, err := h.st.HostedAgent(context.Background(), v.ID)
 	h.ok(err)
-	if row.OwnerActorID != h.yuki.ID || !row.OwnerVerified || row.TenantID != "ten_"+h.yuki.ID || string(row.Settings) != `{}` {
+	if row.OwnerActorID != h.yuki.ID || !row.OwnerVerified || row.TenantID != "ten_"+h.yuki.ID || string(row.Settings) != `{}` ||
+		row.TokenSecretID != "" || row.TokenIssued {
 		t.Errorf("the row: %+v", row)
 	}
-	sec, err := h.st.Secret(context.Background(), row.TokenSecretID)
-	h.ok(err)
-	if sec.Kind != store.SecretCoreToken || sec.TenantID != row.TenantID || sec.CreatedBy != h.yuki.ID {
-		t.Errorf("the secret: %+v", sec)
+	if n := h.serviceCalls(core.ToolRuntimeIssueToken); n != issues {
+		t.Errorf("the API was issued %d tokens", n-issues)
 	}
-	if opened, err := h.v.Open(context.Background(), sec); err != nil || opened != h.helper.Token {
-		t.Error("the sealed token does not open to the token")
-	}
-	if seats, err := h.st.KnownSeats(context.Background(), v.ID); err != nil || len(seats) != 1 || seats[0].CourseStatus != "active" {
-		t.Errorf("seats recorded: %+v %v", seats, err)
-	}
-	ev := h.events("agent.connect")
-	if len(ev) != 1 || ev[0].Outcome != "ok" || ev[0].TargetID != v.ID || !strings.Contains(string(ev[0].Detail), `"seats":1`) {
+	ev := h.events("agent.host")
+	if len(ev) != 1 || ev[0].Outcome != "ok" || ev[0].TargetID != v.ID || !strings.Contains(string(ev[0].Detail), `"core_actor_id":"`+h.helper.ID) {
 		t.Errorf("the audit: %+v", ev)
 	}
 
-	// The same token again: the agent as it is, nothing written.
-	b := h.call("POST", "agents", h.yuki, tokenBody(h.helper.Token, ""))
-	var again Connected
+	// Again: the agent as it is, nothing written.
+	b := h.call("POST", "agents", h.yuki, agentBody(h.helper.ID))
+	var again HostedAgent
 	b.decode(t, &again)
 	if b.code != http.StatusOK || b.header.Get("Idempotency-Replayed") != "true" || again.ID != v.ID || again.Version != 1 {
 		t.Errorf("a replay: %d %s", b.code, b.body)
 	}
-	// Another token of the agent's: already hosted.
-	next := h.token(h.helper.ID)
-	c := h.call("POST", "agents", h.yuki, tokenBody(next.Token, ""))
-	if e := wantRefused(t, c, 409, CodeConflict, ReasonAlreadyHosted); e.Details["agent_id"] != v.ID {
-		t.Errorf("already hosted: %+v", e)
-	}
-	if ev := h.events("agent.connect"); len(ev) != 3 || ev[2].Outcome != ReasonAlreadyHosted {
+	if ev := h.events("agent.host"); len(ev) != 2 || ev[1].Outcome != "ok" || !strings.Contains(string(ev[1].Detail), `"replayed":true`) {
 		t.Errorf("the audit: %+v", ev)
 	}
-	h.noSecrets(a, b, c)
+	h.noSecrets(a, b)
 }
 
-// Two connections of one token at once: one is created, the other
-// replays it.
-func TestConnectConcurrently(t *testing.T) {
+// POST /agents refuses an agent Core says may not be hosted, saying why:
+// an mcp agent (mcp_agent), one suspended (agent_suspended), or whose
+// owner is (owner_suspended); another's agent is 404; one the operator
+// runs is operator_agent; nothing is written.
+func TestHostRefuses(t *testing.T) {
+	h := newHostWorld(t, fakecore.Options{}, nil)
+	tools, err := h.fc.AddMCPAgent("Yuki's tools", h.yuki.ID)
+	h.ok(err)
+	suspended, err := h.fc.AddAgent("Suspended", h.yuki.ID)
+	h.ok(err)
+	h.ok(h.fc.SuspendActor(suspended.ID))
+	kens, err := h.fc.AddAgent("Ken's helper", h.ken.ID)
+	h.ok(err)
+	yaml, err := h.fc.AddAgent("Yuki's operator agent", h.yuki.ID)
+	h.ok(err)
+	h.actors.mu.Lock()
+	h.actors.yaml[yaml.ID] = "yuki-yaml"
+	h.actors.mu.Unlock()
+	h.tokens = append(h.tokens, tools.Token, suspended.Token, kens.Token, yaml.Token)
+	for _, tc := range []struct {
+		name, id     string
+		code         int
+		errCode      string
+		reason       string
+		suspendOwner bool
+	}{
+		{"an mcp agent", tools.ID, 422, CodeFailedPrecondition, ReasonMCPAgent, false},
+		{"a suspended agent", suspended.ID, 422, CodeFailedPrecondition, ReasonAgentSuspended, false},
+		{"another's agent", kens.ID, 404, CodeNotFound, ReasonAgentNotFound, false},
+		{"an agent the operator runs", yaml.ID, 409, CodeConflict, ReasonOperatorAgent, false},
+		{"an agent whose owner is suspended", h.helper.ID, 422, CodeFailedPrecondition, ReasonOwnerSuspended, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.suspendOwner {
+				h.ok(h.fc.SuspendActor(h.yuki.ID))
+				defer func() { h.ok(h.fc.ReactivateActor(h.yuki.ID)) }()
+			}
+			wantRefused(t, h.call("POST", "agents", h.yuki, agentBody(tc.id)), tc.code, tc.errCode, tc.reason)
+			if ev := h.events("agent.host"); len(ev) == 0 || ev[len(ev)-1].Outcome != tc.reason {
+				t.Errorf("the audit: %+v", ev)
+			}
+		})
+	}
+	if rows, _ := h.st.HostedAgents(context.Background()); len(rows) != 0 {
+		t.Errorf("hosted: %+v", rows)
+	}
+	if h.fc.Hosting(tools.ID) != core.HostingMCP || h.fc.SiteChat(tools.ID) {
+		t.Error("the mcp agent changed")
+	}
+
+	// No vault to seal the token the worker is issued with: nothing hosted.
+	nv := newHostWorld(t, fakecore.Options{}, func(o *Options) { o.Vault = nil })
+	nv.s.o.Vault = nil
+	wantRefused(t, nv.call("POST", "agents", nv.yuki, agentBody(nv.helper.ID)), 500, CodeInternal, ReasonInternal)
+	h.noSecrets()
+}
+
+// Hosting one agent several times at once: one is created, the others
+// replay it.
+func TestHostConcurrently(t *testing.T) {
 	h := newHostWorld(t, fakecore.Options{}, nil)
 	var wg sync.WaitGroup
 	codes := make([]int, 4)
 	for i := range codes {
-		wg.Go(func() { codes[i] = h.call("POST", "agents", h.yuki, tokenBody(h.helper.Token, "")).code })
+		wg.Go(func() { codes[i] = h.call("POST", "agents", h.yuki, agentBody(h.helper.ID)).code })
 	}
 	wg.Wait()
 	created := 0
@@ -186,7 +297,7 @@ func TestConnectConcurrently(t *testing.T) {
 			created++
 		case http.StatusOK:
 		default:
-			t.Errorf("a connection answered %d", c)
+			t.Errorf("a request answered %d", c)
 		}
 	}
 	if rows, _ := h.st.HostedAgents(context.Background()); created != 1 || len(rows) != 1 {
@@ -194,83 +305,53 @@ func TestConnectConcurrently(t *testing.T) {
 	}
 }
 
-// An agent Core has given to someone else since its earlier owner hosted
-// it is taken over: the earlier row deleted and purged, and audited. An
-// agent the operator runs is operator_agent.
-func TestConnectTakeoverAndOperator(t *testing.T) {
+// An earlier owner's row of an agent Core says is the caller's (one Core
+// gave them before an agent's owner was fixed in Core) is taken over: the
+// row deleted and purged, the token the runtime held for it revoked, and
+// audited; the earlier owner's GET of it is 404 then.
+func TestHostTakesOver(t *testing.T) {
 	h := newHostWorld(t, fakecore.Options{}, nil)
-	old := h.connect(h.yuki, h.helper.Token)
-	h.ok(h.st.SetAgentState(context.Background(), store.AgentState{AgentID: old.ID, State: store.AgentRunning}))
-	// Core gives the agent to Ken: its seats first go, and every token it
-	// had is revoked.
-	for _, m := range h.seatsOf(h.helper.ID) {
-		h.ok(h.fc.RemoveSeat(m))
-	}
-	h.ok(h.fc.SetOwner(h.helper.ID, h.ken.ID))
-	tok := h.token(h.helper.ID)
-	v := h.connect(h.ken, tok.Token)
-	if v.ID == old.ID || v.OwnerActorID != h.ken.ID {
+	ctx := context.Background()
+	old, err := h.st.CreateHostedAgent(ctx, store.HostedAgent{ID: "agt_earlier", CoreActorID: h.helper.ID, OwnerActorID: h.ken.ID,
+		OwnerVerified: true, TenantID: "ten_" + h.ken.ID, DisplayName: "Ken's once", Settings: []byte(`{}`)})
+	h.ok(err)
+	h.issued(old.ID)
+	h.ok(h.st.SetAgentState(ctx, store.AgentState{AgentID: old.ID, State: store.AgentOwnerChanged, Reason: store.ReasonOwnerChanged}))
+	v := h.host(h.yuki, h.helper.ID)
+	if v.ID == old.ID || v.OwnerActorID != h.yuki.ID {
 		t.Errorf("taken over: %+v", v)
 	}
-	if _, err := h.st.HostedAgent(context.Background(), old.ID); !errors.Is(err, store.ErrNotFound) {
+	if _, err := h.st.HostedAgent(ctx, old.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("the earlier row: %v", err)
 	}
-	if _, err := h.st.AgentState(context.Background(), old.ID); !errors.Is(err, store.ErrNotFound) {
+	if _, err := h.st.AgentState(ctx, old.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("the earlier row not purged: %v", err)
 	}
-	if ev := h.events("agent.takeover"); len(ev) != 1 || ev[0].TargetID != old.ID || ev[0].ActorID != h.ken.ID {
+	if tok := h.fc.RuntimeToken(h.helper.ID); tok.Token != "" {
+		t.Error("the earlier row's token is still live")
+	}
+	ev := h.events("agent.takeover")
+	if len(ev) != 1 || ev[0].TargetID != old.ID || ev[0].ActorID != h.yuki.ID || !strings.Contains(string(ev[0].Detail), `"revocation":"revoked"`) {
 		t.Errorf("the audit: %+v", ev)
 	}
-	// Yuki's GET of her old agent is 404 now.
-	wantRefused(t, h.call("GET", "agents/"+old.ID, h.yuki, ""), 404, CodeNotFound, ReasonAgentNotFound)
-
-	other, err := h.fc.AddAgent("Yuki's second", h.yuki.ID)
-	h.ok(err)
-	h.tokens = append(h.tokens, other.Token)
-	h.actors.mu.Lock()
-	h.actors.yaml[other.ID] = "yuki-yaml"
-	h.actors.mu.Unlock()
-	wantRefused(t, h.call("POST", "agents", h.yuki, tokenBody(other.Token, "")), 409, CodeConflict, ReasonOperatorAgent)
-}
-
-// seatsOf are the agent's seats in the fake Core, for tests that take it
-// out.
-func (h *hostWorld) seatsOf(actorID string) []string {
-	h.t.Helper()
-	c := probe.NewClient(h.srv.URL, h.tokenOf(actorID), nil)
-	ms, err := c.Memberships(context.Background())
-	h.ok(err)
-	var out []string
-	for _, m := range ms {
-		out = append(out, m.MemberID)
-	}
-	return out
-}
-
-// tokenOf is a live token of the actor's the test knows.
-func (h *hostWorld) tokenOf(actorID string) string {
-	switch actorID {
-	case h.helper.ID:
-		return h.helper.Token
-	}
-	h.t.Fatalf("no token of %s", actorID)
-	return ""
+	wantRefused(t, h.call("GET", "agents/"+old.ID, h.ken, ""), 404, CodeNotFound, ReasonAgentNotFound)
+	h.noSecrets()
 }
 
 // GET /agents and /agents/{id} give the caller's own agents alone; any
 // other id, of another's, not there, or of the wrong shape, is 404.
 func TestListAndGet(t *testing.T) {
 	h := newHostWorld(t, fakecore.Options{}, nil)
-	mine := h.connect(h.yuki, h.helper.Token)
+	mine := h.host(h.yuki, h.helper.ID)
 	second, err := h.fc.AddAgent("Yuki's second", h.yuki.ID)
 	h.ok(err)
 	h.tokens = append(h.tokens, second.Token)
 	h.add(time.Second)
-	mine2 := h.connect(h.yuki, second.Token)
+	mine2 := h.host(h.yuki, second.ID)
 	kens, err := h.fc.AddAgent("Ken's", h.ken.ID)
 	h.ok(err)
 	h.tokens = append(h.tokens, kens.Token)
-	theirs := h.connect(h.ken, kens.Token)
+	theirs := h.host(h.ken, kens.ID)
 
 	var list AgentList
 	a := h.call("GET", "agents", h.yuki, "")
@@ -342,8 +423,9 @@ func TestStatusOf(t *testing.T) {
 		}
 	}
 	for _, r := range []string{store.ReasonTokenRefused, store.ReasonSettingsRejected, store.ReasonRuntimeMisconfigured,
-		store.ReasonOperatorAgent, store.ReasonActorInUse, store.ReasonTokenOtherAgent, store.ReasonTokenNotAgent,
-		store.ReasonOwnerChanged, store.ReasonCoreTooOld, store.ReasonAgentSuspended, store.ReasonFailing} {
+		store.ReasonOperatorAgent, store.ReasonActorInUse, store.ReasonTokenOtherAgent, store.ReasonOwnerChanged,
+		store.ReasonCoreTooOld, store.ReasonAgentSuspended, store.ReasonOwnerSuspended, store.ReasonMCPAgent,
+		store.ReasonAgentNotFound, store.ReasonFailing} {
 		if _, p := statusOf(row(false), true, st(store.AgentError, r, 5)); p == nil || p.Reason != r {
 			t.Errorf("reason %s: %+v", r, p)
 		}
@@ -355,11 +437,10 @@ func TestStatusOf(t *testing.T) {
 // gone is not shown.
 func TestViewCountsProposalsAndSpend(t *testing.T) {
 	h := newHostWorld(t, fakecore.Options{}, nil)
-	v := h.connect(h.yuki, h.helper.Token)
+	v := h.host(h.yuki, h.helper.ID)
 	ctx := context.Background()
-	seats, err := h.st.KnownSeats(ctx, v.ID)
-	h.ok(err)
-	member := seats[0].MemberID
+	member := "seat-1"
+	h.ok(h.st.SeatSeen(ctx, store.SeatRef{AgentID: v.ID, MemberID: member, CourseID: h.co.ID, CourseCode: "CS101", Status: "active", SeenAt: at}))
 	for i, state := range []store.AttemptState{store.AttemptProposed, store.AttemptProposed, store.AttemptSending} {
 		key := "answer:c1:m" + string(rune('1'+i)) + ":1"
 		_, err := h.st.PutAttempt(ctx, store.Attempt{Key: key, AgentID: v.ID, MemberID: member, CourseID: h.co.ID, ConversationID: "c1",
@@ -390,186 +471,189 @@ func TestViewCountsProposalsAndSpend(t *testing.T) {
 	}
 }
 
-// PUT /token replaces the token with another of the agent's own, which
-// revokes the one it replaces in Core; the same token again changes
-// nothing; a token of another agent is token_other_agent; If-Match, when
-// given, must be the agent's version.
-func TestReplaceToken(t *testing.T) {
+// POST …/token has the agent issued a new token, after Core refused the
+// one the runtime held: Core must still say it is the caller's and may be
+// hosted; the row's token is dropped (its secret destroyed), for the
+// worker to be issued another; a row holding none changes nothing.
+func TestRenewToken(t *testing.T) {
 	h := newHostWorld(t, fakecore.Options{}, nil)
-	v := h.connect(h.yuki, h.helper.Token)
+	v := h.host(h.yuki, h.helper.ID)
+	h.issued(v.ID)
 	ctx := context.Background()
 	row, err := h.st.HostedAgent(ctx, v.ID)
 	h.ok(err)
-	oldSecret := row.TokenSecretID
+	h.ok(h.st.SetAgentState(ctx, store.AgentState{AgentID: v.ID, State: store.AgentUnauthorized, Reason: store.ReasonTokenRefused,
+		ConfigVersion: row.Version}))
 	path := "agents/" + v.ID + "/token"
 
-	other, err := h.fc.AddAgent("Yuki's second", h.yuki.ID)
+	wantRefused(t, h.call("POST", "agents/agt_nothere/token", h.yuki, ""), 404, CodeNotFound, ReasonAgentNotFound)
+	wantRefused(t, h.call("POST", path, h.ken, ""), 404, CodeNotFound, ReasonAgentNotFound)
+	wantRefused(t, h.call("POST", path, h.yuki, `{"token":"x"}`), 400, CodeInvalidArgument, ReasonUnknownField)
+	wantRefused(t, h.call("POST", path, h.yuki, "", "If-Match", `"7"`), 412, CodeVersionMismatch, ReasonVersionMismatch)
+	h.ok(h.fc.SuspendActor(h.helper.ID))
+	wantRefused(t, h.call("POST", path, h.yuki, ""), 422, CodeFailedPrecondition, ReasonAgentSuspended)
+	h.ok(h.fc.ReactivateActor(h.helper.ID))
+
+	var got HostedAgent
+	a := h.call("POST", path, h.yuki, "", "If-Match", `"2"`)
+	a.decode(t, &got)
+	if a.code != http.StatusOK || got.Version != 3 || a.header.Get("ETag") != `"3"` || got.Status != StatusNeedsModel {
+		t.Fatalf("renewed: %d %s", a.code, a.body)
+	}
+	renewed, err := h.st.HostedAgent(ctx, v.ID)
 	h.ok(err)
-	h.tokens = append(h.tokens, other.Token)
-	wantRefused(t, h.call("PUT", path, h.yuki, tokenBody(other.Token, "")), 422, CodeFailedPrecondition, probe.ReasonTokenOtherAgent)
-	wantRefused(t, h.call("PUT", path, h.yuki, tokenBody(h.helper.Token, h.helper.ID)), 400, CodeInvalidArgument, ReasonUnknownField)
-	wantRefused(t, h.call("PUT", "agents/agt_nothere/token", h.yuki, tokenBody(h.helper.Token, "")), 404, CodeNotFound, ReasonAgentNotFound)
-	wantRefused(t, h.call("PUT", path, h.ken, tokenBody(h.helper.Token, "")), 404, CodeNotFound, ReasonAgentNotFound)
-
-	// The same token: nothing written.
-	var same TokenReplaced
-	a := h.call("PUT", path, h.yuki, tokenBody(h.helper.Token, ""))
-	a.decode(t, &same)
-	if a.code != 200 || a.header.Get("Idempotency-Replayed") != "true" || same.PreviousToken.Revocation != probe.NotAttempted ||
-		same.Agent.Version != 1 || same.PreviousToken.Problem != nil {
-		t.Errorf("the same token: %d %s", a.code, a.body)
+	if renewed.TokenSecretID != "" || renewed.TokenIssued || renewed.TokenCredentialID != "" {
+		t.Errorf("the row: %+v", renewed)
 	}
-
-	next := h.token(h.helper.ID)
-	wantRefused(t, h.call("PUT", path, h.yuki, tokenBody(next.Token, ""), "If-Match", `"7"`), 412, CodeVersionMismatch, ReasonVersionMismatch)
-	wantRefused(t, h.call("PUT", path, h.yuki, tokenBody(next.Token, ""), "If-Match", `W/"1"`), 400, CodeInvalidArgument, ReasonBadIfMatch)
-	var done TokenReplaced
-	b := h.call("PUT", path, h.yuki, tokenBody(next.Token, ""), "If-Match", `"1"`)
-	b.decode(t, &done)
-	if b.code != 200 || done.Agent.Version != 2 || done.Agent.Token.Prefix != next.Prefix || done.PreviousToken.Prefix != probe.Prefix(h.helper.Token) ||
-		done.PreviousToken.Revocation != probe.Revoked || b.header.Get("ETag") != `"2"` || done.Agent.Status != StatusNeedsModel {
-		t.Fatalf("replaced: %d %s", b.code, b.body)
-	}
-	if _, err := h.st.Secret(ctx, oldSecret); !errors.Is(err, store.ErrNotFound) {
+	if _, err := h.st.Secret(ctx, row.TokenSecretID); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("the old token's secret: %v", err)
 	}
-	for _, c := range h.fc.Credentials(h.helper.ID) {
-		live := c.RevokedAt == nil
-		if (c.ID == next.CredentialID) != live {
-			t.Errorf("credential %s (%s): revoked %v", c.ID, c.Label, !live)
-		}
+	if ev := h.events("agent.token_renew"); len(ev) == 0 || ev[len(ev)-1].Outcome != "ok" || !strings.Contains(string(ev[len(ev)-1].Detail), `"version":3`) {
+		t.Errorf("the audit: %+v", ev)
 	}
-	ev := h.events("agent.token_replace")
-	last := ev[len(ev)-1]
-	if last.Outcome != "ok" || !strings.Contains(string(last.Detail), `"revocation":"revoked"`) || !strings.Contains(string(last.Detail), `"old_hint":"ais_`) {
-		t.Errorf("the audit: %+v", last)
+	// Again: nothing to drop.
+	b := h.call("POST", path, h.yuki, "{}")
+	if b.code != http.StatusOK || b.header.Get("Idempotency-Replayed") != "true" || b.header.Get("ETag") != `"3"` {
+		t.Errorf("again: %d %s", b.code, b.body)
 	}
-	// Once the worker runs the new version, it shows running.
-	h.ok(h.st.SetAgentState(ctx, store.AgentState{AgentID: v.ID, State: store.AgentRunning, ConfigVersion: 2}))
 	h.noSecrets(a, b)
 }
 
-// racingStore runs before once, just before the first write of a hosted
-// agent: a request that won the race to it.
-type racingStore struct {
-	store.Store
-	ran    atomic.Bool
-	before func()
-}
-
-func (s *racingStore) UpdateHostedAgent(ctx context.Context, a store.HostedAgent, secrets ...store.Secret) (*store.HostedAgent, error) {
-	if s.ran.CompareAndSwap(false, true) {
-		s.before()
-	}
-	return s.Store.UpdateHostedAgent(ctx, a, secrets...)
-}
-
-// Two requests giving the same new token at once: the one that loses the
-// race to the row answers as a replay, and never revokes the token the
-// winner put in as the one it replaced.
-func TestReplaceTokenRace(t *testing.T) {
-	var h *hostWorld
-	var next fakecore.Token
-	var path string
-	var won answer
-	h = newHostWorld(t, fakecore.Options{}, func(o *Options) {
-		o.Store = &racingStore{Store: o.Store, before: func() { won = h.call("PUT", path, h.yuki, tokenBody(next.Token, "")) }}
-	})
-	v := h.connect(h.yuki, h.helper.Token)
-	next, path = h.token(h.helper.ID), "agents/"+v.ID+"/token"
-	var lost, first TokenReplaced
-	a := h.call("PUT", path, h.yuki, tokenBody(next.Token, ""))
-	a.decode(t, &lost)
-	won.decode(t, &first)
-	if won.code != 200 || first.PreviousToken.Revocation != probe.Revoked || first.Agent.Version != 2 {
-		t.Errorf("the winner: %d %s", won.code, won.body)
-	}
-	if a.code != 200 || a.header.Get("Idempotency-Replayed") != "true" || lost.PreviousToken.Revocation != probe.NotAttempted ||
-		lost.Agent.Version != 2 || lost.Agent.Token.Prefix != next.Prefix {
-		t.Errorf("the loser: %d %s", a.code, a.body)
-	}
-	for _, c := range h.fc.Credentials(h.helper.ID) {
-		if live := c.RevokedAt == nil; (c.ID == next.CredentialID) != live {
-			t.Errorf("credential %s (%s): revoked %v", c.ID, c.Label, !live)
-		}
-	}
-}
-
-// A new token whose revocation of the old one fails still replaces it: the
-// answer says why, for the owner to revoke it.
-func TestReplaceTokenRevocationFails(t *testing.T) {
+// A hosted agent whose owner of record is not its owner in Core (a row
+// from before an agent's owner was fixed there) is not issued another
+// token: owner_changed, for its owner of record to delete it.
+func TestRenewTokenOfAnotherOwnersAgent(t *testing.T) {
 	h := newHostWorld(t, fakecore.Options{}, nil)
-	v := h.connect(h.yuki, h.helper.Token)
-	next := h.token(h.helper.ID)
-	h.fc.Inject(func(c fakecore.InjectedCall) *fakecore.Injection {
-		if c.Tool == "credential_revoke" {
-			return &fakecore.Injection{Status: http.StatusServiceUnavailable}
-		}
-		return nil
-	})
-	var done TokenReplaced
-	a := h.call("PUT", "agents/"+v.ID+"/token", h.yuki, tokenBody(next.Token, ""))
-	a.decode(t, &done)
-	if a.code != 200 || done.PreviousToken.Revocation != probe.Failed || done.PreviousToken.Problem == nil ||
-		*done.PreviousToken.Problem != probe.ProblemCoreUnavailable || done.Agent.Token.Prefix != next.Prefix {
-		t.Errorf("%d %s", a.code, a.body)
+	ctx := context.Background()
+	row, err := h.st.CreateHostedAgent(ctx, store.HostedAgent{ID: "agt_earlier", CoreActorID: h.helper.ID, OwnerActorID: h.ken.ID,
+		OwnerVerified: true, TenantID: "ten_" + h.ken.ID, DisplayName: "Ken's once", Settings: []byte(`{}`)})
+	h.ok(err)
+	h.issued(row.ID)
+	wantRefused(t, h.call("POST", "agents/"+row.ID+"/token", h.ken, ""), 422, CodeFailedPrecondition, ReasonOwnerChanged)
+	if again, err := h.st.HostedAgent(ctx, row.ID); err != nil || again.TokenSecretID == "" {
+		t.Errorf("the row: %+v %v", again, err)
 	}
 }
 
-// pause and resume set the agent's pause, once: already so, nothing is
-// written or audited; If-Match, when given, is held to.
+// pause drops the agent's token from its row and revokes it in Core after
+// the write, saying what became of it; paused already, nothing is written
+// or audited, but the token is revoked again. resume writes, and the
+// worker is issued another. If-Match, when given, is held to.
 func TestPauseResume(t *testing.T) {
 	h := newHostWorld(t, fakecore.Options{}, nil)
-	v := h.connect(h.yuki, h.helper.Token)
-	var got HostedAgent
+	v := h.host(h.yuki, h.helper.ID)
+	h.issued(v.ID)
+	ctx := context.Background()
+	held, err := h.st.HostedAgent(ctx, v.ID)
+	h.ok(err)
+	var got Paused
 	a := h.call("POST", "agents/"+v.ID+"/pause", h.yuki, "")
 	a.decode(t, &got)
-	if a.code != 200 || got.Status != StatusPaused || !got.Paused || got.Version != 2 {
+	if a.code != 200 || got.Status != StatusPaused || !got.Paused || got.Version != 3 || got.Revocation.Outcome != RevocationRevoked ||
+		got.Revocation.Problem != nil || !strings.Contains(a.body, `"revocation":{"outcome":"revoked","problem":null}`) {
 		t.Fatalf("pause: %d %s", a.code, a.body)
 	}
+	if h.fc.RuntimeToken(h.helper.ID).Token != "" || h.fc.SiteChat(h.helper.ID) {
+		t.Error("the paused agent's token is still live")
+	}
+	if row, err := h.st.HostedAgent(ctx, v.ID); err != nil || row.TokenSecretID != "" || row.TokenIssued {
+		t.Errorf("the paused row: %+v %v", row, err)
+	}
+	if _, err := h.st.Secret(ctx, held.TokenSecretID); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("the token's secret: %v", err)
+	}
 	h.call("POST", "agents/"+v.ID+"/pause", h.yuki, "{}").decode(t, &got)
-	if got.Version != 2 {
-		t.Errorf("a second pause wrote: %+v", got)
+	if got.Version != 3 || got.Revocation.Outcome != RevocationNone {
+		t.Errorf("a second pause: %+v", got)
 	}
 	wantRefused(t, h.call("POST", "agents/"+v.ID+"/resume", h.yuki, "", "If-Match", `"1"`), 412, CodeVersionMismatch, ReasonVersionMismatch)
 	wantRefused(t, h.call("POST", "agents/"+v.ID+"/resume", h.yuki, `{"paused":false}`), 400, CodeInvalidArgument, ReasonUnknownField)
 	wantRefused(t, h.call("POST", "agents/"+v.ID+"/resume", h.ken, ""), 404, CodeNotFound, ReasonAgentNotFound)
-	a = h.call("POST", "agents/"+v.ID+"/resume", h.yuki, "", "If-Match", `"2"`)
-	a.decode(t, &got)
-	if a.code != 200 || got.Paused || got.Version != 3 || got.Status != StatusNeedsModel {
+	var resumed HostedAgent
+	a = h.call("POST", "agents/"+v.ID+"/resume", h.yuki, "", "If-Match", `"3"`)
+	a.decode(t, &resumed)
+	if a.code != 200 || resumed.Paused || resumed.Version != 4 || resumed.Status != StatusNeedsModel || strings.Contains(a.body, "revocation") {
 		t.Errorf("resume: %d %s", a.code, a.body)
 	}
-	if p, r := h.events("agent.pause"), h.events("agent.resume"); len(p) != 1 || p[0].Outcome != "ok" || len(r) != 3 {
+	p, r := h.events("agent.pause"), h.events("agent.resume")
+	if len(p) != 1 || p[0].Outcome != "ok" || !strings.Contains(string(p[0].Detail), `"revocation":"revoked"`) || len(r) != 3 {
 		t.Errorf("the audit: pause %+v, resume %+v", p, r)
+	}
+	h.noSecrets(a)
+}
+
+// A pause whose revocation fails pauses all the same, and says why (Core
+// not answering: core_unavailable); paused again, the token is revoked.
+// An agent the operator's configuration runs is not revoked
+// (operator_agent): its token is the operator's agent's.
+func TestPauseRevocationOutcomes(t *testing.T) {
+	h := newHostWorld(t, fakecore.Options{}, nil)
+	v := h.host(h.yuki, h.helper.ID)
+	h.issued(v.ID)
+	h.fc.Inject(func(c fakecore.InjectedCall) *fakecore.Injection {
+		if c.Tool == core.ToolRuntimeRevokeToken {
+			return &fakecore.Injection{Status: http.StatusServiceUnavailable}
+		}
+		return nil
+	})
+	var got Paused
+	a := h.call("POST", "agents/"+v.ID+"/pause", h.yuki, "")
+	a.decode(t, &got)
+	if a.code != 200 || !got.Paused || got.Revocation.Outcome != RevocationFailed || got.Revocation.Problem == nil ||
+		*got.Revocation.Problem != ReasonCoreUnavailable {
+		t.Fatalf("pause: %d %s", a.code, a.body)
+	}
+	if h.fc.RuntimeToken(h.helper.ID).Token == "" {
+		t.Fatal("revoked, Core not answering")
+	}
+	h.fc.Inject(nil)
+	h.call("POST", "agents/"+v.ID+"/pause", h.yuki, "").decode(t, &got)
+	if got.Revocation.Outcome != RevocationRevoked || h.fc.RuntimeToken(h.helper.ID).Token != "" {
+		t.Errorf("paused again: %+v", got.Revocation)
+	}
+
+	_, err := h.fc.IssueRuntimeToken(h.helper.ID)
+	h.ok(err)
+	h.actors.mu.Lock()
+	h.actors.yaml[h.helper.ID] = "yuki-yaml"
+	h.actors.mu.Unlock()
+	h.call("POST", "agents/"+v.ID+"/pause", h.yuki, "").decode(t, &got)
+	if got.Revocation.Outcome != RevocationNotAttempted || got.Revocation.Problem == nil || *got.Revocation.Problem != ReasonOperatorAgent ||
+		h.fc.RuntimeToken(h.helper.ID).Token == "" {
+		t.Errorf("the operator's agent: %+v", got.Revocation)
 	}
 }
 
-// DELETE revokes the agent's token in Core with itself, then destroys the
-// agent, its courses and its secrets, and purges what the store held of
-// it, its ledger kept; the next GET, and a second DELETE, are 404.
+// DELETE destroys the agent, its courses and its secrets, then revokes its
+// token in Core, and purges what the store held of it, its ledger kept;
+// the next GET, and a second DELETE, are 404. It takes no query.
 func TestDelete(t *testing.T) {
 	h := newHostWorld(t, fakecore.Options{}, nil)
-	v := h.connect(h.yuki, h.helper.Token)
+	v := h.host(h.yuki, h.helper.ID)
+	h.issued(v.ID)
 	ctx := context.Background()
 	row, err := h.st.HostedAgent(ctx, v.ID)
 	h.ok(err)
 	h.ok(h.st.PutHostedCourse(ctx, store.HostedCourse{AgentID: v.ID, CourseID: h.co.ID, Settings: []byte(`{"enabled":true}`)}))
-	h.ok(h.st.SetAgentState(ctx, store.AgentState{AgentID: v.ID, State: store.AgentRunning, ConfigVersion: 1}))
+	h.ok(h.st.SetAgentState(ctx, store.AgentState{AgentID: v.ID, State: store.AgentRunning, ConfigVersion: 2}))
 	h.ok(h.st.RecordAnswer(ctx, store.AnswerRecord{ID: "r1", AgentID: v.ID, At: at, Outcome: store.OutcomePosted, Billable: true}))
 
-	wantRefused(t, h.call("DELETE", "agents/"+v.ID+"?revoke_token=maybe", h.yuki, ""), 400, CodeInvalidArgument, ReasonInvalidField)
-	wantRefused(t, h.call("DELETE", "agents/"+v.ID+"?force=1", h.yuki, ""), 400, CodeInvalidArgument, ReasonUnknownParameter)
+	wantRefused(t, h.call("DELETE", "agents/"+v.ID+"?revoke_token=false", h.yuki, ""), 400, CodeInvalidArgument, ReasonUnknownParameter)
+	wantRefused(t, h.call("DELETE", "agents/"+v.ID, h.yuki, `{"force":true}`), 400, CodeInvalidArgument, ReasonUnknownField)
 	wantRefused(t, h.call("DELETE", "agents/"+v.ID, h.yuki, "", "If-Match", `"9"`), 412, CodeVersionMismatch, ReasonVersionMismatch)
 	wantRefused(t, h.call("DELETE", "agents/"+v.ID, h.ken, ""), 404, CodeNotFound, ReasonAgentNotFound)
+	if h.fc.RuntimeToken(h.helper.ID).Token == "" {
+		t.Fatal("a refused DELETE revoked the token")
+	}
 
 	var d Deleted
-	a := h.call("DELETE", "agents/"+v.ID, h.yuki, "")
+	a := h.call("DELETE", "agents/"+v.ID, h.yuki, "", "If-Match", `"2"`)
 	a.decode(t, &d)
-	if a.code != 200 || d.Deleted.ID != v.ID || d.Deleted.CoreActorID != h.helper.ID || d.Token.Revocation != probe.Revoked ||
-		d.Token.Problem != nil || d.Token.Prefix != probe.Prefix(h.helper.Token) {
+	if a.code != 200 || d.Deleted.ID != v.ID || d.Deleted.CoreActorID != h.helper.ID || d.Revocation.Outcome != RevocationRevoked ||
+		d.Revocation.Problem != nil {
 		t.Fatalf("%d %s", a.code, a.body)
 	}
-	if c := h.fc.Credentials(h.helper.ID); c[0].RevokedAt == nil {
+	if h.fc.RuntimeToken(h.helper.ID).Token != "" || h.fc.SiteChat(h.helper.ID) {
 		t.Error("the token is not revoked in Core")
 	}
 	if _, err := h.st.HostedAgent(ctx, v.ID); !errors.Is(err, store.ErrNotFound) {
@@ -584,9 +668,6 @@ func TestDelete(t *testing.T) {
 	if _, err := h.st.AgentState(ctx, v.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("its state: %v", err)
 	}
-	if seats, _ := h.st.KnownSeats(ctx, v.ID); len(seats) != 0 {
-		t.Errorf("its seats: %+v", seats)
-	}
 	if sp, _ := h.st.Spend(ctx, store.SpendScope{AgentID: v.ID}, at.Add(-time.Hour)); sp.Answers != 1 {
 		t.Errorf("its ledger: %+v", sp)
 	}
@@ -599,127 +680,70 @@ func TestDelete(t *testing.T) {
 	h.noSecrets(a)
 }
 
-// DELETE deletes the agent whatever became of the revocation: failed for a
-// suspended agent (agent_suspended) and for a Core not answering
-// (core_unavailable), not attempted with revoke_token=false.
+// DELETE deletes the agent whatever became of the revocation: failed for
+// Core not answering (core_unavailable) and for a credential Core refuses
+// (runtime_misconfigured), none when Core held none.
 func TestDeleteRevocationOutcomes(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
-		query      string
 		prepare    func(h *hostWorld)
-		revocation string
+		outcome    string
 		problem    string
-		stillWorks bool
+		stillLives bool
 	}{
-		{"a suspended agent", "", func(h *hostWorld) { h.ok(h.fc.SuspendActor(h.helper.ID)) }, probe.Failed, probe.ProblemAgentSuspended, true},
-		{"Core not answering", "", func(h *hostWorld) {
+		{"Core not answering", func(h *hostWorld) {
 			h.fc.Inject(func(fakecore.InjectedCall) *fakecore.Injection {
 				return &fakecore.Injection{Status: http.StatusBadGateway}
 			})
-		}, probe.Failed, probe.ProblemCoreUnavailable, true},
-		{"not asked to", "?revoke_token=false", func(*hostWorld) {}, probe.NotAttempted, "", true},
-		{"asked to", "?revoke_token=true", func(*hostWorld) {}, probe.Revoked, "", false},
-		{"revoked already", "", func(h *hostWorld) { h.ok(h.fc.Revoke(h.helper.Token)) }, probe.AlreadyInvalid, "", false},
+		}, RevocationFailed, ReasonCoreUnavailable, true},
+		{"a credential Core refuses", func(h *hostWorld) {
+			h.ok(h.fc.RevokeServiceToken(h.svc.CredentialID))
+		}, RevocationFailed, ReasonRuntimeMisconfigured, true},
+		{"revoked already", func(h *hostWorld) {
+			_, err := h.fc.RevokeRuntimeToken(h.helper.ID)
+			h.ok(err)
+		}, RevocationNone, "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHostWorld(t, fakecore.Options{}, nil)
-			v := h.connect(h.yuki, h.helper.Token)
+			v := h.host(h.yuki, h.helper.ID)
+			h.issued(v.ID)
 			tc.prepare(h)
 			var d Deleted
-			a := h.call("DELETE", "agents/"+v.ID+tc.query, h.yuki, "")
+			a := h.call("DELETE", "agents/"+v.ID, h.yuki, "")
 			a.decode(t, &d)
 			problem := ""
-			if d.Token.Problem != nil {
-				problem = *d.Token.Problem
+			if d.Revocation.Problem != nil {
+				problem = *d.Revocation.Problem
 			}
-			if a.code != 200 || d.Token.Revocation != tc.revocation || problem != tc.problem {
+			if a.code != 200 || d.Revocation.Outcome != tc.outcome || problem != tc.problem {
 				t.Fatalf("%d %s", a.code, a.body)
 			}
 			if _, err := h.st.HostedAgent(context.Background(), v.ID); !errors.Is(err, store.ErrNotFound) {
 				t.Errorf("the row is kept: %v", err)
 			}
 			h.fc.Inject(nil)
-			if live := h.fc.Credentials(h.helper.ID)[0].RevokedAt == nil; live != tc.stillWorks {
-				t.Errorf("the token works: %v", live)
+			if lives := h.fc.RuntimeToken(h.helper.ID).Token != ""; lives != tc.stillLives {
+				t.Errorf("the token lives: %v", lives)
 			}
 		})
 	}
 }
 
-// The one-brain rule: connecting tells the front end of the agent's other
-// live tokens, and whether one was used lately, but not of the one being
-// connected nor of one revoked.
-func TestOtherTokens(t *testing.T) {
-	h := newHostWorld(t, fakecore.Options{}, nil)
-	elsewhere := h.token(h.helper.ID)
-	stale := h.token(h.helper.ID)
-	dead := h.token(h.helper.ID)
-	h.ok(h.fc.Revoke(dead.Token))
-	// elsewhere is in use: another runtime runs the agent with it.
-	if _, err := probe.NewClient(h.srv.URL, elsewhere.Token, nil).Me(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	h.add(time.Hour)
-	if _, err := probe.NewClient(h.srv.URL, elsewhere.Token, nil).Me(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	mine := h.token(h.helper.ID)
-	var ins Inspection
-	h.call("POST", "agents/inspect", h.yuki, tokenBody(mine.Token, "")).decode(t, &ins)
-	ot := ins.OtherTokens
-	if ot == nil || !ot.InUse || ot.WindowSeconds != 900 {
-		t.Fatalf("other tokens: %+v", ot)
-	}
-	prefixes := map[string]bool{}
-	for _, tk := range ot.Tokens {
-		prefixes[tk.Prefix] = tk.Recent
-	}
-	if len(ot.Tokens) != 3 || !prefixes[elsewhere.Prefix] || prefixes[stale.Prefix] || prefixes[probe.Prefix(h.helper.Token)] {
-		t.Errorf("the tokens: %+v", ot.Tokens)
-	}
-	if _, listed := prefixes[mine.Prefix]; listed {
-		t.Error("the token being connected is listed")
-	}
-	if _, listed := prefixes[dead.Prefix]; listed {
-		t.Error("a revoked token is listed")
-	}
-	if ot.Tokens[0].Prefix != elsewhere.Prefix || ot.Tokens[0].LastUsedAt == nil || ot.Tokens[0].Label == nil {
-		t.Errorf("the most recently used first: %+v", ot.Tokens[0])
-	}
-	a := h.call("POST", "agents", h.yuki, tokenBody(mine.Token, ""))
-	var c Connected
-	a.decode(t, &c)
-	if a.code != 201 || c.OtherTokens == nil || !c.OtherTokens.InUse || !strings.Contains(a.body, `"other_tokens":{"in_use":true`) {
-		t.Errorf("connect: %d %s", a.code, a.body)
-	}
-	// Core not listing them fails nothing.
-	h.fc.Inject(func(c fakecore.InjectedCall) *fakecore.Injection {
-		if c.Tool == "credential_list" {
-			return &fakecore.Injection{Status: http.StatusInternalServerError}
-		}
-		return nil
-	})
-	a = h.call("POST", "agents/inspect", h.yuki, tokenBody(mine.Token, ""))
-	if a.code != 200 || !strings.Contains(a.body, `"other_tokens":null`) {
-		t.Errorf("unlisted: %d %s", a.code, a.body)
-	}
-	h.noSecrets(a)
-}
-
-// Every request of the token routes takes from the caller's token
-// allowance, and past it is 429.
+// Every request of the routes that ask Core about an agent takes from the
+// caller's allowance of them, and past it is 429.
 func TestTokenBucket(t *testing.T) {
 	h := newHostWorld(t, fakecore.Options{}, nil)
 	h.s.token.reset(Rate{60, 2})
 	for range 2 {
-		h.call("POST", "agents/inspect", h.yuki, tokenBody("nope", ""))
+		h.call("POST", "agents/inspect", h.yuki, agentBody("nope"))
 	}
-	a := h.call("POST", "agents", h.yuki, tokenBody(h.helper.Token, ""))
+	a := h.call("POST", "agents", h.yuki, agentBody(h.helper.ID))
 	wantRefused(t, a, 429, CodeRateLimited, ReasonRateLimited)
 	if a.header.Get("Retry-After") == "" {
 		t.Error("no Retry-After")
 	}
-	// Other routes are not the token bucket's.
+	// Other routes are not the bucket's.
 	if a := h.call("GET", "agents", h.yuki, ""); a.code != 200 {
 		t.Errorf("GET /agents: %d", a.code)
 	}
@@ -741,8 +765,7 @@ func raced(t *testing.T) (*hostWorld, *raceStore) {
 	return h, rs
 }
 
-// on runs f once, before the next call of method, or after the next
-// successful one for "after " and a method.
+// on runs f once, before the next call of method.
 func (s *raceStore) on(method string, f func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -759,17 +782,9 @@ func (s *raceStore) fire(method string) {
 	}
 }
 
-func (s *raceStore) HostedAgentByActor(ctx context.Context, coreActorID string) (*store.HostedAgent, error) {
-	s.fire("HostedAgentByActor")
-	return s.Store.HostedAgentByActor(ctx, coreActorID)
-}
-
 func (s *raceStore) UpdateHostedAgent(ctx context.Context, a store.HostedAgent, secrets ...store.Secret) (*store.HostedAgent, error) {
-	out, err := s.Store.UpdateHostedAgent(ctx, a, secrets...)
-	if err == nil {
-		s.fire("after UpdateHostedAgent")
-	}
-	return out, err
+	s.fire("UpdateHostedAgent")
+	return s.Store.UpdateHostedAgent(ctx, a, secrets...)
 }
 
 func (s *raceStore) SetHostedAgentPaused(ctx context.Context, id string, paused bool, version int) (*store.HostedAgent, error) {
@@ -782,70 +797,12 @@ func (s *raceStore) DeleteHostedAgent(ctx context.Context, id string, cond store
 	return s.Store.DeleteHostedAgent(ctx, id, cond)
 }
 
-// A new token put in (PUT /token) after DELETE revoked the one it read, and
-// before the row goes: without If-Match, DELETE revokes the new token in
-// its turn and deletes the row holding it, so that no token of the agent's
-// is left working, and says which it revoked; with If-Match, it is 412,
-// and the row is kept with its new token.
-func TestDeleteRacesANewToken(t *testing.T) {
-	t.Run("without If-Match", func(t *testing.T) {
-		h, rs := raced(t)
-		v := h.connect(h.yuki, h.helper.Token)
-		next := h.token(h.helper.ID)
-		var put answer
-		rs.on("DeleteHostedAgent", func() { put = h.call("PUT", "agents/"+v.ID+"/token", h.yuki, tokenBody(next.Token, "")) })
-		var d Deleted
-		a := h.call("DELETE", "agents/"+v.ID, h.yuki, "")
-		a.decode(t, &d)
-		if put.code != http.StatusOK {
-			t.Fatalf("the new token: %d %s", put.code, put.body)
-		}
-		if a.code != http.StatusOK || d.Token.Prefix != next.Prefix || d.Token.Revocation != probe.Revoked || d.Token.Problem != nil {
-			t.Errorf("DELETE: %d %s", a.code, a.body)
-		}
-		if _, err := h.st.HostedAgent(context.Background(), v.ID); !errors.Is(err, store.ErrNotFound) {
-			t.Errorf("the row: %v", err)
-		}
-		for _, c := range h.fc.Credentials(h.helper.ID) {
-			if c.RevokedAt == nil {
-				t.Errorf("the agent's token %s (%s) still works, its row gone", c.Prefix, c.Label)
-			}
-		}
-		ev := h.events("agent.delete")
-		if len(ev) != 1 || ev[0].Outcome != "ok" || !strings.Contains(string(ev[0].Detail), `"token_hint":"ais_`+next.Prefix) ||
-			!strings.Contains(string(ev[0].Detail), `"revocation":"revoked"`) {
-			t.Errorf("the audit: %+v", ev)
-		}
-		h.noSecrets(a, put)
-	})
-	t.Run("with If-Match", func(t *testing.T) {
-		h, rs := raced(t)
-		v := h.connect(h.yuki, h.helper.Token)
-		next := h.token(h.helper.ID)
-		var put answer
-		rs.on("DeleteHostedAgent", func() { put = h.call("PUT", "agents/"+v.ID+"/token", h.yuki, tokenBody(next.Token, "")) })
-		a := h.call("DELETE", "agents/"+v.ID, h.yuki, "", "If-Match", `"1"`)
-		if e := wantRefused(t, a, http.StatusPreconditionFailed, CodeVersionMismatch, ReasonVersionMismatch); e.Details["current_version"] != float64(2) {
-			t.Errorf("current_version: %v", e.Details)
-		}
-		row, err := h.st.HostedAgent(context.Background(), v.ID)
-		if err != nil || probe.HintPrefix(row.TokenHint) != next.Prefix || put.code != http.StatusOK {
-			t.Fatalf("the row: %+v %v; the new token: %d", row, err, put.code)
-		}
-		for _, c := range h.fc.Credentials(h.helper.ID) {
-			if live := c.RevokedAt == nil; live != (c.Prefix == next.Prefix) {
-				t.Errorf("credential %s (%s): works %v", c.Prefix, c.Label, live)
-			}
-		}
-	})
-}
-
 // pause and resume hold If-Match to their write, not only to their read: a
-// write that lands in between is 412, and nothing is paused; without
-// If-Match, the pause is written over it.
+// write that lands in between is 412, and nothing is paused nor revoked;
+// without If-Match, the pause is written over it.
 func TestPauseRacesAWrite(t *testing.T) {
 	h, rs := raced(t)
-	v := h.connect(h.yuki, h.helper.Token)
+	v := h.host(h.yuki, h.helper.ID)
 	ctx := context.Background()
 	rename := func() {
 		row, err := h.st.HostedAgent(ctx, v.ID)
@@ -855,6 +812,7 @@ func TestPauseRacesAWrite(t *testing.T) {
 		h.ok(err)
 	}
 	rs.on("SetHostedAgentPaused", rename)
+	revokes := h.serviceCalls(core.ToolRuntimeRevokeToken)
 	a := h.call("POST", "agents/"+v.ID+"/pause", h.yuki, "", "If-Match", `"1"`)
 	if e := wantRefused(t, a, http.StatusPreconditionFailed, CodeVersionMismatch, ReasonVersionMismatch); e.Details["current_version"] != float64(2) {
 		t.Errorf("current_version: %v", e.Details)
@@ -862,8 +820,11 @@ func TestPauseRacesAWrite(t *testing.T) {
 	if row, err := h.st.HostedAgent(ctx, v.ID); err != nil || row.Paused || row.Version != 2 {
 		t.Errorf("paused over another write: %+v %v", row, err)
 	}
+	if n := h.serviceCalls(core.ToolRuntimeRevokeToken); n != revokes {
+		t.Error("a pause refused revoked the token")
+	}
 	rs.on("SetHostedAgentPaused", rename)
-	var got HostedAgent
+	var got Paused
 	a = h.call("POST", "agents/"+v.ID+"/pause", h.yuki, "")
 	a.decode(t, &got)
 	if a.code != http.StatusOK || !got.Paused || got.Version != 4 {
@@ -874,88 +835,38 @@ func TestPauseRacesAWrite(t *testing.T) {
 	}
 }
 
-// Two new tokens given at once: the second replaces the first in the row
-// before the first revokes the token it replaced, and revokes the first.
-// Core then refuses the first's own token (401), which says nothing of the
-// token it replaced: that one is said to have failed (core_refused), for
-// its owner to revoke, and never to have been dead already.
-func TestReplaceTokenRacesAnother(t *testing.T) {
+// DELETE and POST …/token hold If-Match to their write: a write that lands
+// in between is 412, and nothing is deleted, revoked or dropped.
+func TestWritesRaceAWrite(t *testing.T) {
 	h, rs := raced(t)
-	v := h.connect(h.yuki, h.helper.Token)
-	b, c := h.token(h.helper.ID), h.token(h.helper.ID)
-	path := "agents/" + v.ID + "/token"
-	var second answer
-	rs.on("after UpdateHostedAgent", func() { second = h.call("PUT", path, h.yuki, tokenBody(c.Token, "")) })
-	var r1, r2 TokenReplaced
-	first := h.call("PUT", path, h.yuki, tokenBody(b.Token, ""))
-	first.decode(t, &r1)
-	second.decode(t, &r2)
-	if second.code != http.StatusOK || r2.PreviousToken.Prefix != b.Prefix || r2.PreviousToken.Revocation != probe.Revoked || r2.Agent.Token.Prefix != c.Prefix {
-		t.Errorf("the second: %d %s", second.code, second.body)
-	}
-	original := probe.Prefix(h.helper.Token)
-	if first.code != http.StatusOK || r1.PreviousToken.Prefix != original || r1.PreviousToken.Revocation != probe.Failed ||
-		r1.PreviousToken.Problem == nil || *r1.PreviousToken.Problem != probe.ProblemCoreRefused {
-		t.Errorf("the first: %d %s", first.code, first.body)
-	}
-	live := map[string]bool{}
-	for _, cr := range h.fc.Credentials(h.helper.ID) {
-		live[cr.Prefix] = cr.RevokedAt == nil
-	}
-	if !live[original] || live[b.Prefix] || !live[c.Prefix] {
-		t.Errorf("working: %v", live)
-	}
-	if row, err := h.st.HostedAgent(context.Background(), v.ID); err != nil || probe.HintPrefix(row.TokenHint) != c.Prefix {
-		t.Errorf("the row: %+v %v", row, err)
-	}
-	ev := h.events("agent.token_replace")
-	if len(ev) != 2 || !strings.Contains(string(ev[1].Detail), `"revocation":"failed"`) || !strings.Contains(string(ev[1].Detail), `"revocation_problem":"core_refused"`) {
-		t.Errorf("the first's audit: %+v", ev)
-	}
-}
-
-// Taking over an earlier owner's row asks Core again, with the token, just
-// before the row is deleted: an agent Core gave back meanwhile, revoking
-// its tokens, is refused (token_refused), and so is one while Core cannot
-// be reached (core_unavailable); the earlier owner's row is kept, and
-// nothing is audited as taken over, until Core says the agent is the
-// caller's.
-func TestTakeoverAsksCoreAgain(t *testing.T) {
-	h, rs := raced(t)
+	v := h.host(h.yuki, h.helper.ID)
+	h.issued(v.ID)
 	ctx := context.Background()
-	old := h.connect(h.yuki, h.helper.Token)
-	for _, m := range h.seatsOf(h.helper.ID) {
-		h.ok(h.fc.RemoveSeat(m))
+	rename := func() {
+		row, err := h.st.HostedAgent(ctx, v.ID)
+		h.ok(err)
+		row.DisplayName = "Renamed meanwhile"
+		_, err = h.st.UpdateHostedAgent(ctx, *row)
+		h.ok(err)
 	}
-	h.ok(h.fc.SetOwner(h.helper.ID, h.ken.ID))
-	kens := h.token(h.helper.ID)
-	rs.on("HostedAgentByActor", func() { h.ok(h.fc.SetOwner(h.helper.ID, h.yuki.ID)) })
-	wantRefused(t, h.call("POST", "agents", h.ken, tokenBody(kens.Token, "")), http.StatusUnprocessableEntity, CodeFailedPrecondition, probe.ReasonTokenRefused)
-	if _, err := h.st.HostedAgent(ctx, old.ID); err != nil {
-		t.Errorf("Yuki's row, the agent hers again: %v", err)
+	rs.on("DeleteHostedAgent", rename)
+	wantRefused(t, h.call("DELETE", "agents/"+v.ID, h.yuki, "", "If-Match", `"2"`), http.StatusPreconditionFailed, CodeVersionMismatch,
+		ReasonVersionMismatch)
+	if _, err := h.st.HostedAgent(ctx, v.ID); err != nil || h.fc.RuntimeToken(h.helper.ID).Token == "" {
+		t.Errorf("deleted, or revoked, over another write: %v", err)
 	}
-
-	h.ok(h.fc.SetOwner(h.helper.ID, h.ken.ID))
-	kens = h.token(h.helper.ID)
-	rs.on("HostedAgentByActor", func() {
-		h.fc.Inject(func(fakecore.InjectedCall) *fakecore.Injection {
-			return &fakecore.Injection{Status: http.StatusBadGateway}
-		})
-	})
-	wantRefused(t, h.call("POST", "agents", h.ken, tokenBody(kens.Token, "")), http.StatusServiceUnavailable, CodeUnavailable, probe.ReasonCoreUnavailable)
-	h.fc.Inject(nil)
-	if _, err := h.st.HostedAgent(ctx, old.ID); err != nil {
-		t.Errorf("Yuki's row, Core not answering: %v", err)
+	rs.on("UpdateHostedAgent", rename)
+	wantRefused(t, h.call("POST", "agents/"+v.ID+"/token", h.yuki, "", "If-Match", `"3"`), http.StatusPreconditionFailed, CodeVersionMismatch,
+		ReasonVersionMismatch)
+	if row, err := h.st.HostedAgent(ctx, v.ID); err != nil || row.TokenSecretID == "" {
+		t.Errorf("the token dropped over another write: %+v %v", row, err)
 	}
-	if ev := h.events("agent.takeover"); len(ev) != 0 {
-		t.Errorf("taken over: %+v", ev)
+	// Without If-Match, the token is dropped over it.
+	rs.on("UpdateHostedAgent", rename)
+	if a := h.call("POST", "agents/"+v.ID+"/token", h.yuki, ""); a.code != http.StatusOK {
+		t.Errorf("without If-Match: %d %s", a.code, a.body)
 	}
-
-	v := h.connect(h.ken, kens.Token)
-	if _, err := h.st.HostedAgent(ctx, old.ID); !errors.Is(err, store.ErrNotFound) || v.OwnerActorID != h.ken.ID {
-		t.Errorf("once Core answers: %v, %+v", err, v)
-	}
-	if ev := h.events("agent.takeover"); len(ev) != 1 || ev[0].TargetID != old.ID {
-		t.Errorf("the audit: %+v", ev)
+	if row, err := h.st.HostedAgent(ctx, v.ID); err != nil || row.TokenSecretID != "" || row.DisplayName != "Renamed meanwhile" {
+		t.Errorf("the row: %+v %v", row, err)
 	}
 }

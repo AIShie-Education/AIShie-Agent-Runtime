@@ -51,41 +51,47 @@ func sealInto(t *testing.T, v *vault.Vault, st store.Store, id, tenant, as, kind
 	}
 }
 
-// TestAgentStartsFromSealedSecrets: an agent whose Core token and model key
-// are sealed in the store (sealed://) starts from them, answers, and logs
-// neither. One whose sealed token was moved to another tenant does not
-// open: that agent fails, naming the reference and never what it holds,
-// and the other runs on.
+// TestAgentStartsFromSealedSecrets: an agent whose model key is sealed in
+// the store (sealed://) starts from it, answers, and logs it nowhere; the
+// token Core issues it is sealed in the store (store.AgentTokens), and a
+// worker starting after, on the same store, runs the agent with it rather
+// than be issued another. One whose sealed key was moved to another tenant
+// does not open: that agent fails, naming the reference and never what it
+// holds, and the other runs on.
 func TestAgentStartsFromSealedSecrets(t *testing.T) {
 	w := newWorld(t)
 	own := w.ownAgent("yuki-helper", 0)
-	tu := w.tutor("cs101-tutor")
+	w.tutor("cs101-tutor")
 	v := testVault(t)
 	st := memstore.New()
-	sealInto(t, v, st, "sec_token", "ten_yuki", "ten_yuki", store.SecretCoreToken, own.actor.Token)
 	sealInto(t, v, st, "sec_key", "ten_yuki", "ten_yuki", store.SecretModelKey, modelKey)
-	sealInto(t, v, st, "sec_moved", "ten_sato", "ten_other", store.SecretCoreToken, tu.actor.Token)
-	w.env.Clear() // nothing but the sealed secrets holds a token or the key
+	sealInto(t, v, st, "sec_moved", "ten_sato", "ten_other", store.SecretModelKey, modelKey)
+	w.env.Clear() // nothing but the sealed secrets holds the key
+	w.env.Store(credentialVar, w.svc.Token)
 
-	model := scripted.New(scripted.Reply("Opened from the store."))
-	sealed := func(token string) map[string]any {
-		return map[string]any{"core": map[string]any{"token_ref": token}, "model": map[string]any{"key_ref": "sealed://sec_key"}}
+	model := scripted.New(scripted.Reply("Opened from the store."), scripted.Reply("Again, with the token kept."))
+	sealed := func(key string) map[string]any {
+		return map[string]any{"model": map[string]any{"key_ref": key}}
 	}
 	cfg := w.config(nil,
-		w.agentDoc("yuki-helper", "m1", sealed("sealed://sec_token"), nil),
+		w.agentDoc("yuki-helper", "m1", sealed("sealed://sec_key"), nil),
 		w.agentDoc("cs101-tutor", "m1", sealed("sealed://sec_moved"), nil))
 	var mu sync.Mutex
 	var keys []string
-	wk := w.start(cfg, models{"m1": model}, workerOpts{store: st, edit: func(o *Options) {
-		o.Secrets = secrets.Resolver{Sealed: vault.Opener{Vault: v, Store: st}}
-		next := o.NewAdapter
-		o.NewAdapter = func(c llm.Config) (llm.Adapter, error) {
-			mu.Lock()
-			keys = append(keys, c.APIKey)
-			mu.Unlock()
-			return next(c)
-		}
-	}})
+	start := func(id string) *worker {
+		return w.start(cfg, models{"m1": model}, workerOpts{id: id, store: st, edit: func(o *Options) {
+			o.Secrets = secrets.Resolver{Getenv: w.getenv, Sealed: vault.Opener{Vault: v, Store: st}}
+			o.Sealer = v
+			next := o.NewAdapter
+			o.NewAdapter = func(c llm.Config) (llm.Adapter, error) {
+				mu.Lock()
+				keys = append(keys, c.APIKey)
+				mu.Unlock()
+				return next(c)
+			}
+		}})
+	}
+	wk := start("w1")
 	wk.waitState("yuki-helper", store.AgentRunning)
 	conv, _ := w.ask(0, own, "Does it open?")
 	if got := w.waitAnswers(conv, 1); got[0].Body != "Opened from the store." {
@@ -99,14 +105,32 @@ func TestAgentStartsFromSealedSecrets(t *testing.T) {
 
 	failed := wk.waitState("cs101-tutor", store.AgentError)
 	if !strings.Contains(failed.Detail, "sealed://sec_moved") || !strings.Contains(failed.Detail, "does not open") {
-		t.Errorf("the detail of the agent whose token does not open: %q", failed.Detail)
+		t.Errorf("the detail of the agent whose key does not open: %q", failed.Detail)
 	}
-	if n := len(w.calls(tu.actor.ID, "")); n != 0 {
-		t.Errorf("the agent whose token does not open made %d calls to Core", n)
+
+	live := w.fc.RuntimeToken(own.actor.ID)
+	kept, err := st.AgentToken(context.Background(), "yuki-helper")
+	w.ok(err)
+	if kept.CoreActorID != own.actor.ID || kept.CredentialID != live.CredentialID || kept.IssuedBy != "w1" {
+		t.Fatalf("the token kept: %+v; Core's live one %s", kept, live.CredentialID)
+	}
+	if tok, err := (vault.Opener{Vault: v, Store: st}).OpenSecret(context.Background(), kept.SecretID); err != nil || tok != live.Token {
+		t.Fatalf("the token kept does not open to Core's live one: %v", err)
+	}
+	issues := w.fc.RuntimeIssues(own.actor.ID)
+	wk.stop()
+
+	wk = start("w2")
+	wk.waitState("yuki-helper", store.AgentRunning)
+	conv, _ = w.ask(0, own, "Still there?")
+	w.waitAnswers(conv, 1)
+	if again := w.fc.RuntimeIssues(own.actor.ID); again != issues {
+		t.Errorf("the second worker was issued another token (%d issues, %d before)", again, issues)
 	}
 	wk.stop()
+
 	logs := w.logs.String()
-	for _, s := range []string{own.actor.Token, tu.actor.Token, modelKey, own.actor.Token[len(own.actor.Token)-16:], "ais_"} {
+	for _, s := range []string{live.Token, own.actor.Token, w.svc.Token, modelKey, live.Token[len(live.Token)-16:], "ais_", "aissvc_"} {
 		if strings.Contains(logs, s) || strings.Contains(failed.Detail, s) {
 			t.Errorf("a log line or the detail holds a secret (%.8s…)", s)
 		}

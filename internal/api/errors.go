@@ -65,11 +65,15 @@ const (
 	ReasonAgentNotFound   = "agent_not_found"
 	ReasonVersionRequired = "version_required"
 	ReasonVersionMismatch = "version_mismatch"
-	// The tokens'; the others are probe's (token_refused, …).
-	ReasonTokenMalformed  = "token_malformed"
-	ReasonAlreadyHosted   = "already_hosted"
-	ReasonOperatorAgent   = "operator_agent"
-	ReasonCoreUnavailable = "core_unavailable"
+	// Hosting an agent by its id, as Core says it may be.
+	ReasonOperatorAgent        = "operator_agent"
+	ReasonCoreUnavailable      = "core_unavailable"
+	ReasonCoreTooOld           = "core_too_old"
+	ReasonRuntimeMisconfigured = "runtime_misconfigured"
+	ReasonMCPAgent             = "mcp_agent"
+	ReasonAgentSuspended       = "agent_suspended"
+	ReasonOwnerSuspended       = "owner_suspended"
+	ReasonOwnerChanged         = "owner_changed"
 	// The models' and keys'.
 	ReasonUnknownProvider        = "unknown_provider"
 	ReasonAdapterNotOffered      = "adapter_not_offered"

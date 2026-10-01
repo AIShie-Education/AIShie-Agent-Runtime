@@ -176,6 +176,8 @@ func TestCheck(t *testing.T) {
 		{"the runtime's defaults break it", breaking, good, o, "temperature"},
 		{"no CORE_BASE_URL", &config.Config{}, good, Options{}, "CORE_BASE_URL is not set"},
 		{"a YAML agent's id", &config.Config{Agents: []*config.Agent{{ID: "agt_1"}}}, good, o, "a YAML agent has this id"},
+		{"a YAML agent's agent in Core", &config.Config{Agents: []*config.Agent{{ID: "tutor", Core: config.Core{AgentID: strings.ToUpper(good.CoreActorID)}}}},
+			good, o, `YAML agent "tutor" is this agent in Core`},
 		{"no key", &config.Config{}, noKey, o, "no key of the owner's is stored"},
 		{"an endpoint not official", &config.Config{}, custom, o, "not an official provider's endpoint"},
 	} {

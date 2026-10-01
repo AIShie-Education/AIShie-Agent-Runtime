@@ -93,65 +93,6 @@ func TestCatalogueSnapshot(t *testing.T) {
 	golden(t, "catalogue.sha256", []byte(c.Hash()+"\n"))
 }
 
-// meGetEdited is the pinned catalogue with edit applied to me.get, or
-// me.get taken out when edit returns false.
-func meGetEdited(t *testing.T, edit func(tool map[string]any) bool) *Catalogue {
-	t.Helper()
-	var doc struct {
-		Tools []map[string]any `json:"tools"`
-	}
-	if err := json.Unmarshal(readCatalogue(t), &doc); err != nil {
-		t.Fatal(err)
-	}
-	var kept []map[string]any
-	for _, tl := range doc.Tools {
-		if tl["name"] != "me.get" || edit(tl) {
-			kept = append(kept, tl)
-		}
-	}
-	doc.Tools = kept
-	raw, err := json.Marshal(doc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	c, err := ParseCatalogue(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return c
-}
-
-// MeGetNamesOwners tells a Core whose me_get says who owns an agent, as the
-// pinned one does, from one before (C1), whose catalogue does not describe
-// owner_actor_id, and from catalogues that say nothing of it at all.
-func TestMeGetNamesOwners(t *testing.T) {
-	pinned, err := ParseCatalogue(readCatalogue(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, tc := range []struct {
-		name string
-		cat  *Catalogue
-		want bool
-	}{
-		{"the pinned Core", pinned, true},
-		{"a Core from before C1", meGetEdited(t, func(tl map[string]any) bool {
-			delete(tl["output_schema"].(map[string]any)["properties"].(map[string]any), "owner_actor_id")
-			return true
-		}), false},
-		{"no me.get", meGetEdited(t, func(map[string]any) bool { return false }), false},
-		{"an output schema that is not an object", meGetEdited(t, func(tl map[string]any) bool {
-			tl["output_schema"] = true
-			return true
-		}), false},
-		{"no catalogue", nil, false},
-	} {
-		if got := tc.cat.MeGetNamesOwners(); got != tc.want {
-			t.Errorf("%s: MeGetNamesOwners is %v", tc.name, got)
-		}
-	}
-}
-
 // An Actor names the owner me_get names, and none when me_get names none.
 func TestActorOwner(t *testing.T) {
 	for raw, want := range map[string]string{

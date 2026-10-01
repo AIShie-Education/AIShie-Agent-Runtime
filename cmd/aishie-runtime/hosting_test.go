@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/fakecore"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/fakellm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
@@ -24,8 +26,9 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
 )
 
-// registryWorld is a fake Core with two agents of Yuki's, a migrated
-// database, and a keyring: what a runtime with hosted agents runs on.
+// registryWorld is a fake Core with two runtime agents of Yuki's, a
+// migrated database, a keyring, and the runtime's own credential in Core
+// in its secrets: what a runtime with hosted agents runs on.
 type registryWorld struct {
 	fc      *fakecore.Core
 	coreURL string
@@ -33,7 +36,9 @@ type registryWorld struct {
 	st      *pgstore.Store
 	v       *vault.Vault
 	kms     string
-	// yuki owns the agents in Core, and connected them here.
+	secrets string
+	svc     fakecore.Token
+	// yuki owns the agents in Core, and hosted them here.
 	yuki   fakecore.Actor
 	agents []fakecore.Actor
 }
@@ -57,6 +62,15 @@ func newRegistryWorld(t *testing.T) *registryWorld {
 	if w.v, err = vault.Open(w.kms); err != nil {
 		t.Fatal(err)
 	}
+	// Apart from the keyring, whose directory no reference reads.
+	w.secrets = t.TempDir()
+	w.svc = fc.IssueRuntimeServiceToken("runtime")
+	if err := os.MkdirAll(filepath.Join(w.secrets, "core"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(w.secrets, "core", "agent_runtime"), []byte(w.svc.Token+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	co := fc.AddCourse("CS101")
 	yuki := fc.AddPerson("Yuki")
 	w.yuki = yuki
@@ -77,37 +91,53 @@ func newRegistryWorld(t *testing.T) *registryWorld {
 	return w
 }
 
-// host connects agent i as the hosted agent id, with settings, as the API
-// would.
+// host hosts agent i by its id as the hosted agent id, with settings, as
+// the API would.
 func (w *registryWorld) host(t *testing.T, id string, i int, settings string) {
 	t.Helper()
-	w.hostActor(t, id, w.agents[i], settings)
+	w.hostAs(t, id, w.agents[i], w.yuki.ID, settings)
 }
 
-// hostActor connects actor as the hosted agent id, with its token and
-// settings, as Yuki.
-func (w *registryWorld) hostActor(t *testing.T, id string, actor fakecore.Actor, settings string) {
+// seal seals plaintext of kind for Yuki's tenant.
+func (w *registryWorld) seal(t *testing.T, kind, plaintext string) store.Secret {
 	t.Helper()
-	w.hostAs(t, id, actor, w.yuki.ID, settings)
+	s, err := w.v.Seal(context.Background(), store.Secret{ID: vault.NewSecretID(), TenantID: "ten_yuki", Kind: kind}, plaintext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
 }
 
-// hostAs connects actor as the hosted agent id, with its token and
-// settings, as the person owner.
+// hostAs hosts actor by its id as the hosted agent id, with settings, as
+// the person owner: a row naming it, with the owner's key sealed, and no
+// token, which the worker is issued.
 func (w *registryWorld) hostAs(t *testing.T, id string, actor fakecore.Actor, owner, settings string) {
 	t.Helper()
-	seal := func(kind, plaintext string) store.Secret {
-		s, err := w.v.Seal(context.Background(), store.Secret{ID: vault.NewSecretID(), TenantID: "ten_yuki", Kind: kind}, plaintext)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return s
-	}
-	tok, key := seal(store.SecretCoreToken, actor.Token), seal(store.SecretModelKey, "sk-test-0123456789abcdefghij")
+	key := w.seal(t, store.SecretModelKey, "sk-test-0123456789abcdefghij")
 	_, err := w.st.CreateHostedAgent(t.Context(), store.HostedAgent{
-		ID: id, CoreActorID: actor.ID, OwnerActorID: owner, TenantID: "ten_yuki", DisplayName: "Hosted " + id,
-		TokenSecretID: tok.ID, TokenHint: tok.Hint, KeySecretID: key.ID, KeyHint: key.Hint, Settings: json.RawMessage(settings),
-	}, tok, key)
+		ID: id, CoreActorID: actor.ID, OwnerActorID: owner, OwnerVerified: true, TenantID: "ten_yuki", DisplayName: "Hosted " + id,
+		KeySecretID: key.ID, KeyHint: key.Hint, Settings: json.RawMessage(settings),
+	}, key)
 	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// issued has the hosted agent id issued its token, as a worker running it
+// is: Core's runtime token, sealed in its row.
+func (w *registryWorld) issued(t *testing.T, id string) {
+	t.Helper()
+	row, err := w.st.HostedAgent(t.Context(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, err := w.fc.IssueRuntimeToken(row.CoreActorID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed := w.seal(t, store.SecretCoreToken, tok.Token)
+	row.TokenSecretID, row.TokenHint, row.TokenIssued, row.TokenCredentialID = sealed.ID, sealed.Hint, true, tok.CredentialID
+	if _, err := w.st.UpdateHostedAgent(t.Context(), *row, sealed); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -139,20 +169,26 @@ func (w *registryWorld) waitState(t *testing.T, out *lines, id, want string) sto
 }
 
 // TestRunReloadsTheRegistry: run with the store in PostgreSQL runs the
-// registry's hosted agents from their sealed secrets, beside YAML's (none
-// here); an agent connected while it runs is started at once, told by the
-// registry's notification; one paused stops; and none of its secrets is
+// registry's hosted agents, beside YAML's (none here), each issued its
+// token by its id with the runtime's own credential and sealed in its
+// row; an agent hosted while it runs is started at once, told by the
+// registry's notification; one paused stops; and none of the secrets is
 // logged.
 func TestRunReloadsTheRegistry(t *testing.T) {
 	w := newRegistryWorld(t)
 	w.host(t, "agt_first", 0, hostedSettings)
-	cmd, out, exited := child(t, "run", "CONFIG="+t.TempDir(), "DATABASE_URL="+w.dbURL, "KMS_KEY_ID="+w.kms,
+	cmd, out, exited := child(t, "run", "CONFIG="+t.TempDir(), "DATABASE_URL="+w.dbURL, "KMS_KEY_ID="+w.kms, "SECRETS_DIR="+w.secrets,
 		"CORE_BASE_URL="+w.coreURL, "HTTP_ADDR=127.0.0.1:0", "LOG_FORMAT=json", "SHUTDOWN_GRACE=2s", "WORKER_ID=child")
 	started := out.wait(t, `"msg":"aishie-runtime started"`)
 	if !strings.Contains(started, `"hosted":1`) || !strings.Contains(started, `"registry":true`) || !strings.Contains(started, `"kek":"local:v1"`) {
 		t.Errorf("the started line: %s", started)
 	}
 	w.waitState(t, out, "agt_first", store.AgentRunning)
+	if row, err := w.st.HostedAgent(t.Context(), "agt_first"); err != nil || !row.TokenIssued ||
+		row.TokenCredentialID != w.fc.RuntimeToken(w.agents[0].ID).CredentialID {
+		t.Errorf("the row of the agent run: %+v %v", row, err)
+	}
+	issued := []string{w.fc.RuntimeToken(w.agents[0].ID).Token}
 	var addr struct {
 		Addr string `json:"addr"`
 	}
@@ -175,9 +211,10 @@ func TestRunReloadsTheRegistry(t *testing.T) {
 		t.Errorf("/status: %+v, %v", status, err)
 	}
 
-	// Connected while it runs.
+	// Hosted while it runs.
 	w.host(t, "agt_second", 1, hostedSettings)
 	w.waitState(t, out, "agt_second", store.AgentRunning)
+	issued = append(issued, w.fc.RuntimeToken(w.agents[1].ID).Token)
 	out.wait(t, `"msg":"the registry of hosted agents changed"`)
 
 	if _, err := w.st.SetHostedAgentPaused(t.Context(), "agt_first", true, 0); err != nil {
@@ -205,7 +242,7 @@ func TestRunReloadsTheRegistry(t *testing.T) {
 	if err := waitExit(t, exited, 15*time.Second, out); err != nil {
 		t.Errorf("the runtime exited with %v:\n%s", err, out.text())
 	}
-	for _, s := range append([]string{"ais_", "sk-test"}, w.agents[0].Token, w.agents[1].Token) {
+	for _, s := range append(issued, "ais_", "aissvc_", "sk-test", w.agents[0].Token, w.agents[1].Token, w.svc.Token) {
 		if strings.Contains(out.text(), s) {
 			t.Errorf("a log line holds a secret (%.8s…)", s)
 		}
@@ -262,50 +299,56 @@ func TestCheckReadsTheRegistry(t *testing.T) {
 	}
 }
 
-// TestCheckLiveRefusesAPersonsToken: check --live holds a hosted agent's
-// token to what run does: its own actor's, an agent's. A person's own token
-// fails the check at me_get, and nothing more is read with it.
-func TestCheckLiveRefusesAPersonsToken(t *testing.T) {
+// TestCheckLiveHostedAgents: check --live reads each hosted agent as Core
+// hosts it, as run does at the agent's start, and is issued nothing: one
+// whose row holds the token the runtime was issued connects with it, its
+// seats shown; one whose owner in Core is not the person who hosted it
+// fails, as owner_changed, naming no one; an mcp agent fails. Nothing is
+// called with the token of an agent that fails.
+func TestCheckLiveHostedAgents(t *testing.T) {
 	w := newRegistryWorld(t)
-	person := w.fc.AddPerson("Mallory")
-	w.hostActor(t, "agt_person", person, hostedSettings)
-	getenv := env("CONFIG", t.TempDir(), "DATABASE_URL", w.dbURL, "CORE_BASE_URL", w.coreURL, "KMS_KEY_ID", w.kms)
-	code, out, errs := runCmd(t, getenv, "check", "--live")
-	if code != exitFailure || !strings.Contains(out, "agent agt_person: FAILED: me_get: its token is not an agent's in Core") {
-		t.Errorf("check --live of a hosted agent on a person's token: %d\n%s%s", code, out, errs)
+	// agt_ok is on an offer of the school's plan at a model of the
+	// test's, which check --live tries.
+	model := fakellm.New(fakellm.DefaultResponder).Start()
+	t.Cleanup(model.Close)
+	config := t.TempDir()
+	plan := fmt.Sprintf("runtime:\n  school:\n    offers:\n      - {id: local, label: Local, adapter: openai_chat, model: fake-model, base_url: %q, key_ref: \"secret://school/keys/local\"}\n",
+		model.URL())
+	if err := os.WriteFile(filepath.Join(config, "runtime.yaml"), []byte(plan), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	for _, c := range w.fc.Calls() {
-		if c.ActorID == person.ID && c.Tool != "me_get" {
-			t.Errorf("check --live called %s with the person's token", c.Tool)
-		}
+	if err := os.MkdirAll(filepath.Join(w.secrets, "school", "keys"), 0o700); err != nil {
+		t.Fatal(err)
 	}
-}
-
-// TestCheckLiveChecksTheOwner: check --live holds a hosted agent's owner
-// to what run does, and fails one Core names another owner for, or none,
-// with the state run would give it and what that state says, naming no one;
-// nothing more is read with its token.
-func TestCheckLiveChecksTheOwner(t *testing.T) {
-	w := newRegistryWorld(t)
+	if err := os.WriteFile(filepath.Join(w.secrets, "school", "keys", "local"), []byte("sk-school-0123456789abcdef\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.st.CreateHostedAgent(t.Context(), store.HostedAgent{ID: "agt_ok", CoreActorID: w.agents[0].ID, OwnerActorID: w.yuki.ID,
+		OwnerVerified: true, TenantID: "ten_yuki", DisplayName: "Hosted agt_ok",
+		Settings: json.RawMessage(`{"model": {"key_source": "school", "offer": "local"}}`)}); err != nil {
+		t.Fatal(err)
+	}
+	w.issued(t, "agt_ok")
 	ken := w.fc.AddPerson("Ken")
-	w.hostAs(t, "agt_kens", w.agents[0], ken.ID, hostedSettings)
-	unowned, err := w.fc.AddAgent("Nobody's helper", w.yuki.ID)
+	w.hostAs(t, "agt_kens", w.agents[1], ken.ID, hostedSettings)
+	w.issued(t, "agt_kens")
+	tools, err := w.fc.AddMCPAgent("Yuki's tools", w.yuki.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := w.fc.SetOwner(unowned.ID, ""); err != nil {
-		t.Fatal(err)
-	}
-	if unowned.Token, err = w.fc.IssueToken(unowned.ID); err != nil {
-		t.Fatal(err)
-	}
-	w.hostActor(t, "agt_nobodys", unowned, hostedSettings)
-	getenv := env("CONFIG", t.TempDir(), "DATABASE_URL", w.dbURL, "CORE_BASE_URL", w.coreURL, "KMS_KEY_ID", w.kms)
+	w.hostAs(t, "agt_tools", tools, w.yuki.ID, hostedSettings)
+	issues := [2]int{w.fc.RuntimeIssues(w.agents[0].ID), w.fc.RuntimeIssues(w.agents[1].ID)}
+	getenv := env("CONFIG", config, "DATABASE_URL", w.dbURL, "CORE_BASE_URL", w.coreURL, "KMS_KEY_ID", w.kms, "SECRETS_DIR", w.secrets)
 	code, out, errs := runCmd(t, getenv, "check", "--live")
 	for _, want := range []string{
-		"agent agt_kens: FAILED: owner_changed: the agent's owner in Core is no longer the person who connected it here: its owner must connect it again",
-		"agent agt_nobodys: FAILED: owner_changed: Core names no owner for the agent now",
-		"2 of 2 agents failed the live check",
+		`agent agt_ok: in Core "Yuki's helper 0" (` + w.agents[0].ID + "), hosted runtime, active; 1 live seats; asked in the site",
+		"  owner: Core names the person who hosted it",
+		"  connected with the token the runtime holds",
+		"Delegate of member ",
+		"model openai_chat fake-model (openai_compatible): the key works",
+		"agent agt_kens: FAILED: owner_changed: the agent's owner in Core is not the person who hosted it here",
+		"agent agt_tools: FAILED: hosting: an mcp agent",
+		"2 of 3 agents failed the live check",
 	} {
 		if !strings.Contains(out+errs, want) {
 			t.Errorf("check --live does not say %q: %d\n%s%s", want, code, out, errs)
@@ -320,9 +363,12 @@ func TestCheckLiveChecksTheOwner(t *testing.T) {
 		}
 	}
 	for _, c := range w.fc.Calls() {
-		if (c.ActorID == w.agents[0].ID || c.ActorID == unowned.ID) && c.Tool != "me_get" {
-			t.Errorf("check --live called %s with the token of an agent whose owner does not pass", c.Tool)
+		if c.ActorID == w.agents[1].ID || c.ActorID == tools.ID {
+			t.Errorf("check --live called %s as an agent that fails", c.Tool)
 		}
+	}
+	if now := [2]int{w.fc.RuntimeIssues(w.agents[0].ID), w.fc.RuntimeIssues(w.agents[1].ID)}; now != issues {
+		t.Errorf("check --live was issued tokens: %v, %v before", now, issues)
 	}
 }
 

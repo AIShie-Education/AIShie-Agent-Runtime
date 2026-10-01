@@ -141,7 +141,7 @@ func TestSchoolPlanAdmin(t *testing.T) {
 		Model: "deepseek-chat", Priced: true}) {
 		t.Errorf("GET /models: %+v", m.SchoolKey)
 	}
-	v := h.connect(h.yuki, h.helper.Token)
+	v := h.host(h.yuki, h.helper.ID)
 	var agent HostedAgent
 	onFast := h.patch(v.ID, `"1"`, `{"model":{"school":{"offer":"fast"}}}`)
 	onFast.decode(t, &agent)

@@ -3,17 +3,18 @@ package worker
 import (
 	"context"
 	"encoding/json"
-	"net/http"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/fakecore"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/scripted"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ratelimit"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/secrets"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
@@ -22,8 +23,8 @@ import (
 )
 
 // hosting is a world's registry of hosted agents: a store holding them, a
-// vault sealing their tokens and keys, and the worker's options to open
-// them.
+// vault sealing their tokens and keys, and the worker's options to seal
+// and open them.
 type hosting struct {
 	w  *world
 	st *memstore.Store
@@ -62,27 +63,46 @@ func (h *hosting) seal(tenant, kind, plaintext string) store.Secret {
 	return s
 }
 
-// host connects ag as the hosted agent id, with token (ag's own when "")
-// and settings, as the API would: its token and the model key sealed, and
-// its owner in Core recorded as the person who connected it.
-func (h *hosting) host(id string, ag agent, token string, settings json.RawMessage) {
+// host hosts ag as the hosted agent id by its id, as the API does: its row
+// names the agent in Core and its owner, holds the owner's key sealed, and
+// no token, which the worker is issued.
+func (h *hosting) host(id string, ag agent, settings json.RawMessage) {
 	h.w.t.Helper()
-	h.hostAs(id, ag, ag.owner.ID, token, settings)
+	h.hostAs(id, ag, ag.owner.ID, settings)
 }
 
-// hostAs is host, connected by the person owner.
-func (h *hosting) hostAs(id string, ag agent, owner, token string, settings json.RawMessage) {
+// hostAs is host, hosted by the person owner.
+func (h *hosting) hostAs(id string, ag agent, owner string, settings json.RawMessage) {
 	h.w.t.Helper()
-	if token == "" {
-		token = ag.actor.Token
-	}
-	tok := h.seal("ten_"+id, store.SecretCoreToken, token)
 	key := h.seal("ten_"+id, store.SecretModelKey, modelKey)
 	_, err := h.st.CreateHostedAgent(context.Background(), store.HostedAgent{
-		ID: id, CoreActorID: ag.actor.ID, OwnerActorID: owner, TenantID: "ten_" + id, DisplayName: "Hosted " + id,
-		TokenSecretID: tok.ID, KeySecretID: key.ID, Settings: settings,
+		ID: id, CoreActorID: ag.actor.ID, OwnerActorID: owner, OwnerVerified: true, TenantID: "ten_" + id, DisplayName: "Hosted " + id,
+		KeySecretID: key.ID, Settings: settings,
+	}, key)
+	h.w.ok(err)
+}
+
+// hostPasted hosts ag as it was hosted before hosting by id: its row holds
+// the token its owner pasted, sealed, not issued to the runtime; Core's
+// migration took it as the runtime's (ag.actor.Token, which AddAgent
+// issued as the runtime's).
+func (h *hosting) hostPasted(id string, ag agent, settings json.RawMessage) {
+	h.w.t.Helper()
+	tok := h.seal("ten_"+id, store.SecretCoreToken, ag.actor.Token)
+	key := h.seal("ten_"+id, store.SecretModelKey, modelKey)
+	_, err := h.st.CreateHostedAgent(context.Background(), store.HostedAgent{
+		ID: id, CoreActorID: ag.actor.ID, OwnerActorID: ag.owner.ID, OwnerVerified: false, TenantID: "ten_" + id, DisplayName: "Hosted " + id,
+		TokenSecretID: tok.ID, TokenHint: tok.Hint, KeySecretID: key.ID, Settings: settings,
 	}, tok, key)
 	h.w.ok(err)
+}
+
+// row is the hosted agent's row as the store holds it.
+func (h *hosting) row(id string) *store.HostedAgent {
+	h.w.t.Helper()
+	r, err := h.st.HostedAgent(context.Background(), id)
+	h.w.ok(err)
+	return r
 }
 
 // build is YAML ∪ registry, as run builds it.
@@ -93,12 +113,22 @@ func (h *hosting) build(yaml *config.Config) *config.Config {
 	return cfg
 }
 
-// start runs a worker on the registry's store, opening its sealed secrets.
+// start runs a worker on the registry's store, sealing the tokens it is
+// issued and opening its sealed secrets.
 func (h *hosting) start(cfg *config.Config, ms models) *worker {
-	return h.w.start(cfg, ms, workerOpts{store: h.st, edit: func(o *Options) {
+	return h.startAs("w1", cfg, ms)
+}
+
+// startAs is start, of the worker id.
+func (h *hosting) startAs(id string, cfg *config.Config, ms models) *worker {
+	return h.w.start(cfg, ms, workerOpts{id: id, store: h.st, edit: func(o *Options) {
 		o.Secrets = secrets.Resolver{Getenv: h.w.getenv, Sealed: vault.Opener{Vault: h.v, Store: h.st}}
+		o.Sealer = h.v
 	}})
 }
+
+// update puts the registry in force in wk, as the watcher does.
+func (h *hosting) update(wk *worker, yaml *config.Config) { wk.sup.Update(h.build(yaml)) }
 
 // statusOf is the agent's status as the supervisor reports it.
 func (wk *worker) statusOf(id string) AgentStatus {
@@ -110,23 +140,41 @@ func (wk *worker) statusOf(id string) AgentStatus {
 	return AgentStatus{}
 }
 
-// Hosted agents run beside the YAML ones, from their sealed secrets. One
-// whose settings do not pass is shown in state error and makes no call,
-// and keeps none of the others from running; pausing one stops its calls
-// to Core, and resuming it starts it again.
+// wantIssued fails unless the hosted agent's row holds the token Core holds
+// live for its agent as the runtime's, issued to it.
+func (h *hosting) wantIssued(id string, ag agent) {
+	h.w.t.Helper()
+	row := h.row(id)
+	live := h.w.fc.RuntimeToken(ag.actor.ID)
+	if !row.TokenIssued || row.TokenSecretID == "" || row.TokenCredentialID != live.CredentialID {
+		h.w.t.Fatalf("the row of %s: %+v; Core's live token %s", id, row, live.CredentialID)
+	}
+	tok, err := vault.Opener{Vault: h.v, Store: h.st}.OpenSecret(context.Background(), row.TokenSecretID)
+	h.w.ok(err)
+	if tok != live.Token {
+		h.w.t.Fatalf("the token sealed in %s's row is not Core's live one", id)
+	}
+}
+
+// Hosted agents run beside the YAML ones, hosted by their ids: the worker
+// is issued each one's token as it starts it, and seals it in its row. One
+// whose settings do not pass is shown in state error, is issued nothing
+// and makes no call, and keeps none of the others from running; pausing
+// one drops its token from its row (the API revokes it in Core) and stops
+// its calls to Core, and resuming it has it issued another.
 func TestHostedAgentsRunBesideYAML(t *testing.T) {
 	w := newWorld(t)
 	own := w.ownAgent("agt_yuki", 0)
 	tu := w.tutor("cs101-tutor")
 	bad := w.ownAgent("agt_bad", 1)
 	h := w.hosting()
-	h.host("agt_yuki", own, "", hostedSettings("m1"))
+	h.host("agt_yuki", own, hostedSettings("m1"))
 	settings := map[string]any{}
 	w.ok(json.Unmarshal(hostedSettings("m1"), &settings))
 	settings["colour"] = "blue"
 	badSettings, err := json.Marshal(settings)
 	w.ok(err)
-	h.host("agt_bad", bad, "", badSettings)
+	h.host("agt_bad", bad, badSettings)
 	yaml := w.config(nil, w.agentDoc("cs101-tutor", "m2", nil, nil))
 	cfg := h.build(yaml)
 	if len(cfg.Agents) != 2 || len(cfg.Rejected) != 1 {
@@ -136,6 +184,7 @@ func TestHostedAgentsRunBesideYAML(t *testing.T) {
 
 	wk.waitState("agt_yuki", store.AgentRunning)
 	wk.waitState("cs101-tutor", store.AgentRunning)
+	h.wantIssued("agt_yuki", own)
 	failed := wk.waitState("agt_bad", store.AgentError)
 	if !strings.Contains(failed.Detail, "not run: agent.colour: unknown field") || failed.Reason != store.ReasonSettingsRejected || failed.ConfigVersion != 1 {
 		t.Errorf("the bad agent's detail: %q (%s, version %d)", failed.Detail, failed.Reason, failed.ConfigVersion)
@@ -157,14 +206,20 @@ func TestHostedAgentsRunBesideYAML(t *testing.T) {
 	if got := w.waitAnswers(tconv, 1); got[0].Body != "From YAML." {
 		t.Errorf("the YAML agent's answer: %q", got[0].Body)
 	}
-	if n := len(w.calls(bad.actor.ID, "")); n != 0 {
-		t.Errorf("the agent that does not pass made %d calls to Core", n)
+	if n := len(w.calls(bad.actor.ID, "")); n != 0 || w.fc.RuntimeIssues(bad.actor.ID) != 1 {
+		t.Errorf("the agent that does not pass made %d calls to Core, and was issued %d tokens", n, w.fc.RuntimeIssues(bad.actor.ID)-1)
 	}
 
-	// Paused: no more calls to Core.
-	_, err = h.st.SetHostedAgentPaused(context.Background(), "agt_yuki", true, 0)
+	// Paused: its token dropped from its row and revoked (the API's), and
+	// no more calls to Core.
+	paused, err := h.st.SetHostedAgentPaused(context.Background(), "agt_yuki", true, 0)
 	w.ok(err)
-	wk.sup.Update(h.build(yaml))
+	if paused.TokenSecretID != "" {
+		t.Fatalf("a paused row holds a token: %+v", paused)
+	}
+	_, err = w.fc.RevokeRuntimeToken(own.actor.ID)
+	w.ok(err)
+	h.update(wk, yaml)
 	wk.waitState("agt_yuki", store.AgentPaused)
 	eventually(t, "the hosted agent stopped", func() bool { return !wk.statusOf("agt_yuki").Running })
 	// A call in flight as it stopped reaches the fake Core just after.
@@ -174,163 +229,368 @@ func TestHostedAgentsRunBesideYAML(t *testing.T) {
 	if more := len(w.calls(own.actor.ID, "")) - n; more != 0 {
 		t.Errorf("%d calls to Core by the paused agent", more)
 	}
-	// Resumed: it runs again.
+	if w.fc.SiteChat(own.actor.ID) {
+		t.Error("a paused agent is asked in the site")
+	}
+	// Resumed: issued another, and it runs again.
 	_, err = h.st.SetHostedAgentPaused(context.Background(), "agt_yuki", false, 0)
 	w.ok(err)
-	wk.sup.Update(h.build(yaml))
+	h.update(wk, yaml)
 	wk.waitState("agt_yuki", store.AgentRunning)
+	h.wantIssued("agt_yuki", own)
+	if n := w.fc.RuntimeIssues(own.actor.ID); n != 3 {
+		t.Errorf("the hosted agent was issued %d tokens; want AddAgent's, its first and its resumed", n)
+	}
 
 	// Fixed, the bad one runs too.
-	a, err := h.st.HostedAgent(context.Background(), "agt_bad")
-	w.ok(err)
+	a := h.row("agt_bad")
 	a.Settings = hostedSettings("m1")
 	_, err = h.st.UpdateHostedAgent(context.Background(), *a)
 	w.ok(err)
-	wk.sup.Update(h.build(yaml))
+	h.update(wk, yaml)
 	wk.waitState("agt_bad", store.AgentRunning)
 }
 
-// A hosted agent Core refuses stays unauthorized through changes to the
-// registry that are not its own, making no call; a new token, which is a
-// new secret, starts it again.
-func TestHostedTokenChangeRestartsAnUnauthorizedAgent(t *testing.T) {
+// One token per agent, whichever worker runs it: the worker holding the
+// agent's lease is issued it once and seals it in the row, and the worker
+// that takes the agent up after it runs it with the same token, issued
+// nothing. The registry's rebuild after the token is written restarts
+// nothing.
+func TestHostedOneTokenAcrossWorkers(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("agt_yuki", 0)
+	h := w.hosting()
+	h.host("agt_yuki", own, hostedSettings("m1"))
+	yaml := &config.Config{}
+	ms := models{"m1": scripted.New(scripted.Reply("Hello."), scripted.Reply("Hello again."))}
+	w1 := h.startAs("w1", h.build(yaml), ms)
+	w1.waitState("agt_yuki", store.AgentRunning)
+	w2 := h.startAs("w2", h.build(yaml), ms)
+	h.wantIssued("agt_yuki", own)
+	issued := h.row("agt_yuki")
+	// The rebuild the write set off, in both workers.
+	h.update(w1, yaml)
+	h.update(w2, yaml)
+	time.Sleep(200 * time.Millisecond)
+	if n := w.fc.RuntimeIssues(own.actor.ID); n != 2 {
+		t.Fatalf("issued %d tokens; want AddAgent's and the runtime's", n)
+	}
+	if n := len(w.calls(own.actor.ID, "me_get")); n != 1 {
+		t.Errorf("me_get %d times: the rebuild restarted the agent", n)
+	}
+	conv, _ := w.ask(0, own, "Who answers?")
+	w.waitAnswers(conv, 1)
+
+	w1.stop()
+	w2.waitState("agt_yuki", store.AgentRunning)
+	eventually(t, "the second worker running the agent", func() bool { return w2.statusOf("agt_yuki").Running })
+	if n := w.fc.RuntimeIssues(own.actor.ID); n != 2 || h.row("agt_yuki").TokenSecretID != issued.TokenSecretID {
+		t.Errorf("after the takeover: %d tokens issued, the row's %q", n, h.row("agt_yuki").TokenSecretID)
+	}
+	conv2, _ := w.ask(0, own, "And now?")
+	w.waitAnswers(conv2, 1)
+}
+
+// Upgrading: a hosted agent whose token its owner pasted, before hosting
+// was by id, is issued one in its place at its first start, which revokes
+// the pasted one (Core's migration took it as the runtime's), and its row
+// says so; the service's calls are paced by the worker's bucket. A row of
+// an mcp agent is not run, says why, and is issued nothing.
+func TestHostedUpgradeReissuesPastedTokens(t *testing.T) {
+	w := newWorld(t)
+	h := w.hosting()
+	var pasted []agent
+	for i, id := range []string{"agt_a", "agt_b", "agt_c"} {
+		ag := w.ownAgent(id, i%2)
+		h.hostPasted(id, ag, hostedSettings("m1"))
+		pasted = append(pasted, ag)
+	}
+	tools, err := w.fc.AddMCPAgent("Ken's tools", w.students[1].ID)
+	w.ok(err)
+	h.hostPasted("agt_mcp", agent{id: "agt_mcp", actor: tools, owner: w.students[1]}, hostedSettings("m1"))
+	bucket := ratelimit.New(6000, 1)
+	wk := w.start(h.build(&config.Config{}), models{"m1": scripted.New(scripted.Reply("Upgraded."))}, workerOpts{store: h.st,
+		edit: func(o *Options) {
+			o.Secrets = secrets.Resolver{Getenv: w.getenv, Sealed: vault.Opener{Vault: h.v, Store: h.st}}
+			o.Sealer, o.RuntimeBucket = h.v, bucket
+		}})
+	for i, ag := range pasted {
+		id := []string{"agt_a", "agt_b", "agt_c"}[i]
+		wk.waitState(id, store.AgentRunning)
+		h.wantIssued(id, ag)
+		if row := h.row(id); !row.OwnerVerified {
+			t.Errorf("%s's owner, checked by its id, is not recorded verified", id)
+		}
+		if a, err := newCaller(t, w, ag.actor.Token).Me(context.Background()); err == nil {
+			t.Errorf("the token %s's owner pasted still works: %+v", id, a)
+		}
+		conv, _ := w.ask(i%2, ag, "Upgraded?")
+		w.waitAnswers(conv, 1)
+	}
+	st := wk.waitState("agt_mcp", store.AgentError)
+	if st.Reason != store.ReasonMCPAgent || !strings.Contains(st.Detail, "mcp agent") {
+		t.Errorf("the mcp agent's state: %+v", st)
+	}
+	if n := w.fc.RuntimeIssues(tools.ID); n != 0 || len(w.calls(tools.ID, "")) != 0 {
+		t.Errorf("the mcp agent was issued %d runtime tokens and made %d calls", n, len(w.calls(tools.ID, "")))
+	}
+	if stats := bucket.Stats(); stats.Granted < 7 || stats.Waited == 0 {
+		t.Errorf("the service's calls were not paced by the bucket: %+v", stats)
+	}
+}
+
+// A hosted agent is run only while Core names as its owner the person who
+// hosted it: one Core names another owner for is stopped in state
+// owner_changed, its token revoked in Core and dropped from its row, with
+// a state that names no one and holds no secret, having made no call as
+// the agent; one whose owner of record is written in another case runs,
+// and is recorded verified, which restarts nothing.
+func TestHostedOwnerCheck(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		owner func(w *world, ag agent) string
+		state string
+	}{
+		{"Core names the person who hosted it", func(_ *world, ag agent) string { return ag.owner.ID }, store.AgentRunning},
+		{"the row in capitals", func(_ *world, ag agent) string { return strings.ToUpper(ag.owner.ID) }, store.AgentRunning},
+		{"Core names another owner", func(w *world, _ agent) string { return w.students[1].ID }, store.AgentOwnerChanged},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := newWorld(t)
+			h := w.hosting()
+			own := w.ownAgent("agt_yuki", 0)
+			hostedBy := tc.owner(w, own)
+			h.hostAs("agt_yuki", own, hostedBy, hostedSettings("m1"))
+			row := h.row("agt_yuki")
+			row.OwnerVerified = false
+			_, err := h.st.UpdateHostedAgent(context.Background(), *row)
+			w.ok(err)
+			tu := w.tutor("cs101-tutor")
+			yaml := w.config(nil, w.agentDoc("cs101-tutor", "m2", nil, nil))
+			wk := h.start(h.build(yaml), models{"m1": scripted.New(scripted.Reply("Hosted.")), "m2": scripted.New(scripted.Reply("From YAML."))})
+
+			st := wk.waitState("agt_yuki", tc.state)
+			wk.waitState("cs101-tutor", store.AgentRunning)
+			conv, _ := w.ask(1, tu, "Does the YAML agent answer?")
+			w.waitAnswers(conv, 1)
+			if tc.state == store.AgentRunning {
+				eventually(t, "the owner recorded verified", func() bool { return h.row("agt_yuki").OwnerVerified })
+				h.update(wk, yaml)
+				time.Sleep(200 * time.Millisecond)
+				if n := len(w.calls(own.actor.ID, "me_get")); n != 1 || !wk.statusOf("agt_yuki").Running {
+					t.Errorf("after its owner was recorded verified: %d me_get, running %v", n, wk.statusOf("agt_yuki").Running)
+				}
+				return
+			}
+			if st.Detail != ownerChangedDetail || st.Reason != store.ReasonOwnerChanged {
+				t.Errorf("the state says %q (%s)", st.Detail, st.Reason)
+			}
+			for what, s := range map[string]string{"its token": own.actor.Token, "the model key": modelKey, "its actor": own.actor.ID,
+				"who hosted it": hostedBy, "its owner": own.owner.ID, "a token's prefix": "ais_"} {
+				if strings.Contains(st.Detail, s) {
+					t.Errorf("the state holds %s: %q", what, st.Detail)
+				}
+			}
+			if w.fc.SiteChat(own.actor.ID) || w.fc.RuntimeToken(own.actor.ID).Token != "" {
+				t.Error("the agent whose owner changed is still asked in the site: its token was not revoked")
+			}
+			if row := h.row("agt_yuki"); row.OwnerVerified || row.TokenSecretID != "" {
+				t.Errorf("its row: %+v", row)
+			}
+			if s := wk.statusOf("agt_yuki"); !s.Hosted || s.Running || s.State != tc.state {
+				t.Errorf("its status: %+v", s)
+			}
+			if n := len(w.calls(own.actor.ID, "")); n != 0 {
+				t.Errorf("%d calls to Core as the agent", n)
+			}
+		})
+	}
+}
+
+// A hosted agent suspended in Core while it runs is stopped, its token
+// revoked, and not asked in the site; reactivated, it is issued another
+// and answers again, by itself.
+func TestHostedSuspendedAndBack(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("agt_yuki", 0)
+	h := w.hosting()
+	h.host("agt_yuki", own, hostedSettings("m1"))
+	wk := h.start(h.build(&config.Config{}), models{"m1": scripted.New(scripted.Reply("Back."))})
+	wk.waitState("agt_yuki", store.AgentRunning)
+	w.ok(w.fc.SuspendActor(own.actor.ID))
+	eventually(t, "the agent stopped for its suspension", func() bool {
+		st := wk.state("agt_yuki")
+		return st.State == store.AgentError && st.Reason == store.ReasonAgentSuspended
+	})
+	// Its state says so once a call of its own is refused; its next start
+	// ends its hosting: its token revoked in Core, then forgotten in its
+	// row.
+	eventually(t, "its token revoked, and forgotten", func() bool {
+		return w.fc.RuntimeToken(own.actor.ID).Token == "" && h.row("agt_yuki").TokenSecretID == ""
+	})
+	if w.fc.SiteChat(own.actor.ID) {
+		t.Error("a suspended agent is still asked in the site")
+	}
+	w.ok(w.fc.ReactivateActor(own.actor.ID))
+	wk.waitState("agt_yuki", store.AgentRunning)
+	h.wantIssued("agt_yuki", own)
+	conv, _ := w.ask(0, own, "Are you back?")
+	w.waitAnswers(conv, 1)
+}
+
+// A hosted agent whose owner is suspended in Core is not started: it is in
+// state error, reason owner_suspended, and makes no call as the agent; its
+// token is kept (Core pauses the agent while its owner is). Its owner
+// reactivated, it starts by itself with the token it holds, issued nothing.
+func TestHostedOwnerSuspended(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("agt_yuki", 0)
+	h := w.hosting()
+	h.host("agt_yuki", own, hostedSettings("m1"))
+	yaml := &config.Config{}
+	wk := h.start(h.build(yaml), models{"m1": scripted.New(scripted.Reply("Back."))})
+	wk.waitState("agt_yuki", store.AgentRunning)
+	h.wantIssued("agt_yuki", own)
+	issued := w.fc.RuntimeIssues(own.actor.ID)
+	wk.stop()
+
+	w.ok(w.fc.SuspendActor(own.owner.ID))
+	wk = h.startAs("w2", h.build(yaml), models{"m1": scripted.New(scripted.Reply("Back."))})
+	st := wk.waitState("agt_yuki", store.AgentError)
+	if st.Reason != store.ReasonOwnerSuspended || !strings.Contains(st.Detail, "owner is suspended") {
+		t.Errorf("its state: %q (%s)", st.Detail, st.Reason)
+	}
+	since := time.Now()
+	time.Sleep(100 * time.Millisecond)
+	for _, c := range w.fc.Calls() {
+		if c.ActorID == own.actor.ID && c.At.After(since) {
+			t.Fatalf("a call as the agent whose owner is suspended: %s", c.Tool)
+		}
+	}
+	h.wantIssued("agt_yuki", own)
+	w.ok(w.fc.ReactivateActor(own.owner.ID))
+	wk.waitState("agt_yuki", store.AgentRunning)
+	if n := w.fc.RuntimeIssues(own.actor.ID); n != issued {
+		t.Errorf("issued %d tokens, %d before its owner's suspension", n, issued)
+	}
+	conv, _ := w.ask(0, own, "Are you back?")
+	w.waitAnswers(conv, 1)
+}
+
+// A hosted agent whose token is revoked in Core by someone else than the
+// runtime (its owner, an administrator) stops, unauthorized, and stays
+// stopped through changes to the registry that are not its own, issued
+// nothing; its owner asking for a new token (its row's dropped) has it
+// issued another, and it runs again.
+func TestHostedRevokedElsewhere(t *testing.T) {
 	w := newWorld(t)
 	own := w.ownAgent("agt_yuki", 0)
 	other := w.ownAgent("agt_ken", 1)
 	h := w.hosting()
-	h.host("agt_yuki", own, "", hostedSettings("m1"))
-	h.host("agt_ken", other, "", hostedSettings("m1"))
+	h.host("agt_yuki", own, hostedSettings("m1"))
+	h.host("agt_ken", other, hostedSettings("m1"))
 	yaml := &config.Config{}
 	wk := h.start(h.build(yaml), models{"m1": scripted.New(scripted.Reply("Back again."))})
 	wk.waitState("agt_yuki", store.AgentRunning)
+	wk.waitState("agt_ken", store.AgentRunning)
 
-	w.ok(w.fc.Revoke(own.actor.Token))
-	// What its owner reads says what the owner does: no file of theirs
-	// holds the token.
-	if st := wk.waitState("agt_yuki", store.AgentUnauthorized); !strings.Contains(st.Detail, "connect the agent again with a new token") ||
-		strings.Contains(st.Detail, "token_ref") || st.Reason != store.ReasonTokenRefused {
-		t.Errorf("the unauthorized hosted agent's detail: %q (%s)", st.Detail, st.Reason)
+	_, err := w.fc.RevokeRuntimeToken(own.actor.ID)
+	w.ok(err)
+	st := wk.waitState("agt_yuki", store.AgentUnauthorized)
+	if st.Reason != store.ReasonTokenRefused || !strings.Contains(st.Detail, "revoked in Core") || strings.Contains(st.Detail, "token_ref") {
+		t.Errorf("the unauthorized hosted agent's state: %q (%s)", st.Detail, st.Reason)
 	}
 	time.Sleep(50 * time.Millisecond)
-	n := len(w.calls(own.actor.ID, ""))
+	n, issued := len(w.calls(own.actor.ID, "")), w.fc.RuntimeIssues(own.actor.ID)
 	// Another agent's change: this one is not tried again.
-	_, err := h.st.SetHostedAgentPaused(context.Background(), "agt_ken", true, 0)
+	_, err = h.st.SetHostedAgentPaused(context.Background(), "agt_ken", true, 0)
 	w.ok(err)
-	wk.sup.Update(h.build(yaml))
+	h.update(wk, yaml)
 	wk.waitState("agt_ken", store.AgentPaused)
 	time.Sleep(200 * time.Millisecond)
-	if more := len(w.calls(own.actor.ID, "")) - n; more != 0 {
-		t.Errorf("%d calls by the unauthorized agent after a change to another", more)
-	}
-	if st := wk.state("agt_yuki"); st.State != store.AgentUnauthorized {
-		t.Errorf("the unauthorized agent is %s", st.State)
+	if more := len(w.calls(own.actor.ID, "")) - n; more != 0 || w.fc.RuntimeIssues(own.actor.ID) != issued {
+		t.Errorf("%d calls, and %d tokens issued, for the unauthorized agent after a change to another", more,
+			w.fc.RuntimeIssues(own.actor.ID)-issued)
 	}
 
-	// Its owner connects a new token: a new secret, the old one destroyed.
-	token, err := w.fc.IssueToken(own.actor.ID)
-	w.ok(err)
-	a, err := h.st.HostedAgent(context.Background(), "agt_yuki")
-	w.ok(err)
-	old := a.TokenSecretID
-	tok := h.seal(a.TenantID, store.SecretCoreToken, token)
-	a.TokenSecretID = tok.ID
-	_, err = h.st.UpdateHostedAgent(context.Background(), *a, tok)
+	// Its owner asks for a new token (POST …/token): the row's dropped.
+	row := h.row("agt_yuki")
+	old := row.TokenSecretID
+	row.TokenSecretID, row.TokenHint, row.TokenIssued, row.TokenCredentialID = "", "", false, ""
+	_, err = h.st.UpdateHostedAgent(context.Background(), *row)
 	w.ok(err)
 	if _, err := h.st.Secret(context.Background(), old); err == nil {
 		t.Error("the old token's secret was kept")
 	}
-	wk.sup.Update(h.build(yaml))
+	h.update(wk, yaml)
 	wk.waitState("agt_yuki", store.AgentRunning)
+	h.wantIssued("agt_yuki", own)
 	conv, _ := w.ask(0, own, "Are you back?")
 	w.waitAnswers(conv, 1)
 }
 
 // One Core actor is one agent here, and the operator's wins: a hosted
-// agent on a YAML agent's actor is shown in state error and does not poll,
-// whichever started first, and only the YAML agent answers. The YAML
-// agent may name the same Core as CORE_BASE_URL in another spelling: with
-// a / at the end, or its host in capitals.
+// agent on a YAML agent's actor is not run (the registry refuses it), and
+// is issued nothing, so that it never revokes the YAML agent's token; only
+// the YAML agent answers. The YAML agent may name the same Core as
+// CORE_BASE_URL in another spelling.
 func TestYAMLWinsACoreActor(t *testing.T) {
-	for _, first := range []string{"both at once", "the hosted one first", "a / at the end of the YAML's Core", "the YAML's Core in capitals"} {
-		t.Run(first, func(t *testing.T) {
+	for _, spelling := range []string{"the same", "a / at the end of the YAML's Core", "the YAML's Core in capitals"} {
+		t.Run(spelling, func(t *testing.T) {
 			w := newWorld(t)
 			own := w.ownAgent("yuki-helper", 0)
 			h := w.hosting()
-			// agt_ sorts before yuki-: the hosted agent is started first.
-			h.host("agt_dup", own, "", hostedSettings("m1"))
+			h.host("agt_dup", own, hostedSettings("m1"))
 			var over map[string]any
-			switch first {
+			switch spelling {
 			case "a / at the end of the YAML's Core":
 				over = map[string]any{"core": map[string]any{"base_url": w.srv.URL + "/"}}
 			case "the YAML's Core in capitals":
 				over = map[string]any{"core": map[string]any{"base_url": strings.Replace(w.srv.URL, "http://", "HTTP://", 1)}}
 			}
-			yamlDoc := w.agentDoc("yuki-helper", "m2", over, nil)
-			yaml := w.config(nil, yamlDoc)
+			yaml := w.config(nil, w.agentDoc("yuki-helper", "m2", over, nil))
 			ms := models{"m1": scripted.New(scripted.Reply("From the registry.")), "m2": scripted.New(scripted.Reply("From YAML."))}
-			var wk *worker
-			if first != "the hosted one first" {
-				wk = h.start(h.build(yaml), ms)
-			} else {
-				wk = h.start(h.build(&config.Config{}), ms)
-				wk.waitState("agt_dup", store.AgentRunning)
-				wk.sup.Reload(h.build(yaml))
-			}
+			wk := h.start(h.build(yaml), ms)
 			wk.waitState("yuki-helper", store.AgentRunning)
 			st := wk.waitState("agt_dup", store.AgentError)
-			if !strings.Contains(st.Detail, `runs here as agent "yuki-helper", of the operator's configuration`) || st.Reason != store.ReasonOperatorAgent {
+			if !strings.Contains(st.Detail, `YAML agent "yuki-helper" is this agent in Core`) || st.Reason != store.ReasonOperatorAgent {
 				t.Errorf("the hosted agent's detail: %q (%s)", st.Detail, st.Reason)
 			}
-			eventually(t, "the hosted agent stopped", func() bool { return !wk.statusOf("agt_dup").Running })
 			conv, _ := w.ask(0, own, "Who answers?")
 			w.waitAnswers(conv, 1)
 			time.Sleep(200 * time.Millisecond)
 			if got := w.answers(conv); len(got) != 1 || got[0].Body != "From YAML." {
 				t.Errorf("answers: %+v", got)
 			}
+			if n := w.fc.RuntimeIssues(own.actor.ID); n != 2 {
+				t.Errorf("%d tokens issued; want AddAgent's and the YAML agent's", n)
+			}
 		})
 	}
 }
 
-// A hosted agent whose token is another Core actor's than its row names is
-// not run: it would answer as someone else.
-func TestHostedTokenOfAnotherActor(t *testing.T) {
+// Two agents of the worker on one Core actor, the operator's and a hosted
+// one put in force before the registry knew of the YAML one: the YAML
+// agent stops the hosted one before it is issued its token.
+func TestYAMLPreemptsAHostedAgentOnItsActor(t *testing.T) {
 	w := newWorld(t)
-	own := w.ownAgent("agt_yuki", 0)
-	other := w.ownAgent("agt_ken", 1)
+	own := w.ownAgent("yuki-helper", 0)
 	h := w.hosting()
-	h.host("agt_yuki", own, other.actor.Token, hostedSettings("m1"))
-	wk := h.start(h.build(&config.Config{}), models{"m1": scripted.New()})
-	st := wk.waitState("agt_yuki", store.AgentError)
-	if !strings.Contains(st.Detail, "its token is another Core actor's") || st.Reason != store.ReasonTokenOtherAgent {
-		t.Errorf("detail %q (%s)", st.Detail, st.Reason)
+	h.host("agt_dup", own, hostedSettings("m1"))
+	ms := models{"m1": scripted.New(scripted.Reply("From the registry.")), "m2": scripted.New(scripted.Reply("From YAML."))}
+	wk := h.start(h.build(&config.Config{}), ms)
+	wk.waitState("agt_dup", store.AgentRunning)
+	cfg := h.build(&config.Config{})
+	cfg.Agents = append(cfg.Agents, w.config(nil, w.agentDoc("yuki-helper", "m2", nil, nil)).Agents...)
+	wk.sup.Reload(cfg)
+	wk.waitState("yuki-helper", store.AgentRunning)
+	st := wk.waitState("agt_dup", store.AgentError)
+	if !strings.Contains(st.Detail, `runs here as agent "yuki-helper", of the operator's configuration`) || st.Reason != store.ReasonOperatorAgent {
+		t.Errorf("the hosted agent's detail: %q (%s)", st.Detail, st.Reason)
 	}
-	time.Sleep(100 * time.Millisecond)
-	if n := len(w.calls(other.actor.ID, "conversation_inbox")); n != 0 {
-		t.Errorf("%d inbox polls under the other actor's token", n)
-	}
-	if n := len(w.calls(other.actor.ID, "me_get")); n != 1 {
-		t.Errorf("me_get was called %d times; the agent is not tried again until it changes", n)
-	}
-}
-
-// A hosted agent whose row names a person, with the person's own token, is
-// not run: the runtime would act in Core as the person, with every seat of
-// theirs. The API refuses such a token as it connects one; the worker
-// refuses it too.
-func TestHostedTokenOfAPerson(t *testing.T) {
-	w := newWorld(t)
-	person := w.fc.AddPerson("Mallory")
-	h := w.hosting()
-	h.host("agt_person", agent{actor: person}, "", hostedSettings("m1"))
-	wk := h.start(h.build(&config.Config{}), models{"m1": scripted.New()})
-	st := wk.waitState("agt_person", store.AgentError)
-	if !strings.Contains(st.Detail, "its token is not an agent's in Core") || st.Reason != store.ReasonTokenNotAgent {
-		t.Errorf("detail %q (%s)", st.Detail, st.Reason)
-	}
-	time.Sleep(100 * time.Millisecond)
-	if n := len(w.calls(person.ID, "")); n != 1 {
-		t.Errorf("%d calls to Core under the person's token; want its one me_get", n)
+	conv, _ := w.ask(0, own, "Who answers?")
+	if got := w.waitAnswers(conv, 1); got[0].Body != "From YAML." {
+		t.Errorf("answers: %+v", got)
 	}
 }
 
@@ -353,156 +613,6 @@ func TestActorKey(t *testing.T) {
 	}
 }
 
-// unownedAgent is an agent of Yuki's whose owner Core has since taken
-// away, with the token issued to it after: me_get names no owner. It holds
-// no seat, as Core takes an owner away only from an agent seated nowhere.
-func (w *world) unownedAgent(id string) agent {
-	w.t.Helper()
-	a, err := w.fc.AddAgent("Yuki's old helper", w.students[0].ID)
-	w.ok(err)
-	w.ok(w.fc.SetOwner(a.ID, ""))
-	a.Token, err = w.fc.IssueToken(a.ID)
-	w.ok(err)
-	w.env.Store(tokenVar(id), a.Token)
-	return agent{id: id, actor: a, owner: w.students[0]}
-}
-
-// A hosted agent runs only while Core names as its owner the person who
-// connected it. One Core names another owner for, or none, stops in state
-// owner_changed, and one on a Core that does not say who owns an agent in
-// state error; each having called me_get once and nothing else, with a
-// state that names no one and holds no secret, and its row not marked
-// verified. The YAML agent beside it runs whatever Core says of owners.
-// One whose owner passes is marked verified in the registry, which
-// restarts nothing.
-func TestHostedOwnerCheck(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		before bool // a Core from before C1
-		// connect hosts the agent and returns it, with who connected it.
-		connect func(w *world, h *hosting) (agent, string)
-		state   string
-		reason  string
-		detail  string
-	}{
-		{name: "Core names the person who connected it", connect: func(w *world, h *hosting) (agent, string) {
-			own := w.ownAgent("agt_yuki", 0)
-			h.host("agt_yuki", own, "", hostedSettings("m1"))
-			return own, own.owner.ID
-		}, state: store.AgentRunning},
-		{name: "Core names the person who connected it, the row in capitals", connect: func(w *world, h *hosting) (agent, string) {
-			own := w.ownAgent("agt_yuki", 0)
-			h.hostAs("agt_yuki", own, strings.ToUpper(own.owner.ID), "", hostedSettings("m1"))
-			return own, own.owner.ID
-		}, state: store.AgentRunning},
-		{name: "Core names another owner", connect: func(w *world, h *hosting) (agent, string) {
-			own := w.ownAgent("agt_yuki", 0)
-			h.hostAs("agt_yuki", own, w.students[1].ID, "", hostedSettings("m1"))
-			return own, w.students[1].ID
-		}, state: store.AgentOwnerChanged, reason: store.ReasonOwnerChanged, detail: ownerChangedDetail},
-		{name: "Core names no owner", connect: func(w *world, h *hosting) (agent, string) {
-			old := w.unownedAgent("agt_yuki")
-			h.host("agt_yuki", old, "", hostedSettings("m1"))
-			return old, old.owner.ID
-		}, state: store.AgentOwnerChanged, reason: store.ReasonOwnerChanged, detail: ownerGoneDetail},
-		{name: "a Core that does not say who owns an agent", before: true, connect: func(w *world, h *hosting) (agent, string) {
-			own := w.ownAgent("agt_yuki", 0)
-			h.host("agt_yuki", own, "", hostedSettings("m1"))
-			return own, own.owner.ID
-		}, state: store.AgentError, reason: store.ReasonCoreTooOld, detail: ownerUnknownDetail},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			w := newWorldWith(t, fakecore.Options{BeforeOwners: tc.before})
-			h := w.hosting()
-			ag, connectedBy := tc.connect(w, h)
-			tu := w.tutor("cs101-tutor")
-			yaml := w.config(nil, w.agentDoc("cs101-tutor", "m2", nil, nil))
-			wk := h.start(h.build(yaml), models{"m1": scripted.New(scripted.Reply("Hosted.")), "m2": scripted.New(scripted.Reply("From YAML."))})
-
-			st := wk.waitState("agt_yuki", tc.state)
-			wk.waitState("cs101-tutor", store.AgentRunning)
-			conv, _ := w.ask(1, tu, "Does the YAML agent answer?")
-			w.waitAnswers(conv, 1)
-			row, err := h.st.HostedAgent(context.Background(), "agt_yuki")
-			w.ok(err)
-			if tc.state == store.AgentRunning {
-				if !row.OwnerVerified || row.Version != 2 {
-					t.Errorf("the row of an agent whose owner passes: verified %v at version %d", row.OwnerVerified, row.Version)
-				}
-				// The registry's change, rebuilt, restarts nothing.
-				wk.sup.Update(h.build(yaml))
-				time.Sleep(200 * time.Millisecond)
-				if n := len(w.calls(ag.actor.ID, "me_get")); n != 1 || !wk.statusOf("agt_yuki").Running {
-					t.Errorf("after its owner was recorded verified: %d me_get, running %v", n, wk.statusOf("agt_yuki").Running)
-				}
-				return
-			}
-			if st.Detail != tc.detail || st.Reason != tc.reason {
-				t.Errorf("the state says %q (%s), want %q (%s)", st.Detail, st.Reason, tc.detail, tc.reason)
-			}
-			for what, s := range map[string]string{"its token": ag.actor.Token, "the model key": modelKey, "its actor": ag.actor.ID,
-				"who connected it": connectedBy, "its owner": ag.owner.ID, "the other student": w.students[1].ID, "a token's prefix": "ais_"} {
-				if strings.Contains(st.Detail, s) {
-					t.Errorf("the state holds %s: %q", what, st.Detail)
-				}
-			}
-			if row.OwnerVerified {
-				t.Error("the row of an agent whose owner does not pass is marked verified")
-			}
-			if s := wk.statusOf("agt_yuki"); !s.Hosted || s.Running || s.State != tc.state {
-				t.Errorf("its status: %+v", s)
-			}
-			time.Sleep(100 * time.Millisecond)
-			if n := len(w.calls(ag.actor.ID, "")); n != 1 || len(w.calls(ag.actor.ID, "me_get")) != 1 {
-				t.Errorf("%d calls to Core with its token; want its one me_get", n)
-			}
-		})
-	}
-}
-
-// A hosted agent stopped as owner_changed stays stopped through changes to
-// the registry that are not its own, making no call, as an unauthorized
-// one does; its owner connecting it again, a change of its own, starts it.
-func TestHostedOwnerChangedWaitsForItsRow(t *testing.T) {
-	w := newWorld(t)
-	own := w.ownAgent("agt_yuki", 0)
-	other := w.ownAgent("agt_ken", 1)
-	h := w.hosting()
-	// Connected by Ken, who held its token without owning it.
-	h.hostAs("agt_yuki", own, other.owner.ID, "", hostedSettings("m1"))
-	h.host("agt_ken", other, "", hostedSettings("m1"))
-	yaml := &config.Config{}
-	wk := h.start(h.build(yaml), models{"m1": scripted.New(scripted.Reply("Back again."))})
-	wk.waitState("agt_yuki", store.AgentOwnerChanged)
-	wk.waitState("agt_ken", store.AgentRunning)
-
-	_, err := h.st.SetHostedAgentPaused(context.Background(), "agt_ken", true, 0)
-	w.ok(err)
-	wk.sup.Update(h.build(yaml))
-	wk.waitState("agt_ken", store.AgentPaused)
-	time.Sleep(200 * time.Millisecond)
-	if n := len(w.calls(own.actor.ID, "")); n != 1 {
-		t.Errorf("%d calls with its token after a change to another agent; want its first me_get alone", n)
-	}
-	if st := wk.state("agt_yuki"); st.State != store.AgentOwnerChanged {
-		t.Errorf("the agent is %s", st.State)
-	}
-
-	// Yuki, its owner, connects it again: her token, and her as its owner.
-	token, err := w.fc.IssueToken(own.actor.ID)
-	w.ok(err)
-	a, err := h.st.HostedAgent(context.Background(), "agt_yuki")
-	w.ok(err)
-	tok := h.seal(a.TenantID, store.SecretCoreToken, token)
-	a.TokenSecretID, a.OwnerActorID = tok.ID, own.owner.ID
-	_, err = h.st.UpdateHostedAgent(context.Background(), *a, tok)
-	w.ok(err)
-	wk.sup.Update(h.build(yaml))
-	wk.waitState("agt_yuki", store.AgentRunning)
-	conv, _ := w.ask(0, own, "Are you back?")
-	w.waitAnswers(conv, 1)
-}
-
 // A hosted agent's model is its owner's choice, of any text: its calls are
 // counted under the name the price table gives it, and under "other" when
 // the table does not price it, so that no owner's text becomes a metric's
@@ -512,8 +622,8 @@ func TestHostedModelsLabels(t *testing.T) {
 	w := newWorld(t)
 	yuki, ken, tu := w.ownAgent("agt_yuki", 0), w.ownAgent("agt_ken", 1), w.tutor("cs101-tutor")
 	h := w.hosting()
-	h.host("agt_yuki", yuki, "", hostedSettings("m1"))
-	h.host("agt_ken", ken, "", hostedSettings("m2"))
+	h.host("agt_yuki", yuki, hostedSettings("m1"))
+	h.host("agt_ken", ken, hostedSettings("m2"))
 	prices, err := pricing.Parse([]byte(`version: "test"
 prices:
   - {provider: openai, model: gpt-4.1-mini, from: 2020-01-01, usd_per_mtok: {input: 1, output: 1}}
@@ -529,6 +639,7 @@ prices:
 	wk := w.start(h.build(w.config(nil, w.agentDoc("cs101-tutor", "m3", nil, nil))), ms, workerOpts{store: h.st, prices: prices,
 		edit: func(o *Options) {
 			o.Secrets = secrets.Resolver{Getenv: w.getenv, Sealed: vault.Opener{Vault: h.v, Store: h.st}}
+			o.Sealer = h.v
 		}})
 	for _, id := range []string{"agt_yuki", "agt_ken", "cs101-tutor"} {
 		wk.waitState(id, store.AgentRunning)
@@ -551,17 +662,17 @@ prices:
 	}
 }
 
-// A new token put in force while the instance on the old one winds down:
-// that instance meets Core's 401 (the new token revoked the old), and
-// ends only after apply has put the new configuration in force. How it
-// ended is not the new token's: nothing is written for it, nothing is
-// blocked, and the agent runs on its new token, its state at the row's
-// new version.
+// A new token asked for while the instance on the old one winds down: the
+// row's token dropped is a change, which stops the old instance, waiting
+// for its answer in progress, and the new one is issued another once it
+// has ended, which revokes the old. How the old one ended is not the new
+// token's: nothing is written for it, nothing is blocked, and the agent
+// runs on its new token, its state at the row's version.
 func TestNewTokenWhileTheOldWindsDown(t *testing.T) {
 	w := newWorld(t)
 	own := w.ownAgent("agt_yuki", 0)
 	h := w.hosting()
-	h.host("agt_yuki", own, "", hostedSettings("m1"))
+	h.host("agt_yuki", own, hostedSettings("m1"))
 	yaml := &config.Config{}
 	started, release := make(chan struct{}), make(chan struct{})
 	var once sync.Once
@@ -573,46 +684,33 @@ func TestNewTokenWhileTheOldWindsDown(t *testing.T) {
 	again := scripted.Reply("On the new token.")
 	wk := h.start(h.build(yaml), models{"m1": scripted.New(slow, again, again, again)})
 	wk.waitState("agt_yuki", store.AgentRunning)
-	eventually(t, "the owner recorded as verified", func() bool {
-		row, err := h.st.HostedAgent(context.Background(), "agt_yuki")
-		return err == nil && row.Version == 2
-	})
 	w.ask(0, own, "Take your time.")
 	<-started
 
-	// PUT /token: the new token written, then the old one revoked with
-	// it; the old instance's pollers meet the 401.
-	token, err := w.fc.IssueToken(own.actor.ID)
+	// POST …/token: the row's token dropped.
+	old := w.runtimeToken(own)
+	row := h.row("agt_yuki")
+	row.TokenSecretID, row.TokenHint, row.TokenIssued, row.TokenCredentialID = "", "", false, ""
+	dropped, err := h.st.UpdateHostedAgent(context.Background(), *row)
 	w.ok(err)
-	row, err := h.st.HostedAgent(context.Background(), "agt_yuki")
-	w.ok(err)
-	tok := h.seal(row.TenantID, store.SecretCoreToken, token)
-	row.TokenSecretID = tok.ID
-	updated, err := h.st.UpdateHostedAgent(context.Background(), *row, tok)
-	w.ok(err)
-	n := len(w.fc.Calls())
-	w.ok(w.fc.Revoke(own.actor.Token))
-	eventually(t, "the old token refused", func() bool {
-		for _, c := range w.fc.Calls()[n:] {
-			if c.ActorID == own.actor.ID && c.HTTPStatus == http.StatusUnauthorized {
-				return true
-			}
-		}
-		return false
-	})
-	// The worker puts the new row in force while the old instance waits
-	// for its answer.
-	wk.sup.Update(h.build(yaml))
+	h.update(wk, yaml)
 	eventually(t, "the new row put in force, the old instance stopping", func() bool {
 		wk.sup.mu.Lock()
 		defer wk.sup.mu.Unlock()
 		r := wk.sup.runners["agt_yuki"]
-		return r != nil && r.stopping && hostedVersion(r.cfg) == updated.Version
+		return r != nil && r.stopping && hostedVersion(r.cfg) == dropped.Version
 	})
+	if n := w.fc.RuntimeIssues(own.actor.ID); n != 2 {
+		t.Errorf("issued %d tokens before the old instance ended", n)
+	}
 	close(release)
-	st := wk.waitVersion("agt_yuki", store.AgentRunning, updated.Version)
+	st := wk.waitVersion("agt_yuki", store.AgentRunning, dropped.Version+1)
 	if st.Reason != "" {
 		t.Errorf("running on the new token, with a reason: %+v", st)
+	}
+	h.wantIssued("agt_yuki", own)
+	if _, err := newCaller(t, w, old).Me(context.Background()); !errors.Is(err, core.ErrUnauthenticated) {
+		t.Errorf("the old token, after the new one was issued: %v", err)
 	}
 	conv, _ := w.ask(0, own, "Are you there, on the new token?")
 	if got := w.waitAnswers(conv, 1); got[0].Body != "On the new token." {

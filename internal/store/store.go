@@ -468,7 +468,6 @@ const (
 	ReasonOperatorAgent        = "operator_agent"
 	ReasonActorInUse           = "actor_in_use"
 	ReasonTokenOtherAgent      = "token_other_agent"
-	ReasonTokenNotAgent        = "token_not_agent"
 	ReasonOwnerChanged         = "owner_changed"
 	ReasonCoreTooOld           = "core_too_old"
 	ReasonAgentSuspended       = "agent_suspended"

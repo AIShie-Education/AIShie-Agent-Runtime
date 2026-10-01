@@ -91,7 +91,7 @@ func (c *Config) Validate(allowlist []string) error {
 		errs = append(errs, &Problem{Path: "CORE_BASE_URL_ALLOWLIST", Msg: msg})
 	}
 	errs = append(errs, c.validateRuntime()...)
-	ids := map[string]string{}
+	ids, inCore := map[string]string{}, map[string]string{}
 	for _, a := range c.Agents {
 		is := &issues{prefix: "agent."}
 		if !idRe.MatchString(a.ID) {
@@ -103,6 +103,16 @@ func (c *Config) Validate(allowlist []string) error {
 			errs = append(errs, &Problem{File: a.File, Agent: a.ID, Path: "agent.id", Msg: "another agent has this id, in " + prev})
 		} else {
 			ids[a.ID] = a.File
+		}
+		// One agent in Core is one agent here, with one token: two of the
+		// configuration's on one would each be issued it, revoking the
+		// other's.
+		if core := strings.ToLower(a.Core.AgentID); core != "" {
+			if prev, dup := inCore[core]; dup {
+				errs = append(errs, &Problem{File: a.File, Agent: a.ID, Path: "agent.core.agent_id", Msg: "agent " + prev + " is this agent in Core too"})
+			} else {
+				inCore[core] = a.ID
+			}
 		}
 		errs = append(errs, c.validateCourses(a, is.list)...)
 	}
@@ -200,7 +210,19 @@ func checkCore(is *issues, c Core, origins []origin) {
 	if !slices.Contains(mcpRevisions, c.MCPProtocol) {
 		is.add("core.mcp_protocol", "%q is not a revision Core takes (%s)", redact.String(c.MCPProtocol), strings.Join(mcpRevisions, ", "))
 	}
-	checkRef(is, "core.token_ref", c.TokenRef, "token", true)
+	if c.TokenRef != "" {
+		// Never repeated: it may be the token itself.
+		is.add("core.token_ref", "the runtime takes no agent's token any more: replace core.token_ref with core.agent_id, the agent's "+
+			"id in Core (an agent hosted by the runtime), and the runtime is issued its token by that id through Core's agent_runtime "+
+			"service (CORE_SERVICE_CREDENTIAL); delete the token's file")
+	}
+	switch {
+	case c.AgentID == "" && c.TokenRef != "":
+	case c.AgentID == "":
+		is.add("core.agent_id", "required: the agent's id in Core, an agent hosted by the runtime, which the runtime is issued its token by")
+	case !uuidRe.MatchString(c.AgentID):
+		is.add("core.agent_id", "is not an agent's id in Core: a UUID")
+	}
 }
 
 // parseCoreURL checks Core's base URL: absolute, https (http only for this

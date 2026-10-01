@@ -223,20 +223,33 @@ func TestActionsCursorWaitsForProposals(t *testing.T) {
 	wk.waitAttempt("cs101-tutor", core.AnswerKey(c3, m3, 1), store.AttemptExecuted)
 }
 
-// TestAgentFailsThenStarts: an agent that cannot start (its token's secret
-// is missing) is recorded in error, saying why, and started again after a
-// backoff until it can.
+// TestAgentFailsThenStarts: an agent that cannot start (the runtime's own
+// credential in Core is missing, then refused) is recorded in error,
+// saying why and never showing a credential, and started again after a
+// backoff until it can: once the operator gives the runtime its credential,
+// it is issued the agent's token and runs.
 func TestAgentFailsThenStarts(t *testing.T) {
 	w := newWorld(t)
 	own := w.ownAgent("yuki-helper", 0)
-	token := w.getenv(tokenVar("yuki-helper"))
-	w.env.Delete(tokenVar("yuki-helper"))
+	w.env.Delete(credentialVar)
 	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": scripted.New(scripted.Reply("Started at last."))}, workerOpts{})
 	st := wk.waitState("yuki-helper", store.AgentError)
-	if !strings.Contains(st.Detail, "token") || strings.Contains(st.Detail, "ais_") {
-		t.Errorf("detail %q", st.Detail)
+	if !strings.Contains(st.Detail, credentialVar) || st.Reason != store.ReasonRuntimeMisconfigured {
+		t.Errorf("no credential: %q (%s)", st.Detail, st.Reason)
 	}
-	w.env.Store(tokenVar("yuki-helper"), token)
+	revoked := w.fc.IssueRuntimeServiceToken("revoked")
+	w.ok(w.fc.RevokeServiceToken(revoked.CredentialID))
+	w.env.Store(credentialVar, revoked.Token)
+	eventually(t, "the refused credential said", func() bool {
+		return strings.Contains(wk.state("yuki-helper").Detail, "the runtime's own credential was refused by Core")
+	})
+	if st := wk.state("yuki-helper"); strings.Contains(st.Detail, "aissvc_") || st.Reason != store.ReasonRuntimeMisconfigured {
+		t.Errorf("a refused credential: %q (%s)", st.Detail, st.Reason)
+	}
+	if tok := w.fc.RuntimeToken(own.actor.ID); tok.Token != own.actor.Token {
+		t.Errorf("the agent was issued a token without the runtime's credential")
+	}
+	w.env.Store(credentialVar, w.svc.Token)
 	wk.waitState("yuki-helper", store.AgentRunning)
 	conv, _ := w.ask(0, own, "Are you up?")
 	w.waitAnswers(conv, 1)

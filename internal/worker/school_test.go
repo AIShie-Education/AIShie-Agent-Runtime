@@ -49,10 +49,8 @@ func (h *hosting) hostOn(id string, ag agent, offer, own string) {
 	tenant := "ten_" + ag.owner.ID
 	model := map[string]any{"key_source": "school", "offer": offer}
 	var secrets []store.Secret
-	tok := h.seal(tenant, store.SecretCoreToken, ag.actor.Token)
-	secrets = append(secrets, tok)
-	row := store.HostedAgent{ID: id, CoreActorID: ag.actor.ID, OwnerActorID: ag.owner.ID, TenantID: tenant, DisplayName: "Hosted " + id,
-		TokenSecretID: tok.ID}
+	row := store.HostedAgent{ID: id, CoreActorID: ag.actor.ID, OwnerActorID: ag.owner.ID, OwnerVerified: true, TenantID: tenant,
+		DisplayName: "Hosted " + id}
 	if own != "" {
 		model["fallback"] = map[string]any{"adapter": "openai_chat", "model": own, "key_source": "own", "params": map[string]any{"max_output_tokens": 500}}
 		key := h.seal(tenant, store.SecretModelKey, modelKey)
@@ -84,6 +82,7 @@ func (h *hosting) startPlan(cfg *config.Config, ms models, hostedHTTP *http.Clie
 	built := &adapterKeys{keys: map[string]string{}, clients: map[string]*http.Client{}}
 	wk := h.w.start(cfg, ms, workerOpts{store: h.st, edit: func(o *Options) {
 		o.Secrets = secrets.Resolver{Getenv: h.w.getenv, Sealed: vault.Opener{Vault: h.v, Store: h.st}}
+		o.Sealer = h.v
 		o.HostedHTTPClient = hostedHTTP
 		next := o.NewAdapter
 		o.NewAdapter = func(c llm.Config) (llm.Adapter, error) {

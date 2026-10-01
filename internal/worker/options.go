@@ -21,6 +21,7 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/metrics"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/netguard"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ratelimit"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/secrets"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolset"
@@ -43,11 +44,30 @@ type Options struct {
 	// Log is where the worker logs: ids, counts, codes and timings, never
 	// what anyone wrote. Nothing is logged when nil.
 	Log *slog.Logger
-	// Secrets resolves token_ref and key_ref, a relative file:// path from
-	// the agent's directory, as an agent starts and nowhere else: a
-	// secrets.Resolver, whose Sealed opens sealed:// references through the
-	// vault. A resolver of the environment and files alone when nil.
+	// Secrets resolves key_ref, a relative file:// path from the agent's
+	// directory, and opens a sealed token (sealed://), as an agent starts
+	// and nowhere else: a secrets.Resolver, whose Sealed opens sealed://
+	// references through the vault. A resolver of the environment and
+	// files alone when nil.
 	Secrets SecretResolver
+	// RuntimeCredential is the runtime's own credential in Core, its
+	// agent_runtime service's (CORE_SERVICE_CREDENTIAL), resolved at each
+	// use: with it the worker reads each agent it starts as Core hosts it
+	// (agent_runtime.agent), is issued its one token by its id, and
+	// revokes it when the hosting ends. Nil, no agent runs, and each says
+	// why (runtime_misconfigured).
+	RuntimeCredential func(ctx context.Context) (string, error)
+	// RuntimeBucket paces every call made with RuntimeCredential, this
+	// process's API's among them: the service is one actor in Core, whose
+	// limit every worker shares. Nil paces nothing.
+	RuntimeBucket *ratelimit.Bucket
+	// Sealer seals the tokens Core issues the runtime (a *vault.Vault): a
+	// hosted agent's in its row, an operator's agent's in the store
+	// (store.AgentTokens), where every worker finds the one token. Nil, an
+	// operator's agent's token is kept by the worker that runs it, and
+	// issued again when another takes the agent up; a hosted agent is
+	// not run (its token can be kept nowhere).
+	Sealer Sealer
 	// Prices cost each model call; nil leaves costs unknown (zero).
 	Prices *pricing.Table
 	// HTTPClient carries every call out (the egress proxy's): to Core, to
@@ -101,6 +121,12 @@ type Options struct {
 // with a relative file:// path from baseDir.
 type SecretResolver interface {
 	Resolve(ctx context.Context, ref, baseDir string) (string, error)
+}
+
+// Sealer seals a secret for the store under s's id, tenant and kind: a
+// *vault.Vault.
+type Sealer interface {
+	Seal(ctx context.Context, s store.Secret, plaintext string) (store.Secret, error)
 }
 
 // Timing is how often the supervisor does what it does, and how long it

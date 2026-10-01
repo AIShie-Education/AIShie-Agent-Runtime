@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"os"
@@ -173,9 +174,15 @@ const okAgent = `
 agent:
   id: a1
   display_name: A1
-  core: {base_url: "https://lms.example.edu", token_ref: "env://A1_TOKEN"}
+  core: {base_url: "https://lms.example.edu", agent_id: "0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0aa1"}
   model: {adapter: openai_chat, model: gpt-4.1-mini, key_ref: "env://OPENAI_API_KEY"}
 `
+
+// okAgentAs is okAgent as the agent id, of two characters, another agent
+// in Core.
+func okAgentAs(id string) string {
+	return strings.NewReplacer("id: a1", "id: "+id, "8f0aa1", "8f"+hex.EncodeToString([]byte(id))).Replace(okAgent)
+}
 
 // problem is what a test expects of one reported problem.
 type problem struct {
@@ -220,7 +227,7 @@ agent:
   id: a1
   display_name: A1
   colour: blue
-  core: {base_url: "https://lms.example.edu", token_ref: "env://A1_TOKEN"}
+  core: {base_url: "https://lms.example.edu", agent_id: "0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0aa1"}
   model:
     adapter: openai_chat
     model: gpt-4.1-mini
@@ -270,7 +277,7 @@ agent:
 courses:
   0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0a1b:
     id: other
-    core: {token_ref: "env://OTHER"}
+    core: {agent_id: "0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0aa2"}
     paused: true
     enabled: sometimes
 `},
@@ -338,7 +345,7 @@ runtime: {}
 			name: "problems of the documents are all reported",
 			files: map[string]string{
 				"a.yaml": strings.Replace(okAgent, "A1", "A1\n  colour: x", 1),
-				"b.yaml": strings.Replace(okAgent, "id: a1", "id: b1\n  shape: y", 1),
+				"b.yaml": strings.Replace(okAgentAs("b1"), "id: b1", "id: b1\n  shape: y", 1),
 			},
 			want: []problem{
 				{file: "a.yaml", agent: "a1", path: "agent.colour", msg: "unknown field"},
@@ -355,12 +362,12 @@ runtime: {}
 
 func TestLoadFiles(t *testing.T) {
 	dir := write(t, map[string]string{
-		"b.yaml":         strings.Replace(okAgent, "a1", "b1", 1),
+		"b.yaml":         okAgentAs("b1"),
 		"a.yml":          okAgent,
 		"notes.txt":      "not configuration",
 		".hidden.yaml":   "not: read",
 		"sub/deep.yaml":  "not: read either",
-		"z/other.yaml":   strings.Replace(okAgent, "a1", "z1", 1),
+		"z/other.yaml":   okAgentAs("z1"),
 		"agent.yaml.bak": "not: read",
 	})
 	if err := os.Symlink(filepath.Join(dir, "z", "other.yaml"), filepath.Join(dir, "c-link.yaml")); err != nil {
@@ -475,7 +482,7 @@ func TestForCourseConcurrently(t *testing.T) {
 func TestForCourseOfAnAgentBuiltInCode(t *testing.T) {
 	answers := 5
 	a := &Agent{ID: "coded", DisplayName: "Coded"}
-	a.Core = Core{BaseURL: "https://lms.example.edu", Transport: "mcp", MCPProtocol: DefaultMCPProtocol, TokenRef: "env://T"}
+	a.Core = Core{BaseURL: "https://lms.example.edu", Transport: "mcp", MCPProtocol: DefaultMCPProtocol, AgentID: "0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0aa1"}
 	a.Model = Model{Adapter: "openai_chat", Model: "m", KeyRef: "env://K", KeySource: KeyOwn, Params: ModelParams{MaxOutputTokens: 100}}
 	a.Prompt = Prompt{AnswerLanguage: "opener", OnRefusalText: "r", OnBudgetText: "b", OnTruncatedText: "t", OnQuotaText: "q", CloseReasonText: "c"}
 	a.Tools = Tools{Mode: "derived", MaxParallelTools: 1}

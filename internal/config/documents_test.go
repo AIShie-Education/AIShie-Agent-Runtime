@@ -25,7 +25,7 @@ func jsonAgent(t *testing.T, agent map[string]any, courses map[string]any) []byt
 func ownAgent(id string) map[string]any {
 	return map[string]any{
 		"id": id, "display_name": "Agent " + id, "tenant_id": "ten_owner", "paused": false,
-		"core":  map[string]any{"base_url": "https://lms.example.edu", "token_ref": "sealed://sec_t_" + id},
+		"core":  map[string]any{"base_url": "https://lms.example.edu", "agent_id": "0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0aa1"},
 		"model": map[string]any{"adapter": "openai_chat", "model": "gpt-4.1-mini", "key_ref": "sealed://sec_k_" + id, "key_source": "own"},
 	}
 }
@@ -68,7 +68,7 @@ runtime:
 			a["model"].(map[string]any)["model"] = "gpt-5-preview"
 		}), nil)},
 		{Name: "registry:agt_course", Data: jsonAgent(t, bad(func(a map[string]any) { a["id"] = "agt_course" }),
-			map[string]any{tutorCourse: map[string]any{"core": map[string]any{"token_ref": "sealed://sec_other"}}})},
+			map[string]any{tutorCourse: map[string]any{"core": map[string]any{"agent_id": "0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0aa2"}}})},
 		{Name: "registry:agt_token", Data: jsonAgent(t, bad(func(a map[string]any) {
 			a["id"] = "agt_token"
 			a["core"].(map[string]any)["token_ref"] = "ais_k7v2m4qhx3ab_9Jx2abcDEFghiJKLmnoPQRstuVWXyz0123456789_-abcd"
@@ -83,7 +83,7 @@ runtime:
 	}
 	a := agents[0]
 	if a.File != "registry:agt_ok" || a.Dir != "" || a.Polling.InboxIdleS != 20 || a.Prompt.OnQuotaText != "Out of quota for today." ||
-		a.Core.TokenRef != "sealed://sec_t_agt_ok" || a.Model.KeyRef != "sealed://sec_k_agt_ok" || a.Answer.MaxAttempts != 3 {
+		a.Core.AgentID != "0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0aa1" || a.Model.KeyRef != "sealed://sec_k_agt_ok" || a.Answer.MaxAttempts != 3 {
 		t.Errorf("the agent loaded: %+v", a)
 	}
 	e, err := a.ForCourse(tutorCourse)
@@ -97,7 +97,7 @@ runtime:
 		"registry:agt_outside": "evil.example.net is not within CORE_BASE_URL_ALLOWLIST",
 		"registry:agt_denied":  "is denied by runtime.denied_models",
 		"registry:agt_course":  "courses." + tutorCourse + ".core: not allowed here",
-		"registry:agt_token":   "tokens are never written in configuration",
+		"registry:agt_token":   "the runtime takes no agent's token any more",
 		"registry:runtime":     "holds one agent document, and nothing else",
 		"registry:two":         "holds one agent document, and nothing else",
 		"registry:garbled":     "registry:garbled",

@@ -122,56 +122,6 @@ func (c *Client) ActionsMine(ctx context.Context, courseID, after string, exclud
 	return &r, err
 }
 
-// Credentials is credential_list: the caller's own credentials, newest
-// first, revoked ones included; never a secret. Core lets any active actor
-// list its own (a self gate), an agent among them.
-func (c *Client) Credentials(ctx context.Context) ([]Credential, error) {
-	var r struct {
-		Credentials []Credential `json:"credentials"`
-	}
-	err := c.read(ctx, "credential_list", struct{}{}, &r)
-	return r.Credentials, err
-}
-
-// RevokeCredential is credential_revoke of one of the caller's own
-// credentials, under RevokeKey(id), and returns the envelope as it came:
-// executed when it was revoked (or a replay of that), failed not_found when
-// Core knows no live credential of the caller's by that id (someone else's,
-// revoked already, or none), denied when the caller may not act (a
-// suspended actor). An agent's token can revoke itself: the call is
-// answered, and its next use is a 401.
-func (c *Client) RevokeCredential(ctx context.Context, id string) (*Envelope, error) {
-	raw, err := json.Marshal(struct {
-		CredentialID   string `json:"credential_id"`
-		IdempotencyKey string `json:"idempotency_key"`
-	}{id, RevokeKey(id)})
-	if err != nil {
-		return nil, fmt.Errorf("core: credential_revoke: %w", err)
-	}
-	return c.c.Call(ctx, "credential_revoke", raw)
-}
-
-// ToolSiteChat is me.site_chat over MCP: the brain running an agent
-// declaring, with the agent's token, that it takes conversations in the
-// site. Core takes them for the agent only after that, and only while the
-// token that declared it is live.
-const ToolSiteChat = "me_site_chat"
-
-// SiteChat is me.site_chat {on}, and returns the envelope as it came. A
-// write takes an idempotency key, key, which is left out when it is "":
-// give each declaration a key of its own, since a replay does nothing, and
-// a token's revocation turns the declaration off.
-func (c *Client) SiteChat(ctx context.Context, on bool, key string) (*Envelope, error) {
-	raw, err := json.Marshal(struct {
-		On             bool   `json:"on"`
-		IdempotencyKey string `json:"idempotency_key,omitempty"`
-	}{on, key})
-	if err != nil {
-		return nil, fmt.Errorf("core: %s: %w", ToolSiteChat, err)
-	}
-	return c.c.Call(ctx, ToolSiteChat, raw)
-}
-
 // ToolDraft is conversation.draft over MCP: the draft of an answer being
 // written, which whoever reads the conversation sees until the answer takes
 // its place (Catalogue.Drafts).

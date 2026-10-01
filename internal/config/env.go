@@ -17,6 +17,7 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/office"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/secrets"
 )
 
 // Env is the process's settings from its environment (§8.3).
@@ -46,6 +47,14 @@ type Env struct {
 	LogFormat string
 	// SecretsDir is where secret:// references are looked for first.
 	SecretsDir string
+	// CoreServiceCredential is the reference to the runtime's own
+	// credential in Core, its agent_runtime service's (aissvc_…), with
+	// which it hosts agents by their ids and is issued their tokens:
+	// DefaultCoreServiceCredential, the file core/agent_runtime under
+	// SECRETS_DIR, unless set. Resolved at each use, so that a new one in
+	// its place is taken without a restart; run checks at its start that
+	// it resolves, where any agent is hosted.
+	CoreServiceCredential string
 	// WorkerID names this process in leases: the host name and process id
 	// unless set.
 	WorkerID string
@@ -107,6 +116,11 @@ const (
 	DefaultLogLevel      = "info"
 	DefaultLogFormat     = "json"
 	DefaultShutdownGrace = 15 * time.Second
+	// DefaultCoreServiceCredential is CORE_SERVICE_CREDENTIAL's default:
+	// the file core/agent_runtime under SECRETS_DIR (the environment
+	// variable AISHIE_SECRET_CORE_AGENT_RUNTIME without it), where Deploy
+	// puts the credential it is issued at setup.
+	DefaultCoreServiceCredential = "secret://core/agent_runtime" // #nosec G101 -- where the credential is kept, not the credential.
 )
 
 // envVars are the variables FromEnv reads, with what each is, for EnvHelp.
@@ -121,6 +135,7 @@ var envVars = []struct{ name, help string }{
 	{"LOG_LEVEL", "debug, info, warn or error (default " + DefaultLogLevel + ")"},
 	{"LOG_FORMAT", "json or text (default " + DefaultLogFormat + ")"},
 	{"SECRETS_DIR", "where secret://a/b is looked for as the file a/b before the variable AISHIE_SECRET_A_B"},
+	{"CORE_SERVICE_CREDENTIAL", "the runtime's own credential in Core, its agent_runtime service's (aissvc_…), as a reference: secret://…, env://NAME or file://… (default " + DefaultCoreServiceCredential + ", the file core/agent_runtime under SECRETS_DIR); with it the runtime hosts each agent by its id and is issued its token"},
 	{"WORKER_ID", "this process's name in leases (default hostname-pid)"},
 	{"SHUTDOWN_GRACE", "how long answers in progress get on SIGTERM, such as 15s (default 15s)"},
 	{"PRICES", "the price table; overrides the runtime's prices_ref"},
@@ -171,12 +186,14 @@ func FromEnv(getenv func(string) string) (Env, error) {
 		LogLevel:    strings.ToLower(or(get("LOG_LEVEL"), DefaultLogLevel)),
 		LogFormat:   strings.ToLower(or(get("LOG_FORMAT"), DefaultLogFormat)),
 		SecretsDir:  get("SECRETS_DIR"),
-		WorkerID:    or(get("WORKER_ID"), defaultWorkerID()),
-		PricesPath:  get("PRICES"),
-		KMSKeyID:    get("KMS_KEY_ID"),
-		CoreBaseURL: strings.TrimRight(get("CORE_BASE_URL"), "/"),
-		APIAddr:     get("API_ADDR"),
-		APIAudience: get("API_AUDIENCE"),
+
+		CoreServiceCredential: or(get("CORE_SERVICE_CREDENTIAL"), DefaultCoreServiceCredential),
+		WorkerID:              or(get("WORKER_ID"), defaultWorkerID()),
+		PricesPath:            get("PRICES"),
+		KMSKeyID:              get("KMS_KEY_ID"),
+		CoreBaseURL:           strings.TrimRight(get("CORE_BASE_URL"), "/"),
+		APIAddr:               get("API_ADDR"),
+		APIAudience:           get("API_AUDIENCE"),
 
 		CoreAssertionKey:  get("CORE_ASSERTION_KEY"),
 		AdminActorIDs:     splitList(get("ADMIN_ACTOR_IDS")),
@@ -233,6 +250,7 @@ func FromEnv(getenv func(string) string) (Env, error) {
 	if e.LogFormat != "json" && e.LogFormat != "text" {
 		bad("LOG_FORMAT: %q is not json or text", e.LogFormat)
 	}
+	checkServiceCredential(e.CoreServiceCredential, bad)
 	if k := e.KMSKeyID; k != "" && !strings.HasPrefix(k, "local:") && !strings.HasPrefix(k, "awskms:") && !strings.HasPrefix(k, "vault:") {
 		// Not repeated: it may be the key itself, pasted where its name
 		// belongs.
@@ -493,4 +511,20 @@ func defaultWorkerID() string {
 		host = "worker"
 	}
 	return host + "-" + strconv.Itoa(os.Getpid())
+}
+
+// checkServiceCredential checks CORE_SERVICE_CREDENTIAL: a reference to the
+// credential, never the credential, which no error repeats, and one the
+// operator keeps (a file, or the environment), not one sealed in the
+// store: Deploy writes it at setup.
+func checkServiceCredential(ref string, bad func(string, ...any)) {
+	err := secrets.Check(ref)
+	switch {
+	case errors.Is(err, secrets.ErrNotReference):
+		bad("CORE_SERVICE_CREDENTIAL: not a reference: give secret://…, env://NAME or file://… where the credential is kept, never the credential")
+	case err != nil:
+		bad("CORE_SERVICE_CREDENTIAL: %v", err)
+	case strings.HasPrefix(ref, secrets.SchemeSealed):
+		bad("CORE_SERVICE_CREDENTIAL: the runtime's own credential is the operator's, in a file or the environment (secret://…, env://NAME or file://…), not sealed in the store")
+	}
 }

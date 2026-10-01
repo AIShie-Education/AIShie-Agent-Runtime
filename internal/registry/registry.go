@@ -11,8 +11,9 @@
 // registry holds them to more than configuration does:
 //
 //   - They never set what the registry sets from the agent's row: its id,
-//     name, tenant, pause, and how it reaches Core (CORE_BASE_URL, with its
-//     sealed token).
+//     name, tenant, pause, and how it reaches Core (CORE_BASE_URL, and the
+//     agent there by its id; the token Core issued the runtime for it is
+//     its row's, sealed, which the worker runs it with).
 //   - They never refer to a file or a secret (no *_ref anywhere): a hosted
 //     agent reads nothing but its own sealed secrets.
 //   - Every model section on the owner's key is given the owner's sealed
@@ -264,7 +265,7 @@ func build(ctx context.Context, yaml *config.Config, site *config.Site, r Reader
 		courses[c.AgentID] = append(courses[c.AgentID], c)
 	}
 	out := &config.Config{Runtime: yaml.Runtime, Dir: yaml.Dir, Agents: slices.Clone(yaml.Agents)}
-	yamlIDs := map[string]bool{}
+	yamlIDs, yamlActors := map[string]bool{}, operatorActors(yaml)
 	for _, a := range yaml.Agents {
 		yamlIDs[a.ID] = true
 	}
@@ -283,6 +284,9 @@ func build(ctx context.Context, yaml *config.Config, site *config.Site, r Reader
 		switch {
 		case yamlIDs[a.ID]:
 			reject(a.ID, store.ReasonOperatorAgent, errors.New("a YAML agent has this id, and the operator's configuration wins"))
+			continue
+		case yamlActors[strings.ToLower(a.CoreActorID)] != "":
+			reject(a.ID, store.ReasonOperatorAgent, operatorActorError(yamlActors[strings.ToLower(a.CoreActorID)]))
 			continue
 		case coreErr != nil:
 			reject(a.ID, store.ReasonRuntimeMisconfigured, coreErr)
@@ -314,9 +318,7 @@ func build(ctx context.Context, yaml *config.Config, site *config.Site, r Reader
 			reject(a.ID, store.ReasonSettingsRejected, err)
 			continue
 		}
-		row := byID[a.ID]
-		a.Hosted = &config.Hosted{CoreActorID: row.CoreActorID, OwnerActorID: row.OwnerActorID, OwnerVerified: row.OwnerVerified,
-			Version: row.Version}
+		a.Hosted = HostedOf(byID[a.ID])
 		out.Agents = append(out.Agents, a)
 	}
 	sort.SliceStable(out.Rejected, func(i, j int) bool { return out.Rejected[i].AgentID < out.Rejected[j].AgentID })
@@ -356,6 +358,9 @@ func check(yaml *config.Config, row store.HostedAgent, courses []store.HostedCou
 			return nil, errors.New("a YAML agent has this id, and the operator's configuration wins")
 		}
 	}
+	if id := operatorActors(yaml)[strings.ToLower(row.CoreActorID)]; id != "" {
+		return nil, operatorActorError(id)
+	}
 	if err := checkCoreBaseURL(o); err != nil {
 		return nil, err
 	}
@@ -375,6 +380,32 @@ func check(yaml *config.Config, row store.HostedAgent, courses []store.HostedCou
 		return nil, err
 	}
 	return agents[0], nil
+}
+
+// HostedOf is what the registry knows of the hosted agent row beside its
+// configuration (config.Hosted).
+func HostedOf(row store.HostedAgent) *config.Hosted {
+	return &config.Hosted{CoreActorID: row.CoreActorID, OwnerActorID: row.OwnerActorID, OwnerVerified: row.OwnerVerified,
+		TokenSecretID: row.TokenSecretID, TokenIssued: row.TokenIssued, Version: row.Version}
+}
+
+// operatorActors are the agents in Core the operator's configuration runs
+// (core.agent_id, in lower case), and the id of the YAML agent each is.
+func operatorActors(yaml *config.Config) map[string]string {
+	out := map[string]string{}
+	for _, a := range yaml.Agents {
+		if a.Core.AgentID != "" {
+			out[strings.ToLower(a.Core.AgentID)] = a.ID
+		}
+	}
+	return out
+}
+
+// operatorActorError is a hosted agent that is the YAML agent id's agent in
+// Core: one agent in Core is one agent here, with one token, and the
+// operator's configuration wins.
+func operatorActorError(id string) error {
+	return fmt.Errorf("YAML agent %q is this agent in Core (core.agent_id), and the operator's configuration wins", id)
 }
 
 // checkCoreBaseURL refuses a CORE_BASE_URL no hosted agent can use: none.
@@ -404,7 +435,7 @@ var setByRegistry = []string{"id", "display_name", "tenant_id", "paused", "core"
 // Document is a hosted agent's document, as a YAML file would hold it but in
 // JSON: its settings and its courses', with what the registry sets itself
 // (the package's comment): its id, name, tenant and pause from its row;
-// Core at coreBaseURL, with its token as sealed://<token_secret_id>; the
+// Core at coreBaseURL, and the agent there by its id (core.agent_id); the
 // owner's key, sealed://<key_secret_id>, on each model section whose key
 // source, as written or as it inherits it from defaultKeySource (and then
 // written out), is own; and on the agent's model on the school's key, the
@@ -467,7 +498,7 @@ func Document(a store.HostedAgent, courses []store.HostedCourse, coreBaseURL, de
 	}
 	writesOn(settings)
 	settings["id"], settings["display_name"], settings["tenant_id"], settings["paused"] = a.ID, a.DisplayName, a.TenantID, a.Paused
-	settings["core"] = map[string]any{"base_url": coreBaseURL, "token_ref": secrets.SchemeSealed + a.TokenSecretID}
+	settings["core"] = map[string]any{"base_url": coreBaseURL, "agent_id": a.CoreActorID}
 
 	doc := map[string]any{"agent": settings}
 	if len(courses) > 0 {

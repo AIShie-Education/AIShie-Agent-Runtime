@@ -31,13 +31,15 @@ import (
 // fixture is a supervisor running a student's own agent on the fake Core,
 // its store and its registry.
 type fixture struct {
-	sup     *worker.Supervisor
-	st      store.Store
-	reg     *prometheus.Registry
-	token   string
-	seat    string
-	stopped chan struct{}
-	cancel  context.CancelFunc
+	sup *worker.Supervisor
+	st  store.Store
+	reg *prometheus.Registry
+	fc  *fakecore.Core
+	// agent is the agent in Core; token, the runtime's own credential.
+	agent, token string
+	seat         string
+	stopped      chan struct{}
+	cancel       context.CancelFunc
 }
 
 func newFixture(t *testing.T, st store.Store) *fixture {
@@ -62,10 +64,10 @@ func newFixture(t *testing.T, st store.Store) *fixture {
 	yaml := fmt.Sprintf(`agent:
   id: yuki-helper
   display_name: "Yuki's helper"
-  core: {base_url: %q, token_ref: env://TOKEN}
+  core: {base_url: %q, agent_id: %q}
   model: {adapter: openai_chat, model: m1, key_ref: env://KEY}
   polling: {inbox_hot_s: 0.01, inbox_idle_s: 0.02, inbox_max_s: 0.05, events_s: 0.03, memberships_s: 0.3, assumed_core_rate_per_min: 600000, long_poll_wait_s: 1}
-`, srv.URL)
+`, srv.URL, ag.ID)
 	path := filepath.Join(t.TempDir(), "agent.yaml")
 	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
 		t.Fatal(err)
@@ -74,18 +76,20 @@ func newFixture(t *testing.T, st store.Store) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	env := map[string]string{"TOKEN": ag.Token, "KEY": "sk-test-0123456789abcdef"}
+	env := map[string]string{"KEY": "sk-test-0123456789abcdef"}
+	svc := fc.IssueRuntimeServiceToken("runtime")
 	reg := prometheus.NewRegistry()
 	sup, err := worker.NewSupervisor(worker.Options{
 		Config: cfg, Store: st, Metrics: metrics.New(reg), WorkerID: "w1",
-		Secrets:    secrets.Resolver{Getenv: func(k string) string { return env[k] }},
-		NewAdapter: func(llm.Config) (llm.Adapter, error) { return scripted.New(), nil },
-		HTTPClient: &http.Client{Timeout: 5 * time.Second},
+		Secrets:           secrets.Resolver{Getenv: func(k string) string { return env[k] }},
+		RuntimeCredential: func(context.Context) (string, error) { return svc.Token, nil },
+		NewAdapter:        func(llm.Config) (llm.Adapter, error) { return scripted.New(), nil },
+		HTTPClient:        &http.Client{Timeout: 5 * time.Second},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &fixture{sup: sup, st: st, reg: reg, token: ag.Token, seat: own.ID, stopped: make(chan struct{})}
+	f := &fixture{sup: sup, st: st, reg: reg, fc: fc, agent: ag.ID, token: svc.Token, seat: own.ID, stopped: make(chan struct{})}
 	ctx, cancel := context.WithCancel(context.Background())
 	f.cancel = cancel
 	go func() { defer close(f.stopped); _ = sup.Run(ctx) }()
@@ -195,7 +199,8 @@ func TestStatus(t *testing.T) {
 		t.Errorf("status %+v", st)
 	}
 	_, body := get(t, s.Handler(), "/status")
-	if strings.Contains(body, f.token) || strings.Contains(body, "ais_") || strings.Contains(body, "sk-test") {
+	if strings.Contains(body, f.token) || strings.Contains(body, f.fc.RuntimeToken(f.agent).Token) || strings.Contains(body, "ais_") ||
+		strings.Contains(body, "sk-test") {
 		t.Error("/status holds a secret")
 	}
 

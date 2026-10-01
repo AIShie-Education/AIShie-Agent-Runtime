@@ -67,17 +67,16 @@ type Agent struct {
 	reseat        chan struct{}
 	detailMu      sync.Mutex
 
-	// siteChat is where the agent stands with its declaration to Core
-	// that it takes conversations in the site: touched only by the
-	// goroutine that starts it and reads its seats.
-	siteChat siteChat
-
 	mu        sync.Mutex
 	seats     map[string]*Seat
 	slowUntil time.Time
 	pairs     []modelPair
 	lastRead  time.Time
 	notice    string
+	// heldSecret is the store's secret of the token the agent runs with,
+	// "" for one kept in memory: what a 401 forgets of an operator's
+	// agent, and nothing newer.
+	heldSecret string
 	// longPolls and eventLongPolls are the agent's inbox and event calls
 	// waiting for news now, at most polling.long_poll_max together
 	// (takeLongPoll).
@@ -125,7 +124,7 @@ func (a *Agent) run(pollCtx, answerCtx context.Context) error {
 	a.cancelAnswers(nil)
 	fail(nil)
 	if err == nil {
-		a.s.releaseActor(a.cfg.Core.BaseURL, a.me.ID, a.id)
+		a.s.releaseActor(a.cfg.Core.BaseURL, agentID(a.cfg), a.id)
 	}
 	if err != nil {
 		return err
@@ -142,15 +141,37 @@ func (a *Agent) stop(err error) {
 	a.cancelAnswers(err)
 }
 
-// start resolves the agent's token, fetches Core's catalogue, connects,
-// checks the token with me_get (and a hosted agent's owner), and builds
-// the model's adapters.
-func (a *Agent) start(ctx context.Context) error {
-	token, err := a.s.o.Secrets.Resolve(ctx, a.cfg.Core.TokenRef, a.cfg.Dir)
-	if err != nil {
-		return fmt.Errorf("the Core token: %w", err)
-	}
+// start fetches Core's catalogue, claims the agent's Core actor, reads the
+// agent as Core hosts it (host), has its token (the one the runtime keeps
+// for it, or one issued now by its id), connects, checks the token with
+// me_get, and builds the model's adapters. The claim is let go when it
+// fails.
+func (a *Agent) start(ctx context.Context) (err error) {
 	cat, err := a.s.catalogue(ctx, a.cfg.Core.BaseURL)
+	if err != nil {
+		return err
+	}
+	rs, err := a.s.runtime(a.cfg.Core.BaseURL, cat)
+	if err != nil {
+		return err
+	}
+	// One actor in Core is one agent here: two agents on one actor would
+	// answer every question twice over, and each be issued its token,
+	// revoking the other's. It is claimed before the agent is hosted, so
+	// that an agent the operator's configuration runs is never issued a
+	// token by a hosted agent on its actor.
+	if err := a.claim(); err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			a.s.releaseActor(a.cfg.Core.BaseURL, agentID(a.cfg), a.id)
+		}
+	}()
+	if _, err := a.host(ctx, rs); err != nil {
+		return err
+	}
+	token, err := a.token(ctx, rs)
 	if err != nil {
 		return err
 	}
@@ -169,33 +190,13 @@ func (a *Agent) start(ctx context.Context) error {
 		return fmt.Errorf("me_get: %w", err)
 	case me.Status != "" && me.Status != core.StatusActive:
 		return errSuspended
-	}
-	if reason, msg := HostedActorProblem(a.cfg, me); msg != "" {
-		return &blockedError{reason: reason, msg: msg}
-	}
-	if p := HostedOwnerProblem(a.cfg, me, cat); p != nil {
-		return p
-	}
-	a.s.markOwnerVerified(ctx, a.cfg)
-	// One actor in Core is one agent here: two agents on one token would
-	// answer every question twice over, and spend its rate limit twice.
-	other, preempted := a.s.claimActor(a.cfg.Core.BaseURL, me.ID, a.id)
-	switch {
-	case other != "" && a.cfg.Hosted != nil && !a.s.hostedAgent(other):
-		return &blockedError{reason: store.ReasonOperatorAgent,
-			msg: fmt.Sprintf("its Core actor runs here as agent %q, of the operator's configuration, which wins", other)}
-	case other != "":
-		return &reasonError{reason: store.ReasonActorInUse,
-			err: fmt.Errorf("its token is agent %q's too: one agent in Core is one agent here, with a token of its own", other)}
-	}
-	if preempted != nil {
-		a.log.Warn("a hosted agent ran as this agent's Core actor; the operator's configuration wins, and it is stopped", "hosted", preempted.id)
-		preempted.stop(&blockedError{reason: store.ReasonOperatorAgent,
-			msg: fmt.Sprintf("its Core actor runs here as agent %q, of the operator's configuration, which wins", a.id)})
+	case !strings.EqualFold(me.ID, agentID(a.cfg)):
+		// Never so: Core issued the token for the agent of this id.
+		return &blockedError{reason: store.ReasonTokenOtherAgent,
+			msg: "Core names another actor than core.agent_id for the token it issued the runtime for it"}
 	}
 	primary, _, err := a.models(ctx, a.cfg.Model)
 	if err != nil {
-		a.s.releaseActor(a.cfg.Core.BaseURL, me.ID, a.id)
 		return err
 	}
 	// Status reads these from another goroutine; the agent's own
@@ -209,40 +210,37 @@ func (a *Agent) start(ctx context.Context) error {
 	a.log.Info("agent started", "actor", me.ID, "catalogue", cat.Hash(), "transport", a.cfg.Core.Transport,
 		"adapter", a.primary.ad.Name(), "provider", a.primary.ad.Provider(), "model", a.primary.ad.Model(),
 		"long_poll", longPollWait(a.cfg.Polling, a.inboxMaxWait) > 0 && a.cfg.Polling.LongPollMax > 0, "drafts", a.drafts)
-	if a.wantsSiteChat() {
-		if err := a.declareSiteChat(ctx); err != nil {
-			a.s.releaseActor(a.cfg.Core.BaseURL, me.ID, a.id)
-			return err
-		}
+	return nil
+}
+
+// claim claims the agent's Core actor for it (Supervisor.claimActor): a
+// hosted agent on an actor the operator's configuration runs is stopped
+// until its configuration changes, and stops the other the other way
+// round; two of the configuration's are one in use.
+func (a *Agent) claim() error {
+	other, preempted := a.s.claimActor(a.cfg.Core.BaseURL, agentID(a.cfg), a.id)
+	switch {
+	case other != "" && a.cfg.Hosted != nil && !a.s.hostedAgent(other):
+		return &blockedError{reason: store.ReasonOperatorAgent,
+			msg: fmt.Sprintf("its Core actor runs here as agent %q, of the operator's configuration, which wins", other)}
+	case other != "":
+		return &reasonError{reason: store.ReasonActorInUse,
+			err: fmt.Errorf("its Core actor is agent %q's too: one agent in Core is one agent here", other)}
+	}
+	if preempted != nil {
+		a.log.Warn("a hosted agent ran as this agent's Core actor; the operator's configuration wins, and it is stopped", "hosted", preempted.id)
+		preempted.stop(&blockedError{reason: store.ReasonOperatorAgent,
+			msg: fmt.Sprintf("its Core actor runs here as agent %q, of the operator's configuration, which wins", a.id)})
 	}
 	return nil
 }
 
-// HostedActorProblem says why the actor me_get names, me, is not one hosted
-// agent cfg may run as, and the reason the API names it by (token_other_agent,
-// token_not_agent); "" when it is, or cfg is not hosted. Its token must be
-// its own actor's: one pasted for another agent would run that one under
-// this one's settings. And that actor must be an agent: a person's own
-// token would have the runtime act as the person, with every seat of
-// theirs. Actor ids are compared in any case.
-func HostedActorProblem(cfg *config.Agent, me *core.Actor) (reason, msg string) {
-	switch h := cfg.Hosted; {
-	case h == nil:
-		return "", ""
-	case !strings.EqualFold(me.ID, h.CoreActorID):
-		return store.ReasonTokenOtherAgent, "its token is another Core actor's than the agent's: connect the agent again with a token of its own"
-	case me.Kind != core.KindAgent:
-		return store.ReasonTokenNotAgent, "its token is not an agent's in Core: a hosted agent runs only on an agent's own token, never a person's"
-	}
-	return "", ""
-}
-
 // errSuspended stops an agent Core has suspended: every call it makes is
-// denied, me_get's among them. It is a failure like any other, tried again
-// after a backoff, so that the agent runs again by itself once it is
-// reactivated.
+// denied, me_get's among them, and its hosting ends (its token revoked).
+// It is a failure like any other, tried again after a backoff, so that the
+// agent is hosted again by itself once it is reactivated.
 var errSuspended = &reasonError{reason: store.ReasonAgentSuspended,
-	err: errors.New("the agent is suspended in Core, which denies every call it makes: it starts again by itself once it is reactivated")}
+	err: errors.New("the agent is suspended in Core: its token is revoked, and it is hosted again by itself once it is reactivated")}
 
 // reasonActorNotActive is the reason Core's authorization gives for a
 // call of an actor that is not active.
@@ -389,14 +387,6 @@ func (a *Agent) readMemberships(ctx context.Context) {
 		return
 	}
 	a.reconcile(ctx, ms)
-	// An agent nobody owns takes conversations in the site once a seat
-	// of its answers; one whose declaration Core did not answer is
-	// declared again.
-	if a.siteChat == siteChatPending && (a.wantsSiteChat() || slices.ContainsFunc(ms, core.Membership.Answers)) {
-		if err := a.declareSiteChat(ctx); err != nil {
-			a.stop(err)
-		}
-	}
 }
 
 // reconcile starts a Seat for each seat the agent answers in, updates those

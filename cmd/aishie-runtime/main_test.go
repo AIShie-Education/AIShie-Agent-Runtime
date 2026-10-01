@@ -123,7 +123,7 @@ func TestCheckShowsDeprecatedSettings(t *testing.T) {
 		"a1.yaml": `agent:
   id: a1
   display_name: A1
-  core: {base_url: "https://lms.example.edu", token_ref: "env://A1_TOKEN"}
+  core: {base_url: "https://lms.example.edu", agent_id: "0192f3c1-0000-7000-8000-0000000000a1"}
   model: {adapter: openai_chat, model: gpt-4.1-mini, key_ref: "env://OPENAI_API_KEY"}
   prompt: {close_reason_text: "Closed."}
 `,
@@ -350,7 +350,7 @@ func fakeCore(t *testing.T) (*fakecore.Core, *httptest.Server) {
 func TestCatalogue(t *testing.T) {
 	_, srv := fakeCore(t)
 	code, out, errs := runCmd(t, env(), "catalogue", "--core", srv.URL)
-	if code != exitOK || !strings.HasPrefix(out, worker.SnapshotCatalogueHash+"  155 tools") {
+	if code != exitOK || !strings.HasPrefix(out, worker.SnapshotCatalogueHash+"  161 tools") {
 		t.Fatalf("catalogue: %d\n%s%s", code, out, errs)
 	}
 	for _, snapshot := range []string{"../../internal/core/testdata/catalogue.json", "../../internal/core/testdata/catalogue.sha256"} {
@@ -376,8 +376,9 @@ func TestCatalogue(t *testing.T) {
 }
 
 // liveWorld is a course in the fake Core with a student's own agent and a
-// course tutor, and an OpenAI-compatible model server, as check --live and
-// run meet them.
+// course tutor, both runtime agents, the runtime's own credential in Core
+// in its secrets (core/agent_runtime), and an OpenAI-compatible model
+// server, as check --live and run meet them.
 type liveWorld struct {
 	fc      *fakecore.Core
 	co      fakecore.Course
@@ -385,22 +386,36 @@ type liveWorld struct {
 	own     fakecore.Member
 	ownA    string
 	tutor   fakecore.Member
+	tutorA  string
+	svc     fakecore.Token
 	config  string
 	secrets string
 	llm     *fakellm.Server
 	coreURL string
 }
 
-// answersInSite waits for the runtime to declare that Yuki's agent answers
-// in the site (me_site_chat), before which Core takes no question for it.
+// answersInSite waits for the runtime to be issued Yuki's agent's token by
+// its id, which it runs the agent with.
 func (w *liveWorld) answersInSite(t *testing.T) {
 	t.Helper()
 	deadline := time.Now().Add(20 * time.Second)
-	for !w.fc.SiteChat(w.ownA) {
+	for w.fc.RuntimeIssues(w.ownA) < 2 || !w.fc.SiteChat(w.ownA) {
 		if time.Now().After(deadline) {
-			t.Fatal("the runtime never declared that Yuki's agent answers in the site")
+			t.Fatal("the runtime was never issued Yuki's agent's token")
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// writeSecret writes v as the secret path under the world's SECRETS_DIR.
+func (w *liveWorld) writeSecret(t *testing.T, path, v string) {
+	t.Helper()
+	p := filepath.Join(w.secrets, path)
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(v+"\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -431,31 +446,25 @@ func newLiveWorld(t *testing.T) *liveWorld {
 		t.Fatal(err)
 	}
 	w.tutor = must(fc.Seat(tutorA.ID, w.co.ID, fakecore.SeatOptions{Preset: "course_tutor", Principal: satoSeat.ID}))
+	w.tutorA = tutorA.ID
 
 	dir := t.TempDir()
 	w.secrets = filepath.Join(dir, "secrets")
-	for path, v := range map[string]string{"agents/own/token": ownA.Token, "agents/tutor/token": tutorA.Token} {
-		p := filepath.Join(w.secrets, path)
-		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, []byte(v+"\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
+	w.svc = fc.IssueRuntimeServiceToken("runtime")
+	w.writeSecret(t, "core/agent_runtime", w.svc.Token)
 	w.config = filepath.Join(dir, "agents")
 	if err := os.MkdirAll(w.config, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	polling := "{inbox_hot_s: 0.02, inbox_idle_s: 0.05, inbox_max_s: 0.1, events_s: 0.1, memberships_s: 1, assumed_core_rate_per_min: 600000}"
-	for _, a := range []struct{ id, name string }{{"own", "Yuki's helper"}, {"tutor", "CS101 Tutor"}} {
+	for _, a := range []struct{ id, name, agentID string }{{"own", "Yuki's helper", ownA.ID}, {"tutor", "CS101 Tutor", tutorA.ID}} {
 		yaml := fmt.Sprintf(`agent:
   id: %s
   display_name: %q
-  core: {base_url: %q, token_ref: "secret://agents/%s/token"}
+  core: {base_url: %q, agent_id: %q}
   model: {adapter: openai_chat, model: fake-model, base_url: %q}
   polling: %s
-`, a.id, a.name, srv.URL, a.id, model.URL(), polling)
+`, a.id, a.name, srv.URL, a.agentID, model.URL(), polling)
 		if err := os.WriteFile(filepath.Join(w.config, a.id+".yaml"), []byte(yaml), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -463,20 +472,23 @@ func newLiveWorld(t *testing.T) *liveWorld {
 	return w
 }
 
+// TestCheckLive: check --live reads each agent as Core hosts it, with the
+// runtime's own credential, and is issued nothing: with no token held
+// here (no store), it says so, and tries each model's key. A credential
+// Core refuses, or none at all, fails the check, saying so and never
+// showing it; so does an agent the runtime may not host.
 func TestCheckLive(t *testing.T) {
 	w := newLiveWorld(t)
-	code, out, errs := runCmd(t, env("CONFIG", w.config, "SECRETS_DIR", w.secrets), "check", "--live")
+	getenv := env("CONFIG", w.config, "SECRETS_DIR", w.secrets)
+	code, out, errs := runCmd(t, getenv, "check", "--live")
 	if code != exitOK {
 		t.Fatalf("check --live: %d\n%s%s", code, out, errs)
 	}
 	for _, want := range []string{
 		"catalogue " + worker.SnapshotCatalogueHash,
-		`agent own: connected as "Yuki's helper"`,
-		"Delegate of member " + w.yuki.ID + " in CS101 (A): reads your work and the material, answers only you",
-		"tools: assignment_get, assignment_list, component_tree, course_get, document_get, document_list, grade_get, grade_list, gradebook_get, submission_get, submission_list, submission_roster\n",
-		`agent tutor: connected as "CS101 Tutor"`,
-		"Tutor of CS101 (A): answers every student, reads the material",
-		"tools: assignment_get, assignment_list, course_get, document_get, document_list",
+		`agent own: in Core "Yuki's helper" (` + w.ownA + "), hosted runtime, active; 1 live seats; asked in the site",
+		`agent tutor: in Core "CS101 Tutor" (` + w.tutorA + "), hosted runtime, active; 1 live seats; asked in the site",
+		"token: none held here yet; the worker is issued one by the agent's id as it starts it",
 		"model openai_chat fake-model (openai_compatible): the key works",
 		"every agent connects",
 	} {
@@ -487,14 +499,43 @@ func TestCheckLive(t *testing.T) {
 	if len(w.llm.Requests()) != 2 {
 		t.Errorf("the model was tried %d times", len(w.llm.Requests()))
 	}
+	if n := w.fc.RuntimeIssues(w.ownA); n != 1 {
+		t.Errorf("check --live was issued a token (%d issued)", n)
+	}
 
-	// A token Core refuses fails the check.
-	if err := os.WriteFile(filepath.Join(w.secrets, "agents/own/token"), []byte("ais_nottoken_0123456789abcdef\n"), 0o600); err != nil {
+	// A credential Core refuses, and none.
+	revoked := w.fc.IssueRuntimeServiceToken("revoked")
+	if err := w.fc.RevokeServiceToken(revoked.CredentialID); err != nil {
 		t.Fatal(err)
 	}
-	code, out, errs = runCmd(t, env("CONFIG", w.config, "SECRETS_DIR", w.secrets), "check", "--live")
-	if code != exitFailure || !strings.Contains(out, "agent own: FAILED: me_get") || strings.Contains(out+errs, "ais_nottoken") {
-		t.Errorf("check --live with a bad token: %d\n%s%s", code, out, errs)
+	w.writeSecret(t, "core/agent_runtime", revoked.Token)
+	code, out, errs = runCmd(t, getenv, "check", "--live")
+	if code != exitFailure || !strings.Contains(out, "agent own: FAILED: the runtime's own credential (CORE_SERVICE_CREDENTIAL): refused by Core") ||
+		strings.Contains(out+errs, revoked.Token[:20]) {
+		t.Errorf("check --live with a credential Core refuses: %d\n%s%s", code, out, errs)
+	}
+	if err := os.Remove(filepath.Join(w.secrets, "core/agent_runtime")); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errs = runCmd(t, getenv, "check", "--live")
+	if code != exitFailure || !strings.Contains(out, "agent own: FAILED: the runtime's own credential (CORE_SERVICE_CREDENTIAL): ") {
+		t.Errorf("check --live with no credential: %d\n%s%s", code, out, errs)
+	}
+
+	// An mcp agent.
+	w.writeSecret(t, "core/agent_runtime", w.svc.Token)
+	tools, err := w.fc.AddMCPAgent("Yuki's tools", w.yuki.ActorID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	yaml := fmt.Sprintf("agent:\n  id: tools\n  display_name: Tools\n  core: {base_url: %q, agent_id: %q}\n  model: {adapter: openai_chat, model: fake-model, base_url: %q}\n",
+		w.coreURL, tools.ID, w.llm.URL())
+	if err := os.WriteFile(filepath.Join(w.config, "tools.yaml"), []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errs = runCmd(t, getenv, "check", "--live")
+	if code != exitFailure || !strings.Contains(out, "agent tools: FAILED: hosting: an mcp agent") {
+		t.Errorf("check --live of an mcp agent: %d\n%s%s", code, out, errs)
 	}
 }
 
@@ -808,6 +849,39 @@ func TestInterruptStopsACommand(t *testing.T) {
 	}
 }
 
+// TestRunWithoutTheCredential: run whose own credential in Core cannot be
+// read says so as it starts, never showing a credential; its agents are
+// not run, each one's state saying why, and run once the operator puts the
+// credential where CORE_SERVICE_CREDENTIAL points, with no restart.
+func TestRunWithoutTheCredential(t *testing.T) {
+	w := newLiveWorld(t)
+	if err := os.Remove(filepath.Join(w.secrets, "core", "agent_runtime")); err != nil {
+		t.Fatal(err)
+	}
+	cmd, out, exited := child(t, "run", "CONFIG="+w.config, "SECRETS_DIR="+w.secrets, "HTTP_ADDR=127.0.0.1:0", "LOG_FORMAT=json",
+		"SHUTDOWN_GRACE=2s", "DATABASE_URL=", "WORKER_ID=child")
+	line := out.wait(t, `"msg":"the runtime's own credential in Core cannot be read (CORE_SERVICE_CREDENTIAL)`)
+	if !strings.Contains(line, `"ref":"secret://core/agent_runtime"`) {
+		t.Errorf("the line: %s", line)
+	}
+	out.wait(t, `"msg":"aishie-runtime started"`)
+	out.wait(t, `"msg":"agent failed","worker":"child","agent":"own","err":"agent_runtime.agent: core: agent_runtime_agent: the agent runtime's credential (CORE_SERVICE_CREDENTIAL)`)
+	if n := w.fc.RuntimeIssues(w.ownA); n != 1 {
+		t.Errorf("issued %d tokens without the runtime's credential", n)
+	}
+	w.writeSecret(t, "core/agent_runtime", w.svc.Token)
+	w.answersInSite(t)
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	if err := waitExit(t, exited, 15*time.Second, out); err != nil {
+		t.Errorf("exit: %v", err)
+	}
+	if strings.Contains(out.text(), "aissvc_") || strings.Contains(out.text(), "ais_") {
+		t.Error("a log line holds a token")
+	}
+}
+
 // TestSecondSignalStopsAtOnce: run, stopping, gives an answer in progress
 // SHUTDOWN_GRACE; a second SIGTERM stops it at once, exiting 1.
 func TestSecondSignalStopsAtOnce(t *testing.T) {
@@ -816,10 +890,10 @@ func TestSecondSignalStopsAtOnce(t *testing.T) {
 	yaml := fmt.Sprintf(`agent:
   id: own
   display_name: "Yuki's helper"
-  core: {base_url: %q, token_ref: "secret://agents/own/token"}
+  core: {base_url: %q, agent_id: %q}
   model: {adapter: openai_chat, model: fake-model, base_url: %q}
   polling: {inbox_hot_s: 0.02, inbox_idle_s: 0.05, inbox_max_s: 0.1, events_s: 0.1, memberships_s: 1, assumed_core_rate_per_min: 600000}
-`, w.coreURL, model.URL+"/v1")
+`, w.coreURL, w.ownA, model.URL+"/v1")
 	if err := os.WriteFile(filepath.Join(w.config, "own.yaml"), []byte(yaml), 0o600); err != nil {
 		t.Fatal(err)
 	}

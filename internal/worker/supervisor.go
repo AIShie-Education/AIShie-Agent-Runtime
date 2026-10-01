@@ -67,9 +67,11 @@ type Supervisor struct {
 	// and actor id, and the agent that runs as each.
 	actors map[string]string
 
-	// siteChatAbsent are the catalogues, by hash, that do not offer
-	// me.site_chat, once said.
-	siteChatAbsent sync.Map
+	// runtimes are the agent runtime's clients, by base URL (hosting.go),
+	// and memTokens the operator's agents' tokens kept in memory, by
+	// agent, without a key to seal them with.
+	runtimes  map[string]*core.RuntimeService
+	memTokens map[string]memToken
 
 	// stateLocks order each agent's state writes, by agent id: a write
 	// holds its agent's lock from setting the state here until the store
@@ -124,6 +126,7 @@ func NewSupervisor(o Options) (*Supervisor, error) {
 		files: toolset.NewHTTPFetcher(o.HTTPClient), schemas: toolschema.NewCache(), texts: toolset.NewTextCache(0),
 		kick: make(chan struct{}, 1), runners: map[string]*runner{}, paused: map[string]int{}, rejected: map[string]rejection{},
 		cats: map[string]*catEntry{}, actors: map[string]string{}, pending: o.Config,
+		runtimes: map[string]*core.RuntimeService{}, memTokens: map[string]memToken{},
 	}
 	s.prices.Store(o.Prices)
 	return s, nil
@@ -246,6 +249,7 @@ func (s *Supervisor) apply(ctx context.Context) {
 	}
 	s.cfg = cfg
 	s.cats = map[string]*catEntry{}
+	s.runtimes = map[string]*core.RuntimeService{}
 	want := map[string]*config.Agent{}
 	for _, a := range cfg.Agents {
 		want[a.ID] = a
@@ -347,6 +351,17 @@ func (s *Supervisor) apply(ctx context.Context) {
 		// agent ran, over whose state the store writes no older one.
 		if c.why != "" && holds {
 			s.writeState(ctx, c.r.id, store.AgentStopped, "", c.why)
+		}
+		// An operator's agent the configuration no longer runs, removed
+		// or paused, is no longer hosted: the worker holding its lease
+		// revokes its token, before the lease goes. A hosted agent's is
+		// the API's to revoke, as its owner pauses or deletes it.
+		if holds && c.r.cfg.Hosted == nil {
+			why := c.why
+			if why == "" {
+				why = "paused in the configuration"
+			}
+			s.endOperatorHosting(c.r.cfg, why)
 		}
 		s.mu.Lock()
 		delete(s.runners, c.r.id)
@@ -566,15 +581,19 @@ func (s *Supervisor) stopRunner(r *runner, grace time.Duration) {
 }
 
 // agentEnded records what became of an instance that returned: Core
-// refused its token (unauthorized, not started again until a reload), a
-// hosted agent's owner is not the one who connected it (owner_changed,
-// likewise), it failed (error, started again after a backoff, with why:
-// agent_suspended for an agent Core suspended, failing for the rest), or
-// it was stopped. An instance of a configuration since replaced (apply
-// put a new token or new settings in force while it wound down) records
-// nothing: how it ended says nothing of the configuration in force, which
-// the next lease tick starts, and whose state is its own to write. Its
-// 401 is most often that of the token the new one revoked.
+// refused its token (unauthorized, not started again until it is hosted
+// again: a hosted agent's owner asks for a new token, which changes its
+// row, and an operator's agent's is forgotten for the reload that issues
+// another), a hosted agent's owner is not the one who hosted it
+// (owner_changed, likewise), Core would not have it hosted (an mcp agent,
+// one Core has not, a Core too old: error, likewise), it failed (error,
+// started again after a backoff, with why: agent_suspended for an agent
+// Core suspended, failing for the rest), or it was stopped. An instance of
+// a configuration since replaced (apply put a new token or new settings in
+// force while it wound down) records nothing: how it ended says nothing of
+// the configuration in force, which the next lease tick starts, and whose
+// state is its own to write. Its 401 is most often that of the token the
+// new one revoked.
 func (s *Supervisor) agentEnded(r *runner, ag *Agent, err error) {
 	s.mu.Lock()
 	if r.agent != ag {
@@ -591,21 +610,23 @@ func (s *Supervisor) agentEnded(r *runner, ag *Agent, err error) {
 	var state, reason, detail string
 	var blocked *blockedError
 	var owner *OwnerProblem
+	forget := false
 	switch {
 	case isUnauthenticated(err) && r.cfg.Hosted != nil:
-		// Its owner gave the token, and gives the next one: no file of
-		// the operator's holds it.
+		// Revoked in Core by someone else than the runtime: its owner
+		// asks for it to be hosted again.
 		r.blocked = true
 		state, reason, detail = store.AgentUnauthorized, store.ReasonTokenRefused,
-			"Core refused the agent's token (401): connect the agent again with a new token"
+			"Core refused the token the runtime holds for the agent (401): it was revoked in Core, by its owner, an administrator "+
+				"or a migration; its owner asks for a new one to host it again"
 	case isUnauthenticated(err):
-		r.blocked = true
+		r.blocked, forget = true, true
 		state, reason, detail = store.AgentUnauthorized, store.ReasonTokenRefused,
-			"Core refused the agent's token (401): issue a new token for it in Core, put it where core.token_ref points, and reload"
+			"Core refused the token the runtime holds for the agent (401): it was revoked in Core; reload the runtime (SIGHUP) to "+
+				"have it issued another"
 	case errors.As(err, &owner):
-		// Stopped until its row changes (its owner connecting it again)
-		// or a reload, as for a refused token: started again as it is,
-		// it would meet the same owner.
+		// Stopped until its row changes or a reload, as for a refused
+		// token: started again as it is, it would meet the same owner.
 		r.blocked = true
 		state, reason, detail = owner.State, owner.Reason, owner.Detail
 	case errors.As(err, &blocked):
@@ -619,6 +640,11 @@ func (s *Supervisor) agentEnded(r *runner, ag *Agent, err error) {
 		state, reason, detail = store.AgentError, reasonOf(err), redact.String(err.Error())
 	}
 	s.mu.Unlock()
+	if forget {
+		ctx, cancel := context.WithTimeout(context.Background(), storeTimeout)
+		s.forgetOperatorToken(ctx, ag.cfg, ag.heldSecret)
+		cancel()
+	}
 	if state == "" {
 		return
 	}
@@ -626,7 +652,7 @@ func (s *Supervisor) agentEnded(r *runner, ag *Agent, err error) {
 	case state == store.AgentUnauthorized:
 		s.log.Warn("agent stopped: Core refused its token", "agent", r.id)
 	case owner != nil:
-		s.log.Warn("hosted agent stopped: Core does not name as its owner the person who connected it", "agent", r.id, "state", state)
+		s.log.Warn("hosted agent stopped: Core does not name as its owner the person who hosted it", "agent", r.id, "state", state)
 	default:
 		s.log.Error("agent failed", "agent", r.id, "err", err)
 	}

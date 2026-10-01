@@ -15,9 +15,12 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/api"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/httpserver"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/metrics"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/netguard"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ratelimit"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/secrets"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/pgstore"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/transcribe"
@@ -122,10 +125,23 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 		return exitFailure
 	}
 	defer func() { stopOffice(); converter.Wait() }()
+	credential := serviceCredential(env, res)
+	if len(cfg.Agents) > 0 || (h.pg != nil && env.CoreBaseURL != "") {
+		if _, err := credential(ctx); err != nil {
+			log.Error("the runtime's own credential in Core cannot be read (CORE_SERVICE_CREDENTIAL): no agent runs until it can, "+
+				"and it is read again at each try", "ref", env.CoreServiceCredential, "err", err)
+		}
+	}
+	bucket := serviceBucket()
+	var sealer worker.Sealer
+	if v != nil {
+		sealer = v
+	}
 	sup, err := worker.NewSupervisor(worker.Options{
 		Config: cfg, Env: env, Store: st, Metrics: m, Log: log,
 		Secrets: res, Prices: prices, HTTPClient: client, HostedHTTPClient: hostedClient, WorkerID: env.WorkerID,
 		OCR: recognizer, Office: converter,
+		RuntimeCredential: credential, RuntimeBucket: bucket, Sealer: sealer,
 	})
 	if err != nil {
 		log.Error("the worker", "err", err)
@@ -144,7 +160,7 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 		return exitFailure
 	}
 	apiSrv, err := newAPI(env, apiDeps{client: client, models: hostedClient, st: st, vault: v, actors: sup, hosting: h, ocr: recognizer,
-		transcriber: transcriber}, reg, log)
+		transcriber: transcriber, runtime: runtimeService(env, client, credential, bucket)}, reg, log)
 	if err != nil {
 		log.Error("the API", "err", err)
 		return exitFailure
@@ -257,8 +273,8 @@ wait:
 
 // apiDeps are what the API shares with the worker: the egress client (for
 // Core), the hosted-model client (for keys/test), the store, the vault,
-// the supervisor, the configuration in force, and the worker's OCR and
-// transcriber.
+// the supervisor, the configuration in force, the worker's OCR and
+// transcriber, and the runtime's client of Core's agent_runtime service.
 type apiDeps struct {
 	client      *http.Client
 	models      *http.Client
@@ -268,15 +284,56 @@ type apiDeps struct {
 	hosting     api.Hosting
 	ocr         api.OCR
 	transcriber api.Transcriber
+	runtime     *core.RuntimeService
+}
+
+// Core's agent_runtime service allows its one actor, the runtime, 600 calls
+// a minute in bursts of 100, every worker's and the API's together:
+// serviceRate is what one process makes at most, so that two share it, and
+// hosting every agent at once (the first start after an upgrade, which
+// issues each a new token) never runs past it.
+const (
+	serviceRate  = 300
+	serviceBurst = 50
+)
+
+// serviceBucket paces the calls this process makes of Core's agent_runtime
+// service, the worker's and the API's together.
+func serviceBucket() *ratelimit.Bucket { return ratelimit.New(serviceRate, serviceBurst) }
+
+// serviceCredential is the runtime's own credential in Core
+// (CORE_SERVICE_CREDENTIAL, secret://core/agent_runtime by default),
+// read at each use: one the operator puts in its place is taken at the
+// next call, with no restart. It is never logged.
+func serviceCredential(env config.Env, res secrets.Resolver) func(context.Context) (string, error) {
+	return func(ctx context.Context) (string, error) {
+		return res.Resolve(ctx, env.CoreServiceCredential, "")
+	}
+}
+
+// runtimeService is the API's client of Core's agent_runtime service at
+// CORE_BASE_URL, nil without one: each call made once, for a person
+// waiting, paced with the worker's.
+func runtimeService(env config.Env, client *http.Client, credential func(context.Context) (string, error), bucket *ratelimit.Bucket) *core.RuntimeService {
+	if env.CoreBaseURL == "" {
+		return nil
+	}
+	hc := *client
+	if hc.Timeout == 0 {
+		hc.Timeout = core.DefaultTimeout
+	}
+	return core.NewRuntimeService(core.RuntimeCaller(core.RuntimeOptions{BaseURL: env.CoreBaseURL, Credential: credential,
+		HTTPClient: &hc, Bucket: bucket, Once: true}))
 }
 
 // newAPI is the JSON API for the front end (docs/design.md §11.4), or nil
 // when API_ADDR is not set: it takes the assertions Core at CORE_BASE_URL
 // makes for API_AUDIENCE, checked against CORE_ASSERTION_KEY when it is
 // pinned, and otherwise against the keys Core publishes, fetched through
-// the egress client. It keeps what it is given in the store, seals and
-// opens agents' tokens with the vault, asks the supervisor which agents it
-// runs, reads the configuration in force, and counts on reg.
+// the egress client. It keeps what it is given in the store, seals the
+// owners' keys with the vault, asks Core about an agent with the
+// runtime's own credential, asks the supervisor which agents it runs,
+// reads the configuration in force, and counts on reg.
 func newAPI(env config.Env, d apiDeps, reg prometheus.Registerer, log *slog.Logger) (*api.Server, error) {
 	if env.APIAddr == "" {
 		return nil, nil
@@ -300,6 +357,7 @@ func newAPI(env config.Env, d apiDeps, reg prometheus.Registerer, log *slog.Logg
 		CoreBaseURL:    env.CoreBaseURL,
 		CoreHTTP:       d.client,
 		Vault:          d.vault,
+		Runtime:        d.runtime,
 		Actors:         d.actors,
 		Hosting:        d.hosting,
 		OCR:            d.ocr,

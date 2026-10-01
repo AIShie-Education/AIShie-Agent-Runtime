@@ -319,7 +319,7 @@ func TestAgentBudgets(t *testing.T) {
 	yamlAgent := &config.Agent{ID: "agt_yaml", TenantID: "t_ops"}
 	h, _, fh := newModelWorld(t, rt)
 	fh.yaml.Agents = []*config.Agent{yamlAgent}
-	v := h.connect(h.yuki, h.helper.Token)
+	v := h.host(h.yuki, h.helper.ID)
 	nano := `{"model":{"own":{"provider":"openai","model":"gpt-4.1-nano"}},"own_key":{"value":"` + ownKey + `"}}`
 	if a := h.patch(v.ID, `"1"`, nano); a.code != 200 {
 		t.Fatalf("an unpriced model: %d %s", a.code, a.body)
@@ -418,7 +418,7 @@ func TestTenantQuotas(t *testing.T) {
 	rt.Tenants = map[string]config.Tenant{"t_ops": {PerDay: config.Quota{Answers: &hundred}}}
 	h, _, fh := newModelWorld(t, rt)
 	h.call("GET", "me", h.yuki, "")
-	v := h.connect(h.yuki, h.helper.Token)
+	v := h.host(h.yuki, h.helper.ID)
 	if a := h.patch(v.ID, `"1"`, `{"model":{"school":{"offer":"haiku"}}}`); a.code != 200 {
 		t.Fatalf("on the plan: %d %s", a.code, a.body)
 	}

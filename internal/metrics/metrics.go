@@ -33,6 +33,10 @@ type Metrics struct {
 	BudgetExhausted *prometheus.CounterVec
 	LeaseTakeovers  prometheus.Counter
 	AgentStates     *prometheus.GaugeVec
+	// TokensIssued counts the agents' tokens Core issued this worker by
+	// their ids (agent_runtime.issue_token): one each time it hosts an
+	// agent that holds none, never one per call.
+	TokensIssued prometheus.Counter
 	// LongPolls are each agent's calls waiting for news now (wait_s), and
 	// LongPollFallbacks the times a seat went back to its schedule for a
 	// while, by why: early (Core answered empty before half the wait, so
@@ -115,6 +119,9 @@ func New(reg prometheus.Registerer) *Metrics {
 		}, []string{"budget"}),
 		LeaseTakeovers: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "lease_takeovers_total", Help: "Agents this worker took over from another worker whose lease had lapsed.",
+		}),
+		TokensIssued: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "agent_tokens_issued_total", Help: "Agents' tokens Core issued this worker by their ids, as it hosted them.",
 		}),
 		AgentStates: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "agents", Help: "Agents this worker runs, by state.",
@@ -203,7 +210,7 @@ func New(reg prometheus.Registerer) *Metrics {
 		presence: &presence{last: map[string]time.Time{}},
 	}
 	reg.MustRegister(m.InboxPolls, m.AnswerLatency, m.Answers, m.LLMCalls, m.LLMTokens, m.LLMCost,
-		m.CoreCalls, m.ToolWrites, m.BudgetExhausted, m.LeaseTakeovers, m.AgentStates, m.presence, m.LongPolls, m.LongPollFallbacks,
+		m.CoreCalls, m.ToolWrites, m.BudgetExhausted, m.LeaseTakeovers, m.TokensIssued, m.AgentStates, m.presence, m.LongPolls, m.LongPollFallbacks,
 		m.DraftWrites, m.OCRRequests, m.OCRJobs, m.OCRPages, m.OCRJobSeconds, m.OCRPageSeconds, m.OCRRunning, m.OCRWaiting,
 		m.OfficeRequests, m.OfficeJobs, m.OfficeJobSeconds, m.OfficeCuts, m.OfficeCutSeconds, m.OfficeRunning, m.OfficeWaiting,
 		m.TranscribeJobs, m.TranscribePages, m.TranscribeInflight, m.TranscribeClaimErrors)

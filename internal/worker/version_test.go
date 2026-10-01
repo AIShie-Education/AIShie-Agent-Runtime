@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/scripted"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/netguard"
@@ -42,27 +43,26 @@ func TestStatesNameTheVersionInForce(t *testing.T) {
 	bad := w.ownAgent("agt_bad", 1)
 	tu := w.tutor("cs101-tutor")
 	h := w.hosting()
-	h.host("agt_yuki", own, "", hostedSettings("m1"))
-	h.host("agt_bad", bad, "", []byte(`{"colour":"blue"}`))
+	h.host("agt_yuki", own, hostedSettings("m1"))
+	h.host("agt_bad", bad, []byte(`{"colour":"blue"}`))
 	yaml := w.config(nil, w.agentDoc("cs101-tutor", "m2", nil, nil))
 	wk := h.start(h.build(yaml), models{"m1": scripted.New(scripted.Reply("Hosted.")), "m2": scripted.New(scripted.Reply("YAML."))})
 	ctx := context.Background()
 
-	if st := wk.waitVersion("agt_yuki", store.AgentRunning, 1); st.Reason != "" {
+	// Its start was issued its token, and kept it in its row: version 2,
+	// in force for it as written, which it runs at.
+	if st := wk.waitVersion("agt_yuki", store.AgentRunning, 2); st.Reason != "" {
 		t.Errorf("running with a reason: %+v", st)
 	}
 	if st := wk.waitState("cs101-tutor", store.AgentRunning); st.ConfigVersion != 0 {
 		t.Errorf("the YAML agent's state names version %d", st.ConfigVersion)
 	}
 	wk.waitVersion("agt_bad", store.AgentError, 1)
-	// Its start recorded its owner verified: version 2, which changes
-	// nothing in how it runs.
-	eventually(t, "the owner recorded verified", func() bool {
-		row, err := h.st.HostedAgent(ctx, "agt_yuki")
-		return err == nil && row.Version == 2
-	})
+	// The registry's rebuild brings version 2, which changes nothing in
+	// how it runs.
 	wk.sup.Update(h.build(yaml))
 	st := wk.waitVersion("agt_yuki", store.AgentRunning, 2)
+	time.Sleep(50 * time.Millisecond)
 	if n := len(w.calls(own.actor.ID, "me_get")); n != 1 {
 		t.Errorf("a version-only change restarted the agent: %d me_get", n)
 	}
@@ -70,7 +70,8 @@ func TestStatesNameTheVersionInForce(t *testing.T) {
 		t.Errorf("after the version-only change: %+v", st)
 	}
 
-	// Paused (3), then written again while paused (4): paused, at each.
+	// Paused (3, its token dropped), then written again while paused (4):
+	// paused, at each.
 	_, err := h.st.SetHostedAgentPaused(ctx, "agt_yuki", true, 0)
 	w.ok(err)
 	wk.sup.Update(h.build(yaml))
@@ -81,11 +82,12 @@ func TestStatesNameTheVersionInForce(t *testing.T) {
 	w.ok(err)
 	wk.sup.Update(h.build(yaml))
 	wk.waitVersion("agt_yuki", store.AgentPaused, 4)
-	// Resumed (5): running at it.
+	// Resumed (5): issued a token again (6), and running at it.
 	_, err = h.st.SetHostedAgentPaused(ctx, "agt_yuki", false, 0)
 	w.ok(err)
 	wk.sup.Update(h.build(yaml))
-	wk.waitVersion("agt_yuki", store.AgentRunning, 5)
+	wk.waitVersion("agt_yuki", store.AgentRunning, 6)
+	h.wantIssued("agt_yuki", own)
 
 	// Rejected, then written again with the same problem: at each version.
 	row, err = h.st.HostedAgent(ctx, "agt_bad")
@@ -108,8 +110,8 @@ func TestRejectionsSayWhy(t *testing.T) {
 	w := newWorld(t)
 	h := w.hosting()
 	own := w.ownAgent("agt_yuki", 0)
-	h.host("agt_yuki", own, "", hostedSettings("m1"))
-	h.host("agt_dup", w.ownAgent("agt_dup", 1), "", hostedSettings("m1"))
+	h.host("agt_yuki", own, hostedSettings("m1"))
+	h.host("agt_dup", w.ownAgent("agt_dup", 1), hostedSettings("m1"))
 	yaml := w.config(nil, w.agentDoc("agt_dup", "m1", nil, nil))
 	cfg, _, err := registry.Build(context.Background(), yaml, h.st, registry.Options{CoreBaseURL: w.srv.URL})
 	w.ok(err)
@@ -143,12 +145,13 @@ func TestRejectionsSayWhy(t *testing.T) {
 
 // An agent Core suspends while it runs stops, in state error with reason
 // agent_suspended, and is tried again with a backoff, each start refused
-// at me_get; reactivated, it runs again by itself.
+// as the runtime reads the agent in Core, before any call as the agent;
+// reactivated, it runs again by itself.
 func TestSuspendedAgentRunsAgainOnceReactivated(t *testing.T) {
 	w := newWorld(t)
 	own := w.ownAgent("agt_yuki", 0)
 	h := w.hosting()
-	h.host("agt_yuki", own, "", hostedSettings("m1"))
+	h.host("agt_yuki", own, hostedSettings("m1"))
 	wk := h.start(h.build(&config.Config{}), models{"m1": scripted.New(scripted.Reply("Back."))})
 	wk.waitState("agt_yuki", store.AgentRunning)
 	w.ok(w.fc.SuspendActor(own.actor.ID))
@@ -157,10 +160,22 @@ func TestSuspendedAgentRunsAgainOnceReactivated(t *testing.T) {
 	if st.Reason != store.ReasonAgentSuspended || !strings.Contains(st.Detail, "suspended in Core") {
 		t.Errorf("suspended: %+v", st)
 	}
-	n := len(w.calls(own.actor.ID, "me_get"))
-	eventually(t, "a start tried again", func() bool { return len(w.calls(own.actor.ID, "me_get")) > n+1 })
+	reads := func() int {
+		n := 0
+		for _, c := range w.fc.Calls() {
+			if c.Tool == core.ToolRuntimeAgent {
+				n++
+			}
+		}
+		return n
+	}
+	n, gets := reads(), len(w.calls(own.actor.ID, "me_get"))
+	eventually(t, "a start tried again", func() bool { return reads() > n+1 })
 	if st := wk.state("agt_yuki"); st.State != store.AgentError || st.Reason != store.ReasonAgentSuspended {
 		t.Errorf("tried again, suspended still: %+v", st)
+	}
+	if more := len(w.calls(own.actor.ID, "me_get")) - gets; more != 0 {
+		t.Errorf("%d starts called Core as the suspended agent", more)
 	}
 	w.ok(w.fc.ReactivateActor(own.actor.ID))
 	wk.waitState("agt_yuki", store.AgentRunning)
@@ -176,7 +191,7 @@ func TestHousekeepingPurgesAgentsGone(t *testing.T) {
 	w := newWorld(t)
 	h := w.hosting()
 	own := w.ownAgent("agt_live", 0)
-	h.host("agt_live", own, "", hostedSettings("m1"))
+	h.host("agt_live", own, hostedSettings("m1"))
 	now := time.Now()
 	ctx := context.Background()
 	for id, age := range map[string]time.Duration{"agt_gone": time.Hour, "agt_recent": time.Minute, "agt_live": time.Hour, "yaml-old": time.Hour} {
@@ -212,7 +227,7 @@ func TestActorAgent(t *testing.T) {
 	own := w.ownAgent("agt_yuki", 0)
 	tu := w.tutor("cs101-tutor")
 	h := w.hosting()
-	h.host("agt_yuki", own, "", hostedSettings("m1"))
+	h.host("agt_yuki", own, hostedSettings("m1"))
 	yaml := w.config(nil, w.agentDoc("cs101-tutor", "m2", nil, nil))
 	wk := h.start(h.build(yaml), models{"m1": scripted.New(), "m2": scripted.New()})
 	wk.waitState("agt_yuki", store.AgentRunning)
@@ -239,7 +254,7 @@ func TestHostedModelsUseTheGuardedClient(t *testing.T) {
 	w := newWorld(t)
 	own := w.ownAgent("agt_yuki", 0)
 	h := w.hosting()
-	h.host("agt_yuki", own, "", hostedSettings("m1"))
+	h.host("agt_yuki", own, hostedSettings("m1"))
 	w.tutor("cs101-tutor")
 	yaml := w.config(nil, w.agentDoc("cs101-tutor", "m2", nil, nil))
 	var mu sync.Mutex
@@ -248,6 +263,7 @@ func TestHostedModelsUseTheGuardedClient(t *testing.T) {
 	egress := &http.Client{Timeout: 5 * time.Second}
 	wk := h.w.start(h.build(yaml), ms, workerOpts{store: h.st, edit: func(o *Options) {
 		o.Secrets = secrets.Resolver{Getenv: w.getenv, Sealed: vault.Opener{Vault: h.v, Store: h.st}}
+		o.Sealer = h.v
 		o.HTTPClient = egress
 		o.NewAdapter = func(c llm.Config) (llm.Adapter, error) {
 			mu.Lock()
@@ -289,21 +305,18 @@ func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f
 // A worker whose configuration is older than another's never writes over
 // the state the other wrote for a newer version of the row: a second
 // worker that read the registry while the agent was paused (version 3)
-// and puts that in force after the holder resumed it (version 4, running)
-// leaves running as it is, as the store refuses its paused at 3.
+// and puts that in force after the holder resumed it (version 4, and 5
+// once it kept the token it was issued: running) leaves running as it is,
+// as the store refuses its paused at 3.
 func TestAnOlderVersionsStateIsNotWrittenOverANewer(t *testing.T) {
 	w := newWorld(t)
 	own := w.ownAgent("agt_yuki", 0)
 	h := w.hosting()
-	h.host("agt_yuki", own, "", hostedSettings("m1"))
+	h.host("agt_yuki", own, hostedSettings("m1"))
 	yaml := &config.Config{}
 	ctx := context.Background()
 	w1 := h.start(h.build(yaml), models{"m1": scripted.New()})
-	w1.waitState("agt_yuki", store.AgentRunning)
-	eventually(t, "the owner recorded verified", func() bool {
-		row, err := h.st.HostedAgent(ctx, "agt_yuki")
-		return err == nil && row.Version == 2
-	})
+	w1.waitVersion("agt_yuki", store.AgentRunning, 2) // its token kept
 	_, err := h.st.SetHostedAgentPaused(ctx, "agt_yuki", true, 0)
 	w.ok(err)
 	paused := h.build(yaml) // what the slower worker's watcher read
@@ -313,10 +326,11 @@ func TestAnOlderVersionsStateIsNotWrittenOverANewer(t *testing.T) {
 	w1.sup.Update(paused)
 	w1.waitVersion("agt_yuki", store.AgentPaused, 3)
 	w1.sup.Update(resumed)
-	w1.waitVersion("agt_yuki", store.AgentRunning, 4)
+	w1.waitVersion("agt_yuki", store.AgentRunning, 5)
 
 	w2 := h.w.start(paused, models{"m1": scripted.New()}, workerOpts{id: "w2", store: h.st, edit: func(o *Options) {
 		o.Secrets = secrets.Resolver{Getenv: h.w.getenv, Sealed: vault.Opener{Vault: h.v, Store: h.st}}
+		o.Sealer = h.v
 	}})
 	// w2 has put version 3 in force, and written its paused for it.
 	eventually(t, "the slower worker's paused written", func() bool {
@@ -332,8 +346,8 @@ func TestAnOlderVersionsStateIsNotWrittenOverANewer(t *testing.T) {
 		r := w2.sup.runners["agt_yuki"]
 		return r != nil && hostedVersion(r.cfg) == 4
 	})
-	if st := w1.state("agt_yuki"); st.State != store.AgentRunning || st.ConfigVersion != 4 || st.Worker != "w1" {
-		t.Errorf("the agent runs on w1 at version 4; its state: %+v", st)
+	if st := w1.state("agt_yuki"); st.State != store.AgentRunning || st.ConfigVersion != 5 || st.Worker != "w1" {
+		t.Errorf("the agent runs on w1 at version 5; its state: %+v", st)
 	}
 }
 
@@ -344,7 +358,7 @@ func TestRemovedIsStoppedAtItsVersion(t *testing.T) {
 	w := newWorld(t)
 	own := w.ownAgent("agt_yuki", 0)
 	h := w.hosting()
-	h.host("agt_yuki", own, "", hostedSettings("m1"))
+	h.host("agt_yuki", own, hostedSettings("m1"))
 	yaml := &config.Config{}
 	ctx := context.Background()
 	wk := h.start(h.build(yaml), models{"m1": scripted.New()})

@@ -370,7 +370,7 @@ const ownOpenAI = `{"model":{"own":{"provider":"openai","model":"gpt-4.1-mini"}}
 // its new version; the row passes what the registry holds a row to.
 func TestPatch(t *testing.T) {
 	h, _, _ := newModelWorld(t, config.Runtime{})
-	v := h.connect(h.yuki, h.helper.Token)
+	v := h.host(h.yuki, h.helper.ID)
 	ctx := context.Background()
 	a := h.patch(v.ID, `"1"`, ownOpenAI)
 	wantSecured(t, a, "no-store")
@@ -467,7 +467,7 @@ func TestPatch(t *testing.T) {
 // or a member it does not take, is refused at its pointer.
 func TestPatchWrites(t *testing.T) {
 	h, _, _ := newModelWorld(t, config.Runtime{})
-	v := h.connect(h.yuki, h.helper.Token)
+	v := h.host(h.yuki, h.helper.ID)
 	ctx := context.Background()
 	if !v.Tools.Writes {
 		t.Errorf("a new agent's writes are off: %+v", v.Tools)
@@ -568,7 +568,7 @@ func TestPatchRefuses(t *testing.T) {
 	breaking := config.Runtime{DeniedModels: []string{"*:*:*-preview"},
 		Defaults: map[string]any{"model": map[string]any{"params": map[string]any{"temperature": 5.0}}}}
 	h, _, fh := newModelWorld(t, config.Runtime{DeniedModels: []string{"*:*:*-preview"}})
-	v := h.connect(h.yuki, h.helper.Token)
+	v := h.host(h.yuki, h.helper.ID)
 	for _, tc := range []struct {
 		name, version, body string
 		status              int
@@ -622,7 +622,7 @@ func TestPatchRefuses(t *testing.T) {
 	if row, _ := h.st.HostedAgent(context.Background(), v.ID); row.Version != 1 || row.KeySecretID != "" {
 		t.Errorf("a refused patch wrote: %+v", row)
 	}
-	if secrets, _ := h.st.ListSecrets(context.Background(), "", 100); len(secrets) != 1 {
+	if secrets, _ := h.st.ListSecrets(context.Background(), "", 100); len(secrets) != 0 {
 		t.Errorf("a refused patch stored a key: %d secrets", len(secrets))
 	}
 	h.noSecrets(a)
@@ -633,16 +633,16 @@ func TestPatchRefuses(t *testing.T) {
 // or a provider anything, or writes anything.
 func TestBodyRoutesTakeNoQuery(t *testing.T) {
 	h, p, _ := newModelWorld(t, config.Runtime{})
-	v := h.connect(h.yuki, h.helper.Token)
-	next := h.token(h.helper.ID)
+	v := h.host(h.yuki, h.helper.ID)
 	calls := len(h.fc.Calls())
 	for _, tc := range []struct {
 		method, path, body string
 		headers            []string
 	}{
-		{"POST", "agents/inspect?x=1", tokenBody(h.helper.Token, ""), nil},
-		{"POST", "agents?x=1", tokenBody(next.Token, ""), nil},
-		{"PUT", "agents/" + v.ID + "/token?x=1", tokenBody(next.Token, ""), nil},
+		{"POST", "agents/inspect?x=1", agentBody(h.helper.ID), nil},
+		{"POST", "agents?x=1", agentBody(h.helper.ID), nil},
+		{"POST", "agents/" + v.ID + "/token?x=1", "", nil},
+		{"DELETE", "agents/" + v.ID + "?revoke_token=true", "", nil},
 		{"PATCH", "agents/" + v.ID + "?x=1", ownOpenAI, []string{"If-Match", `"1"`}},
 		{"POST", "keys/test?x=1", keysTest("openai", "gpt-4.1-mini", ownKey), nil},
 		{"POST", "keys/test?revoke_token=true", keysTest("openai", "gpt-4.1-mini", ownKey), nil},
@@ -675,18 +675,16 @@ func TestBodyRoutesTakeNoQuery(t *testing.T) {
 // asked of Core or a provider for them.
 func TestMemberNamesAreExact(t *testing.T) {
 	h, p, _ := newModelWorld(t, config.Runtime{})
-	v := h.connect(h.yuki, h.helper.Token)
-	next := h.token(h.helper.ID)
+	v := h.host(h.yuki, h.helper.ID)
 	calls := len(h.fc.Calls())
 	own := `"own":{"provider":"openai","model":"gpt-4.1-mini"}`
 	for _, tc := range []struct {
 		name, method, path, body string
 		reason, field            string
 	}{
-		{"a token given twice, in two cases", "POST", "agents/inspect", `{"token":"not-a-token","TOKEN":"` + h.helper.Token + `"}`, ReasonMalformedJSON, ""},
-		{"the token in another case", "POST", "agents/inspect", `{"Token":"` + h.helper.Token + `"}`, ReasonUnknownField, "/Token"},
-		{"connect's token in another case", "POST", "agents", `{"TOKEN":"` + next.Token + `"}`, ReasonUnknownField, "/TOKEN"},
-		{"a new token in another case", "PUT", "agents/" + v.ID + "/token", `{"toKen":"` + next.Token + `"}`, ReasonUnknownField, "/toKen"},
+		{"an agent's id given twice, in two cases", "POST", "agents/inspect", `{"agent_id":"not-an-id","AGENT_ID":"` + h.helper.ID + `"}`, ReasonMalformedJSON, ""},
+		{"the agent's id in another case", "POST", "agents/inspect", `{"Agent_ID":"` + h.helper.ID + `"}`, ReasonUnknownField, "/Agent_ID"},
+		{"POST /agents' id in another case", "POST", "agents", `{"AGENT_ID":"` + h.helper.ID + `"}`, ReasonUnknownField, "/AGENT_ID"},
 		{"a member of an embedded choice in another case", "POST", "keys/test", `{"Provider":"openai","model":"gpt-4.1-mini","key":"` + ownKey + `"}`, ReasonUnknownField, "/Provider"},
 		{"a key given twice, in two cases", "POST", "keys/test", `{"provider":"openai","model":"gpt-4.1-mini","key":"sk-a-key-of-no-use-0000","KEY":"` + ownKey + `"}`, ReasonMalformedJSON, ""},
 		{"PATCH's model in another case", "PATCH", "agents/" + v.ID, `{"Model":{` + own + `}}`, ReasonUnknownField, "/Model"},

@@ -25,13 +25,14 @@ type Info struct {
 	Features Features `json:"features"`
 }
 
-// Features say what the API offers, as it is served: connecting an agent
-// by its token, and choosing its model on the owner's own key, each only
-// when the API was given a Core to ask and a vault to seal with, as run
-// always gives it; and the school's plan beside them.
+// Features say what the API offers, as it is served: hosting an agent by
+// its id, and choosing its model on the owner's own key, each only when
+// the API was given a Core to ask, the runtime's credential to ask it
+// with, and a vault to seal with, as run gives it; and the school's plan
+// beside them.
 type Features struct {
-	ConnectByToken bool `json:"connect_by_token"`
-	OwnKey         bool `json:"own_key"`
+	HostByID bool `json:"host_by_id"`
+	OwnKey   bool `json:"own_key"`
 	// SchoolKey is the school's plan for hosted agents (D8): true when
 	// the plan in force, runtime.yaml's and the site's, offers at least
 	// one model.
@@ -45,13 +46,13 @@ type Features struct {
 // features are what this API can do: the school's plan by the plan in
 // force, or runtime.yaml's alone while the store cannot be read.
 func (s *Server) features(ctx context.Context) Features {
-	hosts := s.o.Vault != nil && s.o.CoreBaseURL != ""
+	hosts := s.o.Vault != nil && s.o.CoreBaseURL != "" && s.o.Runtime != nil
 	sc, err := s.plan(ctx)
 	if err != nil {
 		s.o.Log.Warn("GET /info: the site's settings cannot be read; the school's plan is runtime.yaml's", "err", err)
 		sc = s.yaml().Runtime.School
 	}
-	return Features{ConnectByToken: hosts, OwnKey: hosts, SchoolKey: hosts && sc.Offered(), Transcription: s.transcriptionRunning(ctx)}
+	return Features{HostByID: hosts, OwnKey: hosts, SchoolKey: hosts && sc.Offered(), Transcription: s.transcriptionRunning(ctx)}
 }
 
 func (s *Server) info(w http.ResponseWriter, r *http.Request) {
