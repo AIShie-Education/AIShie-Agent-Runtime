@@ -87,6 +87,10 @@ type Service struct {
 	m     *metrics.Metrics
 	log   *slog.Logger
 	now   func() time.Time
+	// after starts the timer a question waits on (await), and returns
+	// what it fires on and what stops it: time's, or a test's, which reads
+	// how long it was set for and fires it when the test says.
+	after func(time.Duration) (<-chan time.Time, func() bool)
 
 	// ctx is the process's: its end cancels every job, whose outcome is
 	// then not kept.
@@ -131,6 +135,10 @@ func NewService(ctx context.Context, o ServiceOptions) *Service {
 	}
 	if s.now == nil {
 		s.now = time.Now
+	}
+	s.after = func(d time.Duration) (<-chan time.Time, func() bool) {
+		t := time.NewTimer(d)
+		return t.C, t.Stop
 	}
 	if s.why == "" {
 		s.why = "the conversion of Office files is off here"
@@ -204,14 +212,14 @@ func (s *Service) Convert(ctx context.Context, sum string, f Format, to Target, 
 func (s *Service) await(ctx context.Context, j *job) State {
 	wait := s.cfg.Timeout
 	if dl, ok := ctx.Deadline(); ok {
-		wait = min(wait, time.Until(dl)/2)
+		wait = min(wait, dl.Sub(s.now())/2)
 	}
 	if wait > 0 {
-		t := time.NewTimer(wait)
-		defer t.Stop()
+		fired, stop := s.after(wait)
+		defer stop()
 		select {
 		case <-j.done:
-		case <-t.C:
+		case <-fired:
 		case <-ctx.Done():
 		}
 	}

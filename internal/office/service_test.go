@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -118,19 +119,35 @@ func TestServiceConvertsOnce(t *testing.T) {
 
 // TestServicePending: a question waits for its file at most half the time
 // its context has left; past it, the file is pending, and its conversion
-// goes on, for a later question to find.
+// goes on, for a later question to find. How long the question waits is
+// read off the timer it sets, which the test holds and fires at once, on a
+// clock that stands still: what the test checks is what the service
+// decided, never how long the machine took.
 func TestServicePending(t *testing.T) {
 	conv := &stubConverter{release: make(chan struct{}), out: &Output{Data: []byte("%PDF"), Pages: 1}}
 	s, _, _ := newTestService(t, conv, nil, Config{})
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	now := time.Now()
+	s.now = func() time.Time { return now }
+	var mu sync.Mutex
+	var waits []time.Duration
+	s.after = func(d time.Duration) (<-chan time.Time, func() bool) {
+		mu.Lock()
+		waits = append(waits, d)
+		mu.Unlock()
+		fired := make(chan time.Time, 1)
+		fired <- now
+		return fired, func() bool { return true }
+	}
+	ctx, cancel := context.WithDeadline(context.Background(), now.Add(2*time.Second))
 	defer cancel()
-	start := time.Now()
 	if st := s.Convert(ctx, sum1, deck, ToPDF, []byte("deck")); st.Status != StatusPending {
 		t.Errorf("a slow file: %+v", st)
 	}
-	if took := time.Since(start); took < 900*time.Millisecond || took > 1800*time.Millisecond {
-		t.Errorf("waited %s of the 2s left, not half of it", took)
+	mu.Lock()
+	if !slices.Equal(waits, []time.Duration{time.Second}) {
+		t.Errorf("a question with 2 s left set its wait for %v, want half of it", waits)
 	}
+	mu.Unlock()
 	close(conv.release)
 	deadline := time.Now().Add(5 * time.Second)
 	for {
