@@ -45,8 +45,8 @@ func TestLiveCore(t *testing.T) {
 	run := fmt.Sprint(time.Now().UnixNano())
 
 	// An admin, an instructor and a student, each signed in with a password
-	// (person), a course, and in it a published assignment and three
-	// documents: Markdown text, a Markdown file and a PDF file.
+	// (person), a course, and in it a published assignment and four
+	// documents: Markdown text, a Markdown file, a PDF file and a Word file.
 	_, admin := c.person(root, run, "Admin", map[string]any{"platform_role": "admin"})
 	satoID, sato := c.person(admin, run, "Sato", nil)
 	yukiID, yuki := c.person(admin, run, "Yuki", nil)
