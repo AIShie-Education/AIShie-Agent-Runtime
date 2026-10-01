@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -86,31 +84,24 @@ func toolKey(conv, msg string, attempt, n int) string {
 // makes up reach nobody, and nothing is written.
 func ownerWrites(t *testing.T, w *world) {
 	api := w.api
-	assistant := w.newAgent(t, w.sato, "Sato's assistant", "")
-	w.addSecret("the token of Sato's assistant", assistant.token)
+	assistant := w.newAgent(t, w.sato, "Sato's assistant")
 	assistant.member = w.memberID(t, w.sato.token, w.path("/delegates"), map[string]any{"actor_id": assistant.id, "preset": "delegate",
 		"perms": map[string]string{"document_write": "confirm_required"}})
-	// Its token in a file: a test running beside others sets no
-	// environment variable.
-	tokenFile := filepath.Join(t.TempDir(), "assistant-token")
-	if err := os.WriteFile(tokenFile, []byte(assistant.token), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	api.call(t, http.StatusOK, w.sato.token, "POST", w.path("/members/"+w.tutor.member+"/perms"),
 		map[string]any{"perms": map[string]string{"submission_write": "autonomous"}})
 
 	m := newModel(t, writesResponder)
 	writes := map[string]any{"tools": map[string]any{"writes": true}}
 	rt := w.startRuntime(t, m, runtimeConf{agents: []agentConf{
-		{id: "sato-assistant", seat: assistant, over: mergeMaps(writes, map[string]any{"core": map[string]any{"token_ref": "file://" + tokenFile}})},
+		{id: "sato-assistant", seat: assistant, over: writes},
 		{id: "tutor", seat: w.tutor, over: writes},
 	}})
 	rt.waitPolling("sato-assistant")
 	rt.waitPolling("tutor")
 
-	documentCreates := func(a agentSeat) []action {
+	documentCreates := func(id string) []action {
 		var out []action
-		for _, act := range w.actionsMine(t, a) {
+		for _, act := range w.actionsMine(t, rt, id) {
 			if act.ActionType == "document.create" {
 				out = append(out, act)
 			}
@@ -124,14 +115,14 @@ func ownerWrites(t *testing.T, w *world) {
 	// confirm_required: proposed, and the answer says so.
 	conv1, m1 := w.ask(t, w.sato, assistant.member, makeDocument+"Week 1 notes.")
 	a1 := w.waitAnswer(t, w.sato, conv1, assistant.member)
-	proposals := documentCreates(assistant)
+	proposals := documentCreates("sato-assistant")
 	if len(proposals) != 1 || proposals[0].Status != "proposed" {
 		t.Fatalf("the assistant's document.create actions: %+v", proposals)
 	}
 	if want := "Week 1 notes waits for approval (action " + proposals[0].ID + ")."; a1.text() != want || a1.replyTo() != m1 {
 		t.Errorf("the answer is %q in reply to %s; want %q in reply to %s", a1.text(), a1.replyTo(), want, m1)
 	}
-	r, err := api.send(t.Context(), assistant.token, "POST", w.path("/documents"), create("Week 1 notes"), toolKey(conv1, m1, 1, 1))
+	r, err := api.send(t.Context(), rt.token("sato-assistant"), "POST", w.path("/documents"), create("Week 1 notes"), toolKey(conv1, m1, 1, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +138,7 @@ func ownerWrites(t *testing.T, w *world) {
 	var made struct {
 		DocumentID string `json:"document_id"`
 	}
-	for _, act := range documentCreates(assistant) {
+	for _, act := range documentCreates("sato-assistant") {
 		if act.Status == "executed" {
 			if err := json.Unmarshal(act.Result, &made); err != nil {
 				t.Fatal(err)
@@ -155,7 +146,7 @@ func ownerWrites(t *testing.T, w *world) {
 		}
 	}
 	if made.DocumentID == "" {
-		t.Fatalf("no document.create of the assistant's was executed: %+v; the answer: %q", documentCreates(assistant), a2.text())
+		t.Fatalf("no document.create of the assistant's was executed: %+v; the answer: %q", documentCreates("sato-assistant"), a2.text())
 	}
 	if want := "Week 2 notes is made (document " + made.DocumentID + ")."; a2.text() != want {
 		t.Errorf("the answer is %q; want %q", a2.text(), want)
@@ -172,7 +163,7 @@ func ownerWrites(t *testing.T, w *world) {
 		doc.Version.AuthorMemberID != assistant.member {
 		t.Errorf("the document in Core: %+v", doc)
 	}
-	r, err = api.send(t.Context(), assistant.token, "POST", w.path("/documents"), create("Week 2 notes"), toolKey(conv2, m2, 1, 1))
+	r, err = api.send(t.Context(), rt.token("sato-assistant"), "POST", w.path("/documents"), create("Week 2 notes"), toolKey(conv2, m2, 1, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +173,7 @@ func ownerWrites(t *testing.T, w *world) {
 	if r.HTTP != http.StatusOK || r.Status != "executed" || !r.Replayed || json.Unmarshal(r.Result, &again) != nil || again.DocumentID != made.DocumentID {
 		t.Errorf("the write sent again under tool:{x}:{m}:1:1: %s; want the document %s replayed", r, made.DocumentID)
 	}
-	if n := len(documentCreates(assistant)); n != 2 {
+	if n := len(documentCreates("sato-assistant")); n != 2 {
 		t.Errorf("%d document.create actions of the assistant's; want 2", n)
 	}
 	for outcome, want := range map[string]float64{"proposed": 1, "executed": 1} {
@@ -216,7 +207,7 @@ func ownerWrites(t *testing.T, w *world) {
 	if asked == 0 {
 		t.Error("the model was never asked Yuki's question")
 	}
-	for _, act := range w.actionsMine(t, w.tutor) {
+	for _, act := range w.actionsMine(t, rt, "tutor") {
 		if act.ActionType != "conversation.answer" {
 			t.Errorf("the tutor did %s (%s)", act.ActionType, act.Status)
 		}

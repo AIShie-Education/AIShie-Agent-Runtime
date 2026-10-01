@@ -25,9 +25,11 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/netguard"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/office"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/redact"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/secrets"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/memstore"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolset"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/worker"
 )
 
@@ -62,8 +64,9 @@ func polling() map[string]any {
 	}
 }
 
-// agentConf is one agent of a test's configuration: its id, the seat whose
-// token it connects with, and settings merged over the tests' own.
+// agentConf is one agent of a test's configuration: its id, the agent in
+// Core it is (seat.id, its core.agent_id), and settings merged over the
+// tests' own.
 type agentConf struct {
 	id   string
 	seat agentSeat
@@ -72,8 +75,9 @@ type agentConf struct {
 
 // writeConfig writes the agents' configuration, one YAML document each, as
 // an operator would, and returns its path. Every agent reaches Core at the
-// world's base URL with its token from the environment (env://), and its
-// model at m, as an OpenAI-compatible server, with the world's key.
+// world's base URL, named by its id there (the runtime is issued its
+// token), and its model at m, as an OpenAI-compatible server, with the
+// world's key.
 func (w *world) writeConfig(t testing.TB, m *fakellm.Server, agents ...agentConf) string {
 	t.Helper()
 	var b bytes.Buffer
@@ -81,7 +85,7 @@ func (w *world) writeConfig(t testing.TB, m *fakellm.Server, agents ...agentConf
 	for _, a := range agents {
 		doc := map[string]any{
 			"id": a.id, "display_name": "Agent " + a.id,
-			"core": map[string]any{"base_url": w.api.base, "token_ref": "env://" + a.seat.tokenVar},
+			"core": map[string]any{"base_url": w.api.base, "agent_id": a.seat.id},
 			"model": map[string]any{
 				"adapter": "openai_chat", "provider": "openai_compatible", "model": "e2e-model", "base_url": m.URL(),
 				"key_ref": "env://" + w.modelKeyVar, "params": map[string]any{"max_output_tokens": 500},
@@ -130,6 +134,10 @@ type runtimeConf struct {
 	// office, when set, converts the Office files the agents read (the
 	// worker's, as run makes it); none, they are given as their text.
 	office *office.Service
+	// tokensOf, when set, is a runtime whose tokens this one is given, in
+	// its own store, before it starts: two workers that share no store,
+	// running the agents with the one token Core holds for each.
+	tokensOf *instance
 }
 
 // tagHeader is the header runtimeConf.tag is sent in.
@@ -142,6 +150,9 @@ type instance struct {
 	sup *worker.Supervisor
 	reg *prometheus.Registry
 	st  store.Store
+	// v seals the tokens the runtime is issued, in st, where token finds
+	// them.
+	v *vault.Vault
 	// log is what the runtime logged, through redact; raw is the same
 	// before redaction, only ever searched for secrets, never shown.
 	log, raw *logBuffer
@@ -158,12 +169,17 @@ func (w *world) startRuntime(t *testing.T, m *fakellm.Server, rc runtimeConf) *i
 	if err != nil {
 		t.Fatalf("the configuration: %v", err)
 	}
-	rt := &instance{t: t, reg: prometheus.NewRegistry(), st: memstore.New(), log: &logBuffer{}, raw: &logBuffer{}}
+	v, kek := keyring(t)
+	w.addSecret("the key that seals what the runtime keeps", kek)
+	rt := &instance{t: t, reg: prometheus.NewRegistry(), st: memstore.New(), v: v, log: &logBuffer{}, raw: &logBuffer{}}
 	opts := &slog.HandlerOptions{Level: slog.LevelDebug}
 	logger := slog.New(teeHandler{
 		redact.NewHandler(slog.NewJSONHandler(rt.log, opts), nil),
 		slog.NewJSONHandler(rt.raw, opts),
 	})
+	if rc.tokensOf != nil {
+		rt.share(rc.tokensOf, rc.agents)
+	}
 	name := t.Name() + " " + rc.workerID
 	w.addLog(name, rt.log.String)
 	w.addLog(name+" (before redaction)", rt.raw.String)
@@ -183,6 +199,7 @@ func (w *world) startRuntime(t *testing.T, m *fakellm.Server, rc runtimeConf) *i
 	}
 	rt.sup, err = worker.NewSupervisor(worker.Options{
 		Config: cfg, Store: rt.st, Metrics: metrics.New(rt.reg), Log: logger, WorkerID: rc.workerID, Office: conv,
+		Secrets: secrets.Resolver{Sealed: vault.Opener{Vault: v, Store: rt.st}}, Sealer: v, RuntimeCredential: w.credential,
 		HTTPClient: &http.Client{Transport: rtp},
 		// No hosted agent runs here; the hosted-model client follows no
 		// redirect, as in production.
@@ -218,6 +235,56 @@ func (w *world) startRuntime(t *testing.T, m *fakellm.Server, rc runtimeConf) *i
 		}
 	})
 	return rt
+}
+
+// token is the token the runtime holds for its agent id, once it has been
+// issued one: an operator's agent's, sealed in the store
+// (store.AgentTokens), or a hosted agent's, sealed in its row. A test calls
+// Core as the agent with it, as the runtime does, never being issued one
+// of its own, which would revoke the runtime's.
+func (rt *instance) token(id string) string {
+	rt.t.Helper()
+	ctx := context.Background()
+	var secret string
+	eventually(rt.t, answerWait, "the runtime issued the token of "+id, func() bool {
+		if t, err := rt.st.AgentToken(ctx, id); err == nil {
+			secret = t.SecretID
+			return true
+		}
+		if row, err := rt.st.HostedAgent(ctx, id); err == nil && row.TokenIssued && row.TokenSecretID != "" {
+			secret = row.TokenSecretID
+			return true
+		}
+		return false
+	})
+	tok, err := vault.Opener{Vault: rt.v, Store: rt.st}.OpenSecret(ctx, secret)
+	if err != nil {
+		rt.t.Fatal(err)
+	}
+	return tok
+}
+
+// share puts in rt's store the tokens from holds for agents, sealed with
+// rt's vault, as from keeps them.
+func (rt *instance) share(from *instance, agents []agentConf) {
+	rt.t.Helper()
+	ctx := context.Background()
+	for _, a := range agents {
+		tok := from.token(a.id)
+		held, err := from.st.AgentToken(ctx, a.id)
+		if err != nil {
+			rt.t.Fatal(err)
+		}
+		sealed, err := rt.v.Seal(ctx, store.Secret{ID: vault.NewSecretID(), TenantID: "operator", Kind: store.SecretCoreToken}, tok)
+		if err != nil {
+			rt.t.Fatal(err)
+		}
+		shared := *held
+		shared.SecretID, shared.Hint = sealed.ID, sealed.Hint
+		if err := rt.st.PutAgentToken(ctx, shared, sealed, ""); err != nil {
+			rt.t.Fatal(err)
+		}
+	}
 }
 
 // tagged sends tag with every request to the model's host.

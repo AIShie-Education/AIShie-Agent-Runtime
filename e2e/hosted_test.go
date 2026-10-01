@@ -35,16 +35,19 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/worker"
 )
 
-// hostedAgentAnswers is M2's registry against the real Core: a runtime
-// runs, with its state in PostgreSQL and no agent at all; Yuki's agent is
-// connected to it as the API does it, its token and her model key sealed
-// in the runtime's database with its row; the registry's notification puts
-// it in force at once, and it answers Yuki, having opened its token and
-// key from the database, and never logging either. Core's me.get names
-// its owner: the row that names Yuki is marked verified, and an agent of
-// hers whose row names Ken does not run. Sato uploads his lecture slides
-// as a .pptx, and asked about one, Yuki's helper reads them through Core
-// and answers from the runtime's text of them.
+// hostedAgentAnswers is M2's registry against the real Core, hosting by
+// an agent's id: a runtime runs, with its state in PostgreSQL and no agent
+// at all; Yuki's agent is in its registry as it was hosted before hosting
+// was by id: its row holds the token pasted then (here, one a runtime
+// before was issued), and her model key, sealed. The registry's
+// notification puts it in force at once; the worker is issued the agent's
+// token by its id, which revokes the pasted one, seals it in the row, and
+// the agent answers Yuki, having opened its key from the database, and
+// never logging either. Core names Yuki as its owner: the row that names
+// her is marked verified, and an agent of hers whose row names Ken does not
+// run, and its token is revoked. Sato uploads his lecture slides as a
+// .pptx, and asked about one, Yuki's helper reads them through Core and
+// answers from the runtime's text of them.
 func hostedAgentAnswers(t *testing.T, w *world) {
 	st, dbURL := runtimeStore(t)
 	v, kek := keyring(t)
@@ -52,7 +55,6 @@ func hostedAgentAnswers(t *testing.T, w *world) {
 	m := newModel(t, documentsResponder)
 	rt := w.startHosted(t, m, st, v, &config.Config{})
 
-	// Connected, as the API connects an agent.
 	id := "agt_" + uuid.NewString()
 	tenant := "ten_" + w.yuki.id
 	seal := func(kind, plaintext string) store.Secret {
@@ -62,7 +64,8 @@ func hostedAgentAnswers(t *testing.T, w *world) {
 		}
 		return s
 	}
-	tok, key := seal(store.SecretCoreToken, w.own.token), seal(store.SecretModelKey, w.modelKey)
+	pasted := w.hostedBefore(t, w.own)
+	tok, key := seal(store.SecretCoreToken, pasted.Token), seal(store.SecretModelKey, w.modelKey)
 	settings, err := json.Marshal(map[string]any{
 		// OpenAI's own endpoint, as a hosted agent must: the runtime's
 		// transport takes its calls to the scripted model.
@@ -80,10 +83,22 @@ func hostedAgentAnswers(t *testing.T, w *world) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := w.own.token[:len("ais_")+12] + "…"; tok.Hint != want {
-		t.Error("the token's hint is not ais_ and its public prefix")
-	}
 	rt.waitPolling(id)
+
+	// The token pasted before is replaced by one issued to the runtime,
+	// and revoked in Core.
+	row, err := st.HostedAgent(t.Context(), id)
+	if err != nil || !row.TokenIssued || row.TokenSecretID == tok.ID || row.TokenCredentialID == pasted.CredentialID ||
+		!strings.HasPrefix(row.TokenHint, "ais_") {
+		t.Fatalf("the row of the agent run: %+v, %v", row, err)
+	}
+	view, err := w.runtimeService().Agent(t.Context(), w.own.id)
+	if err != nil || view.RuntimeToken == nil || view.RuntimeToken.CredentialID != row.TokenCredentialID || !view.SiteChat {
+		t.Errorf("the agent in Core: %+v, %v", view, err)
+	}
+	if r, err := w.api.send(t.Context(), pasted.Token, "GET", "/v1/me", nil, ""); err != nil || r.HTTP != http.StatusUnauthorized {
+		t.Errorf("the token pasted before still works: %v %v", r, err)
+	}
 
 	const q = "Can my hosted helper answer?"
 	conv, msg := w.ask(t, w.yuki, w.own.member, q)
@@ -121,9 +136,9 @@ func hostedAgentAnswers(t *testing.T, w *world) {
 		}
 	}
 
-	// Core's me.get named Yuki as its owner, as its row does: the row is
-	// marked verified, which restarted nothing.
-	row, err := st.HostedAgent(t.Context(), id)
+	// Core named Yuki as its owner, as its row does: the row is marked
+	// verified, and its token kept, which restarted nothing.
+	row, err = st.HostedAgent(t.Context(), id)
 	if err != nil || !row.OwnerVerified {
 		t.Errorf("the row of the agent whose owner Core named: %+v, %v", row, err)
 	}
@@ -137,22 +152,22 @@ func hostedAgentAnswers(t *testing.T, w *world) {
 		t.Errorf("the hosted agent started %d times", started)
 	}
 
-	// Another agent of Yuki's, connected by Ken, who held its token
-	// without owning it: Core names Yuki, so it does not run, and its state
-	// names neither of them.
-	second := w.newAgent(t, w.yuki, "Yuki's second helper", "")
-	w.addSecret("the token of Yuki's second agent", second.token)
+	// Another agent of Yuki's, whose row names Ken (hosted when Core let
+	// an agent be given to another): Core names Yuki, so it does not run,
+	// its token is revoked, and its state names neither of them.
+	second := w.newAgent(t, w.yuki, "Yuki's second helper")
+	w.hostedBefore(t, second)
 	id2 := "agt_" + uuid.NewString()
-	tok2, key2 := seal(store.SecretCoreToken, second.token), seal(store.SecretModelKey, w.modelKey)
+	key2 := seal(store.SecretModelKey, w.modelKey)
 	_, err = st.CreateHostedAgent(t.Context(), store.HostedAgent{
-		ID: id2, CoreActorID: second.id, OwnerActorID: w.ken.id, TenantID: tenant, DisplayName: "Yuki's second helper",
-		TokenSecretID: tok2.ID, TokenHint: tok2.Hint, KeySecretID: key2.ID, KeyHint: key2.Hint, Settings: settings,
-	}, tok2, key2)
+		ID: id2, CoreActorID: second.id, OwnerActorID: w.ken.id, OwnerVerified: true, TenantID: tenant, DisplayName: "Yuki's second helper",
+		KeySecretID: key2.ID, KeyHint: key2.Hint, Settings: settings,
+	}, key2)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var changed store.AgentState
-	eventually(t, answerWait, "the agent Ken connected stopped as owner_changed", func() bool {
+	eventually(t, answerWait, "the agent Ken hosted stopped as owner_changed", func() bool {
 		states, err := st.AgentStates(t.Context())
 		if err != nil {
 			t.Fatal(err)
@@ -170,10 +185,13 @@ func hostedAgentAnswers(t *testing.T, w *world) {
 		}
 	}
 	if rt.inboxPolls(id2) != 0 {
-		t.Error("the agent Ken connected polled its inbox")
+		t.Error("the agent Ken hosted polled its inbox")
 	}
-	if row, err := st.HostedAgent(t.Context(), id2); err != nil || row.OwnerVerified {
-		t.Errorf("the row of the agent Ken connected: %+v, %v", row, err)
+	if row, err := st.HostedAgent(t.Context(), id2); err != nil || row.TokenSecretID != "" || row.TokenIssued {
+		t.Errorf("the row of the agent Ken hosted: %+v, %v", row, err)
+	}
+	if view, err := w.runtimeService().Agent(t.Context(), second.id); err != nil || view.RuntimeToken != nil || view.SiteChat {
+		t.Errorf("the agent Ken hosted, in Core: %+v, %v", view, err)
 	}
 
 	// Paused, it stops; its state says so.
@@ -319,7 +337,7 @@ func keyring(t *testing.T) (*vault.Vault, string) {
 // endpoint go to m.
 func (w *world) startHosted(t *testing.T, m *fakellm.Server, st *pgstore.Store, v *vault.Vault, yaml *config.Config) *instance {
 	t.Helper()
-	rt := &instance{t: t, reg: prometheus.NewRegistry(), st: st, log: &logBuffer{}, raw: &logBuffer{}}
+	rt := &instance{t: t, reg: prometheus.NewRegistry(), st: st, v: v, log: &logBuffer{}, raw: &logBuffer{}}
 	opts := &slog.HandlerOptions{Level: slog.LevelDebug}
 	logger := slog.New(teeHandler{
 		redact.NewHandler(slog.NewJSONHandler(rt.log, opts), nil),
@@ -342,7 +360,8 @@ func (w *world) startHosted(t *testing.T, m *fakellm.Server, st *pgstore.Store, 
 	// price file.
 	rt.sup, err = worker.NewSupervisor(worker.Options{
 		Config: cfg, Store: st, Metrics: metrics.New(rt.reg), Log: logger, WorkerID: "hosted-w1", Prices: cfg.Runtime.Site.PriceTable(nil),
-		Secrets:    secrets.Resolver{Dir: w.secretsDir, Sealed: vault.Opener{Vault: v, Store: st}},
+		Secrets: secrets.Resolver{Dir: w.secretsDir, Sealed: vault.Opener{Vault: v, Store: st}},
+		Sealer:  v, RuntimeCredential: w.credential,
 		HTTPClient: &http.Client{Transport: toModel{next: tr, target: target}},
 		// A hosted agent's model calls go through a client that follows no
 		// redirect; the scripted model is on loopback, which the dial guard

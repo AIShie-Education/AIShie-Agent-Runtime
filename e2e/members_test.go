@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -119,8 +117,7 @@ func memberWrites(t *testing.T, w *world) {
 
 	// A delegate holds member_manage as far as its principal does: Sato's
 	// own agent may, Yuki's may not.
-	mine := w.newAgent(t, w.sato, "Sato's assistant", "")
-	w.addSecret("the token of Sato's assistant", mine.token)
+	mine := w.newAgent(t, w.sato, "Sato's assistant")
 	w.memberID(t, w.sato.token, w.path("/delegates"), map[string]any{"actor_id": mine.id, "preset": "delegate",
 		"perms": map[string]string{"member_manage": "autonomous"}})
 	r, err := api.send(t.Context(), w.sato.token, "POST", w.path("/members/"+w.own.member+"/perms"),
@@ -134,24 +131,19 @@ func memberWrites(t *testing.T, w *world) {
 
 	id := result[struct {
 		ActorID string `json:"actor_id"`
-	}](t, api, w.admin.token, "POST", "/v1/actors", map[string]any{"kind": "agent", "display_name": "CS101 Registrar"}).ActorID
-	registrar := agentSeat{id: id, token: w.issueToken(t, w.admin.token, "/v1/actors/"+id+"/tokens")}
-	w.addSecret("the registrar's token", registrar.token)
+	}](t, api, w.admin.token, "POST", "/v1/actors", map[string]any{"kind": "agent", "display_name": "CS101 Registrar", "hosting": "runtime"}).ActorID
+	registrar := agentSeat{id: id}
 	// A ta's seat, with the submission_write a student holds, or it could
 	// not seat one; answering, so that Sato may ask it.
 	registrar.member = w.memberID(t, w.sato.token, w.path("/members"), map[string]any{"actor_id": registrar.id, "preset": "ta",
 		"perms": map[string]string{"member_manage": "autonomous", "submission_write": "autonomous", "conversation_answer": "autonomous"}})
-	tokenFile := filepath.Join(t.TempDir(), "registrar-token")
-	if err := os.WriteFile(tokenFile, []byte(registrar.token), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	aoi, ren := w.register(t, "Aoi"), w.register(t, "Ren")
 	w.addSecret("Aoi's session", aoi.token)
 	w.addSecret("Ren's session", ren.token)
 
 	m := newModel(t, membersResponder)
 	rt := w.startRuntime(t, m, runtimeConf{agents: []agentConf{{id: "registrar", seat: registrar,
-		over: map[string]any{"tools": map[string]any{"writes": true}, "core": map[string]any{"token_ref": "file://" + tokenFile}}}}})
+		over: map[string]any{"tools": map[string]any{"writes": true}}}}})
 	rt.waitPolling("registrar")
 
 	seatOf := func(p person) string {
@@ -179,7 +171,7 @@ func memberWrites(t *testing.T, w *world) {
 	if seat.ActorID != aoi.id || seat.Role != "student" || seat.Status != "active" {
 		t.Errorf("Aoi's seat in Core: %+v", seat)
 	}
-	r, err = api.send(t.Context(), registrar.token, "POST", w.path("/members"), map[string]any{"actor_id": aoi.id, "preset": "student"},
+	r, err = api.send(t.Context(), rt.token("registrar"), "POST", w.path("/members"), map[string]any{"actor_id": aoi.id, "preset": "student"},
 		toolKey(conv1, m1, 1, 1))
 	if err != nil {
 		t.Fatal(err)
@@ -197,13 +189,13 @@ func memberWrites(t *testing.T, w *world) {
 	conv2, _ := w.ask(t, w.sato, registrar.member, fmt.Sprintf(seatAsStudent, ren.id))
 	a2 := w.waitAnswer(t, w.sato, conv2, registrar.member)
 	var proposal action
-	for _, act := range w.actionsMine(t, registrar) {
+	for _, act := range w.actionsMine(t, rt, "registrar") {
 		if act.ActionType == "member.add" && act.Status == "proposed" {
 			proposal = act
 		}
 	}
 	if proposal.ID == "" {
-		t.Fatalf("no member.add of the registrar's is proposed: %+v; the answer: %q", w.actionsMine(t, registrar), a2.text())
+		t.Fatalf("no member.add of the registrar's is proposed: %+v; the answer: %q", w.actionsMine(t, rt, "registrar"), a2.text())
 	}
 	if want := "member_add: waits for approval (action " + proposal.ID + ")."; a2.text() != want {
 		t.Errorf("the answer is %q; want %q", a2.text(), want)
@@ -249,7 +241,7 @@ func memberWrites(t *testing.T, w *world) {
 			t.Errorf("the seat %s changed: %+v", s, got)
 		}
 	}
-	for _, act := range w.actionsMine(t, registrar) {
+	for _, act := range w.actionsMine(t, rt, "registrar") {
 		if act.ActionType != "conversation.answer" && act.ActionType != "member.add" {
 			t.Errorf("the registrar did %s (%s)", act.ActionType, act.Status)
 		}

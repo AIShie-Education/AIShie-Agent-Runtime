@@ -20,8 +20,9 @@ const binaryTimeout = 5 * time.Minute
 
 // theBinary is the binary against the same Core: built as make build
 // builds it, its catalogue command finds Core's catalogue to be the
-// snapshot the runtime was built against, and check --live connects the
-// tutor, words its seat as the handout does, and tries its model's key.
+// snapshot the runtime was built against, and check --live reads the
+// tutor as Core hosts it, with the runtime's own credential, is issued
+// nothing, and tries its model's key.
 func theBinary(t *testing.T, w *world) {
 	root := moduleRoot(t)
 	bin := buildBinary(t, root)
@@ -36,9 +37,8 @@ func theBinary(t *testing.T, w *world) {
 	cfg := w.writeConfig(t, m, agentConf{id: "tutor", seat: w.tutor})
 	out = w.runBinary(t, bin, []string{"CONFIG=" + cfg}, "check", "--live")
 	for _, want := range []string{
-		`agent tutor: connected as "CS101 Tutor"`,
-		"Tutor of CS101 (A): answers every student, reads the material",
-		"tools: assignment_get, assignment_list, course_get, document_get, document_list",
+		`agent tutor: in Core "CS101 Tutor" (` + w.tutor.id + "), hosted runtime, active; 1 live seats",
+		"token: none held here yet; the worker is issued one by the agent's id as it starts it",
 		"the key works",
 		"every agent connects",
 	} {
@@ -48,6 +48,9 @@ func theBinary(t *testing.T, w *world) {
 	}
 	if len(m.Requests()) != 1 {
 		t.Errorf("check --live called the model %d times; want once, to try its key", len(m.Requests()))
+	}
+	if a, err := w.runtimeService().Agent(t.Context(), w.tutor.id); err != nil || a.RuntimeToken != nil {
+		t.Errorf("check --live was issued the tutor's token: %+v, %v", a, err)
 	}
 }
 
@@ -86,8 +89,9 @@ func buildBinary(t *testing.T, root string) string {
 }
 
 // runBinary runs the binary with args, in an environment of its own: the
-// world's agents' tokens and model key, which its configuration refers
-// to, and extra. It fails t unless the binary exits 0, and returns what it
+// runtime's own credential in Core (CORE_SERVICE_CREDENTIAL, read from the
+// environment here) and the world's model key, which its configuration
+// refers to, and extra. It fails t unless the binary exits 0, and returns what it
 // printed, which is kept with the world's logs.
 func (w *world) runBinary(t *testing.T, bin string, extra []string, args ...string) string {
 	t.Helper()
@@ -96,8 +100,8 @@ func (w *world) runBinary(t *testing.T, bin string, extra []string, args ...stri
 	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Env = append([]string{
 		"PATH=" + os.Getenv("PATH"),
-		w.own.tokenVar + "=" + w.own.token,
-		w.tutor.tokenVar + "=" + w.tutor.token,
+		"CORE_SERVICE_CREDENTIAL=env://E2E_SERVICE_CREDENTIAL",
+		"E2E_SERVICE_CREDENTIAL=" + w.api.svc,
 		w.modelKeyVar + "=" + w.modelKey,
 	}, extra...)
 	out, err := cmd.CombinedOutput()

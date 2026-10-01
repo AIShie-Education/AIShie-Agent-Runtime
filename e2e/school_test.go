@@ -123,14 +123,10 @@ func schoolPlanThroughTheAPI(t *testing.T, w *world) {
 		t.Fatalf("GET /models' school_key: %+v", models.SchoolKey)
 	}
 
-	// Yuki connects her agent, and puts it on the school's plan.
-	tok := result[struct {
-		Token string `json:"token"`
-	}](t, w.api, w.yuki.token, "POST", "/v1/me/agents/"+w.own.id+"/tokens", map[string]any{"label": "AIshie runtime"}).Token
-	w.addSecret("a token of Yuki's agent issued for the school plan's runtime", tok)
-	connect, _ := json.Marshal(map[string]string{"token": tok, "core_actor_id": w.own.id})
+	// Yuki hosts her agent by its id, and puts it on the school's plan.
+	host, _ := json.Marshal(map[string]string{"agent_id": w.own.id})
 	var agent api.HostedAgent
-	decodeAs(call("POST", "agents", string(connect)), http.StatusCreated, &agent)
+	decodeAs(call("POST", "agents", string(host)), http.StatusCreated, &agent)
 	id := agent.ID
 	decodeAs(call("PATCH", "agents/"+id, `{"model":{"school":{"offer":"standard"}}}`, "If-Match", `"1"`), 200, &agent)
 	if agent.Model.School == nil || agent.Model.School.Label != "School AI (e2e)" || agent.Model.Own != nil || agent.OwnKey != nil ||
@@ -145,7 +141,8 @@ func schoolPlanThroughTheAPI(t *testing.T, w *world) {
 			return an.code == 200 && json.Unmarshal(an.body, &got) == nil && got.Status == want && got.Version == version
 		})
 	}
-	waitStatus(api.StatusRunning, 2)
+	// Running at 3: the worker kept the token it was issued in the row.
+	waitStatus(api.StatusRunning, 3)
 	calls := func() []fakellm.ChatRequest { return m.Requests() }
 
 	// It answers her, on the school's key.
@@ -178,11 +175,11 @@ func schoolPlanThroughTheAPI(t *testing.T, w *world) {
 	// Her own model and key behind the plan: her key answers.
 	own, _ := json.Marshal(map[string]any{"model": map[string]any{"own": map[string]any{"provider": "openai", "model": "e2e-own-model"}},
 		"own_key": map[string]any{"value": w.modelKey}})
-	decodeAs(call("PATCH", "agents/"+id, string(own), "If-Match", `"2"`), 200, &agent)
+	decodeAs(call("PATCH", "agents/"+id, string(own), "If-Match", `"3"`), 200, &agent)
 	if agent.Model.School == nil || !agent.Model.School.Fallback || agent.Model.Own == nil {
 		t.Fatalf("with her key behind the plan: %+v", agent)
 	}
-	waitStatus(api.StatusRunning, 3)
+	waitStatus(api.StatusRunning, 4)
 	const q3 = "And with my own key?"
 	conv3, _ := w.ask(t, w.yuki, w.own.member, q3)
 	if ans := w.waitAnswer(t, w.yuki, conv3, w.own.member); !strings.HasPrefix(ans.text(), "Answer: "+q3) {
@@ -232,11 +229,11 @@ func schoolPlanThroughTheAPI(t *testing.T, w *world) {
 
 	// Yuki puts her agent on it, her own model still behind it: the offer
 	// answers, with the key the administrator gave.
-	decodeAs(call("PATCH", "agents/"+id, `{"model":{"school":{"offer":"site"}}}`, "If-Match", `"3"`), 200, &agent)
+	decodeAs(call("PATCH", "agents/"+id, `{"model":{"school":{"offer":"site"}}}`, "If-Match", `"4"`), 200, &agent)
 	if agent.Model.School == nil || agent.Model.School.Offer != "site" || !agent.Model.School.Fallback || agent.Today.School.Limit != 5 {
 		t.Fatalf("on the site's offer: %+v", agent)
 	}
-	waitStatus(api.StatusRunning, 4)
+	waitStatus(api.StatusRunning, 5)
 	const q4 = "Does the site's offer answer me?"
 	conv4, _ := w.ask(t, w.yuki, w.own.member, q4)
 	if ans := w.waitAnswer(t, w.yuki, conv4, w.own.member); !strings.HasPrefix(ans.text(), "Answer: "+q4) {

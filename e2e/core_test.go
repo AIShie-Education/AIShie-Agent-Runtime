@@ -13,6 +13,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -28,6 +29,9 @@ import (
 type coreAPI struct {
 	base string
 	hc   *http.Client
+	// svc is the site's agent runtime's own credential in Core, which
+	// the tests' runtimes host their agents with.
+	svc string
 	// run begins every idempotency key the people use, so that no two
 	// runs against one Core share a key.
 	run  string
@@ -68,7 +72,34 @@ func liveCore(t *testing.T) (*coreAPI, string) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("Core at %s is not healthy: GET /healthz is HTTP %d", base, resp.StatusCode)
 	}
+	c.svc = runtimeCredential(t, c, root)
 	return c, root
+}
+
+// The site's agent runtime's own credential in Core (agent_runtime, a site
+// service's), issued once for the run by root, as the operator issues it at
+// setup (aishie-core service issue agent_runtime): every runtime of every
+// test hosts its agents with it, as every worker of a site shares one.
+var (
+	credentialMu sync.Mutex
+	credential   string
+)
+
+// runtimeCredential is the run's agent_runtime credential, issued the
+// first time (replacing any an earlier run left: the Core is a throwaway).
+func runtimeCredential(t *testing.T, c *coreAPI, root string) string {
+	t.Helper()
+	credentialMu.Lock()
+	defer credentialMu.Unlock()
+	if credential == "" {
+		credential = result[struct {
+			Token string `json:"token"`
+		}](t, c, root, "POST", "/v1/services/agent_runtime/credentials", map[string]any{"label": "runtime e2e " + c.run, "replace": true}).Token
+		if !strings.HasPrefix(credential, "aissvc_") {
+			t.Fatal("Core issued the agent runtime no credential (aissvc_…): is it older than AIShie-Core #52?")
+		}
+	}
+	return credential
 }
 
 func randomHex(n int) string {
