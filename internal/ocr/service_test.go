@@ -262,6 +262,8 @@ func TestServiceFailures(t *testing.T) {
 		return nil, ErrTooLarge
 	}}
 	s, m := newTestService(t, t.Context(), failing, Config{Wait: time.Second}, st)
+	// Its timer fires only long after the job's end, which is to answer.
+	heldTimers(s, func() <-chan time.Time { return time.After(30 * time.Second) })
 	var fetched atomic.Int32
 	if got := s.Text(t.Context(), sumOf("e"), Image, 0, bytesOf("x", &fetched)); got.Status != StatusFailed ||
 		got.Why != "it is larger than the runtime recognizes" {
@@ -382,6 +384,8 @@ func TestServiceTakesTheSitesSetting(t *testing.T) {
 	}}
 	rec := multilingual{base, "chi_sim+chi_tra+eng"}
 	s, _ := newTestService(t, t.Context(), rec, Config{Wait: time.Second}, st)
+	// Its timer fires only long after the job's end, which is to answer.
+	heldTimers(s, func() <-chan time.Time { return time.After(30 * time.Second) })
 	var fetched atomic.Int32
 	sum := sumOf("b")
 	if got := s.Text(t.Context(), sum, Image, 0, bytesOf("第一章", &fetched)); got.Status != StatusDone || got.Text.Text != "第一章" {
