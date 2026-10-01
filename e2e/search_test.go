@@ -71,14 +71,15 @@ func searchResponder(req fakellm.ChatRequest) fakellm.ChatResponse {
 }
 
 // searchOfTheMaterials: Sato puts up the week's slides, published, and a
-// draft of the exam's answers. Yuki asks her own agent, and Sato his, to
-// search the course's materials for a phrase in Traditional Chinese that
-// both hold; the two agents run in one runtime, whose index of the
-// course's materials they share. Yuki's agent finds the slide that says it
-// and reads it with the call its hit names, and nothing of the draft;
-// Sato's, which reads drafts as he does, finds the draft too. An
-// administrator then purges the draft's version, and the runtime drops it
-// from its index as Sato's agent reads the course's news.
+// draft of the exam's answers. Sato asks his agent, and then Yuki her own,
+// to search the course's materials for a phrase in Traditional Chinese
+// that both hold; the two agents run in one runtime, whose index of the
+// course's materials they share. Sato's, which reads drafts as he does,
+// finds the slide and the draft, which the index then holds; Yuki's finds
+// the slide that says it and reads it with the call its hit names, and
+// nothing of the draft. An administrator then purges the draft's version,
+// and the runtime drops it from its index as Sato's agent reads the
+// course's news.
 func searchOfTheMaterials(t *testing.T, w *world) {
 	if !hasFiles(t, w) {
 		return
@@ -101,10 +102,8 @@ func searchOfTheMaterials(t *testing.T, w *world) {
 	draft, draftVersion, draftFiles := w.uploadDraft(t, w.sato, "Exam answers", "",
 		attachedFile{"answers.md", "text/markdown", []byte("# 期末考答案\n\n第一題：排序的複雜度是 O(n log n)。")})
 
-	yukis, _ := w.ask(t, w.yuki, w.own.member, searchQuestionPrefix+"排序的複雜度")
-	if a := w.waitAnswer(t, w.yuki, yukis, w.own.member); a.text() != "Week 3 slides slide 2 | the read holds it" {
-		t.Errorf("Yuki's agent's answer is %q", a.text())
-	}
+	// Sato's first, so that the index holds the draft when Yuki's
+	// searches.
 	satos, _ := w.ask(t, w.sato, assistant.member, searchQuestionPrefix+"排序的複雜度")
 	if a := w.waitAnswer(t, w.sato, satos, assistant.member); !strings.Contains(a.text(), "Exam answers") ||
 		!strings.Contains(a.text(), "Week 3 slides slide 2") || !strings.HasSuffix(a.text(), "| the read holds it") {
@@ -113,6 +112,10 @@ func searchOfTheMaterials(t *testing.T, w *world) {
 	key := store.SearchFileKey{VersionID: draftVersion, Key: draftFiles[0]}
 	if have, err := rt.st.UseSearchFiles(t.Context(), w.course, []store.SearchFileKey{key}, time.Time{}); err != nil || len(have) != 1 {
 		t.Fatalf("the index holds the draft: %v %v", have, err)
+	}
+	yukis, _ := w.ask(t, w.yuki, w.own.member, searchQuestionPrefix+"排序的複雜度")
+	if a := w.waitAnswer(t, w.yuki, yukis, w.own.member); a.text() != "Week 3 slides slide 2 | the read holds it" {
+		t.Errorf("Yuki's agent's answer is %q", a.text())
 	}
 
 	w.api.call(t, http.StatusOK, w.admin.token, "POST", w.path("/documents/"+draft+"/purge"),

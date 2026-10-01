@@ -2151,14 +2151,17 @@ Chinese with a table, overran, and was cut off.
   tool offered with `document_list` and `document_get` alone, never where
   denied. Against the fake Core, Yuki's agent and Sato's, which reads
   drafts, sharing the worker's index, find the published slide, and
-  Sato's alone the draft, counted and logged without the query; the draft
+  Sato's alone the draft, though Sato's searches first, so that the index
+  holds the draft when Yuki's does, counted and logged without the query;
+  the draft
   purged, it leaves the index as Sato's seat reads the news; a version
   purged (`document.purged` or `_unreleased`) leaves the index, a whole
   document purged every version of it, and housekeeping drops the files
   unused for 30 days. `storetest` also holds the candidates past the limit
-  to the shortest of those tied, and a file's use marked once a day. The end to end (`search-of-the-materials`) does the same
-  against the pinned Core, the first hit read with the call it names, and
-  an administrator's purge of the draft's version.
+  to the shortest of those tied, and a file's use marked once a day. The
+  end to end (`search-of-the-materials`) does the same against the pinned
+  Core, Sato's searching first there too, the first hit read with the call
+  it names, and an administrator's purge of the draft's version.
 - A version's files (§4, A version's files; AIShie-Core #49): a version of
   a PDF, a Word file and notes given file by file, in order, under their
   names, to a model that takes files and to one that takes none, no URL in

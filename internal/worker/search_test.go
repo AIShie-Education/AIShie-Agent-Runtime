@@ -55,9 +55,10 @@ func searchHits(t *testing.T, reqs []*llm.Request) []foundHit {
 // same question, each finds the passage of the published deck that
 // answers it, in Traditional Chinese, and Sato's alone, which reads
 // drafts as he does, the draft of the exam's answers, though the index is
-// the course's, which both share. Each search is counted. Then the draft
-// is purged in Core, and its passages go from the index as Sato's seat
-// reads the news.
+// the course's, which both share: Sato's searches first, so that it holds
+// the draft when Yuki's does. Each search is counted. Then the draft is
+// purged in Core, and its passages go from the index as Sato's seat reads
+// the news.
 func TestModelsSearchTheCourseMaterials(t *testing.T) {
 	w := newWorld(t)
 	deck := doctexttest.PPTX(
@@ -78,10 +79,12 @@ func TestModelsSearchTheCourseMaterials(t *testing.T) {
 	st := memstore.New()
 	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "y", nil, nil), w.agentDoc("sato-helper", "s", nil, nil)),
 		models{"y": ym, "s": sm}, workerOpts{store: st})
-	c1, _ := w.ask(0, yuki, "排序的複雜度是多少？")
-	w.waitAnswers(c1, 1)
+	// Sato's first, so that the index holds the draft when Yuki's
+	// searches.
 	c2, _ := w.askAs(w.satoSeat.ID, sato, "排序的複雜度是多少？")
 	w.waitAnswers(c2, 1)
+	c1, _ := w.ask(0, yuki, "排序的複雜度是多少？")
+	w.waitAnswers(c1, 1)
 	for _, m := range []*scripted.Adapter{ym, sm} {
 		if err := m.Err(); err != nil {
 			t.Fatal(err)
