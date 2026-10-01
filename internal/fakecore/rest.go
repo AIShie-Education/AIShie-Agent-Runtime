@@ -336,7 +336,7 @@ func (c *Core) serveBlob(w http.ResponseWriter, r *http.Request) {
 	c.mu.Lock()
 	f := c.blobs[r.PathValue("token")]
 	c.mu.Unlock()
-	if f == nil && c.serveAttachment(w, r.PathValue("token")) {
+	if f == nil && (c.serveAttachment(w, r.PathValue("token")) || c.servePDF(w, r.PathValue("token"))) {
 		return
 	}
 	if f == nil {

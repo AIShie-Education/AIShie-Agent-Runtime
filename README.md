@@ -43,6 +43,12 @@ says what an agent may do and how. This repository meets it:
   transcribe each into Markdown, page by page, with its pictures
   described, and writes the text back to Core, on the school's key, its
   costs a line of their own.
+- **Office files previewed as PDF.** On by default, with nothing to
+  configure but the runtime's own credential in Core: every Office and
+  OpenDocument file Core keeps, of a document or a message, is converted
+  once by LibreOffice, in the same sandbox, to the PDF the site previews
+  it as, taken from Core's queue and handed back to Core
+  ([`docs/deploying.md`](docs/deploying.md#office-files-previewed-as-pdf-renditions)).
 - **Five model APIs.** OpenAI Chat, which also covers the compatible servers
   (DeepSeek, Azure OpenAI, Ollama, vLLM…), OpenAI Responses, Anthropic,
   Gemini and Bedrock Converse. Each agent can have a fallback model.
@@ -141,7 +147,7 @@ The process is set up from the environment:
 | `HTTP_ADDR` | where `/healthz`, `/metrics` and `/status` listen (default `127.0.0.1:9090`) |
 | `CORE_BASE_URL_ALLOWLIST` | the Core origins or host patterns an agent may point at |
 | `CORE_BASE_URL` | the Core the hosted agents run at: those people host themselves, kept in the database (`DATABASE_URL`) |
-| `CORE_SERVICE_CREDENTIAL` | where the runtime's own credential in Core is (its `agent_runtime` service's, `aissvc_…`), with which it is issued each agent's token by the agent's id: `secret://core/agent_runtime` by default ([`docs/deploying.md`](docs/deploying.md#the-runtimes-own-credential-in-core)) |
+| `CORE_SERVICE_CREDENTIAL` | where the runtime's own credential in Core is (its `agent_runtime` service's, `aissvc_…`), with which it is issued each agent's token by the agent's id, and takes the Office files it converts to PDF: `secret://core/agent_runtime` by default ([`docs/deploying.md`](docs/deploying.md#the-runtimes-own-credential-in-core)) |
 | `SECRETS_DIR` | where `secret://` references are looked for |
 | `PRICES` | the price table, instead of the runtime's `prices_ref` |
 | `KMS_KEY_ID` | the key that seals the secrets kept in the database: `local:<dir>/<name>`, a 32-byte key in that file |
@@ -153,6 +159,7 @@ The process is set up from the environment:
 | `WORKER_ID`, `SHUTDOWN_GRACE` | this process's name in leases (default hostname-pid); the grace on `SIGTERM` (default `15s`) |
 | `OCR`, `OCR_*` | the OCR of scanned PDFs and images for models that cannot take the files: `auto` (on where tesseract, pdftoppm and prlimit are, as in the image), `on` or `off`, and its languages, pages, resolution, time, memory and turns ([`docs/deploying.md`](docs/deploying.md#scanned-documents-ocr)) |
 | `OFFICE_PDF`, `OFFICE_PDF_*`, `PDF_PART_PAGES` | the conversion of presentations and documents to PDF by LibreOffice: `auto` (on where soffice and prlimit are, as in the image), `on` or `off`, its time, pages and memory; and the pages of a PDF a model is given as one file ([`docs/deploying.md`](docs/deploying.md#presentations-and-documents-libreoffice)) |
+| `RENDITIONS`, `RENDITIONS_*` | the PDF renditions of the Office files Core keeps: `auto` (on wherever LibreOffice converts and `CORE_BASE_URL` is set), `on` or `off`, how many at once, each one's time, and Core's lease on it ([`docs/deploying.md`](docs/deploying.md#office-files-previewed-as-pdf-renditions)) |
 
 `aishie-runtime help` lists them as the binary reads them.
 

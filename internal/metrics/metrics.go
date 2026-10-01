@@ -2,9 +2,9 @@
 // §8.1): polls, answers and their latency, model calls, tokens and cost,
 // Core calls, the models' writes, the drafts of answers being written,
 // budgets spent, lease takeovers, each agent's presence gap, the OCR of
-// documents, their conversion to PDF, and the transcriber's work. Labels
-// hold ids, names and codes, never text: a write's arguments are never a
-// label, nor a draft's text.
+// documents, their conversion to PDF, the transcriber's work and the PDF
+// renditions. Labels hold ids, names and codes, never text: a write's
+// arguments are never a label, nor a draft's text.
 package metrics
 
 import (
@@ -77,6 +77,16 @@ type Metrics struct {
 	TranscribePages       prometheus.Counter
 	TranscribeInflight    prometheus.Gauge
 	TranscribeClaimErrors *prometheus.CounterVec
+	// Renditions: the PDFs of Office files the runtime makes for Core
+	// (package rendition): the files it claimed, by what came of each
+	// (done, failed, skipped, dropped) and why; how long each took; the
+	// files it works on now; and its calls to Core's queue that failed, by
+	// why (no_credential, credential_rejected, rate_limited, unreachable,
+	// refused).
+	RenditionJobs        *prometheus.CounterVec
+	RenditionSeconds     prometheus.Histogram
+	RenditionInflight    prometheus.Gauge
+	RenditionClaimErrors *prometheus.CounterVec
 
 	presence *presence
 }
@@ -207,13 +217,31 @@ func New(reg prometheus.Registerer) *Metrics {
 			Name: "transcribe_claim_errors_total",
 			Help: "Calls to Core's transcription queue that failed, by reason: unauthenticated, rate_limited, unreachable, refused.",
 		}, []string{"reason"}),
+		RenditionJobs: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rendition_jobs_total",
+			Help: "Office files the runtime claimed from Core to convert to PDF, by outcome (done, failed, skipped, dropped) and reason " +
+				"(password_protected, unsupported, too_large, conversion_failed, timeout; lease_lost, gone, interrupted, fetch_failed, " +
+				"upload_failed, credential_refused, core_refused for dropped).",
+		}, []string{"outcome", "reason"}),
+		RenditionSeconds: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name: "rendition_seconds", Help: "How long an Office file claimed took to be converted to PDF and handed to Core, or not.",
+			Buckets: []float64{1, 2, 4, 8, 15, 30, 60, 120, 300, 600, 1200},
+		}),
+		RenditionInflight: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "rendition_inflight", Help: "Office files the runtime converts to PDF for Core now.",
+		}),
+		RenditionClaimErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rendition_claim_errors_total",
+			Help: "Calls to Core's queue of renditions that failed, by reason: no_credential, credential_rejected, rate_limited, unreachable, refused.",
+		}, []string{"reason"}),
 		presence: &presence{last: map[string]time.Time{}},
 	}
 	reg.MustRegister(m.InboxPolls, m.AnswerLatency, m.Answers, m.LLMCalls, m.LLMTokens, m.LLMCost,
 		m.CoreCalls, m.ToolWrites, m.BudgetExhausted, m.LeaseTakeovers, m.TokensIssued, m.AgentStates, m.presence, m.LongPolls, m.LongPollFallbacks,
 		m.DraftWrites, m.OCRRequests, m.OCRJobs, m.OCRPages, m.OCRJobSeconds, m.OCRPageSeconds, m.OCRRunning, m.OCRWaiting,
 		m.OfficeRequests, m.OfficeJobs, m.OfficeJobSeconds, m.OfficeCuts, m.OfficeCutSeconds, m.OfficeRunning, m.OfficeWaiting,
-		m.TranscribeJobs, m.TranscribePages, m.TranscribeInflight, m.TranscribeClaimErrors)
+		m.TranscribeJobs, m.TranscribePages, m.TranscribeInflight, m.TranscribeClaimErrors,
+		m.RenditionJobs, m.RenditionSeconds, m.RenditionInflight, m.RenditionClaimErrors)
 	return m
 }
 

@@ -507,7 +507,7 @@ func documentGet() *impl {
 			if doc.versionID != "" {
 				v = &versionView{ID: doc.versionID, Seq: 1, BodyMD: doc.bodyMD, AuthorMemberID: doc.authorMemberID,
 					CreatedAt: doc.versionCreatedAt, Published: !doc.draft}
-				files := filesOf(doc, rc.base, true)
+				files := filesOf(doc, rc.base, true, rc.now)
 				if !c.opts.WithoutFiles {
 					v.Files = &files
 				}

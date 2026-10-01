@@ -2,7 +2,7 @@
  "scenario": "tools_list",
  "steps": [
   {
-   "count": 153,
+   "count": 155,
    "http_status": 200,
    "step": "tools_list",
    "tools": [
@@ -474,10 +474,10 @@
       "openWorldHint": false,
       "readOnlyHint": true
      },
-     "description_sha256": "1d2b6d13d60958ab168a29ed20fb320cfe5cc1e1ec7f7835cd325af93d053bdb",
+     "description_sha256": "6eaa5f9045da1a936e061aaa2da31fe4c32e331d6791e9eaa60cb9efa84ed0ac",
      "input_schema_sha256": "50767b352abc40bfea1d8d6310f93d45b06de03902a8296da118991de034f214",
      "name": "conversation_attachment",
-     "output_schema_sha256": "b3b8d640e7b7ffe9efa2ef27207c0dde14d740ad90adc9f9d6f5b2fe500a6a37"
+     "output_schema_sha256": "272d92f15d765f9da6d2fe931288fff77600e3e3fe6e92d5d011c6e2851ac36f"
     },
     {
      "annotations": {
@@ -576,7 +576,7 @@
      "description_sha256": "ce7b4b2c8b323a3f5bc80276c49d6d425597024b6688f5a515850711bd0e09be",
      "input_schema_sha256": "4d9b9f1c7ee513d4c1d50c3d9efe3f955d476830596cea4fb208913c3e04e802",
      "name": "conversation_messages",
-     "output_schema_sha256": "45b263df8d739f128d75c90c739138bba9d212177e89830f3f4d532f2acb8850"
+     "output_schema_sha256": "6ddd69ff352645376688682ce007f6b6f470264594991057153a84ca7e5dfd12"
     },
     {
      "annotations": {
@@ -588,6 +588,17 @@
      "input_schema_sha256": "0081e11c94f0ca2a7f543c6aae6622f9fc038ccb3e03f75caf62db2ca7db2d27",
      "name": "conversation_open",
      "output_schema_sha256": "99e3c3d784cbe1047ebd2be9a31b7cdd9c480eb49402bed8051e88dab8f8e508"
+    },
+    {
+     "annotations": {
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+     },
+     "description_sha256": "1ec5066347f62b5dabfd5b9b98c9e7d6d48686775cfc9d92e06492838bdca214",
+     "input_schema_sha256": "b6491efbd2ffc4bfa4cf1cdb742dca8915d6b1df42696d30979031c69dd6f4ef",
+     "name": "conversation_rendition_retry",
+     "output_schema_sha256": "66af17e8dba82f733854ab572481da62fb148e57bb8c288943b3d065b5088b72"
     },
     {
      "annotations": {
@@ -925,10 +936,10 @@
       "openWorldHint": false,
       "readOnlyHint": true
      },
-     "description_sha256": "0a01f79436c5f5f0b9d8e8a04740d39c4a3bf81cfb132fa5cc7f8e06b1375d2d",
+     "description_sha256": "2107b26c4e2451ea6a99275998f0328f2c15c0b6f48943a80afcf8c2b1fd06c1",
      "input_schema_sha256": "08cb92169ae61df34448b825b348d4c5d97c1455e25085667629de3317f7e441",
      "name": "document_file",
-     "output_schema_sha256": "44a7001dee5b928ee1e2316f1d4bfb50ca45e0925ab82600ae7c4e021b42025d"
+     "output_schema_sha256": "a688d73e86a80bf61246c2a0d9f0d34e752abf50a509888e62a999eff19d5eb0"
     },
     {
      "annotations": {
@@ -936,10 +947,10 @@
       "openWorldHint": false,
       "readOnlyHint": true
      },
-     "description_sha256": "f50874d6c145731f1882860e0b64f9b036ad2e4fd9e140e37f71eab2159731ed",
+     "description_sha256": "7760d885265a286215a908425e3077cf80c3a123882318b10e845059eb1e58b2",
      "input_schema_sha256": "f806fedf8107f1a669bbb1cc0614c5d9ecec4c9311b0aa52f3e4ee5175289b8d",
      "name": "document_get",
-     "output_schema_sha256": "ce310492284d424c718404fefa3d02bd2b12529f7378c6c5e5ec4bb69ff2d93e"
+     "output_schema_sha256": "bca893607c5051935fadf7236185327eb2f1360207b9e180b0e6702f59cc0937"
     },
     {
      "annotations": {
@@ -969,10 +980,21 @@
       "openWorldHint": false,
       "readOnlyHint": false
      },
-     "description_sha256": "309c2360943faab1d9506fd9e0768eb8b30a2a43da219f56017bccb42fb4b8d1",
+     "description_sha256": "d759024a619a16f8b7068ba847b9cdcdc6de86663011eb39fd5c1018c385a8d9",
      "input_schema_sha256": "4d09b5044cc617b9d7dba6b5d60d8bc6976329740774bcac87778c7a2fbe85bf",
      "name": "document_purge",
-     "output_schema_sha256": "57d61dd58a3177fbcb29375ee72f2f1ba4de5ce4e52cfdef29f94d1c015021e9"
+     "output_schema_sha256": "ab351b4ff273a0b17f29286fa1d78cc7c6ff0d901d4b00731b6adc5993c70932"
+    },
+    {
+     "annotations": {
+      "idempotentHint": true,
+      "openWorldHint": false,
+      "readOnlyHint": false
+     },
+     "description_sha256": "ee40438a611e443514212e8f333ea4ea40f3bfdd6fbce5be0dcf564c9d7dd7c0",
+     "input_schema_sha256": "3e48ed8c4d00a16007c98347f39284bba95804e9af09d36efb407849ddeb1114",
+     "name": "document_rendition_retry",
+     "output_schema_sha256": "66af17e8dba82f733854ab572481da62fb148e57bb8c288943b3d065b5088b72"
     },
     {
      "annotations": {
@@ -1046,10 +1068,10 @@
       "openWorldHint": false,
       "readOnlyHint": true
      },
-     "description_sha256": "5b1b83ee913e3a8366d2d3ae1054e7afdbf95b06a4196277c7cc6c2f9fdf646e",
+     "description_sha256": "b55d248d6bc5adeabbe355f89f4ecaac0c15f67145bbdfe770a249c58770bd69",
      "input_schema_sha256": "c437499bba768413fb2f32eb961e0725e190d5432c8b5593ea93b0bcbff3e1c0",
      "name": "document_versions",
-     "output_schema_sha256": "110d9bb3de0cb5c4217ed575458584de113c3fd3d8f480744e15b544d452dffc"
+     "output_schema_sha256": "5d129fb66fcc4933533874bd22ff95f8d2bf1be914b320af7e47cbea69339dc4"
     },
     {
      "annotations": {
@@ -1475,7 +1497,7 @@
       "openWorldHint": false,
       "readOnlyHint": false
      },
-     "description_sha256": "69d8a1d5d6db0c9add6d4028181028e432275448bb5cdf5bb87b20b48c2f0d45",
+     "description_sha256": "96a3bd65750e089f05bce350c8a68b5240d10818cf655de09ff14c5ef8477de1",
      "input_schema_sha256": "6b4e0f536f2ee8d60152d7ada23f27a8a43cb3bc8cf2151953ef6a3cfe1a34f0",
      "name": "service_issue_credential",
      "output_schema_sha256": "a3564f654338824d3a3ac0ec5f64d67411d28aed2026730fb037504e62e30fbc"
@@ -1486,10 +1508,10 @@
       "openWorldHint": false,
       "readOnlyHint": true
      },
-     "description_sha256": "2144e1460ea322dbe0850deaa127c89ef55cb51f8e0d9babe93a39dfbe11ec01",
+     "description_sha256": "864faf7659628d052c0f08d63952632b2f440fce94ee9992d1f05a6104ee51c8",
      "input_schema_sha256": "a843063dca865b281d0b43a2c21aa173cc9bec8fa7a71593276dee79609bec54",
      "name": "service_list_credentials",
-     "output_schema_sha256": "3d73ff420f0cf6761db56a32bf7f8c6b1e6aca03006906bc5d0104768905a7bb"
+     "output_schema_sha256": "568d19051bbb5af77fea7e1c22c7b59e9f2d16b7a290198ad4fb634b88afe839"
     },
     {
      "annotations": {
@@ -1500,7 +1522,7 @@
      "description_sha256": "3469db54eed0776c4bc02b66a449c4107de10b8868c74870ac330dc8ca5caef5",
      "input_schema_sha256": "bae841528357c0df6a4ba6393564b4213b73cf9ba577293d649754dce7e9169d",
      "name": "service_revoke_credential",
-     "output_schema_sha256": "6b38a5647625d4348cf656eaa9930a9042517ee79d926683d879c11760b43386"
+     "output_schema_sha256": "5ba70b362834e6c2e3236721e719cb316357fd75f092ad0a1b146124d11c1c78"
     },
     {
      "annotations": {

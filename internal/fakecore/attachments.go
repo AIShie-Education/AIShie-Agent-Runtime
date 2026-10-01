@@ -64,6 +64,8 @@ type attachment struct {
 	id, filename, contentType, checksum string
 	data                                []byte
 	msg                                 *message
+	// rend is its PDF rendition, nil when Core converts no such file.
+	rend *rendition
 }
 
 // download is a download URL handed out for an attachment.
@@ -87,12 +89,21 @@ type attachmentView struct {
 	ByteSize    int64     `json:"byte_size"`
 	Checksum    *string   `json:"checksum,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
+	// Rendition is its PDF rendition's, for an Office file: with a URL
+	// that shows the PDF in conversation_attachment alone.
+	Rendition *renditionView `json:"rendition,omitempty"`
 }
 
+// viewAttachment is a's view as conversation_messages lists it: its
+// rendition where it stands, with no URL.
 func viewAttachment(a *attachment) attachmentView {
 	sum := a.checksum
-	return attachmentView{ID: a.id, Filename: a.filename, ContentType: a.contentType, ByteSize: int64(len(a.data)),
+	v := attachmentView{ID: a.id, Filename: a.filename, ContentType: a.contentType, ByteSize: int64(len(a.data)),
 		Checksum: &sum, CreatedAt: a.msg.createdAt}
+	if a.rend != nil {
+		v.Rendition = a.rend.view(false, "", time.Time{})
+	}
+	return v
 }
 
 // Core's refusals of a message's files, worded as Core words them.
@@ -242,6 +253,7 @@ func (c *Core) checkProposedFiles(m *member, cv *conversation, files []attachmen
 // with the names given; and returns what its news says of them.
 func (c *Core) attach(msg *message, ups []*upload, names []string) []map[string]any {
 	news := make([]map[string]any, 0, len(ups))
+	queued := false
 	for i, up := range ups {
 		sum := sha256.Sum256(up.data)
 		a := &attachment{id: newID(), filename: names[i], contentType: up.contentType, data: up.data, msg: msg,
@@ -249,7 +261,11 @@ func (c *Core) attach(msg *message, ups []*upload, names []string) []map[string]
 		up.attached = true
 		msg.attachments = append(msg.attachments, a)
 		c.attachments[a.id] = a
+		queued = c.queueRendition(msg.conv.course, nil, a, msg.createdAt) || queued
 		news = append(news, map[string]any{"id": a.id, "filename": a.filename, "content_type": a.contentType, "byte_size": len(a.data)})
+	}
+	if queued {
+		c.queued()
 	}
 	return news
 }
@@ -339,6 +355,10 @@ func conversationAttachment() *impl {
 			token := fileToken()
 			expires := rc.now.Add(downloadTTL)
 			c.downloads[token] = download{a: a, expires: expires}
+			view := viewAttachment(a)
+			if a.rend != nil {
+				view.Rendition = a.rend.view(true, rc.base, rc.now)
+			}
 			return struct {
 				attachmentView
 				ConversationID string    `json:"conversation_id"`
@@ -347,7 +367,7 @@ func conversationAttachment() *impl {
 				AuthorMemberID string    `json:"author_member_id"`
 				DownloadURL    string    `json:"download_url"`
 				ExpiresAt      time.Time `json:"expires_at"`
-			}{viewAttachment(a), a.msg.conv.id, a.msg.id, a.msg.seq, a.msg.author.id, rc.base + blobPath + token, expires}, nil
+			}{view, a.msg.conv.id, a.msg.id, a.msg.seq, a.msg.author.id, rc.base + blobPath + token, expires}, nil
 		},
 	})
 }
@@ -364,6 +384,9 @@ const maxUploadBytes = attachmentMaxBytes
 // putBlob takes an upload's bytes, once, as Core's own disk does: the
 // Content-Type the URL was issued for, at most maxUploadBytes.
 func (c *Core) putBlob(w http.ResponseWriter, r *http.Request) {
+	if c.putRendition(w, r, r.PathValue("token")) {
+		return
+	}
 	c.mu.Lock()
 	up := c.putURLs[r.PathValue("token")]
 	now := c.now()
@@ -376,13 +399,9 @@ func (c *Core) putBlob(w http.ResponseWriter, r *http.Request) {
 		writeError(w, invalid("this URL takes Content-Type %q, not %q", up.contentType, got))
 		return
 	}
-	data, err := io.ReadAll(io.LimitReader(r.Body, maxUploadBytes+1))
-	switch {
-	case err != nil:
-		writeError(w, invalid("the file did not arrive in full; upload it again (a file has 15 minutes to arrive)"))
-		return
-	case len(data) > maxUploadBytes:
-		writeError(w, invalid("the file is larger than %d bytes", maxUploadBytes))
+	data, e := readUpTo(r, maxUploadBytes)
+	if e != nil {
+		writeError(w, e)
 		return
 	}
 	c.mu.Lock()
@@ -397,6 +416,19 @@ func (c *Core) putBlob(w http.ResponseWriter, r *http.Request) {
 	}
 	sum := sha256.Sum256(data)
 	writeJSON(w, http.StatusOK, map[string]any{"byte_size": len(data), "checksum": "sha256:" + hex.EncodeToString(sum[:])})
+}
+
+// readUpTo reads an upload's body, at most most bytes, as Core's own disk
+// does.
+func readUpTo(r *http.Request, most int) ([]byte, *apiError) {
+	data, err := io.ReadAll(io.LimitReader(r.Body, int64(most)+1))
+	switch {
+	case err != nil:
+		return nil, invalid("the file did not arrive in full; upload it again (a file has 15 minutes to arrive)")
+	case len(data) > most:
+		return nil, invalid("the file is larger than %d bytes", most)
+	}
+	return data, nil
 }
 
 // serveAttachment serves a file conversation.attachment pointed at, as a

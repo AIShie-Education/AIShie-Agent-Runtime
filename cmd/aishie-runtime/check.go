@@ -113,6 +113,8 @@ func cmdCheck(ctx context.Context, args []string, getenv func(string) string, st
 			p("ocr: in %s, as the site's settings say", strings.Join(so.Languages, "+"))
 		}
 	}
+	var conv *office.Converter
+	convWhy := "LibreOffice does not convert here: OFFICE_PDF=off"
 	if o := env.Office.WithDefaults(); o.Mode == office.ModeOff {
 		p("office: off (OFFICE_PDF=off)")
 	} else if c, err := office.NewConverter(ctx, o); err != nil {
@@ -120,7 +122,9 @@ func cmdCheck(ctx context.Context, args []string, getenv func(string) string, st
 			return failure(stderr, "OFFICE_PDF=on, and LibreOffice cannot run here: %v", err)
 		}
 		p("office: off: %v", err)
+		convWhy = "LibreOffice does not convert here: " + err.Error()
 	} else {
+		conv = c
 		p("office: %s, %d at once, %d pages a file at most, %s a file", c.Describe(), o.Concurrency, o.MaxPages, o.Timeout)
 	}
 	if _, err := office.NewPager(env.Office); err != nil {
@@ -141,6 +145,11 @@ func cmdCheck(ctx context.Context, args []string, getenv func(string) string, st
 		return failure(stderr, "TRANSCRIBE=on, and the transcriber cannot run here: %v", err)
 	}
 	p("transcriber: %s", tr)
+	rd, err := checkRenditions(ctx, env, conv, convWhy, egress)
+	if err != nil {
+		return failure(stderr, "RENDITIONS=on, and PDF renditions cannot be made here: %v", err)
+	}
+	p("renditions: %s", rd)
 	site := cfg.Runtime.Site
 	switch {
 	case l.pricesPath != "":

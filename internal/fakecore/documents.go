@@ -160,17 +160,22 @@ type fileView struct {
 	Checksum    *string   `json:"checksum,omitempty"`
 	DownloadURL *string   `json:"download_url,omitempty"`
 	Text        *textView `json:"text,omitempty"`
+	// Rendition is its PDF rendition's, for an Office file: with a URL
+	// that shows the PDF in document_get and document_file, where it
+	// stands alone in document_versions.
+	Rendition *renditionView `json:"rendition,omitempty"`
 }
 
 // maxBodies is the most text document.get gives beside a version, its
 // files' text bodies together, in the order of the files.
 const maxBodies = textPartBytes
 
-// filesOf is doc's version's files as Core lists them: document_get's with
-// their download URLs at base and the bodies of their text versions (full)
-// while those given come to at most maxBodies, and document_versions'
-// without either. Never nil.
-func filesOf(doc *document, base string, full bool) []fileView {
+// filesOf is doc's version's files as Core lists them at now: document_get's
+// with their download URLs at base, their renditions' too, and the bodies
+// of their text versions (full) while those given come to at most
+// maxBodies, and document_versions' without any of them, and where each
+// rendition stands alone. Never nil.
+func filesOf(doc *document, base string, full bool, now time.Time) []fileView {
 	out := []fileView{}
 	given := 0
 	for _, f := range doc.files {
@@ -187,6 +192,11 @@ func filesOf(doc *document, base string, full bool) []fileView {
 				given += len(f.text.body)
 			}
 			v.Text = f.text.view(body)
+		}
+		if full {
+			v.Rendition = f.rend.view(true, base, now)
+		} else {
+			v.Rendition = f.rend.stateOf()
 		}
 		out = append(out, v)
 	}
@@ -220,7 +230,8 @@ func (d *document) file(id string) *versionFile {
 
 // addFiles gives doc's version files, in order, each served at a URL of
 // its own, and, with queue, queued for its text version where doc is a
-// course's material, instructions or rubric; a file named nowhere is
+// course's material, instructions or rubric, and for its PDF rendition
+// where it is an Office file, whatever doc is; a file named nowhere is
 // named from the title. Called with the lock held.
 func (c *Core) addFiles(doc *document, now time.Time, queue bool, files []File) {
 	for i, f := range files {
@@ -235,6 +246,9 @@ func (c *Core) addFiles(doc *document, now time.Time, queue bool, files []File) 
 		}
 		doc.files = append(doc.files, vf)
 		c.blobs[vf.token] = vf
+		if queue {
+			c.queueRendition(doc.course, vf, nil, now)
+		}
 	}
 	if queue && len(files) > 0 {
 		c.queued()
@@ -282,6 +296,7 @@ func documentFile() *impl {
 			if f.text != nil {
 				out.Text = f.text.view(false)
 			}
+			out.Rendition = f.rend.view(true, rc.base, now)
 			return out, nil
 		},
 	})

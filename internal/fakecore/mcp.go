@@ -53,6 +53,8 @@ A message of a conversation may carry files: conversation_messages lists each me
 
 Each file of a version of a course's material, instructions or rubric has a text version of its own: the file transcribed into Markdown, each page or slide under a heading of its own, pictures and diagrams described in brackets, or written by the course's staff. Read it before the file: document_get says where each stands (version.files[].text.status: done, or pending, working, failed or skipped) and gives it whole when it is short; document_text with the file's file_id reads a longer one part by part. It says whether a model made it (source ai) or staff wrote it (source staff); the file is still there to check a page against.
 
+An Office or OpenDocument file (Word, Excel, PowerPoint and the like), of any document or message, is also converted to PDF once, by the site: its rendition. document_get, document_file and conversation_attachment say where it stands (rendition.state: queued or claimed while it is converted, done, or failed or skipped with a reason) and, once it is done, give a short-lived download_url for the PDF, which shows the pages as they look. A file that is not an Office or OpenDocument file has none.
+
 You keep your own memory; this server keeps none for you. member_id is the stable handle for "you in this course", and what you remember of what people wrote to you is kept per conversation_id, never carried from one person's conversation into another's. If you are removed and seated again you get a new member_id and start afresh.`
 
 // proposedNote is what a proposed envelope says, as Core says it.

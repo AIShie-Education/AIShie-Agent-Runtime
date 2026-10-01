@@ -10,6 +10,7 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -587,6 +588,44 @@ func (w *liveWorld) submit(student int) string {
 
 // material is the syllabus: Sato's text, made and published, as the fake's
 // canned course has it.
+// officeMaterial is Sato uploading each file (document.upload_url, and
+// the PUT), making a material of them, in order, and publishing it.
+func (w *liveWorld) officeMaterial(title string, files ...namedFile) (string, []string) {
+	w.t.Helper()
+	var named []map[string]any
+	for _, f := range files {
+		up := w.lc.result(w.sato.token, "GET", w.path("/upload-url?"+url.Values{"kind": {"material"}, "content_type": {f.contentType},
+			"filename": {f.name}}.Encode()), nil)
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodPut, str(up, "upload_url"), bytes.NewReader(f.data))
+		if err != nil {
+			w.t.Fatal(err)
+		}
+		headers, _ := up["headers"].(map[string]any)
+		for k, v := range headers {
+			req.Header.Set(k, fmt.Sprint(v))
+		}
+		if a := doHTTP(w.t, req); a.Status != http.StatusOK {
+			w.t.Fatalf("PUT %s: %d %s", f.name, a.Status, a.Body)
+		}
+		named = append(named, map[string]any{"upload_token": str(up, "upload_token"), "filename": f.name})
+	}
+	res := w.lc.result(w.sato.token, "POST", w.path("/documents"), map[string]any{"kind": "material", "title": title, "files": named})
+	id := str(res, "document_id")
+	w.lc.result(w.sato.token, "POST", w.path("/documents/"+id+"/publish"), map[string]any{"version_id": str(res, "version_id")})
+	got := w.lc.result(w.sato.token, "GET", w.path("/documents/"+id), nil)
+	version, _ := got["version"].(map[string]any)
+	list, _ := version["files"].([]any)
+	var ids []string
+	for _, f := range list {
+		m, _ := f.(map[string]any)
+		ids = append(ids, str(m, "id"))
+	}
+	if len(ids) != len(files) {
+		w.t.Fatalf("the material has %d files: %v", len(ids), got)
+	}
+	return id, ids
+}
+
 func (w *liveWorld) material() string {
 	w.t.Helper()
 	if w.syllabus != "" {

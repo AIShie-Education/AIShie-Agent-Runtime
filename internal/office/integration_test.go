@@ -173,7 +173,7 @@ func TestConvertRealPresentations(t *testing.T) {
 
 	for _, older := range []struct{ ext, filter string }{{"ppt", "ppt:MS PowerPoint 97"}, {"odp", "odp:impress8"}} {
 		t.Run(older.ext, func(t *testing.T) {
-			saved, err := c.convert(t.Context(), deck, Format{"pptx", Slides, true}, older.ext, older.filter)
+			saved, err := c.convert(t.Context(), deck, Format{"pptx", Slides, true}, older.ext, older.filter, maxOutput)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -215,7 +215,7 @@ func TestConvertRealDocuments(t *testing.T) {
 		t.Run(older.ext, func(t *testing.T) {
 			data, ooxml := doc, true
 			if older.filter != "" {
-				saved, err := c.convert(t.Context(), doc, Format{"docx", Document, true}, older.ext, older.filter)
+				saved, err := c.convert(t.Context(), doc, Format{"docx", Document, true}, older.ext, older.filter, maxOutput)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -237,7 +237,7 @@ func TestConvertRealDocuments(t *testing.T) {
 	book := doctexttest.XLSX(doctexttest.Sheet{Name: "Quiz", Rows: [][]any{{"Question", "Points"}, {"排序", 5}}})
 	for _, older := range []struct{ ext, filter string }{{"xls", "xls:MS Excel 97"}, {"ods", "ods:calc8"}} {
 		t.Run(older.ext, func(t *testing.T) {
-			saved, err := c.convert(t.Context(), book, Format{"xlsx", Workbook, true}, older.ext, older.filter)
+			saved, err := c.convert(t.Context(), book, Format{"xlsx", Workbook, true}, older.ext, older.filter, maxOutput)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -248,6 +248,50 @@ func TestConvertRealDocuments(t *testing.T) {
 			res, err := doctext.Extract(context.Background(), out.Data, doctext.XLSX, doctext.Limits{})
 			if err != nil || !strings.Contains(res.Text, "## Sheet 1: Quiz\nQuestion,Points\n排序,5") {
 				t.Errorf("its Excel form reads %v:\n%+v", err, res)
+			}
+		})
+	}
+}
+
+// TestRenditionReal: LibreOffice makes the PDF rendition of a Word
+// document, a deck, a workbook and a drawing, every page of each whatever
+// MaxPages says: a deck of three slides is three pages, the hidden one
+// too, with MaxPages 2.
+func TestRenditionReal(t *testing.T) {
+	t.Parallel()
+	c, err := NewConverter(t.Context(), Config{TempDir: t.TempDir(), MaxPages: 2})
+	if errors.Is(err, ErrUnavailable) {
+		if os.Getenv("OFFICE_PDF_REQUIRED") == "1" {
+			t.Fatalf("OFFICE_PDF_REQUIRED is set, and LibreOffice is not available: %v", err)
+		}
+		t.Skipf("LibreOffice is not installed: %v", err)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	drawing := odfWith(t, "application/vnd.oasis.opendocument.graphics", `<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" office:version="1.2">
+<office:body><office:drawing><draw:page draw:name="page1"><draw:frame svg:x="2cm" svg:y="2cm" svg:width="10cm" svg:height="2cm"><draw:text-box><text:p>流程圖 flow</text:p></draw:text-box></draw:frame></draw:page></office:drawing></office:body></office:document-content>`)
+	for _, tc := range []struct {
+		name  string
+		data  []byte
+		f     Format
+		pages int
+		want  string
+	}{
+		{"docx", doctexttest.DOCX(doctexttest.Doc{Blocks: []doctexttest.Block{{Text: "期中考試範圍", Heading: 1}}}), Format{"docx", Document, true}, 1, "期中考試範圍"},
+		{"pptx", lecture(t), Format{"pptx", Slides, true}, 3, "Complexity"},
+		{"xlsx", doctexttest.XLSX(doctexttest.Sheet{Name: "Quiz", Rows: [][]any{{"Question", "Points"}, {"排序", 5}}}), Format{"xlsx", Workbook, true}, 1, "排序"},
+		{"odg", drawing, Format{"odg", Drawing, false}, 1, "流程圖"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := c.Rendition(t.Context(), tc.data, tc.f, 100<<20)
+			if err != nil {
+				t.Fatal(err)
+			}
+			res := pdfText(t, out.Data)
+			if out.Pages != tc.pages || out.Capped || !strings.Contains(squeezed(res.Text), squeezed(tc.want)) {
+				t.Errorf("%d pages, capped %v:\n%s", out.Pages, out.Capped, res.Text)
 			}
 		})
 	}

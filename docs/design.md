@@ -33,7 +33,9 @@ Core hosts `mcp` is its owner's tools' to reach, never the runtime's, and
 the site's runtime is the only one: there is no self-hosted runtime. The JSON API the front
 end calls (§11.4) listens apart, on `API_ADDR`. A module of its own, off
 unless the site's administrators turn it on, transcribes the course's
-files into their text versions in Core (§12). `/status` is the
+files into their text versions in Core (§12). Another, on by default,
+converts every Office and OpenDocument file Core keeps to the PDF the
+site previews it as, once (§13). `/status` is the
 operator's view, read-only, and never served through the API's listener
 or a proxy.
 
@@ -64,6 +66,8 @@ internal/
                 own, merged with YAML; the watcher that reloads on the registry's changes (§11.2)
   pricing       the versioned price table, and cost
   transcribe    the transcriber: the course's files made text versions in Core, by a model of the school's plan (§12)
+  rendition     the renditions worker: every Office file Core keeps made its PDF once, by LibreOffice (§13);
+                Core's table of the files converted
   redact        a log handler that removes tokens and keys
   safety        what the model wrote, made safe to post: links, images, length
   prompt        the system prompt and the history the model is given
@@ -460,7 +464,15 @@ by `Run`; each entry has its reason beside it in the code:
   #52): who owns an agent and how it is hosted, and its one token issued
   and revoked by its id, which the runtime calls itself, over REST, with
   the service's credential, and Core refuses to any other (`service_only`).
+  So are its renditions (`agent_runtime_rendition_claim`, `_file`,
+  `_renew`, `_upload_url`, `_complete`), the PDFs it makes of Office files
+  (§13), whose URLs and upload tokens are credentials for a course's files.
   `agent_*` covers them; they are named for what they are.
+- `document_rendition_retry`: sending a file's failed PDF rendition back to
+  be converted again (§13): the site's plumbing, which staff send back from
+  the front end where it failed, and a model has nothing to judge it by.
+  `conversation_rendition_retry`, a message's file's, is
+  `conversation_*`'s.
 - `conversation_export`, `conversation_export_*`: exporting conversations
   for audit (AIShie-Core #51), every conversation of the site, a
   department or a course, retracted messages with their text, as files
@@ -1771,7 +1783,10 @@ MiB; a PDF given as a file in parts of 10 pages where poppler cuts it; the
 transcriber off, and once turned on, 2 documents at once, 300 pages a
 document, no daily limit of pages, a claim of 10 minutes renewed every
 third of it, 25 s waits on the queue, 10 pages a call (5 as pictures at
-150 dpi), 3 tries a call, files of at most 64 MiB, jobs kept 90 days.
+150 dpi), 3 tries a call, files of at most 64 MiB, jobs kept 90 days;
+the renditions on wherever LibreOffice converts and Core is named, one file
+at a time per worker, 5 min a conversion, a claim of 10 minutes renewed
+every half of it, 25 s waits on the queue, files of at most 100 MiB.
 The output tokens, a call's and an answer's, and the wall clock are more
 than §4's example (2,000, 4,000 and 90 s), which a long answer, in
 Chinese with a table, overran, and was cut off.
@@ -1811,7 +1826,15 @@ Chinese with a table, overran, and was cut off.
   fake itself, the files named in a question, a follow-up or an answer and
   refused as Core refuses them, listed, served as downloads, withheld once
   retracted, named in the news), which the `attachments` fixture holds it
-  to, uploads' tokens recorded as `<upload_token>`.
+  to, uploads' tokens recorded as `<upload_token>`. It makes PDF
+  renditions as Core's migration 0026 has them (`renditions.go`): every
+  Office file of a version or of a message queued by Core's table of its
+  own, the `agent_runtime` service's claim (a long poll), file, renew,
+  upload URL and its PUT, and complete, with Core's order, attempts,
+  refusals and leases, and the rendition each file's reader is shown;
+  and a Core from before them (`WithoutRenditions`). The `renditions`
+  fixture holds it to the rendition Core, a real Core's queue drained,
+  unrecorded, first.
 - Attachments (§5.3): each kind of file (text, code of no telling type, a
   PDF, a scan, a deck, an image, an archive, a sound) to a model that takes
   files and to one that takes none, with OCR and without; a file of another
@@ -2815,8 +2838,9 @@ an `mcp` agent is never hosted here.
 
 - **The runtime's own credential.** The runtime is a site service of
   Core's, `agent_runtime`, with a credential of its own (`aissvc_…`), which
-  Core takes at the service's four REST routes alone (never over MCP, and
-  never any other tool): `CORE_SERVICE_CREDENTIAL`, a reference
+  Core takes at the service's REST routes alone, its four of hosting and,
+  since Core's migration 0026, its five of renditions (§13) (never over
+  MCP, and never any other tool): `CORE_SERVICE_CREDENTIAL`, a reference
   (`secret://…`, `env://…` or `file://…`; never `sealed://`, since it is the
   operator's), `secret://core/agent_runtime` by default, the file
   `core/agent_runtime` under `SECRETS_DIR`, where Deploy writes it at setup
@@ -3008,3 +3032,97 @@ the runtime through the API.
   (unauthenticated, rate_limited, unreachable, refused), and the model
   calls' own metrics, on the school's key. It logs ids, counts and codes:
   never the token, a key, a file's URL or any text.
+
+## 13. The renditions worker
+
+Every Office or OpenDocument file Core keeps, of a document's version of
+any kind (material, instructions, a rubric, a submission, feedback) or
+carried by a message, is previewed in the site as a PDF, made once, on the
+server, by the site's runtime (AIShie-Core's migration 0026, its
+docs/schema.md §2.4 *Renditions*). Core queues a rendition as it records
+the file, and backfills what it kept before; `internal/rendition` takes
+them from Core's queue, converts them with LibreOffice, and hands the PDFs
+back. There is no AI in it and no cost to the site, so no switch of the
+site's: it is plumbing, on by default.
+
+- **Which files.** Core's one table (`file_rendition_convertible`), which
+  the runtime holds the same (`rendition.Convertible`, held to the
+  contract's table and examples by a test): a name whose extension (after
+  its last dot, case aside) is `doc`, `dot`, `docx`, `docm`, `dotx`,
+  `xls`, `xlt`, `xlsx`, `xlsm`, `xltx`, `ppt`, `pps`, `pot`, `pptx`,
+  `pptm`, `ppsx`, `potx`, `odt`, `ods`, `odp`, `odg` or `rtf`, and a
+  declared type (before its parameters, case aside) that is one of the
+  Office, OpenDocument and RTF types or says nothing of the bytes
+  (`application/octet-stream`, `application/zip`,
+  `application/x-zip-compressed`, `application/vnd.ms-office`); any listed
+  type with any listed extension. Never a PDF, a picture, a text or an
+  archive. Each extension names the format LibreOffice is given the file
+  in: a document by Writer's PDF export, a presentation by Impress's (a
+  page a slide, the hidden ones too, no notes pages), a workbook by
+  Calc's, a drawing (`odg`) by Draw's.
+- **Where it runs.** `RENDITIONS=auto` (the default) runs it wherever
+  LibreOffice converts here (`OFFICE_PDF` not `off`, `soffice` and
+  `prlimit` installed, as in the image) and `CORE_BASE_URL` is set; `off`
+  never; `on` as `auto`, and `run` and `check` fail where it cannot run, a
+  Core whose catalogue has no renditions among the reasons (`core_too_old`,
+  the catalogue read again every 10 minutes). It calls Core as the site's
+  `agent_runtime` service, with the runtime's own credential (§11.6,
+  `CORE_SERVICE_CREDENTIAL`), read at each call, through the bucket every
+  call of that service in the process shares (300 a minute, bursts of 50):
+  nothing else to configure. `check` and the start's log line say where it
+  stands.
+- **The loop.** It asks for as many files as it has free slots
+  (`RENDITIONS_CONCURRENCY`, 1), each claim `RENDITIONS_LEASE` (10
+  minutes), the call waiting up to 25 s for one (`wait_s`), and works on
+  each in the background: it fetches the file from its short-lived URL,
+  no credential and no redirect followed, at most 100 MiB (a larger one is
+  skipped `too_large` unread), from a fresh URL (`rendition_file`) where it
+  has lapsed or is refused; holds it to what LibreOffice converts (an
+  Office Open XML file encrypted in its container, or an OpenDocument file
+  whose manifest gives its parts encryption data, is skipped
+  `password_protected`; bytes held neither as a zip, a Compound File nor
+  RTF are skipped `unsupported`); converts it, a PDF of every page with no
+  page cap, in the sandbox of every conversion (§4, Office files: prlimit,
+  no network, a fresh profile, macros off), within `RENDITIONS_TIMEOUT` (5
+  minutes; past it, failed `timeout`), as large as Core's `max_bytes` takes
+  (past it, skipped `too_large`), LibreOffice failing or making nothing
+  being failed `conversion_failed`; and renews the claim every half of its
+  lease meanwhile. A PDF made is put at the upload URL Core gives for the
+  claim (`rendition_upload_url`), with exactly its headers and no
+  credential, and the rendition completed done with its pages, under the
+  key Core suggests, `rendition:{rendition_id}:{lease_id}:{n}`, sent again
+  under it while Core does not answer; one Core refuses as no PDF or as
+  too large is completed failed `conversion_failed` or skipped
+  `too_large` under the next `n`; one Core says never arrived is put once
+  more at a new URL. Failed and skipped are completed under the key too.
+- **Dropped work.** Core saying the claim is lost (`lease_lost`: it lapsed
+  and was claimed again, or the credential that made it was revoked), the
+  file gone (purged), or the credential refused, stops the work: the
+  conversion is killed, and nothing is uploaded or completed under that
+  claim. A file that cannot be fetched, a PDF whose upload nothing
+  answers, a completion Core never answers, and the worker stopping leave
+  the claim to lapse: Core gives the file
+  out again, and fails it `attempts_exhausted` after five claims.
+- **Blocked.** No credential (none readable, or not a service's), or one
+  Core refuses (401, `service_only`, `not_for_services`), or a site that
+  keeps no files (`no_file_storage`), stops the claiming, logged once; it
+  is tried again every minute, and a credential put in its place is taken
+  at the next try, with no restart.
+- **Several workers.** No lease of the store's elects one, as the
+  transcriber's does (§12): Core never gives one file to two claims, there
+  is no quota or cost of the site's to share, and LibreOffice's load is
+  each host's. Every worker converts as many at once as its own
+  `RENDITIONS_CONCURRENCY`, and stopping one leaves its claims to lapse.
+- **What it keeps and counts.** Nothing in the store: Core keeps the
+  queue, the PDFs and the record (each completion is an action of the
+  service's). It counts `rendition_jobs_total{outcome,reason}` (done,
+  failed, skipped, dropped), `rendition_seconds`, `rendition_inflight` and
+  `rendition_claim_errors_total{reason}` (no_credential,
+  credential_rejected, rate_limited, unreachable, refused). One log line a
+  file: the rendition's, course's and file's ids, the attempt, the
+  extension, sizes, pages, outcome, reason and time; never the file's
+  name, a URL, an upload's token, the credential or what the file holds.
+- **What the models read** is unchanged: a model given an Office file is
+  given LibreOffice's PDF of it as §4 (Office files) says, made in the
+  worker's own conversions, not Core's rendition; `document_rendition_retry`
+  and the rendition tools are on the built-in deny list (§4).

@@ -289,6 +289,17 @@ func (w *fakeWorld) revokeTutorToken() {
 func (w *fakeWorld) assignment() string { return w.co.AssignmentID }
 func (w *fakeWorld) material() string   { return w.co.SyllabusID }
 
+func (w *fakeWorld) officeMaterial(title string, files ...namedFile) (string, []string) {
+	w.t.Helper()
+	fs := make([]File, len(files))
+	for i, f := range files {
+		fs[i] = File{Filename: f.name, ContentType: f.contentType, Data: f.data}
+	}
+	id, fileIDs, err := w.fc.AddFiles(w.co.ID, title, "", fs...)
+	w.ok(err)
+	return id, fileIDs
+}
+
 // submit hands in the student's work on the canned HW1 (AddWork, whose
 // grade the roster does not show).
 func (w *fakeWorld) submit(student int) string {

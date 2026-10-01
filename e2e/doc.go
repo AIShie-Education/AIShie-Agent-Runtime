@@ -6,7 +6,10 @@
 // answer being written to it, a version of several files is read file by
 // file, the transcriber gives the course's files their text versions in
 // Core, each file of a version on its own (alone, after the others: Core's
-// queue is the whole site's), and no token reaches a log.
+// queue is the whole site's), the runtime's binary makes the PDF renditions
+// of the Office files Core keeps, of a version or a message, which their
+// readers open from Core (alone too, where Core has renditions and
+// LibreOffice is installed), and no token reaches a log.
 //
 // Each test seats its own people and agents through Core's REST API, as
 // root and then as those people, each signed in with a password of their

@@ -107,6 +107,9 @@ type world interface {
 	assignment() string
 	material() string
 	submit(student int) string
+	// officeMaterial is Sato putting up a published material of files, in
+	// order, each under its name: its id and its files' ids.
+	officeMaterial(title string, files ...namedFile) (documentID string, fileIDs []string)
 }
 
 // steps is what a scenario recorded, in order.
@@ -1061,6 +1064,7 @@ var scenarios = []scenario{
 	drafts,
 	withdrawn,
 	attachments,
+	renditions,
 }
 
 // modelWrites is a write a model makes through its seat's perms (the

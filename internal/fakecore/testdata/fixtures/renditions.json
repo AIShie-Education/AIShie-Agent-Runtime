@@ -1,0 +1,1460 @@
+{
+ "scenario": "renditions",
+ "steps": [
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "document_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "created_at": "<time>",
+     "id": "<id:2>",
+     "kind": "material",
+     "published_version_id": "<id:3>",
+     "status": "active",
+     "title": "Week 4",
+     "version": {
+      "author_member_id": "<id:4>",
+      "byte_size": 41,
+      "checksum": "sha256:bc47eec07cbe4e86447e8e0eb15bd79f9d3ca1fa76c285b0a11f8ec0fa47784f",
+      "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "created_at": "<time>",
+      "download_url": "<download_url>",
+      "files": [
+       {
+        "byte_size": 41,
+        "checksum": "sha256:bc47eec07cbe4e86447e8e0eb15bd79f9d3ca1fa76c285b0a11f8ec0fa47784f",
+        "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "download_url": "<download_url>",
+        "filename": "第四週 handout.docx",
+        "id": "<id:5>",
+        "position": 1,
+        "rendition": {
+         "state": "queued"
+        },
+        "text": {
+         "bytes": 0,
+         "revision": 1,
+         "status": "pending",
+         "updated_at": "<time>"
+        }
+       },
+       {
+        "byte_size": 16,
+        "checksum": "sha256:f334c200aa911995ccfbf61c00de3ae251b48174cadd857b8b43e2cae577294d",
+        "content_type": "text/plain",
+        "download_url": "<download_url>",
+        "filename": "notes.txt",
+        "id": "<id:6>",
+        "position": 2,
+        "text": {
+         "bytes": 0,
+         "revision": 1,
+         "status": "pending",
+         "updated_at": "<time>"
+        }
+       }
+      ],
+      "id": "<id:3>",
+      "published": true,
+      "seq": 1,
+      "text": {
+       "bytes": 0,
+       "revision": 1,
+       "status": "pending",
+       "updated_at": "<time>"
+      }
+     }
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "get_queued",
+   "text_is_envelope": true,
+   "tool": "document_get"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "document_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "versions": [
+      {
+       "author_member_id": "<id:4>",
+       "byte_size": 41,
+       "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+       "created_at": "<time>",
+       "files": [
+        {
+         "byte_size": 41,
+         "checksum": "sha256:bc47eec07cbe4e86447e8e0eb15bd79f9d3ca1fa76c285b0a11f8ec0fa47784f",
+         "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+         "filename": "第四週 handout.docx",
+         "id": "<id:5>",
+         "position": 1,
+         "rendition": {
+          "state": "queued"
+         },
+         "text": {
+          "bytes": 0,
+          "revision": 1,
+          "status": "pending",
+          "updated_at": "<time>"
+         }
+        },
+        {
+         "byte_size": 16,
+         "checksum": "sha256:f334c200aa911995ccfbf61c00de3ae251b48174cadd857b8b43e2cae577294d",
+         "content_type": "text/plain",
+         "filename": "notes.txt",
+         "id": "<id:6>",
+         "position": 2,
+         "text": {
+          "bytes": 0,
+          "revision": 1,
+          "status": "pending",
+          "updated_at": "<time>"
+         }
+        }
+       ],
+       "has_file": true,
+       "id": "<id:3>",
+       "published": true,
+       "seq": 1,
+       "text": {
+        "bytes": 0,
+        "revision": 1,
+        "status": "pending",
+        "updated_at": "<time>"
+       }
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "versions_queued",
+   "text_is_envelope": true,
+   "tool": "document_versions"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "max is 1 to 10"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/claim",
+   "request": {
+    "max": 11
+   },
+   "step": "claim_bad_max"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "lease_s is 60 to 3600"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/claim",
+   "request": {
+    "lease_s": 59
+   },
+   "step": "claim_bad_lease"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "arguments do not match the schema of agent_runtime.rendition_claim: validating root: validating /properties/wait_s: maximum: 26/1 is greater than 25.000000"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/claim",
+   "request": {
+    "wait_s": 26
+   },
+   "step": "claim_bad_wait"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "service_only"
+     },
+     "message": "not permitted"
+    },
+    "status": "denied"
+   },
+   "content_type": "application/json",
+   "http_status": 403,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/claim",
+   "request": {},
+   "step": "claim_as_an_agent"
+  },
+  {
+   "body": {
+    "result": {
+     "claimed": [
+      {
+       "attempt": 1,
+       "backfill": false,
+       "byte_size": 41,
+       "checksum": "sha256:bc47eec07cbe4e86447e8e0eb15bd79f9d3ca1fa76c285b0a11f8ec0fa47784f",
+       "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+       "course_id": "<id:1>",
+       "download_expires_at": "<time>",
+       "download_url": "<download_url>",
+       "file_id": "<id:5>",
+       "filename": "第四週 handout.docx",
+       "lease_expires_at": "<time>",
+       "lease_id": "<id:7>",
+       "max_bytes": 104857600,
+       "rendition_id": "<id:8>",
+       "source": "document_file"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/claim",
+   "request": {
+    "lease_s": 600,
+    "max": 1
+   },
+   "step": "claim"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "document_id": "<id:2>",
+    "file_id": "<id:5>"
+   },
+   "envelope": {
+    "result": {
+     "byte_size": 41,
+     "checksum": "sha256:bc47eec07cbe4e86447e8e0eb15bd79f9d3ca1fa76c285b0a11f8ec0fa47784f",
+     "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+     "document_id": "<id:2>",
+     "download_url": "<download_url>",
+     "expires_at": "<time>",
+     "filename": "第四週 handout.docx",
+     "id": "<id:5>",
+     "position": 1,
+     "published": true,
+     "rendition": {
+      "state": "claimed"
+     },
+     "seq": 1,
+     "text": {
+      "bytes": 0,
+      "revision": 1,
+      "status": "pending",
+      "updated_at": "<time>"
+     },
+     "version_id": "<id:3>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "file_claimed",
+   "text_is_envelope": true,
+   "tool": "document_file"
+  },
+  {
+   "body": {
+    "result": {
+     "byte_size": 41,
+     "checksum": "sha256:bc47eec07cbe4e86447e8e0eb15bd79f9d3ca1fa76c285b0a11f8ec0fa47784f",
+     "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+     "download_expires_at": "<time>",
+     "download_url": "<download_url>",
+     "filename": "第四週 handout.docx",
+     "lease_expires_at": "<time>",
+     "rendition_id": "<id:8>"
+    },
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "GET",
+   "path": "/v1/services/agent_runtime/renditions/<id:8>/file?lease_id=<id:7>",
+   "step": "file"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "conflict",
+     "details": {
+      "reason": "lease_lost"
+     },
+     "message": "the claim no longer holds: the file was claimed again, or sent back to the queue"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 409,
+   "method": "GET",
+   "path": "/v1/services/agent_runtime/renditions/<id:8>/file?lease_id=<id:9>",
+   "step": "file_another_lease"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "not_found",
+     "message": "no such rendition"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 404,
+   "method": "GET",
+   "path": "/v1/services/agent_runtime/renditions/<id:10>/file?lease_id=<id:7>",
+   "step": "file_no_rendition"
+  },
+  {
+   "body": {
+    "result": {
+     "lease_expires_at": "<time>"
+    },
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/<id:8>/renew",
+   "request": {
+    "lease_id": "<id:7>",
+    "lease_s": 120
+   },
+   "step": "renew"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "conflict",
+     "details": {
+      "reason": "lease_lost"
+     },
+     "message": "the claim no longer holds: the file was claimed again, or sent back to the queue"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 409,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/<id:8>/renew",
+   "request": {
+    "lease_id": "<id:11>"
+   },
+   "step": "renew_another_lease"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "lease_s is 60 to 3600"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/<id:8>/renew",
+   "request": {
+    "lease_id": "<id:7>",
+    "lease_s": 30
+   },
+   "step": "renew_bad_lease"
+  },
+  {
+   "body": {
+    "action_id": "<id:12>",
+    "error": {
+     "code": "invalid_argument",
+     "message": "done needs upload_token"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/<id:8>/complete",
+   "request": {
+    "lease_id": "<id:7>",
+    "page_count": 1,
+    "status": "done"
+   },
+   "step": "complete_done_without_upload"
+  },
+  {
+   "body": {
+    "action_id": "<id:13>",
+    "error": {
+     "code": "invalid_argument",
+     "details": {
+      "field": "reason"
+     },
+     "message": "failed needs a reason: password_protected, timeout, conversion_failed, too_large, unsupported"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/<id:8>/complete",
+   "request": {
+    "lease_id": "<id:7>",
+    "status": "failed"
+   },
+   "step": "complete_failed_without_reason"
+  },
+  {
+   "body": {
+    "action_id": "<id:14>",
+    "error": {
+     "code": "invalid_argument",
+     "details": {
+      "field": "reason"
+     },
+     "message": "skipped needs a reason: password_protected, timeout, conversion_failed, too_large, unsupported"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/<id:8>/complete",
+   "request": {
+    "lease_id": "<id:7>",
+    "reason": "it is too pretty",
+    "status": "skipped"
+   },
+   "step": "complete_skipped_unknown_reason"
+  },
+  {
+   "body": {
+    "action_id": "<id:15>",
+    "error": {
+     "code": "invalid_argument",
+     "message": "done gives no reason"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/<id:8>/complete",
+   "request": {
+    "lease_id": "<id:7>",
+    "page_count": 1,
+    "reason": "timeout",
+    "status": "done",
+    "upload_token": "<upload_token>"
+   },
+   "step": "complete_done_with_reason"
+  },
+  {
+   "body": {
+    "action_id": "<id:16>",
+    "error": {
+     "code": "invalid_argument",
+     "details": {
+      "reason": "bad_upload_token"
+     },
+     "message": "upload_token is not valid"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/<id:8>/complete",
+   "request": {
+    "lease_id": "<id:7>",
+    "page_count": 1,
+    "status": "done",
+    "upload_token": "<upload_token>"
+   },
+   "step": "complete_bad_upload_token"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "not_found",
+     "message": "no such rendition"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 404,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/<id:10>/complete",
+   "request": {
+    "lease_id": "<id:7>",
+    "reason": "timeout",
+    "status": "failed"
+   },
+   "step": "complete_no_rendition"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "conflict",
+     "details": {
+      "reason": "lease_lost"
+     },
+     "message": "the claim no longer holds: the file was claimed again, or sent back to the queue"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 409,
+   "method": "GET",
+   "path": "/v1/services/agent_runtime/renditions/<id:8>/upload-url?lease_id=<id:9>",
+   "step": "upload_url_another_lease"
+  },
+  {
+   "body": {
+    "result": {
+     "expires_at": "<time>",
+     "headers": {
+      "Content-Type": "application/pdf"
+     },
+     "max_bytes": 104857600,
+     "upload_token": "<upload_token>",
+     "upload_url": "<upload_url>"
+    },
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "GET",
+   "path": "/v1/services/agent_runtime/renditions/<id:8>/upload-url?lease_id=<id:7>",
+   "step": "upload_url"
+  },
+  {
+   "body": {
+    "action_id": "<id:17>",
+    "error": {
+     "code": "failed_precondition",
+     "details": {
+      "reason": "not_uploaded"
+     },
+     "message": "nothing has been uploaded to that URL yet"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "content_type": "application/json",
+   "http_status": 422,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/<id:8>/complete",
+   "request": {
+    "lease_id": "<id:7>",
+    "page_count": 1,
+    "status": "done",
+    "upload_token": "<upload_token>"
+   },
+   "step": "complete_not_uploaded"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "this URL takes Content-Type \"application/pdf\", not \"text/html\""
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "step": "put_another_type"
+  },
+  {
+   "body": {
+    "byte_size": 17,
+    "checksum": "sha256:c01c3f7725b397f3f7ea20c67b71c56b1e5ea4f45809a4a46867e7c0ff4bda7a"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "step": "put_not_a_pdf"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "conflict",
+     "message": "this URL has been uploaded to already; a file is written once"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 409,
+   "step": "put_twice"
+  },
+  {
+   "body": {
+    "action_id": "<id:18>",
+    "error": {
+     "code": "failed_precondition",
+     "details": {
+      "reason": "not_a_pdf"
+     },
+     "message": "what was uploaded is not a PDF: it does not begin \"%PDF-\"; upload the PDF to a new URL"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "content_type": "application/json",
+   "http_status": 422,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/<id:8>/complete",
+   "request": {
+    "lease_id": "<id:7>",
+    "page_count": 1,
+    "status": "done",
+    "upload_token": "<upload_token>"
+   },
+   "step": "complete_not_a_pdf"
+  },
+  {
+   "body": {
+    "action_id": "<id:19>",
+    "error": {
+     "code": "failed_precondition",
+     "details": {
+      "reason": "not_uploaded"
+     },
+     "message": "nothing has been uploaded to that URL yet"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "content_type": "application/json",
+   "http_status": 422,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/<id:8>/complete",
+   "request": {
+    "lease_id": "<id:7>",
+    "page_count": 1,
+    "status": "done",
+    "upload_token": "<upload_token>"
+   },
+   "step": "complete_deleted_upload"
+  },
+  {
+   "body": {
+    "result": {
+     "expires_at": "<time>",
+     "headers": {
+      "Content-Type": "application/pdf"
+     },
+     "max_bytes": 104857600,
+     "upload_token": "<upload_token>",
+     "upload_url": "<upload_url>"
+    },
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "GET",
+   "path": "/v1/services/agent_runtime/renditions/<id:8>/upload-url?lease_id=<id:7>",
+   "step": "upload_url_again"
+  },
+  {
+   "body": {
+    "byte_size": 35,
+    "checksum": "sha256:ee09f4b2de546bdce5e5463b583ea44e06ff90371581113f6a509b25c4e4d706"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "step": "put_pdf"
+  },
+  {
+   "body": {
+    "action_id": "<id:20>",
+    "error": {
+     "code": "invalid_argument",
+     "message": "done needs page_count, 1 to 100000"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/<id:8>/complete",
+   "request": {
+    "lease_id": "<id:7>",
+    "page_count": 100001,
+    "status": "done",
+    "upload_token": "<upload_token>"
+   },
+   "step": "complete_too_many_pages"
+  },
+  {
+   "body": {
+    "action_id": "<id:21>",
+    "result": {
+     "byte_size": 35,
+     "checksum": "sha256:ee09f4b2de546bdce5e5463b583ea44e06ff90371581113f6a509b25c4e4d706",
+     "rendition_id": "<id:8>",
+     "state": "done"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/<id:8>/complete",
+   "request": {
+    "lease_id": "<id:7>",
+    "page_count": 3,
+    "status": "done",
+    "upload_token": "<upload_token>"
+   },
+   "step": "complete_done"
+  },
+  {
+   "body": {
+    "action_id": "<id:21>",
+    "replayed": true,
+    "result": {
+     "byte_size": 35,
+     "checksum": "sha256:ee09f4b2de546bdce5e5463b583ea44e06ff90371581113f6a509b25c4e4d706",
+     "rendition_id": "<id:8>",
+     "state": "done"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/<id:8>/complete",
+   "replayed_header": "true",
+   "request": {
+    "lease_id": "<id:7>",
+    "page_count": 3,
+    "status": "done",
+    "upload_token": "<upload_token>"
+   },
+   "step": "complete_done_replayed"
+  },
+  {
+   "body": {
+    "action_id": "<id:22>",
+    "error": {
+     "code": "conflict",
+     "details": {
+      "reason": "lease_lost"
+     },
+     "message": "the claim no longer holds: the file was claimed again, or sent back to the queue"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "content_type": "application/json",
+   "http_status": 409,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/<id:8>/complete",
+   "request": {
+    "lease_id": "<id:7>",
+    "reason": "timeout",
+    "status": "failed"
+   },
+   "step": "complete_after_done"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "conflict",
+     "details": {
+      "reason": "lease_lost"
+     },
+     "message": "the claim no longer holds: the file was claimed again, or sent back to the queue"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 409,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/<id:8>/renew",
+   "request": {
+    "lease_id": "<id:7>"
+   },
+   "step": "renew_after_done"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "conflict",
+     "details": {
+      "reason": "lease_lost"
+     },
+     "message": "the claim no longer holds: the file was claimed again, or sent back to the queue"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 409,
+   "method": "GET",
+   "path": "/v1/services/agent_runtime/renditions/<id:8>/file?lease_id=<id:7>",
+   "step": "file_after_done"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "document_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "created_at": "<time>",
+     "id": "<id:2>",
+     "kind": "material",
+     "published_version_id": "<id:3>",
+     "status": "active",
+     "title": "Week 4",
+     "version": {
+      "author_member_id": "<id:4>",
+      "byte_size": 41,
+      "checksum": "sha256:bc47eec07cbe4e86447e8e0eb15bd79f9d3ca1fa76c285b0a11f8ec0fa47784f",
+      "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "created_at": "<time>",
+      "download_url": "<download_url>",
+      "files": [
+       {
+        "byte_size": 41,
+        "checksum": "sha256:bc47eec07cbe4e86447e8e0eb15bd79f9d3ca1fa76c285b0a11f8ec0fa47784f",
+        "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "download_url": "<download_url>",
+        "filename": "第四週 handout.docx",
+        "id": "<id:5>",
+        "position": 1,
+        "rendition": {
+         "byte_size": 35,
+         "download_expires_at": "<time>",
+         "download_url": "<download_url>",
+         "page_count": 3,
+         "state": "done"
+        },
+        "text": {
+         "bytes": 0,
+         "revision": 1,
+         "status": "pending",
+         "updated_at": "<time>"
+        }
+       },
+       {
+        "byte_size": 16,
+        "checksum": "sha256:f334c200aa911995ccfbf61c00de3ae251b48174cadd857b8b43e2cae577294d",
+        "content_type": "text/plain",
+        "download_url": "<download_url>",
+        "filename": "notes.txt",
+        "id": "<id:6>",
+        "position": 2,
+        "text": {
+         "bytes": 0,
+         "revision": 1,
+         "status": "pending",
+         "updated_at": "<time>"
+        }
+       }
+      ],
+      "id": "<id:3>",
+      "published": true,
+      "seq": 1,
+      "text": {
+       "bytes": 0,
+       "revision": 1,
+       "status": "pending",
+       "updated_at": "<time>"
+      }
+     }
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "get_done",
+   "text_is_envelope": true,
+   "tool": "document_get"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "document_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "versions": [
+      {
+       "author_member_id": "<id:4>",
+       "byte_size": 41,
+       "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+       "created_at": "<time>",
+       "files": [
+        {
+         "byte_size": 41,
+         "checksum": "sha256:bc47eec07cbe4e86447e8e0eb15bd79f9d3ca1fa76c285b0a11f8ec0fa47784f",
+         "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+         "filename": "第四週 handout.docx",
+         "id": "<id:5>",
+         "position": 1,
+         "rendition": {
+          "state": "done"
+         },
+         "text": {
+          "bytes": 0,
+          "revision": 1,
+          "status": "pending",
+          "updated_at": "<time>"
+         }
+        },
+        {
+         "byte_size": 16,
+         "checksum": "sha256:f334c200aa911995ccfbf61c00de3ae251b48174cadd857b8b43e2cae577294d",
+         "content_type": "text/plain",
+         "filename": "notes.txt",
+         "id": "<id:6>",
+         "position": 2,
+         "text": {
+          "bytes": 0,
+          "revision": 1,
+          "status": "pending",
+          "updated_at": "<time>"
+         }
+        }
+       ],
+       "has_file": true,
+       "id": "<id:3>",
+       "published": true,
+       "seq": 1,
+       "text": {
+        "bytes": 0,
+        "revision": 1,
+        "status": "pending",
+        "updated_at": "<time>"
+       }
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "versions_done",
+   "text_is_envelope": true,
+   "tool": "document_versions"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "document_id": "<id:2>",
+    "file_id": "<id:5>"
+   },
+   "envelope": {
+    "result": {
+     "byte_size": 41,
+     "checksum": "sha256:bc47eec07cbe4e86447e8e0eb15bd79f9d3ca1fa76c285b0a11f8ec0fa47784f",
+     "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+     "document_id": "<id:2>",
+     "download_url": "<download_url>",
+     "expires_at": "<time>",
+     "filename": "第四週 handout.docx",
+     "id": "<id:5>",
+     "position": 1,
+     "published": true,
+     "rendition": {
+      "byte_size": 35,
+      "download_expires_at": "<time>",
+      "download_url": "<download_url>",
+      "page_count": 3,
+      "state": "done"
+     },
+     "seq": 1,
+     "text": {
+      "bytes": 0,
+      "revision": 1,
+      "status": "pending",
+      "updated_at": "<time>"
+     },
+     "version_id": "<id:3>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "file_done_as_the_tutor",
+   "text_is_envelope": true,
+   "tool": "document_file"
+  },
+  {
+   "body_bytes": 35,
+   "body_sha256": "ee09f4b2de546bdce5e5463b583ea44e06ff90371581113f6a509b25c4e4d706",
+   "cache-control": "private, no-store",
+   "content-disposition": "inline; filename*=utf-8''%E7%AC%AC%E5%9B%9B%E9%80%B1%20handout.pdf",
+   "content-length": "35",
+   "content-security-policy": "",
+   "content-type": "application/pdf",
+   "http_status": 200,
+   "step": "download_the_pdf",
+   "x-content-type-options": "nosniff"
+  },
+  {
+   "args": {
+    "content_type": "application/octet-stream",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "expires_at": "<time>",
+     "headers": {
+      "Content-Type": "application/octet-stream"
+     },
+     "max_bytes": 52428800,
+     "max_conversation_bytes": 524288000,
+     "max_files": 10,
+     "upload_token": "<upload_token>",
+     "upload_url": "<upload_url>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "upload_url_deck",
+   "text_is_envelope": true,
+   "tool": "conversation_upload_url"
+  },
+  {
+   "body": {
+    "byte_size": 18,
+    "checksum": "sha256:6dee5fc335e43b6faa3ac98173c4b578eda987b9874636cb090d402d0283b9e9"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "step": "put_deck"
+  },
+  {
+   "args": {
+    "content_type": "text/plain",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "expires_at": "<time>",
+     "headers": {
+      "Content-Type": "text/plain"
+     },
+     "max_bytes": 52428800,
+     "max_conversation_bytes": 524288000,
+     "max_files": 10,
+     "upload_token": "<upload_token>",
+     "upload_url": "<upload_url>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "upload_url_notes",
+   "text_is_envelope": true,
+   "tool": "conversation_upload_url"
+  },
+  {
+   "body": {
+    "byte_size": 10,
+    "checksum": "sha256:79f37762e128c780030b02e62752aa2e8ff795a80f08efe38a7cabf94a9ca63a"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "step": "put_notes"
+  },
+  {
+   "args": {
+    "attachments": [
+     {
+      "filename": "第四週 slides.pptx",
+      "upload_token": "<upload_token>"
+     },
+     {
+      "filename": "notes.txt",
+      "upload_token": "<upload_token>"
+     }
+    ],
+    "body": "Can you look at my slides?",
+    "course_id": "<id:1>",
+    "idempotency_key": "renditions:open:<id:1>",
+    "respondent_member_id": "<id:23>"
+   },
+   "envelope": {
+    "action_id": "<id:24>",
+    "result": {
+     "conversation_id": "<id:25>",
+     "message_id": "<id:26>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "open_with_a_deck",
+   "text_is_envelope": true,
+   "tool": "conversation_open"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:25>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "conversation": {
+      "created_at": "<time>",
+      "id": "<id:25>",
+      "last_author_member_id": "<id:27>",
+      "last_message_at": "<time>",
+      "latest_opener_message_id": "<id:26>",
+      "opener": {
+       "display_name": "Yuki",
+       "kind": "human",
+       "member_id": "<id:27>"
+      },
+      "respondent": {
+       "answer_level": "autonomous",
+       "display_name": "CS101 Tutor",
+       "is_delegate_of_opener": false,
+       "kind": "agent",
+       "last_seen_at": "<time>",
+       "member_id": "<id:23>",
+       "owner_name": "Sato",
+       "role": "assistant",
+       "seat_status": "active"
+      },
+      "state": "awaiting_answer",
+      "status": "open"
+     },
+     "draft": null,
+     "messages": [
+      {
+       "attachments": [
+        {
+         "byte_size": 18,
+         "checksum": "sha256:6dee5fc335e43b6faa3ac98173c4b578eda987b9874636cb090d402d0283b9e9",
+         "content_type": "application/octet-stream",
+         "created_at": "<time>",
+         "filename": "第四週 slides.pptx",
+         "id": "<id:28>",
+         "rendition": {
+          "state": "queued"
+         }
+        },
+        {
+         "byte_size": 10,
+         "checksum": "sha256:79f37762e128c780030b02e62752aa2e8ff795a80f08efe38a7cabf94a9ca63a",
+         "content_type": "text/plain",
+         "created_at": "<time>",
+         "filename": "notes.txt",
+         "id": "<id:29>"
+        }
+       ],
+       "author_member_id": "<id:27>",
+       "body": "Can you look at my slides?",
+       "created_at": "<time>",
+       "id": "<id:26>",
+       "seq": 1
+      }
+     ],
+     "more": false
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "messages_queued",
+   "text_is_envelope": true,
+   "tool": "conversation_messages"
+  },
+  {
+   "args": {
+    "attachment_id": "<id:28>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "author_member_id": "<id:27>",
+     "byte_size": 18,
+     "checksum": "sha256:6dee5fc335e43b6faa3ac98173c4b578eda987b9874636cb090d402d0283b9e9",
+     "content_type": "application/octet-stream",
+     "conversation_id": "<id:25>",
+     "created_at": "<time>",
+     "download_url": "<download_url>",
+     "expires_at": "<time>",
+     "filename": "第四週 slides.pptx",
+     "id": "<id:28>",
+     "message_id": "<id:26>",
+     "message_seq": 1,
+     "rendition": {
+      "state": "queued"
+     }
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "attachment_queued",
+   "text_is_envelope": true,
+   "tool": "conversation_attachment"
+  },
+  {
+   "args": {
+    "attachment_id": "<id:29>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "author_member_id": "<id:27>",
+     "byte_size": 10,
+     "checksum": "sha256:79f37762e128c780030b02e62752aa2e8ff795a80f08efe38a7cabf94a9ca63a",
+     "content_type": "text/plain",
+     "conversation_id": "<id:25>",
+     "created_at": "<time>",
+     "download_url": "<download_url>",
+     "expires_at": "<time>",
+     "filename": "notes.txt",
+     "id": "<id:29>",
+     "message_id": "<id:26>",
+     "message_seq": 1
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "attachment_not_converted",
+   "text_is_envelope": true,
+   "tool": "conversation_attachment"
+  },
+  {
+   "body": {
+    "result": {
+     "claimed": [
+      {
+       "attachment_id": "<id:28>",
+       "attempt": 1,
+       "backfill": false,
+       "byte_size": 18,
+       "checksum": "sha256:6dee5fc335e43b6faa3ac98173c4b578eda987b9874636cb090d402d0283b9e9",
+       "content_type": "application/octet-stream",
+       "course_id": "<id:1>",
+       "download_expires_at": "<time>",
+       "download_url": "<download_url>",
+       "filename": "第四週 slides.pptx",
+       "lease_expires_at": "<time>",
+       "lease_id": "<id:30>",
+       "max_bytes": 104857600,
+       "rendition_id": "<id:31>",
+       "source": "attachment"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/claim",
+   "request": {
+    "max": 10
+   },
+   "step": "claim_the_deck"
+  },
+  {
+   "args": {
+    "attachment_id": "<id:28>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "author_member_id": "<id:27>",
+     "byte_size": 18,
+     "checksum": "sha256:6dee5fc335e43b6faa3ac98173c4b578eda987b9874636cb090d402d0283b9e9",
+     "content_type": "application/octet-stream",
+     "conversation_id": "<id:25>",
+     "created_at": "<time>",
+     "download_url": "<download_url>",
+     "expires_at": "<time>",
+     "filename": "第四週 slides.pptx",
+     "id": "<id:28>",
+     "message_id": "<id:26>",
+     "message_seq": 1,
+     "rendition": {
+      "state": "claimed"
+     }
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "attachment_claimed",
+   "text_is_envelope": true,
+   "tool": "conversation_attachment"
+  },
+  {
+   "body": {
+    "action_id": "<id:32>",
+    "result": {
+     "rendition_id": "<id:31>",
+     "state": "skipped"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/<id:31>/complete",
+   "request": {
+    "lease_id": "<id:30>",
+    "reason": "password_protected",
+    "status": "skipped"
+   },
+   "step": "complete_skipped"
+  },
+  {
+   "args": {
+    "attachment_id": "<id:28>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "author_member_id": "<id:27>",
+     "byte_size": 18,
+     "checksum": "sha256:6dee5fc335e43b6faa3ac98173c4b578eda987b9874636cb090d402d0283b9e9",
+     "content_type": "application/octet-stream",
+     "conversation_id": "<id:25>",
+     "created_at": "<time>",
+     "download_url": "<download_url>",
+     "expires_at": "<time>",
+     "filename": "第四週 slides.pptx",
+     "id": "<id:28>",
+     "message_id": "<id:26>",
+     "message_seq": 1,
+     "rendition": {
+      "reason": "password_protected",
+      "state": "skipped"
+     }
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "attachment_skipped",
+   "text_is_envelope": true,
+   "tool": "conversation_attachment"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:25>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "conversation": {
+      "created_at": "<time>",
+      "id": "<id:25>",
+      "last_author_member_id": "<id:27>",
+      "last_message_at": "<time>",
+      "latest_opener_message_id": "<id:26>",
+      "opener": {
+       "display_name": "Yuki",
+       "kind": "human",
+       "member_id": "<id:27>"
+      },
+      "respondent": {
+       "answer_level": "autonomous",
+       "display_name": "CS101 Tutor",
+       "is_delegate_of_opener": false,
+       "kind": "agent",
+       "last_seen_at": "<time>",
+       "member_id": "<id:23>",
+       "owner_name": "Sato",
+       "role": "assistant",
+       "seat_status": "active"
+      },
+      "state": "awaiting_answer",
+      "status": "open"
+     },
+     "draft": null,
+     "messages": [
+      {
+       "attachments": [
+        {
+         "byte_size": 18,
+         "checksum": "sha256:6dee5fc335e43b6faa3ac98173c4b578eda987b9874636cb090d402d0283b9e9",
+         "content_type": "application/octet-stream",
+         "created_at": "<time>",
+         "filename": "第四週 slides.pptx",
+         "id": "<id:28>",
+         "rendition": {
+          "reason": "password_protected",
+          "state": "skipped"
+         }
+        },
+        {
+         "byte_size": 10,
+         "checksum": "sha256:79f37762e128c780030b02e62752aa2e8ff795a80f08efe38a7cabf94a9ca63a",
+         "content_type": "text/plain",
+         "created_at": "<time>",
+         "filename": "notes.txt",
+         "id": "<id:29>"
+        }
+       ],
+       "author_member_id": "<id:27>",
+       "body": "Can you look at my slides?",
+       "created_at": "<time>",
+       "id": "<id:26>",
+       "seq": 1
+      }
+     ],
+     "more": false
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "messages_skipped",
+   "text_is_envelope": true,
+   "tool": "conversation_messages"
+  },
+  {
+   "body": {
+    "result": {
+     "claimed": []
+    },
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/renditions/claim",
+   "request": {
+    "max": 10
+   },
+   "step": "claim_nothing"
+  }
+ ]
+}

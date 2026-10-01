@@ -19,8 +19,11 @@ const (
 	// that takes files sees.
 	Document Family = "document"
 	// Workbook is a spreadsheet: always its text, rows as CSV, read from
-	// its Excel form.
+	// its Excel form; converted to PDF only for a rendition (ToRendition).
 	Workbook Family = "workbook"
+	// Drawing is a drawing of OpenDocument's (.odg), converted to PDF only
+	// for a rendition (package rendition): no model is given one.
+	Drawing Family = "drawing"
 )
 
 // Format is an Office file's format, as the runtime converts it.

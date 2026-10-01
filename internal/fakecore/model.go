@@ -228,6 +228,8 @@ type versionFile struct {
 	data        []byte
 	token       string
 	text        *textVersion
+	// rend is its PDF rendition, nil when Core converts no such file.
+	rend *rendition
 }
 
 type submission struct {

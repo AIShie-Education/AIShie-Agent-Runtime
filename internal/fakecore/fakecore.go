@@ -18,7 +18,9 @@
 // _answer, listed by conversation_messages and served through
 // conversation_attachment's download URL; and the site's agent runtime's
 // service (hosting.go), which hosts the runtime agents by their ids and is
-// issued each one's one token, as AIShie-Core #52 has it.
+// issued each one's one token, as AIShie-Core #52 has it, and makes the
+// PDF renditions of the Office files of documents and messages
+// (renditions.go), as AIShie-Core's migration 0026 has it.
 //
 // The tools the runtime calls (me_*, conversation_*, event_list,
 // action_list_mine, and agent_runtime_* with the service's credential) are
@@ -74,8 +76,14 @@ type Options struct {
 	// (AIShie-Core #52, hosting.go): its catalogue has no agent_runtime
 	// service, so no runtime there is issued an agent's token by its id.
 	// Its agents are hosted as ever here, and asked in the site as a
-	// runtime agent is.
+	// runtime agent is. It makes no renditions either.
 	WithoutHosting bool
+	// WithoutRenditions answers as a Core from before PDF renditions
+	// (AIShie-Core's migration 0026, renditions.go), as the runtime was
+	// pinned to before them (b6e7d95): its catalogue has neither the agent
+	// runtime's renditions nor the tools that send one back, no file is
+	// queued for one, and no file's view shows one.
+	WithoutRenditions bool
 	// WithoutWait answers as a Core from before its reads waited for news,
 	// as the runtime was pinned to before 2c1fe1b (wait.go): its catalogue
 	// offers no wait_s and no seen_state, and a call that gives either is
@@ -162,6 +170,15 @@ type Core struct {
 	services     map[string]*actor
 	serviceCreds map[string]*credential
 	textNews     chan struct{}
+	// rends are the files' PDF renditions, by id; rendUploads the upload
+	// URLs handed out for their PDFs, by upload token, and rendPuts the
+	// same by the secret of the URL; rendPDFs the done ones by the secret
+	// of the URL that shows the PDF (renditions.go). A rendition queued
+	// closes textNews too, which every claim that waits waits on.
+	rends       map[string]*rendition
+	rendUploads map[string]*renditionUpload
+	rendPuts    map[string]*renditionUpload
+	rendPDFs    map[string]*rendition
 
 	// waiters are the calls waiting for news now (wait.go), which the
 	// events flushed wake; shutdown is closed by Shutdown.
@@ -226,7 +243,8 @@ var theCatalogue = sync.OnceValues(func() (*catalogue, error) {
 })
 
 // catalogueOf is the catalogue as the older Core o names serves it: from
-// before an agent's hosting (Options.WithoutHosting), before wait_s
+// before PDF renditions (Options.WithoutRenditions), before an agent's
+// hosting (Options.WithoutHosting, which had none either), before wait_s
 // (Options.WithoutWait), before conversation.draft (Options.WithoutDraft),
 // before several files to a version (Options.WithoutFiles), or any of them.
 func catalogueOf(o Options) (*catalogue, error) {
@@ -234,8 +252,8 @@ func catalogueOf(o Options) (*catalogue, error) {
 	for _, older := range []struct {
 		is   bool
 		edit func([]byte) ([]byte, error)
-	}{{o.WithoutHosting, withoutHosting}, {o.WithoutWait, withoutWait}, {o.WithoutDraft, withoutDraft},
-		{o.WithoutFiles, withoutFiles}} {
+	}{{o.WithoutRenditions || o.WithoutHosting, withoutRenditions}, {o.WithoutHosting, withoutHosting}, {o.WithoutWait, withoutWait},
+		{o.WithoutDraft, withoutDraft}, {o.WithoutFiles, withoutFiles}} {
 		if !older.is {
 			continue
 		}
@@ -265,7 +283,7 @@ func withImpls(raw []byte) (*catalogue, error) {
 // time, as the SDK panics on a tool it cannot register.
 func New(o Options) *Core {
 	load := theCatalogue
-	if o.WithoutHosting || o.WithoutWait || o.WithoutDraft || o.WithoutFiles {
+	if o.WithoutHosting || o.WithoutRenditions || o.WithoutWait || o.WithoutDraft || o.WithoutFiles {
 		load = func() (*catalogue, error) { return catalogueOf(o) }
 	}
 	cat, err := load()
@@ -291,7 +309,8 @@ func New(o Options) *Core {
 		actions: map[string]*action{}, keys: map[actorKey]*action{}, blobs: map[string]*versionFile{},
 		uploads: map[string]*upload{}, putURLs: map[string]*upload{}, attachments: map[string]*attachment{}, downloads: map[string]download{},
 		presetIDs: map[string]string{}, services: map[string]*actor{}, serviceCreds: map[string]*credential{},
-		waiters: map[*waiter]struct{}{}, shutdown: make(chan struct{}),
+		rends: map[string]*rendition{}, rendUploads: map[string]*renditionUpload{}, rendPuts: map[string]*renditionUpload{},
+		rendPDFs: map[string]*rendition{}, waiters: map[*waiter]struct{}{}, shutdown: make(chan struct{}),
 	}
 	c.system = &actor{id: newID(), kind: "system", name: "system", status: statusActive}
 	c.limiter = newLimiter(o.RatePerMinute, o.RateBurst, c.now)

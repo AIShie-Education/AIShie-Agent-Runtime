@@ -17,6 +17,7 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/office"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/rendition"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/secrets"
 )
 
@@ -101,6 +102,10 @@ type Env struct {
 	// TranscribeOn, the same, and run and check fail when it cannot run;
 	// TranscribeOff, never, whatever the site says.
 	Transcribe string
+	// Renditions is the renditions worker's settings (RENDITIONS*,
+	// package rendition): on by default wherever LibreOffice converts and
+	// Core is named; its zero fields are its defaults.
+	Renditions rendition.Config
 }
 
 // The values of TRANSCRIBE.
@@ -160,6 +165,10 @@ var envVars = []struct{ name, help string }{
 	{"OFFICE_PDF_MAX_PAGES", fmt.Sprintf("the most pages a PDF LibreOffice makes has, the rest of a document left out and said so (default %d)", office.DefaultMaxPages)},
 	{"OFFICE_PDF_MEMORY_MB", fmt.Sprintf("the address space LibreOffice may take, in MB (default %d)", office.DefaultMemoryMB)},
 	{"TRANSCRIBE", "auto, on or off: whether this runtime may transcribe the course's files into text versions in Core, which the site's administrators turn on (default auto: when they do; on: the same, and run and check fail when it cannot run here, a Core without the transcription service or the store, key or Core it needs missing; off: never)"},
+	{"RENDITIONS", "auto, on or off: convert every Office and OpenDocument file Core keeps to the PDF the site previews it as, once, with LibreOffice and the runtime's own credential in Core (default auto: whenever LibreOffice converts here, as OFFICE_PDF says, and CORE_BASE_URL is set; on: the same, and run fails to start where it cannot; off: never)"},
+	{"RENDITIONS_CONCURRENCY", fmt.Sprintf("the files this process converts to PDF renditions at once, 1 to %d (default %d)", rendition.MaxConcurrency, rendition.DefaultConcurrency)},
+	{"RENDITIONS_TIMEOUT", "how long converting one file to its PDF rendition may take, 5s to 1h, such as 10m (default " + rendition.DefaultTimeout.String() + ")"},
+	{"RENDITIONS_LEASE", "how long Core holds a file for this process while it converts it, 1m to 1h, renewed every half of it (default " + rendition.DefaultLease.String() + ")"},
 	{"PDF_PART_PAGES", fmt.Sprintf("the pages of a PDF given to a model as one file part, when it has more: a longer one is given in parts of its pages, where poppler's pdftocairo is installed, and never more than the provider takes (default %d)", office.DefaultPartPages)},
 }
 
@@ -268,6 +277,7 @@ func FromEnv(getenv func(string) string) (Env, error) {
 	}
 	e.OCR = ocrFromEnv(get, bad)
 	e.Office = officeFromEnv(get, bad)
+	e.Renditions = renditionsFromEnv(get, bad)
 	if v := get("PDF_PART_PAGES"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 || n > 1000 {
@@ -368,6 +378,41 @@ func officeFromEnv(get func(string) string, bad func(string, ...any)) office.Con
 	if err := c.Check(); err != nil {
 		for _, e := range strings.Split(err.Error(), "\n") {
 			bad("%s", strings.Replace(e, "office: ", "OFFICE_PDF: ", 1))
+		}
+	}
+	return c
+}
+
+// renditionsFromEnv reads the renditions worker's settings (RENDITIONS*);
+// an unset one is its default.
+func renditionsFromEnv(get func(string) string, bad func(string, ...any)) rendition.Config {
+	c := rendition.Config{Mode: strings.ToLower(get("RENDITIONS"))}
+	if v := get("RENDITIONS_CONCURRENCY"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			bad("RENDITIONS_CONCURRENCY: %q is not a whole number of at least 1", v)
+		} else {
+			c.Concurrency = n
+		}
+	}
+	for _, d := range []struct {
+		name string
+		into *time.Duration
+	}{{"RENDITIONS_TIMEOUT", &c.Timeout}, {"RENDITIONS_LEASE", &c.Lease}} {
+		v := get(d.name)
+		if v == "" {
+			continue
+		}
+		t, err := time.ParseDuration(v)
+		if err != nil || t <= 0 {
+			bad("%s: %q is not a duration such as 10m", d.name, v)
+			continue
+		}
+		*d.into = t
+	}
+	if err := c.Check(); err != nil {
+		for _, e := range strings.Split(err.Error(), "\n") {
+			bad("%s", strings.Replace(e, "renditions: ", "RENDITIONS: ", 1))
 		}
 	}
 	return c

@@ -224,12 +224,16 @@ func serviceRefusal(caller *actor, t *toolDef) *apiError {
 
 // invokeService carries out one of a service's tools, called with the
 // credential cred: the transcription service's four, or the agent
-// runtime's (hosting.go). The lock is held.
+// runtime's, its hosting (hosting.go) and its renditions
+// (renditions.go). The lock is held.
 func (c *Core) invokeService(caller *actor, cred *credential, t *toolDef, raw []byte, key, base string) outcome {
 	if _, err := t.decodeArgs(raw); err != nil {
 		return c.failure(err)
 	}
 	now := c.now()
+	if strings.HasPrefix(t.Name, scopeAgentRuntime+".rendition_") {
+		return c.invokeRendition(caller, cred, t, raw, key, base, now)
+	}
 	if t.service == scopeAgentRuntime {
 		return c.invokeRuntime(caller, t, raw, key, now)
 	}
@@ -522,13 +526,13 @@ func checkCompletion(in completion) *apiError {
 	return nil
 }
 
-// waitForQueue is what a call of the queue that asked to wait (wait_s),
-// and claimed nothing, does: it waits without the lock for a version to be
-// queued, and claims again (again) each time one is, until it claims
-// something or its time is up. The lock is held on entry and on return;
-// ctx is the request's.
+// waitForQueue is what a call of a queue that asked to wait (wait_s), and
+// claimed nothing, does: it waits without the lock for a file to be
+// queued, a text version or a rendition, and claims again (again) each
+// time one is, until it claims something or its time is up. The lock is
+// held on entry and on return; ctx is the request's.
 func (c *Core) waitForQueue(ctx context.Context, t *toolDef, args []byte, first outcome, again func() outcome) outcome {
-	if t.Name != "document_text.queue" || first.Status != actExecuted || ctx == nil {
+	if t.Name != "document_text.queue" && t.Name != "agent_runtime.rendition_claim" || first.Status != actExecuted || ctx == nil {
 		return first
 	}
 	var in struct {
@@ -613,9 +617,10 @@ func (c *Core) serviceOf(scope string) *actor {
 	return svc
 }
 
-// RevokeServiceToken revokes one of the service's credentials, as
+// RevokeServiceToken revokes one of a service's credentials, as
 // service.revoke_credential does: its next call is a 401, and what it had
-// claimed is back in the queue.
+// claimed, text versions and renditions, is back in the queue (a
+// rendition's claim not counted).
 func (c *Core) RevokeServiceToken(credentialID string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -638,6 +643,7 @@ func (c *Core) RevokeServiceToken(credentialID string) error {
 			}
 		}
 	}
+	released = c.releaseRenditions(cr) || released
 	if released {
 		c.queued()
 	}

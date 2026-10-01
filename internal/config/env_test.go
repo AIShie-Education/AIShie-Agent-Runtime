@@ -9,6 +9,7 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/office"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/rendition"
 )
 
 func envOf(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
@@ -33,6 +34,9 @@ func TestFromEnvDefaults(t *testing.T) {
 	if e.Transcribe != TranscribeAuto {
 		t.Fatalf("TRANSCRIBE's default: %q", e.Transcribe)
 	}
+	if e.Renditions != (rendition.Config{}) || e.Renditions.WithDefaults().Mode != rendition.ModeAuto {
+		t.Fatalf("the renditions' defaults: %+v", e.Renditions)
+	}
 	if e.CoreServiceCredential != "secret://core/agent_runtime" {
 		t.Fatalf("CORE_SERVICE_CREDENTIAL's default: %q", e.CoreServiceCredential)
 	}
@@ -55,6 +59,21 @@ func TestFromEnvTranscribe(t *testing.T) {
 		if err != nil || e.Transcribe != want {
 			t.Errorf("TRANSCRIBE=%s: %q, %v", in, e.Transcribe, err)
 		}
+	}
+}
+
+// RENDITIONS* set the renditions worker: on, off or auto, how many files
+// at once, each conversion's timeout and each claim's lease.
+func TestFromEnvRenditions(t *testing.T) {
+	e, err := FromEnv(envOf(map[string]string{
+		"RENDITIONS": "Off", "RENDITIONS_CONCURRENCY": "3", "RENDITIONS_TIMEOUT": "10m", "RENDITIONS_LEASE": "20m",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := rendition.Config{Mode: rendition.ModeOff, Concurrency: 3, Timeout: 10 * time.Minute, Lease: 20 * time.Minute}
+	if e.Renditions != want {
+		t.Fatalf("the renditions %+v, want %+v", e.Renditions, want)
 	}
 }
 
@@ -179,6 +198,14 @@ func TestFromEnvRefuses(t *testing.T) {
 		{"PDF_PART_PAGES", "0", "PDF_PART_PAGES"},
 		{"PDF_PART_PAGES", "ten", "PDF_PART_PAGES"},
 		{"TRANSCRIBE", "yes", `TRANSCRIBE: "yes" is not auto, on or off`},
+		{"RENDITIONS", "always", `RENDITIONS: mode "always" is not auto, on or off`},
+		{"RENDITIONS_CONCURRENCY", "0", "RENDITIONS_CONCURRENCY"},
+		{"RENDITIONS_CONCURRENCY", "9", "RENDITIONS: 9 at once is not between 1 and 8"},
+		{"RENDITIONS_TIMEOUT", "soon", "RENDITIONS_TIMEOUT"},
+		{"RENDITIONS_TIMEOUT", "1s", "RENDITIONS: a timeout of 1s"},
+		{"RENDITIONS_TIMEOUT", "2h", "RENDITIONS: a timeout of 2h0m0s"},
+		{"RENDITIONS_LEASE", "30s", "RENDITIONS: a lease of 30s"},
+		{"RENDITIONS_LEASE", "-1m", "RENDITIONS_LEASE"},
 		{"CORE_SERVICE_CREDENTIAL", "aissvc_k7v2m4qhx3ab_SecretOfTheServiceNeverRepeated0123456789", "CORE_SERVICE_CREDENTIAL: not a reference"},
 		{"CORE_SERVICE_CREDENTIAL", "/run/secrets/agent_runtime", "CORE_SERVICE_CREDENTIAL: not a reference"},
 		{"CORE_SERVICE_CREDENTIAL", "secret://core/../agent_runtime", "CORE_SERVICE_CREDENTIAL"},
@@ -274,7 +301,8 @@ func TestEnvHelp(t *testing.T) {
 		"LOG_LEVEL", "LOG_FORMAT", "SECRETS_DIR", "WORKER_ID", "SHUTDOWN_GRACE", "PRICES", "KMS_KEY_ID", "CORE_BASE_URL",
 		"API_ADDR", "API_AUDIENCE", "CORE_ASSERTION_KEY", "ADMIN_ACTOR_IDS", "API_TRUSTED_PROXIES", "OCR", "OCR_LANGUAGES",
 		"OCR_MAX_PAGES", "OCR_DPI", "OCR_PAGE_TIMEOUT", "OCR_TIMEOUT", "OCR_MEMORY_MB", "OCR_CONCURRENCY", "OCR_QUEUE", "OCR_WAIT",
-		"OFFICE_PDF", "OFFICE_PDF_TIMEOUT", "OFFICE_PDF_MAX_PAGES", "OFFICE_PDF_MEMORY_MB", "PDF_PART_PAGES"} {
+		"OFFICE_PDF", "OFFICE_PDF_TIMEOUT", "OFFICE_PDF_MAX_PAGES", "OFFICE_PDF_MEMORY_MB", "PDF_PART_PAGES", "TRANSCRIBE",
+		"CORE_SERVICE_CREDENTIAL", "RENDITIONS", "RENDITIONS_CONCURRENCY", "RENDITIONS_TIMEOUT", "RENDITIONS_LEASE"} {
 		if !strings.Contains(help, "  "+v+" ") {
 			t.Errorf("EnvHelp lacks %s", v)
 		}
