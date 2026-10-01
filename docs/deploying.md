@@ -364,6 +364,62 @@ are converted to `.xlsx` and read as any workbook. `docs/design.md` §4
   checksum, its format, the outcome, pages, size and time, never its
   text.
 
+### Office files previewed as PDF (renditions)
+
+The site previews every Office and OpenDocument file Core keeps (a
+document's file of any kind, and a file a message carries: Word, Excel,
+PowerPoint, OpenDocument, RTF) as a PDF, converted once, on the server, by
+this runtime: Core queues each file as it is recorded, and what it kept
+before (AIShie-Core's migration 0026); the runtime claims them, converts
+each with LibreOffice, and hands the PDF back to Core, which serves it to
+whoever may read the file. `docs/design.md` §13 has how it works.
+
+- **It is on by default, with nothing to configure** but what the runtime
+  has already: LibreOffice (in the image), `CORE_BASE_URL`, and the
+  runtime's own credential in Core
+  ([below](#the-runtimes-own-credential-in-core)), the one it hosts agents
+  with. No AI is involved, it costs the site nothing, and the site's
+  administrators have no switch for it. Without the credential, or with
+  one Core refuses, it converts nothing, says so once in the log, and
+  starts by itself once the credential is there. A Core from before
+  renditions has nothing to convert: the log says so, and the runtime
+  looks again every 10 minutes.
+- **What it costs:** one CPU and up to 2 GiB of memory
+  (`OFFICE_PDF_MEMORY_MB`) a file while it converts, one file at a time
+  per worker (`RENDITIONS_CONCURRENCY`); a lecture's deck takes a few
+  seconds. After an upgrade of Core, the backlog (every Office file
+  there was) is converted the newest first, behind every new file. It
+  keeps nothing in the runtime's database: Core keeps the queue and the
+  PDFs.
+- **What it may reach:** Core alone: the file's URL and the PDF's upload
+  URL Core gives it (fetched and put with no credential, 100 MiB at most);
+  LibreOffice runs as every conversion does
+  ([above](#presentations-and-documents-libreoffice)): no network, a fresh
+  profile, macros off, held in memory and time.
+- **What becomes of a file:** done, with its pages; skipped,
+  `password_protected` (an encrypted Office Open XML or OpenDocument file),
+  `unsupported` (not an Office file at all) or `too_large` (the file past
+  100 MiB, or its PDF past what Core takes, 100 MiB by default); failed,
+  `conversion_failed` (LibreOffice could not open it: damaged, or an older
+  binary file protected by a password) or `timeout`. Core fails a file
+  claimed five times and never finished `attempts_exhausted`. Staff send a
+  failed one back from the site.
+- **The knobs** (in the env file, [below](#the-env-file)): `RENDITIONS`
+  (`auto`, the default; `on`, the runtime does not start where it cannot
+  make them; `off`), `RENDITIONS_CONCURRENCY` (1, at most 8),
+  `RENDITIONS_TIMEOUT` (`5m` a file, 5s to 1h) and `RENDITIONS_LEASE`
+  (`10m`, how long Core holds a file for this worker, renewed every half of
+  it, 1m to 1h). `OFFICE_PDF=off` turns them off too.
+- **Is it on:** the start's log line says `renditions`, and so does
+  `aishie-runtime check`: `renditions: on, 1 at once, each in 5m0s at most,
+  with LibreOffice 25.2.3.2, with the runtime's own credential in Core
+  (CORE_SERVICE_CREDENTIAL)`, or why not.
+- **Watching it:** `rendition_jobs_total{outcome,reason}`,
+  `rendition_seconds`, `rendition_inflight` and
+  `rendition_claim_errors_total{reason}` in `/metrics`. One log line a
+  file, with its ids, extension, sizes, pages, outcome and time, never its
+  name, its URL or what it holds.
+
 To apply a change to the agents, check it, then either tell the runtime to
 read its configuration again, or deploy the image that is running again,
 which checks it first and changes nothing if the new version refuses it:
@@ -403,7 +459,9 @@ API).
 The runtime is a site service of Core's, `agent_runtime`, and holds a
 credential of its own (`aissvc_…`), with which it asks Core whether a
 person owns an agent and may host it, is issued each agent's token by its
-id, and revokes it when the hosting ends. It is the file
+id, and revokes it when the hosting ends; and with which it takes from
+Core the Office files to convert to PDF, and hands back the PDFs
+([above](#office-files-previewed-as-pdf-renditions)). It is the file
 `/etc/aishie-runtime/secrets/core/agent_runtime` (`CORE_SERVICE_CREDENTIAL`,
 `secret://core/agent_runtime` by default, the file `core/agent_runtime`
 under the secrets' mount), which the compose stack (aishie-deploy) writes
@@ -422,7 +480,8 @@ the file at each call, and takes a new one with no restart.) A platform
 administrator can issue one from Core's site too (`service.issue_credential`,
 scope `agent_runtime`). Without it, or with one Core refuses, no agent
 runs: each is in state `error`, reason `runtime_misconfigured`, the log
-says why, and they start by themselves once it is there.
+says why, and they start by themselves once it is there; no Office file
+is converted to PDF either, until it is.
 
 ### Upgrading to hosting by id
 
@@ -769,6 +828,8 @@ running (above): a restart does not read the file again.
 | `OFFICE_PDF_TIMEOUT`, `OFFICE_PDF_MAX_PAGES`, `OFFICE_PDF_MEMORY_MB` | how long one file may take to convert (`2m`), the most pages a PDF made has (`300`), and the memory LibreOffice may take (`2048`). |
 | `PDF_PART_PAGES` | the pages of a PDF given to a model as one file, when it has more: a longer one is given in parts (`10`, and never more than the model's provider takes in a file); the transcriber's ranges of pages too. |
 | `TRANSCRIBE` | `auto` (the default: the transcriber runs when the site's administrators turn it on), `on` (the runtime does not start where it cannot run) or `off` (never, whatever the site says) ([above](#transcribing-the-courses-files)). |
+| `RENDITIONS` | `auto` (the default: the PDF renditions of the Office files Core keeps are made wherever LibreOffice converts and `CORE_BASE_URL` is set), `on` (the runtime does not start where they cannot be) or `off` ([above](#office-files-previewed-as-pdf-renditions)). |
+| `RENDITIONS_CONCURRENCY`, `RENDITIONS_TIMEOUT`, `RENDITIONS_LEASE` | the files a worker converts at once (`1`, at most 8), how long one may take (`5m`, 5s to 1h), and how long Core holds a file for the worker, renewed every half of it (`10m`, 1m to 1h). |
 
 `CONFIG` and `SECRETS_DIR` are set by `aishie-runtime-deploy` to the two
 mounts, whatever the file says. There is no `OIDC_*`: people sign in to
@@ -998,7 +1059,9 @@ else regularly:
 
 ## More than one worker
 
-Workers share agents by lease, in the database, so more than one can run:
+Workers share agents by lease, in the database, so more than one can run
+(each also converts Office files to PDF, as many at once as its own
+`RENDITIONS_CONCURRENCY`, Core giving no file to two):
 on other servers, each with the same configuration and secrets, and the
 same `DATABASE_URL`, which then cannot be `127.0.0.1`. `aishie-runtime-deploy`
 and the Deploy workflow handle one server per environment, with its database
