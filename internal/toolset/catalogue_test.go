@@ -566,7 +566,9 @@ func TestBuiltinDenied(t *testing.T) {
 		"document_text_file", "document_text_renew", "document_text_complete", "service_issue_credential", "service_list_credentials",
 		"service_revoke_credential", "sso_list", "sso_get", "sso_test", "sso_create", "sso_update", "sso_set_enabled", "sso_delete",
 		"agent_runtime_agent", "agent_runtime_check_owner", "agent_runtime_issue_token", "agent_runtime_revoke_token",
-		"conversation_export", "conversation_export_file"}
+		"agent_runtime_rendition_claim", "agent_runtime_rendition_file", "agent_runtime_rendition_renew",
+		"agent_runtime_rendition_upload_url", "agent_runtime_rendition_complete", "document_rendition_retry",
+		"conversation_rendition_retry", "conversation_export", "conversation_export_file"}
 	for _, name := range denied {
 		if !BuiltinDenied(name) {
 			t.Errorf("%s is not denied", name)
@@ -586,17 +588,19 @@ func TestBuiltinDenied(t *testing.T) {
 
 // TestBuiltinDenyNamesTheirOwn: the tools of the snapshot that Core gives
 // no agent's token, the site's agent runtime's service (agent_runtime_*,
-// the service's credential alone) and the export of conversations for
-// audit (conversation_export and _export_file, people alone), are each
-// denied by an entry of their own, not only by the wider agent_* and
-// conversation_*, so that narrowing those never offers one to a model; and
+// the service's credential alone, its renditions among them) and the
+// export of conversations for audit (conversation_export and _export_file,
+// people alone), are each denied by an entry of their own, not only by the
+// wider agent_* and conversation_*, so that narrowing those never offers
+// one to a model; and
 // a seat holding every permission in its owner's conversation, allowed
 // them by name, is offered none, and Run refuses each.
 func TestBuiltinDenyNamesTheirOwn(t *testing.T) {
 	cat := snapshot(t)
 	own := slices.DeleteFunc(slices.Clone(BuiltinDeny), func(e string) bool { return e == "agent_*" || e == "conversation_*" })
 	names := []string{"agent_runtime_agent", "agent_runtime_check_owner", "agent_runtime_issue_token", "agent_runtime_revoke_token",
-		"conversation_export", "conversation_export_file"}
+		"agent_runtime_rendition_claim", "agent_runtime_rendition_file", "agent_runtime_rendition_renew",
+		"agent_runtime_rendition_upload_url", "agent_runtime_rendition_complete", "conversation_export", "conversation_export_file"}
 	for _, name := range names {
 		if _, ok := cat.Tools[name]; !ok {
 			t.Errorf("%s is not in the snapshot", name)

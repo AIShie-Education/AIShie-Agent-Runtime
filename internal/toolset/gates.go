@@ -288,8 +288,18 @@ var BuiltinDeny = []string{
 	// revoked by its id, which the runtime calls with the agent_runtime
 	// service's credential, over REST, as it hosts an agent, and Core
 	// refuses to any other (service_only). agent_* covers them; they are
-	// named for what they are.
+	// named for what they are. So are its renditions (agent_runtime.
+	// rendition_claim, _file, _renew, _upload_url and _complete), the PDFs
+	// it makes of Office files with the same credential: their URLs and
+	// upload tokens are credentials for a course's files.
 	"agent_runtime_*",
+	// Sending a failed PDF rendition of a file back to be converted again
+	// (AIShie-Core's renditions): the conversion is the site's plumbing,
+	// which staff send back from the front end where it failed; a model
+	// has nothing to judge it by, and its PDF is read as Core gives it.
+	// conversation_rendition_retry, a message's file's, is
+	// conversation_*'s.
+	"document_rendition_retry",
 	// Exporting conversations for audit (AIShie-Core #51): every
 	// conversation of the site, a department or a course, retracted
 	// messages with their text, as files whose URLs are credentials for

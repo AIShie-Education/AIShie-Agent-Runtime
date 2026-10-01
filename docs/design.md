@@ -460,7 +460,15 @@ by `Run`; each entry has its reason beside it in the code:
   #52): who owns an agent and how it is hosted, and its one token issued
   and revoked by its id, which the runtime calls itself, over REST, with
   the service's credential, and Core refuses to any other (`service_only`).
+  So are its renditions (`agent_runtime_rendition_claim`, `_file`,
+  `_renew`, `_upload_url`, `_complete`), the PDFs it makes of Office files
+  (§13), whose URLs and upload tokens are credentials for a course's files.
   `agent_*` covers them; they are named for what they are.
+- `document_rendition_retry`: sending a file's failed PDF rendition back to
+  be converted again (§13): the site's plumbing, which staff send back from
+  the front end where it failed, and a model has nothing to judge it by.
+  `conversation_rendition_retry`, a message's file's, is
+  `conversation_*`'s.
 - `conversation_export`, `conversation_export_*`: exporting conversations
   for audit (AIShie-Core #51), every conversation of the site, a
   department or a course, retracted messages with their text, as files
