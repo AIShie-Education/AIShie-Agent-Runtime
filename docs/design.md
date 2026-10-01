@@ -2198,7 +2198,8 @@ Chinese with a table, overran, and was cut off.
     set: `OPENAI_API_KEY` (Chat Completions and Responses),
     `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` (its own API and its OpenAI
     compatible one), `DEEPSEEK_API_KEY`, `BEDROCK_MODEL` with AWS's
-    credentials, and Azure's three, each provider's model in `*_MODEL`
+    credentials (or `AWS_BEARER_TOKEN_BEDROCK`), and Azure's three
+    (`AZURE_OPENAI_*`), each provider's model in `*_MODEL`
     (`OPENAI_RESPONSES_MODEL` for Responses). Each gets a cheap call and a
     tool call's round trip; Chat Completions and Anthropic an answer
     streamed; and OpenAI's two APIs, Anthropic and Gemini every tool of

@@ -88,7 +88,9 @@ GHCR as `:sha-<commit>` and `:edge`, which edge servers pull within five
 minutes ([AIShie-Deploy](https://github.com/AIShie-Education/AIShie-Deploy)).
 When pushes come faster than they are published, one that a newer push
 overtakes while it waits is not published. A release is made by a tag, from
-`main`:
+`main`. Run `make live-core` on the commit to be tagged first, and
+`make live` where you have the providers' keys: the release re-runs CI,
+which runs neither (docs/design.md §10).
 
 ```
 git switch main && git pull
@@ -169,8 +171,9 @@ Before the first push to `main` after the CD workflows land, in GitHub:
   repository was private and GitHub Free gave it no environment variables
   or secrets.
   For `live.yml`, each provider's key as a secret (`OPENAI_API_KEY`, …) and
-  its model as a variable (`OPENAI_MODEL`, …); a provider without a key is
-  skipped.
+  its model as a variable (`OPENAI_MODEL`, …), and Azure's endpoint and
+  deployment as variables (`AZURE_OPENAI_BASE_URL`,
+  `AZURE_OPENAI_DEPLOYMENT`); a provider without a key is skipped.
 - **Minutes and storage**: the repository is public, so its Actions minutes
   on GitHub's standard runners cost nothing, and neither does a public
   package's storage. Every push to `main` runs the whole of CI, the end to
