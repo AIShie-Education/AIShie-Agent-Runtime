@@ -347,14 +347,15 @@ func TestHandoverIsNotATakeover(t *testing.T) {
 }
 
 // hangingLeases is a store whose agent leases, once hung, are never
-// answered until the caller gives up; it notes how long the caller gave
-// each, by its context's deadline (-1 for none), and whether running said
-// the agent was running when each began.
+// answered until the caller gives up; it notes when each began, how long
+// the caller gave each, by its context's deadline (-1 for none), and
+// whether running said the agent was running when each began.
 type hangingLeases struct {
 	store.Store
 	hung    atomic.Bool
 	running func() bool // set before hung
 	mu      sync.Mutex
+	began   []time.Time
 	given   []time.Duration
 	ran     []bool
 }
@@ -367,6 +368,7 @@ func (s *hangingLeases) AcquireLease(ctx context.Context, name, holder string, t
 		}
 		ran := s.running()
 		s.mu.Lock()
+		s.began = append(s.began, time.Now())
 		s.given = append(s.given, given)
 		s.ran = append(s.ran, ran)
 		s.mu.Unlock()
@@ -378,40 +380,42 @@ func (s *hangingLeases) AcquireLease(ctx context.Context, name, holder string, t
 
 // TestLeaseRenewalThatHangsStopsTheAgent: a store that stops answering
 // the renewal of an agent's lease has failed to renew it; the agent stops
-// well within the lease's life, not when the store answers, which it never
-// does. How long the renewal waits is read off the deadline it gives the
-// store, which is what the supervisor decides, not off how long a busy
-// machine takes to stop the agent after it; and that the agent stops at
-// the first renewal that fails, not at a later one, off whether it was
-// still running when the next began: a busy machine makes the ticks
-// later, never fewer.
+// at the first renewal that fails, before the lease would lapse, not when
+// the store answers, which it never does. The lease lasts six seconds
+// here, so that the bound is the lease's and not how fast a busy machine
+// is: a renewal waits two of them at most, read off the deadline it gives
+// the store, which is what the supervisor decides; and the agent has
+// stopped, its last call ended, before the lease's six seconds from the
+// first renewal that hung are out, as the next renewal begins, which
+// happens only once the stop is over. That it stops at the first renewal
+// that fails, not at a later one, is read off whether it was still
+// running when the next began: a busy machine makes the ticks later,
+// never fewer.
 func TestLeaseRenewalThatHangsStopsTheAgent(t *testing.T) {
+	const ttl = 6 * time.Second
 	w := newWorld(t)
 	own := w.ownAgent("yuki-helper", 0)
 	st := &hangingLeases{Store: memstore.New()}
-	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": scripted.New()}, workerOpts{store: st})
+	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": scripted.New()}, workerOpts{
+		store: st, edit: func(o *Options) { o.Timing.LeaseTTL = ttl },
+	})
 	eventually(t, "the inbox polled", func() bool { return len(w.calls(own.actor.ID, "conversation_inbox")) > 0 })
 	st.running = func() bool {
 		s := wk.sup.Status()
 		return len(s) == 1 && s[0].Running
 	}
 	st.hung.Store(true)
-	eventually(t, "the agent stopped", func() bool {
-		s := wk.sup.Status()
-		return len(s) == 1 && !s[0].Running
-	})
-	eventually(t, "three renewals hung", func() bool {
+	within(t, 2*ttl, "two renewals hung", func() bool {
 		st.mu.Lock()
 		defer st.mu.Unlock()
-		return len(st.given) >= 3
+		return len(st.began) >= 2
 	})
 	st.mu.Lock()
-	given, ran := slices.Clone(st.given), slices.Clone(st.ran)
+	began, given, ran := slices.Clone(st.began), slices.Clone(st.given), slices.Clone(st.ran)
 	st.mu.Unlock()
-	// The harness's lease lasts 1 s: a renewal waits a third of it.
 	for i, g := range given {
-		if g < 0 || g > time.Second/3 {
-			t.Errorf("hung renewal %d was given %v (-1: no deadline); want a third of the lease's second at most (all: %v)", i+1, g, given)
+		if g < 0 || g > ttl/3 {
+			t.Errorf("hung renewal %d was given %v (-1: no deadline); want a third of the lease's %v at most (all: %v)", i+1, g, ttl, given)
 		}
 	}
 	if !ran[0] {
@@ -419,5 +423,8 @@ func TestLeaseRenewalThatHangsStopsTheAgent(t *testing.T) {
 	}
 	if i := slices.Index(ran[1:], true); i >= 0 {
 		t.Errorf("the agent still ran when renewal %d of its lease began to hang, %d after the first: %v", i+2, i+1, ran)
+	}
+	if d := began[1].Sub(began[0]); d >= ttl {
+		t.Errorf("the agent stopped %v after its lease's renewal first hung, past the lease's %v", d.Round(time.Millisecond), ttl)
 	}
 }
