@@ -2,10 +2,10 @@ name: Live providers
 
 # The adapters against the real model APIs, nightly (Core's
 # docs/agent-runtime.md §8.2 item 4): each provider whose key is set gets a
-# cheap call and a tool call round trip; OpenAI's two APIs, Anthropic and
-# Gemini also get every tool of the pinned catalogue declared at 16 output
-# tokens, in requests of at most 128 tools (OpenAI's most), so that the
-# provider itself checks the schemas. A provider without a key is skipped,
+# cheap call, and each but Anthropic a tool call round trip; OpenAI's two
+# APIs, Anthropic and Gemini also get every tool of the pinned catalogue
+# declared at 16 output tokens, in requests of at most 128 tools (OpenAI's
+# most), so that the provider itself checks the schemas. A provider without a key is skipped,
 # and the log says so: a run with no key at all passes having tried
 # nothing. The live tests against a real Core are not run here: make
 # live-core (docs/design.md §10).

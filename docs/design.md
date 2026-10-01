@@ -2292,15 +2292,16 @@ Chinese with a table, overran, and was cut off.
     compatible one), `DEEPSEEK_API_KEY`, `BEDROCK_MODEL` with AWS's
     credentials (or `AWS_BEARER_TOKEN_BEDROCK`), and Azure's three
     (`AZURE_OPENAI_*`), each provider's model in `*_MODEL`
-    (`OPENAI_RESPONSES_MODEL` for Responses). Each gets a cheap call and a
-    tool call's round trip; Chat Completions and Anthropic an answer
-    streamed; and OpenAI's two APIs, Anthropic and Gemini every tool of
-    the pinned catalogue declared at 16 output tokens, Core's own schemas,
-    in requests of at most 128 tools (`livetest.MaxTools`: OpenAI takes no
-    more, and the catalogue has 168), so that the provider itself checks
-    every schema. `live.yml` runs it nightly with the repository's keys, and its
-    log names each provider tried or skipped; run it by hand when an
-    adapter changes, or a provider's API or the default models do.
+    (`OPENAI_RESPONSES_MODEL` for Responses). Each gets a cheap call, and
+    each but Anthropic a tool call's round trip; Chat Completions and
+    Anthropic an answer streamed; and OpenAI's two APIs, Anthropic and
+    Gemini every tool of the pinned catalogue declared at 16 output
+    tokens, Core's own schemas, in requests of at most 128 tools
+    (`livetest.MaxTools`: OpenAI takes no more, and the catalogue has
+    168), so that the provider itself checks every schema. `live.yml` runs
+    it nightly with the repository's keys, and its log names each provider
+    tried or skipped; run it by hand when an adapter changes, or a
+    provider's API or the default models do.
   - `make live-core`, Core's client and a seat's toolset against a
     throwaway Core (`scripts/live-core.sh`: the pinned image, or `CORE_BIN`,
     on a scratch database, started with a limit of 600 calls a minute), with
