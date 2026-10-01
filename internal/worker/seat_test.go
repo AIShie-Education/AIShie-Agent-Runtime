@@ -38,13 +38,15 @@ func wrapCaller(wrap func(next core.Caller) core.Caller) func(*Options) {
 	}
 }
 
-// countCalls has the worker's agents connect as by default, counting in
-// began the calls the agent id begins, as it begins them: unlike the fake
-// Core's log, which has a call when it ends, it counts nothing that was in
-// flight when the agent stopped.
+// countCalls has the worker's agents connect as by default, or as an
+// earlier edit has them, counting in began the calls the agent id begins,
+// as it begins them: unlike the fake Core's log, which has a call when it
+// ends, it counts nothing that was in flight when the agent stopped.
 func countCalls(id string, began *atomic.Int32) func(*Options) {
 	return func(o *Options) {
-		wrapCaller(func(next core.Caller) core.Caller { return next })(o)
+		if o.NewCaller == nil {
+			wrapCaller(func(next core.Caller) core.Caller { return next })(o)
+		}
 		connect := o.NewCaller
 		o.NewCaller = func(a *config.Agent, token string, cat *core.Catalogue) (core.Caller, error) {
 			c, err := connect(a, token, cat)

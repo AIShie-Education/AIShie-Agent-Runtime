@@ -185,13 +185,14 @@ func TestHostedAgentsRunBesideYAML(t *testing.T) {
 	if len(cfg.Agents) != 2 || len(cfg.Rejected) != 1 {
 		t.Fatalf("agents %d, rejected %+v", len(cfg.Agents), cfg.Rejected)
 	}
-	// The hosted agent's calls are counted as it begins them, on its
-	// connection to Core.
-	var began atomic.Int32
+	// The agents' calls are counted as they begin them, on their
+	// connections to Core.
+	var began, yamlBegan atomic.Int32
 	wk := w.start(cfg, models{"m1": scripted.New(scripted.Reply("From the registry.")), "m2": scripted.New(scripted.Reply("From YAML."))},
 		workerOpts{id: "w1", store: h.st, edit: func(o *Options) {
 			h.options(o)
 			countCalls("agt_yuki", &began)(o)
+			countCalls("cs101-tutor", &yamlBegan)(o)
 		}})
 
 	wk.waitState("agt_yuki", store.AgentRunning)
@@ -236,15 +237,15 @@ func TestHostedAgentsRunBesideYAML(t *testing.T) {
 	// Not running is its pollers and its answers returned: whatever it
 	// calls after this, it began after. The calls are those it begins, not
 	// those the fake Core logs, which logs a poll the pause cancelled as it
-	// ends, on a busy machine after the agent has stopped; a busy machine
-	// fits fewer lease ticks and inbox intervals in the 200 ms, never more
-	// calls.
+	// ends, on a busy machine after the agent has stopped; and "no more" is
+	// over ten calls the YAML agent, still running, begins meanwhile, not
+	// over a time, in which a busy machine would poll less.
 	eventually(t, "the hosted agent stopped", func() bool { return !wk.statusOf("agt_yuki").Running })
-	n := began.Load()
+	n, other := began.Load(), yamlBegan.Load()
 	if n == 0 {
 		t.Fatal("none of the hosted agent's calls was counted")
 	}
-	time.Sleep(200 * time.Millisecond)
+	eventually(t, "ten calls more by the YAML agent", func() bool { return yamlBegan.Load() >= other+10 })
 	if more := began.Load() - n; more != 0 {
 		t.Errorf("%d calls to Core begun by the paused agent", more)
 	}
