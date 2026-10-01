@@ -48,6 +48,7 @@ type Store interface {
 	Reports
 	Audit
 	OCRTexts
+	SearchIndex
 	Site
 	SitePrices
 	Transcription
