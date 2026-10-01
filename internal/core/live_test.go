@@ -360,6 +360,11 @@ func TestLiveContract(t *testing.T) {
 			t.Errorf("the catalogue lacks %s", name)
 		}
 	}
+	for _, tl := range cat.Tools() {
+		if !offered[tl.MCPName] && !slices.Contains(restOnly, tl.MCPName) {
+			t.Errorf("tools/list does not offer %s", tl.MCPName)
+		}
+	}
 	if len(listed) != cat.Len()-len(restOnly) {
 		t.Errorf("tools/list offers %d tools, GET /v1/tools %d, of which %d are the services' over REST alone", len(listed), cat.Len(), len(restOnly))
 	}
@@ -518,7 +523,8 @@ func TestLiveContract(t *testing.T) {
 
 	// 401: a token that was never issued, then the tutor's own, revoked by
 	// the runtime as it stops hosting the tutor. Sato sees it listed as the
-	// runtime's, and Yuki can ask the tutor nothing more.
+	// runtime's, live and then revoked, and Yuki can ask the tutor nothing
+	// more.
 	for _, c := range []Caller{
 		NewMCPCaller(MCPOptions{BaseURL: base, Token: "ais_bogus_" + run}),
 		NewRESTCaller(RESTOptions{BaseURL: base, Token: "ais_bogus_" + run, Catalogue: cat}),
@@ -527,21 +533,29 @@ func TestLiveContract(t *testing.T) {
 			t.Fatalf("%T with a bogus token: %v", c, err)
 		}
 	}
-	var creds struct {
-		Credentials []struct {
-			ID        string  `json:"id"`
-			IssuedTo  *string `json:"issued_to"`
-			RevokedAt *string `json:"revoked_at"`
-		} `json:"credentials"`
+	// tutorCredential is the tutor's one credential as Sato sees it: the
+	// runtime's, and revoked or not as revoked says.
+	tutorCredential := func(revoked bool) {
+		t.Helper()
+		var creds struct {
+			Credentials []struct {
+				ID        string  `json:"id"`
+				IssuedTo  *string `json:"issued_to"`
+				RevokedAt *string `json:"revoked_at"`
+			} `json:"credentials"`
+		}
+		raw, _ := json.Marshal(rest.call(200, "GET", "/v1/me/agents/"+tutorID+"/credentials", sato, nil))
+		if err := json.Unmarshal(raw, &creds); err != nil || len(creds.Credentials) != 1 || creds.Credentials[0].ID != issued.CredentialID ||
+			creds.Credentials[0].IssuedTo == nil || *creds.Credentials[0].IssuedTo != "agent_runtime" ||
+			(creds.Credentials[0].RevokedAt != nil) != revoked {
+			t.Fatalf("the tutor's credentials (revoked %v): %s %v", revoked, raw, err)
+		}
 	}
-	raw, _ := json.Marshal(rest.call(200, "GET", "/v1/me/agents/"+tutorID+"/credentials", sato, nil))
-	if err := json.Unmarshal(raw, &creds); err != nil || len(creds.Credentials) != 1 || creds.Credentials[0].ID != issued.CredentialID ||
-		creds.Credentials[0].IssuedTo == nil || *creds.Credentials[0].IssuedTo != "agent_runtime" {
-		t.Fatalf("the tutor's credentials: %s %v", raw, err)
-	}
+	tutorCredential(false)
 	if revoked, err := svc.RevokeToken(ctx, tutorID); err != nil || len(revoked) != 1 || revoked[0] != issued.CredentialID {
 		t.Fatalf("the runtime revoked the tutor's token: %v %v", revoked, err)
 	}
+	tutorCredential(true)
 	if revoked, err := svc.RevokeToken(ctx, tutorID); err != nil || len(revoked) != 0 {
 		t.Fatalf("the runtime revoked the tutor's token again: %v %v", revoked, err)
 	}
