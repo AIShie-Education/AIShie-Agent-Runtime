@@ -22,12 +22,13 @@ func passage(kind string, n, offset int, text string) store.SearchPassage {
 // its passages in place of any it had; a search reads the files it names,
 // each at the revision it names and in the course it names, and no other,
 // those passages that hold any of its terms, those that hold the most
-// first, then by version, key and place, bytewise, at most its limit,
-// with how many passages hold each term and how many and how long they
-// are in all; using files marks them needed, and says the revisions they
-// are kept at and how many passages they have; files are dropped by version, by document, and when no
-// search has needed them since a time; what a store must not keep is
-// refused.
+// first, of those the shortest, then by version, key and place, bytewise,
+// at most its limit, with how many passages hold each term and how many
+// and how long they are in all; using files marks them needed, once a
+// store.SearchUseGrain at most, and says the revisions they are kept at
+// and how many passages they have; files are dropped by version, by
+// document, and when no search has needed them since a time; what a store
+// must not keep is refused.
 func testSearchIndex(t *testing.T, open Opener) {
 	s := open(t)
 	ctx := t.Context()
@@ -90,9 +91,10 @@ func testSearchIndex(t *testing.T, open Opener) {
 	for _, p := range m.Passages {
 		found = append(found, p.Key[len(p.Key)-4:]+":"+string(rune('0'+p.Seq)))
 	}
-	// Slide 2 holds all three, slide 1 and the handout two each, in the
-	// order of their keys; another course's file is never searched.
-	if want := []string{"f001:1", "f001:0", "f002:0"}; !slices.Equal(found, want) {
+	// Slide 2 holds all three, slide 1 and the handout two each, the
+	// handout's passage the shorter; another course's file is never
+	// searched.
+	if want := []string{"f001:1", "f002:0", "f001:0"}; !slices.Equal(found, want) {
 		t.Errorf("found %v, want %v", found, want)
 	}
 	if want := map[string]int{"合併": 3, "排序": 3, "複雜": 1}; !reflect.DeepEqual(m.DF, want) {
@@ -142,11 +144,16 @@ func testSearchIndex(t *testing.T, open Opener) {
 
 	// Purged when unused since a time: the deck, put again and so used at
 	// the store's now, stays; the others, used at two hours, stay until a
-	// time past it, and the body, used again at five, past that.
+	// time past it. Used again within a SearchUseGrain of its last use (the
+	// handout, at five hours) a file keeps that use; past it (the body, a
+	// day and three hours on), it is marked used then.
 	if n, err := s.PurgeSearchFiles(ctx, at(90*time.Minute)); err != nil || n != 0 {
 		t.Errorf("PurgeSearchFiles before an hour and a half: %d %v (each was used at two hours or later)", n, err)
 	}
-	if _, err := s.UseSearchFiles(ctx, course, []store.SearchFileKey{key(v2, store.SearchBody)}, at(5*time.Hour)); err != nil {
+	if _, err := s.UseSearchFiles(ctx, course, []store.SearchFileKey{key(v1, handout)}, at(5*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UseSearchFiles(ctx, course, []store.SearchFileKey{key(v2, store.SearchBody)}, at(store.SearchUseGrain+3*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if n, err := s.PurgeSearchFiles(ctx, at(3*time.Hour)); err != nil || n != 3 {
@@ -157,8 +164,32 @@ func testSearchIndex(t *testing.T, open Opener) {
 		t.Errorf("after the purge: %v %v", got, err)
 	}
 
+	// Of passages that hold as many of the terms, past the limit, the
+	// shortest are given, whatever their versions' ids.
+	long := strings.Repeat("Recursion is a function that calls itself; a long passage says it once among many words. ", 6)
+	var tied []store.SearchPassage
+	for i := range 5 {
+		tied = append(tied, passage("", 0, i*len(long), long))
+	}
+	crowd := store.SearchFile{CourseID: course, DocumentID: doc1, VersionID: v1, Key: slides, Revision: "text:5", Source: store.SourceAI, Passages: tied}
+	short := store.SearchFile{CourseID: course, DocumentID: doc2, VersionID: v2, Key: handout, Revision: "text:1", Source: store.SourceAI,
+		Passages: []store.SearchPassage{passage("", 0, 0, "Recursion, in short.")}}
+	for _, f := range []store.SearchFile{crowd, short} {
+		if err := s.PutSearchFile(ctx, f); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if m, err := s.SearchPassages(ctx, store.SearchQuery{CourseID: course, Files: []store.SearchFileRef{ref(v1, slides, "text:5"),
+		ref(v2, handout, "text:1")}, Terms: []string{"recursion"}, Limit: 2}); err != nil || len(m.Passages) != 2 ||
+		m.Passages[0].VersionID != v2 || m.Passages[1].VersionID != v1 || m.DF["recursion"] != 6 || m.Total != 6 {
+		t.Errorf("ties past the limit: %+v %v", m, err)
+	}
+	if _, err := s.DropSearchVersions(ctx, []string{v1, v2}); err != nil {
+		t.Fatal(err)
+	}
+
 	// Dropped by version, and by document.
-	for _, f := range []store.SearchFile{notes, empty} {
+	for _, f := range []store.SearchFile{deck, notes, body, empty} {
 		if err := s.PutSearchFile(ctx, f); err != nil {
 			t.Fatal(err)
 		}

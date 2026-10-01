@@ -15,7 +15,9 @@ import (
 // index of text[], which every PostgreSQL has and no locale changes.
 
 // UseSearchFiles is what is kept of the files of keys in the course, of
-// those kept; it marks them needed at at.
+// those kept; it marks them needed at at, those last marked before
+// store.SearchUseGrain before it: a search rewrites a file's row once a
+// day at most, not at every search.
 func (s *Store) UseSearchFiles(ctx context.Context, courseID string, keys []store.SearchFileKey, at time.Time) (map[store.SearchFileKey]store.SearchFileState, error) {
 	versions, names := make([]string, len(keys)), make([]string, len(keys))
 	for i, k := range keys {
@@ -26,11 +28,11 @@ func (s *Store) UseSearchFiles(ctx context.Context, courseID string, keys []stor
 		     used AS (UPDATE search_file f SET used_at = COALESCE($4::timestamptz, now())
 		                FROM k
 		               WHERE f.course_id = $1 AND f.version_id = k.version_id AND f.file_key = k.file_key
-		                 AND f.used_at < COALESCE($4::timestamptz, now())
+		                 AND f.used_at < COALESCE($4::timestamptz, now()) - $5::interval
 		              RETURNING f.version_id)
 		SELECT f.version_id, f.file_key, f.revision, f.passages
 		  FROM search_file f JOIN k USING (version_id, file_key)
-		 WHERE f.course_id = $1`, courseID, versions, names, orNow(at))
+		 WHERE f.course_id = $1`, courseID, versions, names, orNow(at), store.SearchUseGrain)
 	if err != nil {
 		return nil, fmt.Errorf("store: use search files: %w", err)
 	}
@@ -98,8 +100,9 @@ const searchScope = `
 		 WHERE f.course_id = $1)`
 
 // SearchPassages are the passages of q.Files, each at its revision, that
-// hold any of q.Terms, those that hold the most of them first, then by
-// version, key and place, bytewise; with what they are scored against.
+// hold any of q.Terms, those that hold the most of them first, of those
+// the shortest, then by version, key and place, bytewise; with what they
+// are scored against.
 // One snapshot reads all three.
 func (s *Store) SearchPassages(ctx context.Context, q store.SearchQuery) (store.SearchMatches, error) {
 	out := store.SearchMatches{DF: map[string]int{}}
@@ -134,7 +137,7 @@ func (s *Store) SearchPassages(ctx context.Context, q store.SearchQuery) (store.
 			SELECT p.version_id, p.file_key, p.seq, p.section_kind, p.section_n, p.start_offset, p.part, p.text, p.terms, p.length
 			  FROM search_passage p JOIN scope USING (version_id, file_key)
 			 WHERE p.terms && $5::text[]
-			 ORDER BY (SELECT count(*) FROM unnest(p.terms) AS t WHERE t = ANY($5::text[])) DESC,
+			 ORDER BY (SELECT count(*) FROM unnest(p.terms) AS t WHERE t = ANY($5::text[])) DESC, p.length,
 			          p.version_id COLLATE "C", p.file_key COLLATE "C", p.seq
 			 LIMIT $6`, q.CourseID, versions, keys, revisions, terms, max(q.Limit, 0))
 		if err != nil {

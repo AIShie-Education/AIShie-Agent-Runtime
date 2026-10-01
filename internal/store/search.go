@@ -84,9 +84,16 @@ type SearchQuery struct {
 	Files    []SearchFileRef
 	Terms    []string
 	// Limit bounds the passages returned: those that hold the most of
-	// Terms, and then by version, key and place.
+	// Terms, of those the shortest (in terms, which BM25 scores the higher
+	// for a term held as often), and then by version, key and place.
 	Limit int
 }
+
+// SearchUseGrain is how finely a file's use is kept: using a file marks it
+// needed only where it was last marked longer ago than this, so that a
+// search does not rewrite every file it reads, for a retention counted in
+// days.
+const SearchUseGrain = 24 * time.Hour
 
 // SearchMatches are what a SearchQuery found.
 type SearchMatches struct {
@@ -169,8 +176,9 @@ func validText(s string) bool { return utf8.ValidString(s) && !strings.ContainsR
 // in the course, each search narrowed to the files its seat may read.
 type SearchIndex interface {
 	// UseSearchFiles is what is kept of the files of keys in the course,
-	// of those kept; it marks them needed at at, so that they are not
-	// purged while searches need them.
+	// of those kept; it marks them needed at at (where they were last
+	// marked before at less SearchUseGrain), so that they are not purged
+	// while searches need them.
 	UseSearchFiles(ctx context.Context, courseID string, keys []SearchFileKey, at time.Time) (map[SearchFileKey]SearchFileState, error)
 	// PutSearchFile keeps f, its passages in place of any its file had.
 	PutSearchFile(ctx context.Context, f SearchFile) error

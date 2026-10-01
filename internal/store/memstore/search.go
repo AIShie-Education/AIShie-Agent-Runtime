@@ -10,7 +10,8 @@ import (
 )
 
 // UseSearchFiles is what is kept of the files of keys in the course, of
-// those kept; it marks them needed at at.
+// those kept; it marks them needed at at, those last marked before
+// store.SearchUseGrain before it.
 func (s *Store) UseSearchFiles(_ context.Context, courseID string, keys []store.SearchFileKey, at time.Time) (map[store.SearchFileKey]store.SearchFileState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -22,7 +23,7 @@ func (s *Store) UseSearchFiles(_ context.Context, courseID string, keys []store.
 			continue
 		}
 		out[k] = store.SearchFileState{Revision: f.Revision, Passages: len(f.Passages)}
-		if f.UsedAt.Before(at) {
+		if f.UsedAt.Before(at.Add(-store.SearchUseGrain)) {
 			f.UsedAt = at
 			s.search[k] = f
 		}
@@ -47,8 +48,9 @@ func (s *Store) PutSearchFile(_ context.Context, f store.SearchFile) error {
 }
 
 // SearchPassages are the passages of q.Files, each at its revision, that
-// hold any of q.Terms, those that hold the most of them first, then by
-// version, key and place; with what they are scored against.
+// hold any of q.Terms, those that hold the most of them first, of those
+// the shortest, then by version, key and place; with what they are scored
+// against.
 func (s *Store) SearchPassages(_ context.Context, q store.SearchQuery) (store.SearchMatches, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -86,8 +88,8 @@ func (s *Store) SearchPassages(_ context.Context, q store.SearchQuery) (store.Se
 		}
 	}
 	slices.SortFunc(all, func(a, b found) int {
-		return cmp.Or(cmp.Compare(b.matched, a.matched), cmp.Compare(a.m.VersionID, b.m.VersionID), cmp.Compare(a.m.Key, b.m.Key),
-			cmp.Compare(a.m.Seq, b.m.Seq))
+		return cmp.Or(cmp.Compare(b.matched, a.matched), cmp.Compare(a.m.Length, b.m.Length), cmp.Compare(a.m.VersionID, b.m.VersionID),
+			cmp.Compare(a.m.Key, b.m.Key), cmp.Compare(a.m.Seq, b.m.Seq))
 	})
 	for _, f := range all {
 		if len(out.Passages) >= q.Limit {
