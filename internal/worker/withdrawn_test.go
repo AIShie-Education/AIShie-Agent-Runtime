@@ -280,7 +280,10 @@ func TestWithdrawnBeforeWritingBegins(t *testing.T) {
 // and the question is not tried again. The seat's events are read on a
 // schedule of 30 s: the retraction is seen by their long poll while the
 // answer is being written, or, where Core refuses a draft once the question
-// is withdrawn, by that too.
+// is withdrawn, by that too. A read of the inbox from before the
+// withdrawal may come back only once the answer has stopped, and start a
+// second claim, which reads the question withdrawn and drops it too,
+// asking no model: the ledger may say dropped twice, and says nothing else.
 func TestWithdrawnStopsTheAnswer(t *testing.T) {
 	for _, c := range []struct {
 		name string
@@ -316,8 +319,8 @@ func TestWithdrawnStopsTheAnswer(t *testing.T) {
 			}
 			eventually(t, "the answer dropped", func() bool { return len(wk.st.outcomes(conv)) > 0 })
 			w.settled(own, 2)
-			if o := wk.st.outcomes(conv); !slices.Equal(o, []string{store.OutcomeDropped}) {
-				t.Errorf("outcomes %v", o)
+			if o := wk.st.outcomes(conv); slices.ContainsFunc(o, func(o string) bool { return o != store.OutcomeDropped }) {
+				t.Errorf("outcomes %v, want dropped alone", o)
 			}
 			if err := model.Err(); err != nil {
 				t.Errorf("the question was tried again: %v", err)
