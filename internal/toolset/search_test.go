@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +17,8 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext/doctexttest"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/office"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/memstore"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolschema"
@@ -74,6 +77,8 @@ type sdoc struct {
 	latest          *sversion
 	withheld        bool
 	purged          bool
+	// sortOrder is its place in the course, as staff set it.
+	sortOrder int
 }
 
 // searchCore is Core as the search reads it, for one seat: document_list
@@ -93,6 +98,11 @@ type searchCore struct {
 	files map[string]sfile
 	// refuseList is the code document_list is refused with, "" for none.
 	refuseList string
+	// texts are the text versions document_text gives, by file, whose
+	// document_get gives none whole; failText how many of its calls fail
+	// first.
+	texts    map[string]string
+	failText int
 }
 
 func newSearchCore(t *testing.T, docs ...*sdoc) *searchCore {
@@ -175,8 +185,8 @@ func (c *searchCore) respond(_ context.Context, tool string, args json.RawMessag
 			if d.purged {
 				purged = `"2026-09-30T00:00:00Z"`
 			}
-			docs = append(docs, fmt.Sprintf(`{"id":%q,"kind":%q,"title":%q,"sort_order":0,"status":"active","created_at":"2026-09-01T00:00:00Z","purged_at":%s}`,
-				d.id, d.kind, d.title, purged))
+			docs = append(docs, fmt.Sprintf(`{"id":%q,"kind":%q,"title":%q,"sort_order":%d,"status":"active","created_at":"2026-09-01T00:00:00Z","purged_at":%s}`,
+				d.id, d.kind, d.title, d.sortOrder, purged))
 		}
 		return executed(`{"documents":[` + strings.Join(docs, ",") + `]}`), nil
 	case "document_get":
@@ -197,6 +207,21 @@ func (c *searchCore) respond(_ context.Context, tool string, args json.RawMessag
 			return executed(c.documentResult(d, v)), nil
 		}
 		return &core.Envelope{Status: core.StatusFailed, Error: &core.Error{Code: core.CodeNotFound, Message: "no such document"}}, nil
+	case core.ToolText:
+		var ta struct {
+			FileID string `json:"file_id"`
+		}
+		_ = json.Unmarshal(args, &ta)
+		body, ok := c.texts[ta.FileID]
+		if c.failText > 0 || !ok {
+			c.failText--
+			return &core.Envelope{Status: core.StatusFailed, Error: &core.Error{Code: "internal", Message: "try again"}}, nil
+		}
+		f := c.files[ta.FileID]
+		view := *f.text
+		view.Body = &body
+		raw, _ := json.Marshal(core.TextPart{DocumentID: a.DocumentID, VersionID: a.VersionID, FileID: ta.FileID, Text: view, Part: 1, Parts: 1})
+		return executed(string(raw)), nil
 	}
 	return executed(`{}`), nil
 }
@@ -275,9 +300,16 @@ func course() []*sdoc {
 	}
 }
 
-// searchSet is a tutor's reads with the search, declared for OpenAI.
+// searchSet is a tutor's reads with the search, declared for OpenAI: made
+// once, and shared, since a Set does not change and the tests make
+// hundreds of calls through it.
 func searchSet(t testing.TB) *Set {
 	t.Helper()
+	builtSearchSet.Lock()
+	defer builtSearchSet.Unlock()
+	if builtSearchSet.s != nil {
+		return builtSearchSet.s
+	}
 	s, err := snapshot(t).Build(tutorPerms, config.Tools{}, ReadOnly, toolschema.OpenAI, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -285,7 +317,13 @@ func searchSet(t testing.TB) *Set {
 	if s, err = s.WithSearch(config.Tools{}, toolschema.OpenAI, nil); err != nil {
 		t.Fatal(err)
 	}
+	builtSearchSet.s = s
 	return s
+}
+
+var builtSearchSet struct {
+	sync.Mutex
+	s *Set
 }
 
 // searchRunner is a runner of c, keeping its search in index, for one
@@ -316,6 +354,7 @@ type searchResultOf struct {
 			TextSource string    `json:"text_source"`
 			Excerpt    string    `json:"excerpt"`
 			Read       *nextPart `json:"read"`
+			ReadNote   string    `json:"read_note"`
 		} `json:"hits"`
 		Page     int       `json:"page"`
 		More     bool      `json:"more"`
@@ -346,6 +385,21 @@ func searchFor(t *testing.T, r Runner, args string) (searchResultOf, llm.Part) {
 	return out, parts[0]
 }
 
+// readHit makes a hit's read call on r, as the model would, and returns
+// its result.
+func readHit(t *testing.T, r Runner, read *nextPart) map[string]any {
+	t.Helper()
+	if read == nil {
+		t.Fatal("the hit names no call that reads it")
+	}
+	args, _ := json.Marshal(read.Arguments)
+	parts, err := searchSet(t).Run(context.Background(), r, courseID, []llm.Part{call("g", read.Tool, string(args))})
+	if err != nil || parts[0].IsError {
+		t.Fatalf("the hit's read: %v %+v", err, parts)
+	}
+	return contentOf(t, parts[0])
+}
+
 // hitsOf are a result's hits, each "document version where".
 func hitsOf(res searchResultOf) []string {
 	var out []string
@@ -373,9 +427,14 @@ func TestSearchFindsPassagesInChineseAndEnglish(t *testing.T) {
 		!strings.Contains(h.Excerpt, "排序的複雜度") || h.TextSource != "the runtime's text of the file" {
 		t.Errorf("the first hit: %+v", h)
 	}
-	if want := map[string]any{"document_id": docSlides, "version_id": verSlides1, FileIDArg: sfileSlides1}; h.Read == nil ||
-		h.Read.Tool != FilePartTool || fmt.Sprint(h.Read.Arguments) != fmt.Sprint(want) {
+	if want := map[string]any{"document_id": docSlides, "version_id": verSlides1, FileIDArg: sfileSlides1, FilePagesArg: "2"}; h.Read == nil ||
+		h.Read.Tool != FilePartTool || fmt.Sprint(h.Read.Arguments) != fmt.Sprint(want) || h.ReadNote != "" {
 		t.Errorf("the call that reads it: %+v", h.Read)
+	}
+	// Made as it is, the call gives that slide's text alone.
+	if got := readHit(t, r, h.Read); got["file_text"] != "## Slide 2: 排序的複雜度\n- 合併排序：O(n log n)\nNotes: Ask who has seen quicksort." ||
+		got["file"].(map[string]any)["part_holds"] != "slide 2" {
+		t.Errorf("the hit's read gives %v", got)
 	}
 	if got := res.Result.Searched; got.Documents != 4 || got.Files != 4 || got.WithoutText != 0 || got.NotYet != 0 {
 		t.Errorf("searched %+v: a student reads four documents (not the draft, nor the instructions withheld), of four texts", got)
@@ -561,9 +620,10 @@ func TestSearchSaysWhatItCannotRead(t *testing.T) {
 	for _, d := range view.docs {
 		files = append(files, d.files...)
 	}
-	spent, stop := context.WithDeadline(ctx, time.Now().Add(time.Millisecond))
+	// A deadline already past: cancelled at once, whatever the load, not
+	// when a timer fires.
+	spent, stop := context.WithDeadline(ctx, time.Now().Add(-time.Second))
 	defer stop()
-	time.Sleep(2 * time.Millisecond)
 	b := short.index(spent, courseID, files)
 	if b.notYet != len(files) || len(b.done) != 0 {
 		t.Errorf("with no time left: %+v", b)
@@ -575,8 +635,10 @@ func TestSearchSaysWhatItCannotRead(t *testing.T) {
 }
 
 // TestSearchDropsWhatCoreSaysIsPurged: a version Core gives the seat as
-// purged, and a document Core lists as purged, are dropped from the
-// index as the search reads them, and found no more.
+// purged (its tombstone) is dropped from the index as the search reads it,
+// and found no more; so is a document listed as purged, which today's
+// Core does not list (a purged document is archived, and lists to no
+// search: the worker's events, or retention, drop it).
 func TestSearchDropsWhatCoreSaysIsPurged(t *testing.T) {
 	docs := course()
 	c := newSearchCore(t, docs...)
@@ -667,6 +729,220 @@ func TestSearchPagesAndPoints(t *testing.T) {
 	res, _ = searchFor(t, rf, `{"query":"quicksort stable"}`)
 	if h := res.Result.Hits[0]; h.DocumentID != docReading || h.Read.Arguments[FilePagesArg] != "2" || h.Read.Arguments[FilePartArg] != nil {
 		t.Errorf("a PDF's hit, to a model that takes files: %+v", h)
+	}
+}
+
+// oneFile is a course of one document, published, of one file.
+func oneFile(name, ct string, data []byte, text *core.TextView) []*sdoc {
+	return []*sdoc{{id: docReading, title: "Reading", kind: "material",
+		published: &sversion{id: verReading, files: []sfile{{id: sfileReadingPDF, name: name, ct: ct, data: data, text: text}}}}}
+}
+
+// withoutArg is read without its argument arg.
+func withoutArg(read *nextPart, arg string) *nextPart {
+	args := map[string]any{}
+	for k, v := range read.Arguments {
+		if k != arg {
+			args[k] = v
+		}
+	}
+	return &nextPart{Tool: read.Tool, Arguments: args}
+}
+
+// TestSearchHitsReadTheirPassage: in a long text of no pages, whose
+// passages and parts are cut apart (a text file, and a text version with
+// no page headings), every word found near where a part begins, one at the
+// end of each paragraph, is in the part its hit's read gives: a passage
+// never runs from one part into the next.
+func TestSearchHitsReadTheirPassage(t *testing.T) {
+	const paragraphs = 200
+	var b strings.Builder
+	var starts []int
+	for i := range paragraphs {
+		starts = append(starts, b.Len())
+		fmt.Fprintf(&b, "Paragraph %d. %s zq%03dx\n\n", i, strings.Repeat("Sorting puts things in order, step by step. ", 8), i)
+	}
+	long := strings.TrimSpace(b.String())
+	// The paragraphs around where each part but the first begins.
+	cuts := splitText(long, nil, Runner{}.withDefaults().partBudget())
+	if len(cuts) < 3 {
+		t.Fatalf("the text is %d parts; the test wants several", len(cuts))
+	}
+	var near []int
+	for _, p := range cuts[1:] {
+		i := sort.SearchInts(starts, p.start+1) - 1
+		for k := max(i-4, 0); k <= min(i+4, paragraphs-1); k++ {
+			near = append(near, k)
+		}
+	}
+	for name, docs := range map[string][]*sdoc{
+		"a text file":    oneFile("notes.md", "text/markdown", []byte(long), nil),
+		"a text version": oneFile("scan.pdf", "application/pdf", doctexttest.PDF(doctexttest.PDFPage{Image: true}), textDone(long, 1, core.SourceStaff)),
+	} {
+		c := newSearchCore(t, docs...)
+		r := searchRunner(c, memstore.New(), &SearchScope{}, false)
+		for _, i := range near {
+			word := fmt.Sprintf("zq%03dx", i)
+			res, part := searchFor(t, r, `{"query":"`+word+`","limit":1}`)
+			if len(res.Result.Hits) != 1 {
+				t.Fatalf("%s, %s: %s", name, word, part.Content)
+			}
+			got := readHit(t, r, res.Result.Hits[0].Read)
+			if text, _ := got["file_text"].(string); !strings.Contains(text, word) {
+				t.Errorf("%s, %s: read %v gives a part without it (%v)", name, word, res.Result.Hits[0].Read.Arguments, got["file"])
+			}
+		}
+	}
+}
+
+// TestSearchPointsAtTheSlideTheModelReads: a deck of pictures, to a model
+// that takes no files on a runtime with LibreOffice and OCR, is given with
+// what OCR read of its slides after each, which the index, reading no
+// pictures, does not hold: the model's parts are not the index's. A hit is
+// read by its slide, which gives that slide's text, OCR's with it; to a
+// model that takes files, its slide as LibreOffice draws it.
+func TestSearchPointsAtTheSlideTheModelReads(t *testing.T) {
+	var slides []doctexttest.Slide
+	for i := 1; i <= 60; i++ {
+		body := fmt.Sprintf("point %d", i)
+		if i == 33 {
+			body = "the zebra crossing theorem"
+		}
+		slides = append(slides, doctexttest.Slide{Title: fmt.Sprintf("Slide %d", i), Body: []doctexttest.Bullet{{Text: body}}, Images: 1})
+	}
+	var ocrText strings.Builder
+	var secs []store.OCRSection
+	for i := 1; i <= maxPictured; i++ {
+		secs = append(secs, store.OCRSection{N: i, Offset: ocrText.Len()})
+		fmt.Fprintf(&ocrText, "## Page %d\n%s\n\n", i, strings.Repeat("What the picture on this slide shows, in words. ", 35))
+	}
+	read := done(strings.TrimSpace(ocrText.String()), secs...)
+	c := newSearchCore(t, oneFile("week5.pptx", doctexttest.PPTXType, doctexttest.PPTX(slides...), nil)...)
+	o := &stubOffice{out: map[office.Target]*office.Output{office.ToPDF: pdfOf(60)}}
+	r := searchRunner(c, memstore.New(), &SearchScope{}, false)
+	r.Office, r.OCR = o, &fakeOCR{respond: func(int, func(context.Context) ([]byte, error)) ocr.State { return read }}
+
+	res, part := searchFor(t, r, `{"query":"zebra crossing"}`)
+	if len(res.Result.Hits) != 1 {
+		t.Fatalf("zebra crossing: %s", part.Content)
+	}
+	h := res.Result.Hits[0]
+	if h.Where != "slide 33" || h.Read.Arguments[FilePagesArg] != "33" || h.Read.Arguments[FilePartArg] != nil || h.ReadNote != "" {
+		t.Fatalf("the hit: %+v %+v", h, h.Read)
+	}
+	got := readHit(t, r, h.Read)
+	rec := got["file"].(map[string]any)
+	if text, _ := got["file_text"].(string); !strings.HasPrefix(text, "## Slide 33: Slide 33\n- the zebra crossing theorem\n[image]\n"+ocrMark) ||
+		strings.Contains(text, "Slide 34") || rec["part_holds"] != "slide 33" || rec["given_as"] != givenText {
+		t.Errorf("the hit's read gives %v\n%q", rec, got["file_text"])
+	}
+	// Read whole, the deck is in parts that are not the index's: its first
+	// does not hold slide 33.
+	whole := readHit(t, r, withoutArg(h.Read, FilePagesArg))
+	if n, _ := whole["file"].(map[string]any)["parts"].(float64); n < 3 || strings.Contains(whole["file_text"].(string), "zebra") {
+		t.Errorf("the deck read from its start: %v", whole["file"])
+	}
+
+	// To a model that takes files: slide 33 as LibreOffice draws it.
+	rf := searchRunner(c, memstore.New(), &SearchScope{}, true)
+	rf.Office = o
+	res, _ = searchFor(t, rf, `{"query":"zebra crossing"}`)
+	if h := res.Result.Hits[0]; h.Read.Arguments[FilePagesArg] != "33" {
+		t.Fatalf("to a model that takes files: %+v", h.Read)
+	}
+	args, _ := json.Marshal(res.Result.Hits[0].Read.Arguments)
+	parts, err := searchSet(t).Run(context.Background(), rf, courseID, []llm.Part{call("g", FilePartTool, string(args))})
+	if err != nil || len(parts) != 2 || parts[1].File == nil || fileRecordOf(t, parts[0])["part_holds"] != "slide 33" {
+		t.Errorf("its read, to a model that takes files: %v %+v", err, parts)
+	}
+}
+
+// TestSearchSaysWhenThePageIsNotKnown: a Word file, to a model that takes
+// files on a runtime with LibreOffice, is given as its PDF's pages, which
+// the index's reading of its text does not know: the hit says so, and its
+// read gives the file from its first pages. To a model that takes no
+// files, read as the index reads it, the hit's part holds the passage.
+func TestSearchSaysWhenThePageIsNotKnown(t *testing.T) {
+	var blocks []doctexttest.Block
+	for i := range 400 {
+		text := fmt.Sprintf("Paragraph %d of the notes, which say a little about sorting and searching, at some length.", i)
+		if i == 380 {
+			text = "The zebra crossing theorem is proved here."
+		}
+		blocks = append(blocks, doctexttest.Block{Text: text})
+	}
+	c := newSearchCore(t, oneFile("notes.docx", doctexttest.DOCXType, doctexttest.DOCX(doctexttest.Doc{Blocks: blocks}), nil)...)
+	o := &stubOffice{out: map[office.Target]*office.Output{office.ToPDF: pdfOf(60)}}
+
+	rf := searchRunner(c, memstore.New(), &SearchScope{}, true)
+	rf.Office = o
+	res, part := searchFor(t, rf, `{"query":"zebra crossing"}`)
+	if len(res.Result.Hits) != 1 {
+		t.Fatalf("zebra crossing: %s", part.Content)
+	}
+	h := res.Result.Hits[0]
+	if h.Where != "" || h.Read.Arguments[FilePagesArg] != nil || h.Read.Arguments[FilePartArg] != nil ||
+		!strings.Contains(h.ReadNote, "the page this passage is on is not known") {
+		t.Errorf("to a model that takes files: %+v %+v", h, h.Read)
+	}
+	if !strings.Contains(res.Note, "unless its read_note says otherwise") {
+		t.Errorf("the note: %s", res.Note)
+	}
+
+	r := searchRunner(c, memstore.New(), &SearchScope{}, false)
+	r.Office = o
+	res, _ = searchFor(t, r, `{"query":"zebra crossing"}`)
+	h = res.Result.Hits[0]
+	if h.Read.Arguments[FilePartArg] != float64(2) || h.ReadNote != "" {
+		t.Fatalf("to a model that takes no files: %+v %+v", h, h.Read)
+	}
+	if got := readHit(t, r, h.Read); !strings.Contains(got["file_text"].(string), "The zebra crossing theorem") {
+		t.Errorf("its read gives %v", got["file"])
+	}
+}
+
+// TestSearchKeepsNoTextVersionItCouldNotRead: a file whose text version is
+// done, which Core could not give just now, is not kept under that text's
+// revision with what was read in its place (a scan's nothing), which would
+// hide its text until it changed: it is said not to be read yet, and the
+// next search reads it and finds its words.
+func TestSearchKeepsNoTextVersionItCouldNotRead(t *testing.T) {
+	handout := "## 第 1 頁\n穩定排序保留相等元素的次序。\n\n## 第 2 頁\n插入排序是穩定的。"
+	text := textDone(handout, 2, core.SourceAI)
+	text.Body = nil
+	docs := oneFile("handout.pdf", "application/pdf", doctexttest.PDF(doctexttest.PDFPage{Image: true}), text)
+	c := newSearchCore(t, docs...)
+	c.texts = map[string]string{sfileReadingPDF: handout}
+	c.failText = 1
+	index := memstore.New()
+
+	res, part := searchFor(t, searchRunner(c, index, nil, false), `{"query":"插入排序"}`)
+	if len(res.Result.Hits) != 0 || res.Result.Searched.NotYet != 1 || res.Result.Searched.WithoutText != 0 {
+		t.Errorf("with its text not given: %s", part.Content)
+	}
+	key := store.SearchFileKey{VersionID: verReading, Key: sfileReadingPDF}
+	if have, err := index.UseSearchFiles(context.Background(), courseID, []store.SearchFileKey{key}, time.Time{}); err != nil || len(have) != 0 {
+		t.Errorf("kept in its text's place: %v %v", have, err)
+	}
+	res, part = searchFor(t, searchRunner(c, index, nil, false), `{"query":"插入排序"}`)
+	if len(res.Result.Hits) == 0 || res.Result.Hits[0].Where != "page 2" || res.Result.Searched.NotYet != 0 {
+		t.Errorf("the next search: %s", part.Content)
+	}
+}
+
+// TestSearchTiesInTheCoursesOrder: passages that match alike are given in
+// the course's order, as staff set it (sort_order), before the order Core
+// lists the documents in, the oldest first.
+func TestSearchTiesInTheCoursesOrder(t *testing.T) {
+	body := "# Week notes\n\nMerge sort splits the list in two."
+	docs := []*sdoc{
+		{id: docSlides, title: "Older", kind: "material", sortOrder: 2, published: &sversion{id: verSlides1, body: body}},
+		{id: docReading, title: "Newer", kind: "material", sortOrder: 1, published: &sversion{id: verReading, body: body}},
+		{id: docHandout, title: "Newest", kind: "material", sortOrder: 2, published: &sversion{id: verHandout, body: body}},
+	}
+	res, part := searchFor(t, searchRunner(newSearchCore(t, docs...), memstore.New(), nil, false), `{"query":"merge sort"}`)
+	if got := strings.Join(hitsOf(res), ", "); got != "Newer, Older, Newest" {
+		t.Errorf("ties in the order %s\n%s", got, part.Content)
 	}
 }
 
