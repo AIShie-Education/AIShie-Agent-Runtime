@@ -1032,7 +1032,17 @@ machine's loopback, should `HTTP_ADDR` listen wider).
   database (migration 0014, tables `search_file` and `search_passage`):
   the text of the course's files the models read, kept per version,
   dropped when Core purges the version and after 30 days unused; it needs
-  no extension, so the stack's `postgres:18` serves it as it is.
+  no extension, so the stack's `postgres:18` serves it as it is. Scans and
+  older Office and OpenDocument files are searchable only by their text
+  versions, which the transcriber makes where it is on. Each answer's
+  first search asks Core what its seat may read: one `document_list` and a
+  `document_get` for each document listed, at most 100, within the
+  agent's rate limit, at the answers' priority. An agent answering many
+  students of courses of many documents with the search spends some 100
+  calls an answer, about five such answers a minute at Core's default
+  `RATE_LIMIT_PER_MINUTE` of 600; raise it in Core, and
+  `polling.assumed_core_rate_per_min` here, where that is too few
+  (`docs/design.md` §2.2).
   `budget_exhausted_total{budget}` counts the budgets answers ran into, and
   `truncated` the answers posted cut short, with `on_truncated_text` after
   them: many of those call for a higher `budgets.per_answer.output_tokens`

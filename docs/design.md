@@ -56,6 +56,8 @@ internal/
                 of documents and of messages, as the models are given them (§4, Files; §5.3, Attachments)
   doctext       the text of .pptx, .docx, .xlsx and PDF files, read from memory within fixed limits (§4, Files)
   ocr           the text of scans and images, recognized by tesseract (§4, OCR)
+  search        the search of a course's materials: terms of English and of Chinese, Japanese and Korean,
+                passages, BM25 and excerpts (§4, Search)
   office        Office files converted by LibreOffice, and PDFs cut into ranges of pages (§4, Office files)
   sandbox       how the programs of OCR and the conversions are held: prlimit, a timeout, nothing of the runtime's environment
   config        the YAML, its defaults and precedence, validation
@@ -145,6 +147,19 @@ own (`max_rate_share`, 30 %): each seat's inbox interval is at least
 long it waits, and the next begins no sooner after it began than that
 floor: idle, a seat that long-polls spends one call per `wait_s`, 2.4 a
 minute at 25 s, where the schedule spends 2 to 6 idle and 30 hot.
+
+An answer that searches the course's materials (§4, Search) spends one
+`document_list` and one `document_get` per document listed (at most 100)
+more, once an answer, at the answers' priority: in a course of 100
+documents some 100 calls, where an answer that does not search spends
+about k + 2 (Core's `docs/agent-runtime.md` §7.3). An agent answering many
+students of such a course with the search can so answer some five a
+minute at Core's defaults rather than some seventy, and its other calls
+wait behind those; a site whose agents search large courses raises Core's
+`RATE_LIMIT_PER_MINUTE` (and `polling.assumed_core_rate_per_min` with it)
+to suit. The scope is read again at every answer, not kept across
+answers, so that a document withheld from a seat is never searched for
+it after Core says so.
 
 Drafts are kept off the bucket rather than given one of their own. Core
 does not count a draft it carried out against the actor's limit (it gives
@@ -668,12 +683,12 @@ ask for pages of the file itself to check one against the text:
 `"3-5"`; at most 10 at a time, and never more than its provider takes in a
 file), gives those pages as a PDF of their own, cut from the file or from
 its PDF (Core's where its rendition is done, else LibreOffice's), a deck's
-speaker notes beside them, and no text; a
-model that takes no files is given the text, and told `file_pages` does
-not apply. `file_part` and `file_pages` are not asked for together. A text
-version not done (pending, working, failed, skipped), or none, changes
-nothing: the file is given as above. All of this holds whether or not this
-runtime transcribes.
+speaker notes beside them, and no text; a model that takes no files is
+given the text of those pages alone, by their headings (Reading in parts),
+and told why not the pages. `file_part` and `file_pages` are not asked for
+together. A text version not done (pending, working, failed, skipped), or
+none, changes nothing: the file is given as above. All of this holds
+whether or not this runtime transcribes.
 
 **Reading in parts.** A result is at most 32 KB, and a lecture's deck of
 38 slides reads as 57 KB of text: cut there, the model would see the
@@ -698,12 +713,22 @@ but for the last, the call that reads the next (`next_part`: `{"tool":
 2}}`, and `file_id` for a file of a version of several), which its `note`
 says in words; the first part says how many there
 are, and, when there are at most twenty, what each of the others holds,
-so that a model looking for one slide asks for its part at once.
+so that a model looking for one slide asks for its part at once. A model
+given a file's text (one that takes no files, or a file whose pages are
+not given as a PDF) may also ask for slides, pages or sheets of it by
+`file_pages` (`toolset.pagesOfText`): their text alone, from where the
+first begins to where the next after the last does, `part_holds` naming
+them, where it fits a part; else the part that holds their start; the
+note says why not the pages themselves, and a text with no such sections,
+or not those, is given as it would be, the note saying why. This is what
+a search's hit is read by (Search, The pointer), since a model's parts are
+not the same at every runtime.
 
-Parts are numbered, not asked for by slide or by byte offset: a slide may
-be longer than a part, and a range of slides the model chose could be
-again too long for one result, while a part always fits one and the first
-says how many there are. The model asks with `file_part`, an argument the
+Parts are numbered, not cut by slide or by byte offset: a slide may be
+longer than a part, and a range of slides the model chose could be again
+too long for one result (`file_pages` then gives the part that holds its
+start), while a part always fits one and the first says how many there
+are. The model asks with `file_part`, an argument the
 runtime adds to `document_get`'s schema as the model is shown it (Core's
 own schema naming one of that name fails `Check`, since the two would be
 one) and takes out again, with the others checked, before the call goes
@@ -1055,7 +1080,8 @@ each hit the document (its id, title and kind), the version and the file
 (its id and name), the slide, page or sheet it is on (`where`), whose text
 it is (`text_source`), an excerpt of at most 200 characters around the
 words, and `read`, the `document_get` call that gives the passage itself,
-which the model makes as it is. A page holds 5 hits (`limit`, at most 10);
+which the model makes as it is (and `read_note` where it gives the file
+from its start instead: The pointer, below). A page holds 5 hits (`limit`, at most 10);
 `more` and `next` give the next page. The result says how many documents
 and files were searched, how many files have no text the search can read,
 and how many were not read yet; a search that finds nothing says what it
@@ -1073,7 +1099,8 @@ course never says it".
   every agent and seat in it, and holds nobody's permission. Every search
   asks Core, with the asking seat's own token, what it may read, by the
   very calls a model reads with: `document_list` (the first 100 documents
-  in the course's order, archived ones aside: what Core lists the seat,
+  it lists, by their ids, which are made in time order, so the oldest
+  first; archived ones aside: what Core lists the seat,
   its drafts only to a seat that reads drafts, instructions and rubrics
   only as their assignments are released to it, no submission or feedback
   file), and `document_get` of each, of no version, which gives the
@@ -1087,23 +1114,30 @@ course never says it".
   the index. What one answer's seat may read is read at its first search
   and used by its later ones (`toolset.SearchScope`): once an answer, a
   list and a `document_get` a document, at most four at once, within the
-  agent's rate limit like any call.
+  agent's rate limit like any call, which in a course of 100 documents is
+  some 100 calls an answer that searches (§2.2).
 - *What it searches*: the text a model given the file as text reads, from
   the same pipeline (`giveFile`): Core's text version where it is done
   (staff's or an AI transcription), otherwise the runtime's own reading of
   the file (a text file, a PDF's text, an Office Open XML file's), and the
   version's own text (`body_md`). A search starts neither OCR nor
-  LibreOffice: a scanned file or an older Office file is searchable once
-  its text version is done, which Core's transcription gives every file of
-  a course's material; meanwhile the result counts it among the files
-  with no text to search. A text is cut into passages (`search.Chunks`):
-  one a slide, page or sheet, a longer one cut at a paragraph or a line
-  near 1,500 bytes.
+  LibreOffice: a scanned file, an older Office file or an OpenDocument one
+  is searchable once its text version is done, which the transcriber
+  (§12) makes where the site's administrators have turned it on; without
+  it such a file is never searchable, though a model that reads it is
+  given OCR's or LibreOffice's text, and the result counts it among the
+  files with no text to search. A text is cut into passages
+  (`search.Chunks`): one a slide, page or sheet, a longer one cut at a
+  paragraph or a line near 1,500 bytes, and cut again where a part of the
+  text, as `document_get` gives it (Reading in parts), begins inside it,
+  so that a passage is in one part.
 - *The index* (`store.SearchIndex`, migration 0014: `search_file` and
   `search_passage`), per course and version, by the file's key in its
-  version (its id, or `body`) and the revision of its text: `text:<n>`, the
-  text version's, which every edit moves on; `file:<reading>:<checksum>`,
-  the runtime's reading of a file, which never changes; `body:<sum>`. It is
+  version (its id, or `body`) and the revision of its text, each naming
+  `<reading>`, how the runtime reads a file and cuts a text, which a
+  change to either moves on: `text:<reading>:<n>`, the text version's,
+  which every edit moves on; `file:<reading>:<checksum>`, the runtime's
+  reading of a file, which never changes; `body:<reading>:<sum>`. It is
   built lazily: a search reads the files of its scope that the index lacks
   at the revision the seat was shown, at most four at once, within 20 s and
   half the answer's time left, and keeps each as it is read, a file with no
@@ -1113,14 +1147,20 @@ course never says it".
   a later search, which the result says. A text edited since, or a text
   version done since, is read again in its place. What the runtime read is
   kept apart from what it gives models (`TextCache`), which with OCR and
-  LibreOffice may be other.
+  LibreOffice may be other. A search marks the files it reads as needed,
+  for retention, where they were last marked a day or more before
+  (`store.SearchUseGrain`), so that it does not rewrite every row of its
+  scope.
 - *Dropped* when a version or a document is purged: as the worker reads
-  Core's `document.purged` (and `_unreleased`), naming the version, or the
-  document, every version of it (a seat that reads drafts sees them); as a
-  search's `document_list` lists a document purged, or its `document_get`
-  gives a version's tombstone; and by housekeeping, a file no search has
-  needed for 30 days (`toolset.SearchRetention`), which bounds how long a
-  purge no worker heard of leaves its text, and an archived document's.
+  Core's `document.purged` (a seat that reads drafts sees it) and
+  `document.purged_unreleased` (one that writes assignments, of
+  instructions or a rubric not yet released), naming the version, or else
+  the document, every version of it; as a search's `document_get` gives a
+  version's tombstone; and by housekeeping, a file no search has needed
+  for 30 days (`toolset.SearchRetention`), which bounds how long a purge
+  no worker heard of leaves its text, and an archived document's. A whole
+  document purged is archived, which `document_list` lists to no search,
+  so its text leaves by the event or by retention alone.
 - *Terms and ranking* (`internal/search`). PostgreSQL's full-text search
   keeps a run of Chinese as one word, so 排序 is not found in
   合併排序的複雜度, and pg_trgm's trigrams depend on the cluster's
@@ -1135,19 +1175,36 @@ course never says it".
   each in a `text[]` under a GIN index, which every PostgreSQL has (13 to
   18; no extension, so nothing for the deploy's `postgres:18` to install,
   and a test runs it under a C locale); the store gives the 400 passages
-  of the scope that hold the most of the query's terms, with how many
-  passages hold each term and how long they are, and the runtime scores
-  them by BM25, times how many of the terms each holds, half again where
-  it holds the query as written, and orders ties by the course's order.
+  of the scope that hold the most of the query's terms, of those that hold
+  as many the shortest (BM25 scores a term held as often the higher in a
+  shorter passage; terms are kept once each, so how often is not known
+  there), then by version and place, with how many passages hold each
+  term and how long they are, and the runtime scores them by BM25, times
+  how many of the terms each holds, half again where it holds the query
+  as written, and orders ties by the course's order: the documents'
+  `sort_order`, as staff set it, then the oldest first.
   Simplified and traditional characters are not taken for each other: a
   query is matched in the script it is written in. Embeddings may come
   later, in the same index.
 - *The pointer* (`read`) is the call that gives the passage as the
-  asking model reads the file: of a text version, or of a file given as
-  text, the part of its text the passage is in (`file_part`, as
-  `splitText` cuts it, which the index records with each passage); of a
-  PDF, a deck or a document given to a model that takes files as its
-  pages, the page or slide itself (`file_pages`); of the version's own
+  asking model reads the file, which need not be as the index read it:
+  a model that takes files is given a PDF, a deck or a document as its
+  pages, and on a runtime with OCR and LibreOffice a model that takes none
+  is given a deck with what OCR read of its pictures after each slide,
+  which moves where its parts begin. So: of a text version, which every
+  model reads as the index did, the part of it the passage is in
+  (`file_part`, as `splitText` cuts it, which the index records with each
+  passage); of the runtime's reading of a file, a passage on a page or a
+  slide by that page or slide (`file_pages`), which gives the page or
+  slide itself to a model given the file's pages, and that page's or
+  slide's text alone to one given its text (Reading in parts); one on
+  neither (a text file's, a Word file's, a sheet's), whose text every
+  runtime reads as the index does, by its part; but in a Word file given
+  as LibreOffice's PDF of it, whose pages the index does not know, the
+  hit says so (`read_note`), and `read` gives the file from its first
+  pages. (A Word file of little but pictures, which a runtime with
+  LibreOffice reads from its PDF, is pointed at its first part, which
+  holds all the few words the index has of it.) Of the version's own
   text, the version. A version of several files names the file
   (`file_id`).
 - *Who wrote it does not weigh.* Staff's text, an AI transcription and the
@@ -1157,7 +1214,8 @@ course never says it".
   a transcription's mistakes are misreadings, not a passage less about
   the question, while it is often a scanned file's only text. The hit says
   whose the text is, and the note that an AI transcription may hold
-  mistakes; ties break by the course's order.
+  mistakes; ties break by the course's order (`sort_order`, then the
+  oldest first).
 - *Counted*: `search_requests_total{result}` (`hits`, `none`, `refused`,
   `unavailable`) and `search_files_total{outcome}` (`text`, `empty`,
   `failed`, `not_yet`); one log line a search, with its counts and time,
@@ -1912,7 +1970,7 @@ The prompt's hash is kept per answer.
 | `registry_rev` | one row: the revision every write to `hosted_agent` or `hosted_course` moves on, by trigger, with `NOTIFY aishie_registry` |
 | `audit` | the API's audit (§11.4): when, who, with which of Core's sessions, from where, what, to what, the outcome, and a detail of ids, hints, providers, models and results; kept 400 days |
 | `ocr_text` | what OCR recognized of a file (§4, OCR), by the sha256 of its bytes: done or failed, pdf or image, the text (at most 4 MB), pages recognized and of how many, where each begins, notes, why it failed, the engine and how long it took; kept 180 days, a failure a day |
-| `search_file` | the search of a course's materials (§4, Search): (version, file key) → course, document, the revision of the text read, whose it is (`staff`, `ai`, `runtime`, `body`), the file's name and place, how many passages and terms, when it was read and last needed; dropped when its version is purged, or unneeded for 30 days (0014) |
+| `search_file` | the search of a course's materials (§4, Search): (version, file key) → course, document, the revision of the text read, whose it is (`staff`, `ai`, `runtime`, `body`), the file's name and place, how many passages and terms, when it was read and last needed (to the day); dropped when its version is purged, or unneeded for 30 days (0014) |
 | `search_passage` | (version, file key, place) → the slide, page or sheet it is on, where it begins in the text and the part of it `document_get` gives it in, its text, its terms (`text[]`, under a GIN index) and how many; goes with its file |
 | `site_setting` | what the runtime's administrators set (§11.5), by name (`ocr`, `school_quotas`, `agent_budgets`, `transcription`): a JSON object, who wrote it, when; every write moves `registry_rev` on |
 | `school_offer` | the offers of the school's plan the administrators made (§11.5): id, label, adapter, provider, model, base_url, region, output bound, effort, on or off, the school's key (a secret of the tenant `school`, with its hint, and whether it was tried with the model), version, who made and changed it, when; every write moves `registry_rev` on |
@@ -1978,7 +2036,13 @@ third of it, 25 s waits on the queue, 10 pages a call (5 as pictures at
 150 dpi), 3 tries a call, files of at most 64 MiB, jobs kept 90 days;
 the renditions on wherever LibreOffice converts and Core is named, one file
 at a time per worker, 5 min a conversion, a claim of 10 minutes renewed
-every half of it, 25 s waits on the queue, files of at most 100 MiB.
+every half of it, 25 s waits on the queue, files of at most 100 MiB; the
+search of a course's materials offered wherever `document_list` and
+`document_get` are, 5 hits a page and at most 10, the first 100 documents
+listed, 400 passages scored a search, files read for its index four at
+once within 20 s and half the answer's time left, passages of about 1,500
+bytes and excerpts of 200 characters, files no search has needed for 30
+days dropped.
 The output tokens, a call's and an answer's, and the wall clock are more
 than §4's example (2,000, 4,000 and 90 s), which a long answer, in
 Chinese with a table, overran, and was cut off.
@@ -2064,17 +2128,28 @@ Chinese with a table, overran, and was cut off.
   searches ask Core once and a later answer's again without reading a
   file, and a text edited is read again and found as edited alone; a scan
   without a text version is said to have no text, and kept so, and files
-  the time ran out for are said not to be read yet; a version Core gives
-  as purged, and a document it lists as purged, leave the index; hits a
+  the time ran out for are said not to be read yet; a text version Core
+  could not give just now is not kept in its place, and the next search
+  finds its words; a version Core gives as purged leaves the index (and a
+  document listed as purged, which today's Core does not list); hits a
   page at a time to the last, a long text version's hit naming the part
-  that `document_get`, called as it is, gives it in, and a PDF's, to a
-  model that takes files, its page; arguments refused before anything is
-  read; and the tool offered with `document_list` and `document_get`
-  alone, never where denied. Against the fake Core, Yuki's agent and
-  Sato's, which reads drafts, sharing the worker's index, find the
-  published slide, and Sato's alone the draft, counted and logged without
-  the query; the draft purged, it leaves the index as Sato's seat reads
-  the news. The end to end (`search-of-the-materials`) does the same
+  that `document_get`, called as it is, gives it in; in a long text of no
+  pages, a text file's and a text version's, every one of 200 words found
+  in the part its hit's read gives; a deck of pictures, to a model that
+  takes no files on a runtime with LibreOffice and OCR, whose parts are
+  not the index's, read by its slide, which gives that slide's text and
+  OCR's, and to a model that takes files its slide as drawn; a Word file
+  given as its PDF's pages saying its page is not known, and given as text
+  read by its part; arguments refused before anything is read; and the
+  tool offered with `document_list` and `document_get` alone, never where
+  denied. Against the fake Core, Yuki's agent and Sato's, which reads
+  drafts, sharing the worker's index, find the published slide, and
+  Sato's alone the draft, counted and logged without the query; the draft
+  purged, it leaves the index as Sato's seat reads the news; a version
+  purged (`document.purged` or `_unreleased`) leaves the index, a whole
+  document purged every version of it, and housekeeping drops the files
+  unused for 30 days. `storetest` also holds the candidates past the limit
+  to the shortest of those tied, and a file's use marked once a day. The end to end (`search-of-the-materials`) does the same
   against the pinned Core, the first hit read with the call it names, and
   an administrator's purge of the draft's version.
 - A version's files (§4, A version's files; AIShie-Core #49): a version of
