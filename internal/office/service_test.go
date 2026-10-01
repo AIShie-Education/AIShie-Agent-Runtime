@@ -3,6 +3,8 @@ package office
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -11,6 +13,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext/doctexttest"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/metrics"
 )
 
@@ -288,5 +291,84 @@ func TestCacheBound(t *testing.T) {
 	c.put(&entry{key: "e", why: "no", expires: now.Add(time.Minute)})
 	if c.get("e", now) == nil || c.get("e", now.Add(2*time.Minute)) != nil {
 		t.Error("a failure is not kept for its time alone")
+	}
+}
+
+// TestServiceTakesRendition: Core's PDF of a file is fetched once, its
+// pages counted, kept by the file's checksum as a conversion is, and found
+// by a conversion of the file after, LibreOffice never run; with or
+// without LibreOffice here, and whatever a conversion of the file said
+// before. One of more pages than a PDF made here has is cut to so many,
+// and said to be; where nothing cuts it, it is not taken, nor one that is
+// not a PDF, nor one not fetched, and nothing is kept of them: the caller
+// converts the file itself.
+func TestServiceTakesRendition(t *testing.T) {
+	three := doctexttest.PDF(doctexttest.PDFPage{Lines: []string{"1"}}, doctexttest.PDFPage{Lines: []string{"2"}}, doctexttest.PDFPage{Lines: []string{"3"}})
+	conv := &stubConverter{err: ErrMalformed}
+	p := &stubPager{}
+	s, m, _ := newTestService(t, conv, p, Config{MaxPages: 2})
+	fetches := 0
+	give := func(data []byte, err error) func(context.Context) ([]byte, error) {
+		return func(context.Context) ([]byte, error) { fetches++; return data, err }
+	}
+	requests := func(result string) float64 { return testutil.ToFloat64(m.OfficeRequests.WithLabelValues(result)) }
+
+	// LibreOffice failed on the file here; Core made its PDF all the same.
+	if st := s.Convert(context.Background(), sum1, deck, ToPDF, nil); st.Status != StatusFailed {
+		t.Fatalf("the conversion here: %+v", st)
+	}
+	out, err := s.TakeRendition(context.Background(), sum1, give(three, nil))
+	if err != nil || string(out.Data) != "range" || out.Pages != 2 || !out.Capped || !out.Rendition || p.ranges.Load() != 1 {
+		t.Fatalf("a PDF of 3 pages past 2: %+v %v, %d cut", out, err, p.ranges.Load())
+	}
+	if again, err := s.TakeRendition(context.Background(), sum1, give(nil, errors.New("not again"))); err != nil || again != out || fetches != 1 {
+		t.Errorf("asked again: %+v %v, fetched %d times", again, err, fetches)
+	}
+	if st := s.Convert(context.Background(), sum1, deck, ToPDF, nil); st.Status != StatusDone || st.Out != out || conv.calls.Load() != 1 {
+		t.Errorf("a conversion after: %+v, LibreOffice run %d times", st, conv.calls.Load())
+	}
+	if requests("rendition") != 1 || requests("cached") != 2 {
+		t.Errorf("rendition %v, cached %v", requests("rendition"), requests("cached"))
+	}
+
+	off := NewService(context.Background(), ServiceOptions{Off: "LibreOffice is not installed", Config: Config{MaxPages: 3}})
+	if out, err := off.TakeRendition(context.Background(), sum2, give(three, nil)); err != nil || string(out.Data) != string(three) || out.Pages != 3 || out.Capped {
+		t.Errorf("without LibreOffice: %+v %v", out, err)
+	}
+
+	cases := []struct {
+		what  string
+		s     *Service
+		fetch func(context.Context) ([]byte, error)
+	}{
+		{"past the pages, and nothing to cut it", NewService(context.Background(), ServiceOptions{Config: Config{MaxPages: 2}}), give(three, nil)},
+		{"not a PDF", s, give([]byte("<html>expired</html>"), nil)},
+		{"not fetched", s, give(nil, errors.New(`Get "https://files.example/rendition.pdf?X-Amz-Signature=5ecre7": EOF`))},
+	}
+	for _, tc := range cases {
+		var logs strings.Builder
+		tc.s.log = slog.New(slog.NewJSONHandler(&logs, nil))
+		out, err := tc.s.TakeRendition(context.Background(), sum3, tc.fetch)
+		if out != nil || !errors.Is(err, ErrRendition) {
+			t.Errorf("%s: %+v %v", tc.what, out, err)
+		}
+		for _, said := range []string{err.Error(), logs.String()} {
+			if strings.Contains(said, "files.example") || strings.Contains(said, "Signature") {
+				t.Errorf("%s: the URL is said: %s", tc.what, said)
+			}
+		}
+		tc.s.mu.Lock()
+		kept := tc.s.cache.get(string(ToPDF)+"\x00"+sum3, time.Now())
+		tc.s.mu.Unlock()
+		if kept != nil {
+			t.Errorf("%s: kept %+v", tc.what, kept)
+		}
+	}
+	if requests("rendition_failed") != 2 {
+		t.Errorf("rendition_failed %v", requests("rendition_failed"))
+	}
+	var none *Service
+	if _, err := none.TakeRendition(context.Background(), sum1, give(three, nil)); !errors.Is(err, ErrRendition) {
+		t.Errorf("a nil service: %v", err)
 	}
 }

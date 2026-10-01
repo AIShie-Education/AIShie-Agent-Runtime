@@ -4,7 +4,8 @@
 // denied paths hold, proposals are followed, an idle agent long-polling its
 // inbox notices a question within a second, a question withdrawn stops the
 // answer being written to it, a version of several files is read file by
-// file, the transcriber gives the course's files their text versions in
+// file, a lecture whose PDF Core keeps is given to a model as that PDF, the
+// transcriber gives the course's files their text versions in
 // Core, each file of a version on its own (alone, after the others: Core's
 // queue is the whole site's), the runtime's binary makes the PDF renditions
 // of the Office files Core keeps, of a version or a message, which their
