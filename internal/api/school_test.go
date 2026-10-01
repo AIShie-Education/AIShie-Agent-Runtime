@@ -75,7 +75,7 @@ func TestSchoolPlan(t *testing.T) {
 		t.Errorf("GET /models' school_key: %+v", got)
 	}
 
-	v := h.connect(h.yuki, h.helper.Token)
+	v := h.host(h.yuki, h.helper.ID)
 	if v.Status != StatusNeedsModel || v.Model.School != nil || v.Today.School != nil {
 		t.Fatalf("connected: %+v", v)
 	}
@@ -192,7 +192,7 @@ func TestSchoolPlan(t *testing.T) {
 // the offer's pointer; and writes nothing for them.
 func TestSchoolPlanRefuses(t *testing.T) {
 	h, _, _ := newModelWorld(t, schoolRuntime())
-	v := h.connect(h.yuki, h.helper.Token)
+	v := h.host(h.yuki, h.helper.ID)
 	for _, tc := range []struct {
 		name, body          string
 		status              int

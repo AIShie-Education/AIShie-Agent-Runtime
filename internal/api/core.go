@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -12,28 +11,28 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/probe"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
 )
 
-// The API asks Core about a token, with the token, at CORE_BASE_URL and
-// nowhere else: what it is (inspect, connect, a new token), and, with an
-// agent's own token, to revoke a token of the agent's (D7).
+// The API asks Core about an agent at CORE_BASE_URL and nowhere else, with
+// the runtime's own credential (Options.Runtime, Core's agent_runtime
+// service): whether the person signed in owns it and may host it here
+// (check_owner), and, as its hosting ends, to revoke the token the runtime
+// was issued for it (revoke_token). The API is never issued a token: the
+// worker that runs the agent is (package worker).
 
 // Deadlines of what a request asks of Core.
 const (
-	// inspectTimeout bounds inspecting a token: the catalogue, me_get,
-	// me_memberships and credential_list.
-	inspectTimeout = 20 * time.Second
-	// revokeTimeout bounds revoking a token in Core.
+	// askTimeout bounds asking Core about an agent: the service's
+	// catalogue and check_owner.
+	askTimeout = 20 * time.Second
+	// revokeTimeout bounds revoking an agent's token in Core.
 	revokeTimeout = 15 * time.Second
 	// catalogueTTL is how long Core's catalogue is kept.
 	catalogueTTL = 10 * time.Minute
 )
 
 // catalogueCache is Core's catalogue, fetched once every catalogueTTL:
-// what says whether Core's me_get names owners.
+// what the transcription service's client calls Core by.
 type catalogueCache struct {
 	mu  sync.Mutex
 	cat *core.Catalogue
@@ -57,186 +56,160 @@ func (s *Server) catalogue(ctx context.Context) (*core.Catalogue, error) {
 	return cat, nil
 }
 
-// inspected is a token Core took: the token, and what Core said of it.
-type inspected struct {
-	token  string
-	prefix string
-	hint   string
-	client *core.Client
-	me     *core.Actor
-	seats  []core.Membership
+// Refusals of a request about an agent in Core.
+var (
+	errNotYours = Error{Code: CodeNotFound, Reason: ReasonAgentNotFound,
+		Message: "no such agent of yours in Core: it is not an agent, or someone else's, or nobody's"}
+	errCoreUnavailable = Error{Code: CodeUnavailable, Reason: ReasonCoreUnavailable,
+		Message: "Core could not be reached to ask about the agent"}
+	errRuntimeMisconfigured = Error{Code: CodeUnavailable, Reason: ReasonRuntimeMisconfigured,
+		Message: "the runtime has no credential of its own in Core that Core takes (CORE_SERVICE_CREDENTIAL): its operator gives it one"}
+	errCoreTooOld = Error{Code: CodeFailedPrecondition, Reason: ReasonCoreTooOld,
+		Message: "this Core hosts no agent by its id (it has no agent_runtime service): it must be upgraded"}
+)
+
+// hostRefusals are why Core says the runtime may not host an agent
+// (core.RuntimeAgent.Reason), as the API answers them.
+var hostRefusals = map[string]Error{
+	core.ReasonNotRuntimeHosted: {Code: CodeFailedPrecondition, Reason: ReasonMCPAgent,
+		Message: "the agent is an mcp agent: its owner's own tools reach it over MCP, and it cannot be hosted here"},
+	core.ReasonAgentSuspended: {Code: CodeFailedPrecondition, Reason: ReasonAgentSuspended, Message: "the agent is suspended in Core"},
+	core.ReasonOwnerSuspended: {Code: CodeFailedPrecondition, Reason: ReasonOwnerSuspended, Message: "the agent's owner is suspended in Core"},
 }
 
-// errTokenMalformed is a token not of Core's shape, which Core is not
-// asked about.
-var errTokenMalformed = Error{Code: CodeInvalidArgument, Reason: ReasonTokenMalformed,
-	Message: "the token is not an agent token of AIshie's (ais_ and a prefix of 12 characters)"}
-
-// tokenErrors are Inspect's refusals, as the API answers them.
-var tokenErrors = map[string]Error{
-	probe.ReasonTokenRefused:    {Code: CodeFailedPrecondition, Message: "Core refused the token: it was revoked or has expired"},
-	probe.ReasonCoreUnavailable: {Code: CodeUnavailable, Message: "Core could not be reached to check the token"},
-	probe.ReasonTokenNotAgent:   {Code: CodeFailedPrecondition, Message: "the token belongs to a person, not an agent"},
-	probe.ReasonAgentSuspended:  {Code: CodeFailedPrecondition, Message: "the agent is suspended in Core"},
-	probe.ReasonTokenOtherAgent: {Code: CodeFailedPrecondition, Message: "the token belongs to another agent"},
-	probe.ReasonCoreTooOld:      {Code: CodeFailedPrecondition, Message: "this Core does not say who owns an agent"},
-	probe.ReasonAgentUnowned:    {Code: CodeForbidden, Message: "nobody owns the agent in Core"},
-	probe.ReasonNotOwner:        {Code: CodeForbidden, Message: "the agent belongs to someone else in Core"},
+// hostReason is the API's reason for Core's reason an agent may not be
+// hosted (mcp_agent for not_runtime_hosted), "" for none.
+func hostReason(coreReason string) string {
+	if coreReason == "" {
+		return ""
+	}
+	if e, ok := hostRefusals[coreReason]; ok {
+		return e.Reason
+	}
+	return coreReason
 }
 
-// inspectToken asks Core what token is and holds it to want (probe.Inspect):
-// a token not of Core's shape is not sent to Core at all. The error is
-// the refusal to answer.
-func (s *Server) inspectToken(ctx context.Context, token string, want probe.Want) (*inspected, *Error) {
-	if !probe.IsToken(token) {
-		e := errTokenMalformed
+// hostRefusal is the refusal to host view, as the API answers it.
+func hostRefusal(view *core.RuntimeAgent) Error {
+	if e, ok := hostRefusals[view.Reason]; ok {
+		return e
+	}
+	return Error{Code: CodeFailedPrecondition, Reason: view.Reason, Message: "Core says the agent may not be hosted now"}
+}
+
+// agentIDOf reads the agent's id in Core a request names (agent_id, a
+// UUID), in lower case as Core writes it.
+func agentIDOf(id string) (string, *Error) {
+	if id == "" {
+		return "", &Error{Code: CodeInvalidArgument, Reason: ReasonMissingField, Message: "agent_id is the agent's id in Core",
+			Details: map[string]any{"field": "/agent_id"}}
+	}
+	u, err := uuid.Parse(id)
+	if err != nil || len(id) != 36 {
+		return "", &Error{Code: CodeInvalidArgument, Reason: ReasonInvalidField, Message: "agent_id is not a UUID",
+			Details: map[string]any{"field": "/agent_id"}}
+	}
+	return u.String(), nil
+}
+
+// ownedAgent asks Core, with the runtime's credential, whether the caller
+// owns the agent agentID, and what it is: the agent as Core hosts it, or
+// the refusal to answer (404 for one not theirs, as for no agent at all).
+func (s *Server) ownedAgent(ctx context.Context, c *Caller, agentID string) (*core.RuntimeAgent, *Error) {
+	if s.o.Runtime == nil {
+		s.o.Log.Error("the API cannot ask Core about an agent: the runtime has no credential of its own (CORE_SERVICE_CREDENTIAL)")
+		e := errRuntimeMisconfigured
 		return nil, &e
 	}
-	cat, err := s.catalogue(ctx)
-	if err != nil {
-		s.o.Log.Warn("Core's catalogue could not be read", "err", err)
-		e := tokenErrors[probe.ReasonCoreUnavailable]
-		e.Reason = probe.ReasonCoreUnavailable
+	owns, view, err := s.o.Runtime.CheckOwner(core.WithPriority(ctx, core.PriorityAnswer), c.ActorID, agentID)
+	switch {
+	case err != nil:
+		e := s.serviceRefusal("agent_runtime.check_owner", err)
+		return nil, &e
+	case !owns || view == nil:
+		e := errNotYours
 		return nil, &e
 	}
-	c := probe.NewClient(s.o.CoreBaseURL, token, s.coreHTTP)
-	ins, err := probe.Inspect(ctx, c, cat, want)
+	return view, nil
+}
+
+// serviceRefusal is a call of the runtime's service that failed, as the
+// API answers it: the runtime's credential missing or refused, Core too
+// old, or Core not reached.
+func (s *Server) serviceRefusal(tool string, err error) Error {
+	var ce *core.CredentialError
+	switch {
+	case errors.As(err, &ce), core.CredentialRefused(err):
+		s.o.Log.Error("Core refused the runtime's own credential, or the runtime has none (CORE_SERVICE_CREDENTIAL)", "tool", tool, "err", err)
+		return errRuntimeMisconfigured
+	case core.IsReason(err, core.ReasonCoreTooOld):
+		return errCoreTooOld
+	}
+	s.o.Log.Warn("Core could not be reached about an agent", "tool", tool, "err", err)
+	return errCoreUnavailable
+}
+
+// What became of revoking an agent's token in Core as its hosting ended
+// (Revocation.Outcome).
+const (
+	// RevocationRevoked: Core revoked the token the runtime held.
+	RevocationRevoked = "revoked"
+	// RevocationNone: Core held no live token of the runtime's for the
+	// agent.
+	RevocationNone = "none"
+	// RevocationFailed: it was not revoked (Problem says why); the agent
+	// is not run all the same, and its owner may pause it again, or
+	// revoke the token in Core.
+	RevocationFailed = "failed"
+	// RevocationNotAttempted: the runtime did not ask Core (Problem says
+	// why).
+	RevocationNotAttempted = "not_attempted"
+)
+
+// Revocation is what became of the token the runtime held for an agent
+// whose hosting ended (paused, or deleted): its outcome, and why it failed
+// or was not attempted (core_unavailable, runtime_misconfigured,
+// core_too_old, operator_agent), null otherwise.
+type Revocation struct {
+	Outcome string  `json:"outcome"`
+	Problem *string `json:"problem"`
+}
+
+func revocation(outcome, problem string) Revocation {
+	r := Revocation{Outcome: outcome}
+	if problem != "" {
+		r.Problem = &problem
+	}
+	return r
+}
+
+// revokeHosting revokes the token Core holds for the agent coreActorID as
+// the runtime's, as its hosting ends here (agent_runtime.revoke_token); an
+// agent the operator's configuration runs keeps its own, and is not asked
+// about. What fails is logged: the hosting ends all the same.
+func (s *Server) revokeHosting(ctx context.Context, rowID, coreActorID string) Revocation {
+	if s.o.Actors != nil {
+		if _, hosted, ok := s.o.Actors.ActorAgent(s.o.CoreBaseURL, coreActorID); ok && !hosted {
+			return revocation(RevocationNotAttempted, ReasonOperatorAgent)
+		}
+	}
+	if s.o.Runtime == nil {
+		s.o.Log.Error("a hosted agent's token was not revoked in Core: the runtime has no credential of its own (CORE_SERVICE_CREDENTIAL)",
+			"agent", rowID)
+		return revocation(RevocationFailed, ReasonRuntimeMisconfigured)
+	}
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), revokeTimeout)
+	defer cancel()
+	revoked, err := s.o.Runtime.RevokeToken(core.WithPriority(rctx, core.PriorityAnswer), coreActorID)
 	if err != nil {
-		return nil, s.tokenRefusal(err)
+		e := s.serviceRefusal("agent_runtime.revoke_token", err)
+		s.o.Log.Warn("a hosted agent's token was not revoked in Core as its hosting ended", "agent", rowID, "reason", e.Reason)
+		return revocation(RevocationFailed, e.Reason)
 	}
-	return &inspected{token: token, prefix: probe.Prefix(token), hint: vault.Hint(store.SecretCoreToken, token), client: c,
-		me: ins.Me, seats: ins.Memberships}, nil
-}
-
-// recheck asks Core again, with ins's token, whether it is still what
-// inspectToken found it to be, held to want (probe.Check: me_get alone),
-// for a request about to act on it; the error is the refusal to answer.
-func (s *Server) recheck(ctx context.Context, ins *inspected, want probe.Want) *Error {
-	cat, err := s.catalogue(ctx)
-	if err != nil {
-		s.o.Log.Warn("Core's catalogue could not be read", "err", err)
-		e := tokenErrors[probe.ReasonCoreUnavailable]
-		e.Reason = probe.ReasonCoreUnavailable
-		return &e
+	if len(revoked) == 0 {
+		return revocation(RevocationNone, "")
 	}
-	if _, err := probe.Check(ctx, ins.client, cat, want); err != nil {
-		return s.tokenRefusal(err)
-	}
-	return nil
-}
-
-// tokenRefusal is probe's refusal of a token (Inspect, Check) as the API
-// answers it.
-func (s *Server) tokenRefusal(err error) *Error {
-	var pe *probe.Error
-	reason := probe.ReasonCoreUnavailable
-	if errors.As(err, &pe) {
-		reason = pe.Reason
-	}
-	if reason == probe.ReasonCoreUnavailable {
-		s.o.Log.Warn("Core could not be reached to inspect a token", "err", err)
-	}
-	e := tokenErrors[reason]
-	e.Reason = reason
-	return &e
-}
-
-// wantOf is the agent a request means: its core_actor_id when given (it
-// must be a UUID), and the caller as the agent's owner.
-func wantOf(coreActorID string, c *Caller) (probe.Want, *Error) {
-	w := probe.Want{Owner: c.ActorID}
-	if coreActorID != "" {
-		id, err := uuid.Parse(coreActorID)
-		if err != nil {
-			return w, &Error{Code: CodeInvalidArgument, Reason: ReasonInvalidField, Message: "core_actor_id is not a UUID",
-				Details: map[string]any{"field": "/core_actor_id"}}
-		}
-		w.ActorID = id.String()
-	}
-	return w, nil
-}
-
-// recentUse is how recently another token of an agent's must have been
-// used for its agent to be taken to run elsewhere now: Core notes a
-// token's use at most once a minute, and an agent a runtime runs calls
-// Core far more often than this.
-const recentUse = 15 * time.Minute
-
-// maxOtherTokens bounds the tokens OtherTokens lists.
-const maxOtherTokens = 20
-
-// OtherTokens are an agent's other live API tokens, as Core lists them to
-// the token being connected (the one-brain rule: an agent has one brain at
-// a time). InUse says one of them was used within WindowSeconds: the agent
-// likely runs elsewhere now, and the front end warns its owner. Tokens
-// holds at most 20, the most recently used first; the token being
-// connected, and the one this runtime holds for the agent, are not among
-// them.
-type OtherTokens struct {
-	InUse         bool         `json:"in_use"`
-	WindowSeconds int          `json:"window_seconds"`
-	Tokens        []OtherToken `json:"tokens"`
-}
-
-// OtherToken is one of an agent's other live tokens: its public prefix
-// and label, when it was made and last used (null for never), when it
-// expires (null for never), and whether its last use is recent.
-type OtherToken struct {
-	Prefix     string     `json:"prefix"`
-	Label      *string    `json:"label"`
-	CreatedAt  time.Time  `json:"created_at"`
-	LastUsedAt *time.Time `json:"last_used_at"`
-	ExpiresAt  *time.Time `json:"expires_at"`
-	Recent     bool       `json:"recent"`
-}
-
-// otherTokens lists the agent's other live tokens with ins's token
-// (credential_list), leaving out the prefixes of except; nil when Core
-// would not list them, which fails nothing.
-func (s *Server) otherTokens(ctx context.Context, ins *inspected, except ...string) *OtherTokens {
-	creds, err := ins.client.Credentials(ctx)
-	if err != nil {
-		s.o.Log.Warn("an agent's tokens could not be listed", "agent_actor", ins.me.ID, "err", err)
-		return nil
-	}
-	now := s.o.Now()
-	out := &OtherTokens{WindowSeconds: int(recentUse / time.Second), Tokens: []OtherToken{}}
-	for _, cr := range creds {
-		if cr.Kind != core.CredentialAPIToken || !cr.Live(now) || cr.TokenPrefix == ins.prefix || slices.Contains(except, cr.TokenPrefix) {
-			continue
-		}
-		t := OtherToken{Prefix: cr.TokenPrefix, CreatedAt: cr.CreatedAt.UTC(), LastUsedAt: utcPtr(cr.LastUsedAt), ExpiresAt: utcPtr(cr.ExpiresAt)}
-		if cr.Label != "" {
-			l := cr.Label
-			t.Label = &l
-		}
-		t.Recent = cr.LastUsedAt != nil && now.Sub(*cr.LastUsedAt) < recentUse
-		out.InUse = out.InUse || t.Recent
-		out.Tokens = append(out.Tokens, t)
-	}
-	slices.SortStableFunc(out.Tokens, func(x, y OtherToken) int {
-		switch {
-		case x.LastUsedAt == nil && y.LastUsedAt == nil:
-			return y.CreatedAt.Compare(x.CreatedAt)
-		case x.LastUsedAt == nil:
-			return 1
-		case y.LastUsedAt == nil:
-			return -1
-		}
-		return y.LastUsedAt.Compare(*x.LastUsedAt)
-	})
-	if len(out.Tokens) > maxOtherTokens {
-		out.Tokens = out.Tokens[:maxOtherTokens]
-	}
-	return out
-}
-
-func utcPtr(t *time.Time) *time.Time {
-	if t == nil {
-		return nil
-	}
-	u := t.UTC()
-	return &u
+	return revocation(RevocationRevoked, "")
 }
 
 // coreClient is the client calls to Core go through, bounded by
@@ -255,3 +228,39 @@ func coreClient(c *http.Client) *http.Client {
 
 // sameActor reports whether two actor ids are one, in any case.
 func sameActor(x, y string) bool { return strings.EqualFold(x, y) }
+
+// tenantOf is the tenant of an owner's agents and secrets.
+func tenantOf(owner string) string { return "ten_" + owner }
+
+// noteAgent puts the agent's id on the request's log line.
+func noteAgent(w http.ResponseWriter, id string) {
+	if rec, ok := w.(*recorder); ok {
+		rec.agent = id
+	}
+}
+
+// storeUnavailable answers a store that did not answer.
+func (s *Server) storeUnavailable(w http.ResponseWriter, what string, err error) {
+	s.o.Log.Warn("the store cannot be reached", "what", what, "err", err)
+	WriteError(w, Error{Code: CodeUnavailable, Reason: ReasonStoreUnavailable, Message: "the runtime's store cannot be reached"})
+}
+
+// purge removes what the store holds of a deleted agent but its ledger;
+// what it misses, or a worker writes after it, housekeeping purges.
+func (s *Server) purge(ctx context.Context, id string) {
+	if err := s.o.Store.PurgeAgent(ctx, id); err != nil {
+		s.o.Log.Warn("a deleted agent was not purged; housekeeping purges it", "agent", id, "err", err)
+	}
+}
+
+// keepsTokens reports whether the runtime can keep the tokens Core issues
+// its hosted agents (it has a vault to seal them with), having answered
+// when not.
+func (s *Server) keepsTokens(w http.ResponseWriter) bool {
+	if s.o.Vault == nil {
+		s.o.Log.Error("the runtime cannot seal a hosted agent's token: it has no keyring (KMS_KEY_ID)")
+		WriteError(w, Error{Code: CodeInternal, Reason: ReasonInternal, Message: "the runtime cannot keep tokens now"})
+		return false
+	}
+	return true
+}

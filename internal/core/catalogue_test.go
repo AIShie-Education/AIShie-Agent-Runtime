@@ -24,8 +24,8 @@ func readCatalogue(t *testing.T) []byte {
 	return b
 }
 
-// TestCatalogueSnapshot holds the pinned catalogue to what it is: 155
-// tools, 58 reads, 94 writes and three ephemeral writes (conversation.draft,
+// TestCatalogueSnapshot holds the pinned catalogue to what it is: 161
+// tools, 61 reads, 97 writes and three ephemeral writes (conversation.draft,
 // and the transcription service's document_text.queue and .renew), every
 // name within [a-z_]+ and at most 27 characters, which every provider
 // takes (§1.2 counts an earlier Core's).
@@ -35,8 +35,8 @@ func TestCatalogueSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	tools := c.Tools()
-	if len(tools) != 155 || c.Len() != 155 {
-		t.Fatalf("%d tools, want 155", len(tools))
+	if len(tools) != 161 || c.Len() != 161 {
+		t.Fatalf("%d tools, want 161", len(tools))
 	}
 	name := regexp.MustCompile(`^[a-z_]+$`)
 	reads, writes, ephemeral, longest := 0, 0, 0, 0
@@ -71,8 +71,8 @@ func TestCatalogueSnapshot(t *testing.T) {
 		}
 		longest = max(longest, len(tl.MCPName))
 	}
-	if reads != 58 || writes != 94 || ephemeral != 3 || longest != 27 {
-		t.Fatalf("%d reads, %d writes, %d ephemeral, the longest name %d; want 58, 94, 3, 27", reads, writes, ephemeral, longest)
+	if reads != 61 || writes != 97 || ephemeral != 3 || longest != 27 {
+		t.Fatalf("%d reads, %d writes, %d ephemeral, the longest name %d; want 61, 97, 3, 27", reads, writes, ephemeral, longest)
 	}
 	if !sort.SliceIsSorted(tools, func(i, j int) bool { return tools[i].MCPName < tools[j].MCPName }) {
 		t.Error("Tools is not sorted by MCP name")
@@ -91,65 +91,6 @@ func TestCatalogueSnapshot(t *testing.T) {
 		t.Error("Tools gives away the catalogue's own slice")
 	}
 	golden(t, "catalogue.sha256", []byte(c.Hash()+"\n"))
-}
-
-// meGetEdited is the pinned catalogue with edit applied to me.get, or
-// me.get taken out when edit returns false.
-func meGetEdited(t *testing.T, edit func(tool map[string]any) bool) *Catalogue {
-	t.Helper()
-	var doc struct {
-		Tools []map[string]any `json:"tools"`
-	}
-	if err := json.Unmarshal(readCatalogue(t), &doc); err != nil {
-		t.Fatal(err)
-	}
-	var kept []map[string]any
-	for _, tl := range doc.Tools {
-		if tl["name"] != "me.get" || edit(tl) {
-			kept = append(kept, tl)
-		}
-	}
-	doc.Tools = kept
-	raw, err := json.Marshal(doc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	c, err := ParseCatalogue(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return c
-}
-
-// MeGetNamesOwners tells a Core whose me_get says who owns an agent, as the
-// pinned one does, from one before (C1), whose catalogue does not describe
-// owner_actor_id, and from catalogues that say nothing of it at all.
-func TestMeGetNamesOwners(t *testing.T) {
-	pinned, err := ParseCatalogue(readCatalogue(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, tc := range []struct {
-		name string
-		cat  *Catalogue
-		want bool
-	}{
-		{"the pinned Core", pinned, true},
-		{"a Core from before C1", meGetEdited(t, func(tl map[string]any) bool {
-			delete(tl["output_schema"].(map[string]any)["properties"].(map[string]any), "owner_actor_id")
-			return true
-		}), false},
-		{"no me.get", meGetEdited(t, func(map[string]any) bool { return false }), false},
-		{"an output schema that is not an object", meGetEdited(t, func(tl map[string]any) bool {
-			tl["output_schema"] = true
-			return true
-		}), false},
-		{"no catalogue", nil, false},
-	} {
-		if got := tc.cat.MeGetNamesOwners(); got != tc.want {
-			t.Errorf("%s: MeGetNamesOwners is %v", tc.name, got)
-		}
-	}
 }
 
 // An Actor names the owner me_get names, and none when me_get names none.
@@ -308,7 +249,7 @@ func TestFetchCatalogue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Hash() != want.Hash() || c.Len() != 155 {
+	if c.Hash() != want.Hash() || c.Len() != 161 {
 		t.Fatalf("fetched %d tools, hash %s", c.Len(), c.Hash())
 	}
 

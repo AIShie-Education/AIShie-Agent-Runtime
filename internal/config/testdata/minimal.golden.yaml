@@ -6,7 +6,7 @@ core:
     base_url: https://lms.example.edu
     transport: mcp
     mcp_protocol: "2025-11-25"
-    token_ref: env://MINIMAL_CORE_TOKEN
+    agent_id: 0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0a11
 model:
     adapter: openai_chat
     model: gpt-4.1-mini

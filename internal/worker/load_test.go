@@ -70,7 +70,7 @@ func load(t *testing.T, waitS float64) {
 		for c, co := range cos {
 			w.must(w.fc.Seat(a.ID, co.ID, fakecore.SeatOptions{Preset: "course_tutor", Principal: principals[c].ID}))
 		}
-		w.env.Store(tokenVar(id), a.Token)
+		w.inCore(id, a.ID)
 		actors[a.ID] = id
 		docs = append(docs, w.agentDoc(id, "m1", polling, nil))
 	}

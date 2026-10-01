@@ -6,8 +6,10 @@ agent:
   display_name: "Yuki's helper"
   core:
     base_url: https://lms.example.edu
-    # The token Yuki issued in Core, kept in the secret store: never here.
-    token_ref: secret://students/yuki/agents/yuki-helper/core_token
+    # The agent's id in Core: an agent hosted by the runtime (hosting
+    # runtime), whose token the runtime is issued by this id with its own
+    # credential (CORE_SERVICE_CREDENTIAL). Nobody pastes a token.
+    agent_id: 0192f3c1-7a2b-7c3d-8e4f-5a6b7c8d9e01
   model:
     adapter: openai_chat
     base_url: https://api.deepseek.com

@@ -6,6 +6,7 @@
    "envelope": {
     "result": {
      "display_name": "CS101 Tutor",
+     "hosting": "runtime",
      "id": "<id:1>",
      "kind": "agent",
      "owner_actor_id": "<id:2>",

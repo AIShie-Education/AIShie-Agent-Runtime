@@ -28,7 +28,7 @@ func (w *world) registrar(id, level string) agent {
 	a := w.fc.AddUnownedAgent("CS101 Registrar")
 	m := w.must(w.fc.Seat(a.ID, w.co.ID, fakecore.SeatOptions{Preset: "ta", Perms: map[string]string{
 		"member_manage": level, "submission_write": "autonomous", "conversation_answer": "autonomous"}}))
-	w.env.Store(tokenVar(id), a.Token)
+	w.inCore(id, a.ID)
 	return agent{id: id, actor: a, seat: m}
 }
 
@@ -226,7 +226,7 @@ func TestOwnersAssistantManagesMembers(t *testing.T) {
 	own := agent{id: "sato-assistant", actor: a, owner: w.sato, seat: w.must(w.fc.Seat(a.ID, w.co.ID, fakecore.SeatOptions{
 		Preset: "delegate", Principal: w.satoSeat.ID, StudentScope: "all", Perms: map[string]string{"member_read": "autonomous",
 			"member_manage": "autonomous", "conversation_ask": "autonomous", "submission_write": "autonomous"}}))}
-	w.env.Store(tokenVar(own.id), a.Token)
+	w.inCore(own.id, a.ID)
 	tu := w.tutor("tutor")
 	aoi := w.fc.AddPerson("Aoi")
 	model := scripted.New(

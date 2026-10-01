@@ -156,7 +156,7 @@ func ownAgentAnswers(t *testing.T, w *world) {
 	// The action log, as the agent reads it, holds the answer; the same
 	// body under answer:{x}:{m1}:1 replays that action.
 	var posted string
-	for _, a := range w.actionsMine(t, w.own) {
+	for _, a := range w.actionsMine(t, rt, "yuki-helper") {
 		var res struct {
 			MessageID string `json:"message_id"`
 		}
@@ -167,7 +167,7 @@ func ownAgentAnswers(t *testing.T, w *world) {
 	if posted == "" {
 		t.Fatal("the agent's action log holds no executed conversation.answer that made the answer")
 	}
-	r := w.answerAs(t, w.own, conv, m1, answer.text(), answerKey(conv, m1, 1))
+	r := w.answerAs(t, rt, "yuki-helper", conv, m1, answer.text(), answerKey(conv, m1, 1))
 	res := decodeMessage(t, r)
 	if r.HTTP != http.StatusOK || r.Status != "executed" || !r.Replayed || r.ActionID != posted || res != answer.ID {
 		t.Errorf("the answer sent again under answer:{x}:{m1}:1: %s; want the action %s replayed, executed, making %s", r, posted, answer.ID)
@@ -255,8 +255,8 @@ func movedOn(t *testing.T, w *world) {
 		firstReply  = "Question 2 is about loops."
 		secondReply = "Question 3 is about recursion."
 	)
-	// Asked before the runtime starts: an earlier run declared the agent.
-	w.declareSiteChat(t, w.own)
+	// Asked before the runtime starts: an earlier run hosted the agent.
+	w.hostedBefore(t, w.own)
 	conv, m1 := w.ask(t, w.yuki, w.own.member, first)
 	followed := make(chan string, 1)
 	var once sync.Once
@@ -300,11 +300,11 @@ func movedOn(t *testing.T, w *world) {
 
 	// Core holds both keys: the first answer's, refused as moved_on, and
 	// the follow-up's, posted. Each replays as it stands.
-	r := w.answerAs(t, w.own, conv, m2, secondReply, answerKey(conv, m2, 1))
+	r := w.answerAs(t, rt, "yuki-helper", conv, m2, secondReply, answerKey(conv, m2, 1))
 	if r.HTTP != http.StatusOK || !r.Replayed || r.Status != "executed" || decodeMessage(t, r) != answer.ID {
 		t.Errorf("the follow-up's answer sent again under answer:{x}:{m2}:1: %s; want a replay making %s", r, answer.ID)
 	}
-	r = w.answerAs(t, w.own, conv, m1, firstReply, answerKey(conv, m1, 1))
+	r = w.answerAs(t, rt, "yuki-helper", conv, m1, firstReply, answerKey(conv, m1, 1))
 	if !r.Replayed || r.Status != "failed" || r.Error == nil || r.Error.Details["reason"] != "moved_on" {
 		t.Errorf("the first answer sent again under answer:{x}:{m1}:1: %s; want the moved_on refusal replayed", r)
 	}
@@ -314,8 +314,10 @@ func movedOn(t *testing.T, w *world) {
 }
 
 // duplicates is §7.4: two workers that share no store (memstore each, as
-// two workers without Postgres would be) both run Yuki's agent, and both
-// take her one question. The model holds each back until both have asked
+// two workers without Postgres would be; each given the one token Core
+// holds for the agent, since two that shared it no more would each be
+// issued one, revoking the other's) both run Yuki's agent, and both take
+// her one question. The model holds each back until both have asked
 // it, so that both post under answer:{x}:{m1}:1, each with its own body.
 // Core posts one: the other is an idempotency_conflict, which the runtime
 // never sends again under that key, and since the conversation is answered
@@ -346,14 +348,12 @@ func duplicates(t *testing.T, w *world) {
 		}
 		return fakellm.Reply("Worker " + tag + " says: read chapter 2.")
 	})
-	// Asked before the runtime starts: an earlier run declared the agent.
-	w.declareSiteChat(t, w.own)
+	// Asked before the runtime starts: an earlier run hosted the agent.
+	w.hostedBefore(t, w.own)
 	conv, m1 := w.ask(t, w.yuki, w.own.member, q)
 	agents := []agentConf{{id: "yuki-helper", seat: w.own}}
-	workers := []*instance{
-		w.startRuntime(t, m, runtimeConf{workerID: "w1", tag: "w1", agents: agents}),
-		w.startRuntime(t, m, runtimeConf{workerID: "w2", tag: "w2", agents: agents}),
-	}
+	first := w.startRuntime(t, m, runtimeConf{workerID: "w1", tag: "w1", agents: agents})
+	workers := []*instance{first, w.startRuntime(t, m, runtimeConf{workerID: "w2", tag: "w2", agents: agents, tokensOf: first})}
 	answer := w.waitAnswer(t, w.yuki, conv, w.own.member)
 
 	key := answerKey(conv, m1, 1)
@@ -545,7 +545,7 @@ func proposals(t *testing.T, w *world) {
 	if err := json.Unmarshal(at.Args, &args); err != nil {
 		t.Fatal(err)
 	}
-	r := w.answerAs(t, w.tutor, convK, mK, args.Body, key2)
+	r := w.answerAs(t, rt, "tutor", convK, mK, args.Body, key2)
 	if r.HTTP != http.StatusAccepted || r.Status != "proposed" || !r.Replayed || r.ActionID != again {
 		t.Errorf("the second attempt sent again under answer:{x}:{m}:2: %s; want the proposal %s replayed", r, again)
 	}

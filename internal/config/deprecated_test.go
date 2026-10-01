@@ -23,7 +23,7 @@ courses:
     answer: {on_attempts_exhausted: close}
     prompt: {close_reason_text: "Closed."}
 `,
-		"a2.yaml": strings.ReplaceAll(okAgent, "a1", "a2") + "  answer: {on_attempts_exhausted: skip}\n",
+		"a2.yaml": okAgentAs("a2") + "  answer: {on_attempts_exhausted: skip}\n",
 	}))
 	if err != nil {
 		t.Fatal(err)

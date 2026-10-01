@@ -14,8 +14,10 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/fakecore"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/scripted"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/secrets"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/memstore"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
 )
 
 // TestTwoWorkersShareAnAgentByLease: two workers on one database; only the
@@ -80,12 +82,22 @@ func TestLeaseTakeoverIsCounted(t *testing.T) {
 }
 
 // TestTwoWorkersWithoutSharedLeasesPostOnce: two workers that do not share
-// a store both answer the same question at once, under the same key; Core
-// takes one, and nothing is posted twice (§7.4).
+// leases (each its own store, both holding the agent's one token: two that
+// shared nothing would each be issued one, revoking the other's) both
+// answer the same question at once, under the same key; Core takes one,
+// and nothing is posted twice (§7.4).
 func TestTwoWorkersWithoutSharedLeasesPostOnce(t *testing.T) {
 	w := newWorld(t)
 	own := w.ownAgent("yuki-helper", 0)
 	cfg := w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil))
+	v := testVault(t)
+	st1, st2 := memstore.New(), memstore.New()
+	sealing := func(st store.Store) func(*Options) {
+		return func(o *Options) {
+			o.Secrets = secrets.Resolver{Getenv: w.getenv, Sealed: vault.Opener{Vault: v, Store: st}}
+			o.Sealer = v
+		}
+	}
 	var arrived atomic.Int32
 	both := func(text string) scripted.Step {
 		return func(ctx context.Context, _ *llm.Request) (*llm.Response, error) {
@@ -99,8 +111,20 @@ func TestTwoWorkersWithoutSharedLeasesPostOnce(t *testing.T) {
 	}
 	m1 := scripted.New(both("From the first worker."))
 	m2 := scripted.New(both("From the second worker."))
-	w.start(cfg, models{"m1": m1}, workerOpts{id: "w1"})
-	w.start(cfg, models{"m1": m2}, workerOpts{id: "w2"})
+	first := w.start(cfg, models{"m1": m1}, workerOpts{id: "w1", store: st1, edit: sealing(st1)})
+	first.waitState("yuki-helper", store.AgentRunning)
+	// The second store is given the token the first worker was issued.
+	held, err := st1.AgentToken(context.Background(), "yuki-helper")
+	w.ok(err)
+	sealed, err := v.Seal(context.Background(), store.Secret{ID: vault.NewSecretID(), TenantID: "operator", Kind: store.SecretCoreToken},
+		w.runtimeToken(own))
+	w.ok(err)
+	copied := *held
+	copied.SecretID = sealed.ID
+	w.ok(st2.PutAgentToken(context.Background(), copied, sealed, ""))
+	second := w.start(cfg, models{"m1": m2}, workerOpts{id: "w2", store: st2, edit: sealing(st2)})
+	second.waitState("yuki-helper", store.AgentRunning)
+	issued := w.fc.RuntimeIssues(own.actor.ID)
 
 	conv, msg := w.ask(0, own, "Which of you answers?")
 	w.waitAnswers(conv, 1)
@@ -116,6 +140,9 @@ func TestTwoWorkersWithoutSharedLeasesPostOnce(t *testing.T) {
 	}
 	if codes["executed/"] != 1 || codes["error/idempotency_conflict"] != 1 {
 		t.Errorf("conversation_answer came back %v", codes)
+	}
+	if n := w.fc.RuntimeIssues(own.actor.ID); n != issued {
+		t.Errorf("issued %d tokens; %d once both ran", n, issued)
 	}
 }
 

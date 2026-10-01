@@ -12,7 +12,6 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/probe"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
@@ -20,7 +19,8 @@ import (
 // HostedAgent is a hosted agent as its owner reads it (the API contract,
 // §4): what its row says, its status as worked out from the worker's
 // state, its seats as the worker last read them, and today's use. Of its
-// token and key, hints alone.
+// key, a hint alone; of its token, nothing (it is the runtime's, issued by
+// the agent's id).
 type HostedAgent struct {
 	ID               string     `json:"id"`
 	Version          int        `json:"version"`
@@ -30,7 +30,6 @@ type HostedAgent struct {
 	Status           string     `json:"status"`
 	Problem          *Problem   `json:"problem"`
 	Paused           bool       `json:"paused"`
-	Token            TokenInfo  `json:"token"`
 	Model            ModelSlots `json:"model"`
 	OwnKey           *OwnKey    `json:"own_key"`
 	Tools            ToolsView  `json:"tools"`
@@ -41,17 +40,6 @@ type HostedAgent struct {
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
 }
-
-// TokenInfo is what may be shown of an agent's Core token: its hint
-// (ais_ and its public prefix, then …) and its public prefix, by which
-// Core lists it.
-type TokenInfo struct {
-	Hint   string `json:"hint"`
-	Prefix string `json:"prefix"`
-}
-
-// tokenInfo is a token's, from its hint.
-func tokenInfo(hint string) TokenInfo { return TokenInfo{Hint: hint, Prefix: probe.HintPrefix(hint)} }
 
 // ModelSlots are the agent's models: its own key's, and the offer of the
 // school's plan it is on (D8), each null for none. On the plan, the own
@@ -193,7 +181,7 @@ func (s *Server) view(ctx context.Context, row *store.HostedAgent) (*HostedAgent
 	status, problem := statusOf(row, own != nil || school != nil, st)
 	v := &HostedAgent{
 		ID: row.ID, Version: row.Version, CoreActorID: row.CoreActorID, OwnerActorID: row.OwnerActorID,
-		DisplayName: row.DisplayName, Status: status, Problem: problem, Paused: row.Paused, Token: tokenInfo(row.TokenHint),
+		DisplayName: row.DisplayName, Status: status, Problem: problem, Paused: row.Paused,
 		Model: ModelSlots{Own: ownModelView(own, s.pricesOf(eff), now), School: schoolModelView(school, sc, own != nil && row.KeySecretID != "")},
 		Tools: ToolsView{Writes: registry.WritesOf(row.Settings)},
 		Seats: []Seat{}, CreatedAt: row.CreatedAt.UTC(), UpdatedAt: row.UpdatedAt.UTC(),

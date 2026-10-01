@@ -51,6 +51,7 @@ type Store interface {
 	Site
 	SitePrices
 	Transcription
+	AgentTokens
 	Close() error
 }
 
@@ -443,13 +444,16 @@ type Ledger interface {
 
 // Agent states.
 const (
-	AgentStarting     = "starting"
-	AgentRunning      = "running"
-	AgentPaused       = "paused"
-	AgentUnauthorized = "unauthorized" // Core said 401: the owner must issue a new token
+	AgentStarting = "starting"
+	AgentRunning  = "running"
+	AgentPaused   = "paused"
+	// AgentUnauthorized: Core said 401 to the token the runtime holds for
+	// the agent, which was revoked there (by its owner, an administrator,
+	// or a migration): it is not run until it is hosted again (a hosted
+	// agent's owner asks for a new token; the operator reloads).
+	AgentUnauthorized = "unauthorized"
 	// AgentOwnerChanged is a hosted agent whose owner in Core is not the
-	// person who connected it here, or who Core says has no owner: it does
-	// not run until its owner connects it again.
+	// person who hosted it here: it is not run, and its token is revoked.
 	AgentOwnerChanged = "owner_changed"
 	AgentError        = "error"
 	AgentStopped      = "stopped"
@@ -464,11 +468,18 @@ const (
 	ReasonOperatorAgent        = "operator_agent"
 	ReasonActorInUse           = "actor_in_use"
 	ReasonTokenOtherAgent      = "token_other_agent"
-	ReasonTokenNotAgent        = "token_not_agent"
 	ReasonOwnerChanged         = "owner_changed"
 	ReasonCoreTooOld           = "core_too_old"
 	ReasonAgentSuspended       = "agent_suspended"
 	ReasonFailing              = "failing"
+	// ReasonOwnerSuspended: the agent's owner is suspended in Core, and
+	// the agent is not hosted until they are reactivated.
+	ReasonOwnerSuspended = "owner_suspended"
+	// ReasonMCPAgent: the agent is an mcp agent in Core, its owner's own
+	// tools', which the runtime cannot host.
+	ReasonMCPAgent = "mcp_agent"
+	// ReasonAgentNotFound: Core has no agent of the agent's id.
+	ReasonAgentNotFound = "agent_not_found"
 	// ReasonOfferWithdrawn: the agent is on an offer of the school's plan
 	// the school no longer offers (removed, or turned off), and no model
 	// of its owner's stands behind it.
@@ -624,16 +635,25 @@ type HostedAgent struct {
 	// OwnerActorID is who owns the agent in Core, "" when Core names no
 	// one (an agent an administrator registered).
 	OwnerActorID string `json:"owner_actor_id"`
-	// OwnerVerified is whether Core said who the owner is (me_get's
-	// owner_actor_id), rather than holding the token being the proof.
+	// OwnerVerified is whether Core said who the owner is (its
+	// agent_runtime service, by the agent's id), rather than holding a
+	// pasted token being the proof, as it was before hosting by id.
 	OwnerVerified bool `json:"owner_verified"`
 	// TenantID is ten_<owner>: its quotas, and every secret's binding.
 	TenantID    string `json:"tenant_id"`
 	DisplayName string `json:"display_name"`
 	// TokenSecretID is the agent's Core token, sealed: a secret of kind
-	// core_token of its tenant. TokenHint is what may be shown of it.
-	TokenSecretID string `json:"token_secret_id"`
-	TokenHint     string `json:"token_hint"`
+	// core_token of its tenant, "" while it holds none (hosted by its id
+	// before its model is chosen, paused, or its owner asked for a new
+	// one). TokenHint is what may be shown of it.
+	TokenSecretID string `json:"token_secret_id,omitempty"`
+	TokenHint     string `json:"token_hint,omitempty"`
+	// TokenIssued is whether Core issued the token to the runtime, by the
+	// agent's id (agent_runtime.issue_token), rather than its owner having
+	// pasted it before hosting was by id; TokenCredentialID is Core's id
+	// of an issued one. Both are false and "" without a token.
+	TokenIssued       bool   `json:"token_issued,omitempty"`
+	TokenCredentialID string `json:"token_credential_id,omitempty"`
 	// KeySecretID is the owner's own model key, sealed, "" when none is
 	// stored: a secret of kind model_key of its tenant, which the registry
 	// gives every model section on the owner's key. KeyHint is what may be
@@ -705,7 +725,10 @@ type Registry interface {
 	// SetHostedAgentPaused pauses or resumes the agent and returns it at
 	// the next version: whatever its version when version is 0, and
 	// otherwise only if it is still at version (If-Match), ErrConflict
-	// when it has been written since. ErrNotFound when it is gone.
+	// when it has been written since. ErrNotFound when it is gone. Paused,
+	// it holds no token: the token's secret is destroyed in the same
+	// transaction (the API revokes it in Core), and the agent is issued
+	// another when it is resumed.
 	SetHostedAgentPaused(ctx context.Context, id string, paused bool, version int) (*HostedAgent, error)
 	// DeleteHostedAgent destroys the agent, its courses and its secrets, in
 	// one transaction, if it still is as cond says: ErrConflict when it is
@@ -730,21 +753,78 @@ type Registry interface {
 	RegistryRev(ctx context.Context) (int64, error)
 }
 
+// AgentToken is the token Core issued the runtime for an agent of the
+// operator's configuration (YAML), by its id in Core, sealed: kept so that
+// every worker runs the agent with the one token Core holds live for it,
+// which only the worker holding the agent's lease is issued.
+type AgentToken struct {
+	// AgentID is the agent's id in the configuration.
+	AgentID string `json:"agent_id"`
+	// CoreActorID is the agent in Core (core.agent_id).
+	CoreActorID string `json:"core_actor_id"`
+	// SecretID is the token, sealed: a secret of kind core_token.
+	SecretID string `json:"secret_id"`
+	// CredentialID is Core's id of the token, and Hint what may be shown of
+	// it.
+	CredentialID string `json:"credential_id"`
+	Hint         string `json:"hint"`
+	// IssuedAt is when, and IssuedBy the worker it was issued to.
+	IssuedAt time.Time `json:"issued_at"`
+	IssuedBy string    `json:"issued_by"`
+}
+
+// AgentTokens keep the tokens of the operator's agents (AgentToken); a
+// hosted agent's is its row's (HostedAgent.TokenSecretID).
+type AgentTokens interface {
+	// AgentToken is the agent's token, or ErrNotFound.
+	AgentToken(ctx context.Context, agentID string) (*AgentToken, error)
+	// PutAgentToken stores t, with its sealed secret, in place of the
+	// agent's token, only while the agent's token is still the secret
+	// prev ("" for none): ErrConflict otherwise, and nothing is written.
+	// The secret replaced is destroyed in the same transaction.
+	PutAgentToken(ctx context.Context, t AgentToken, secret Secret, prev string) error
+	// DeleteAgentToken forgets the agent's token, and destroys its
+	// secret, while it is still the secret secretID ("" for any): one
+	// not there, or another since, is left as it is, which is no error.
+	DeleteAgentToken(ctx context.Context, agentID, secretID string) error
+}
+
+// CheckAgentToken refuses a token a store must not keep: without its
+// agent, its agent in Core, or its secret, a core_token of a secret's
+// shape.
+func CheckAgentToken(t AgentToken, secret Secret) error {
+	var bad []string
+	if t.AgentID == "" {
+		bad = append(bad, "agent_id")
+	}
+	if t.CoreActorID == "" {
+		bad = append(bad, "core_actor_id")
+	}
+	if !IsSecretID(t.SecretID) || secret.ID != t.SecretID || secret.Kind != SecretCoreToken {
+		bad = append(bad, "its secret, a core_token")
+	}
+	if len(bad) > 0 {
+		return fmt.Errorf("store: agent token: %s required", strings.Join(bad, ", "))
+	}
+	return CheckSecret(secret)
+}
+
 // DeleteIf is what a hosted agent must still be for DeleteHostedAgent to
 // delete it; its zero value deletes it as it is. A caller that acted on
 // the agent as it read it (revoked its token in Core) deletes it only as
 // it read it, and not a row written since in its place.
 type DeleteIf struct {
 	// TokenSecretID, when set, is the token the agent must still hold: a
-	// new token put in since (PUT /token) is not deleted unrevoked.
+	// new token put in since is not deleted unrevoked.
 	TokenSecretID string
 	// Version, when not 0, is the version it must still be at (If-Match).
 	Version int
 }
 
 // CheckHostedAgent refuses an agent a store must not keep: without its id
-// (agt_…), Core actor, tenant or token, or whose settings are not a JSON
-// object. It returns the agent with its settings as stored ({} for none).
+// (agt_…), Core actor or tenant, with a token not of a secret's shape, said
+// to be issued with none, or whose settings are not a JSON object. It
+// returns the agent with its settings as stored ({} for none).
 func CheckHostedAgent(a HostedAgent) (HostedAgent, error) {
 	var bad []string
 	if !IsHostedAgentID(a.ID) {
@@ -756,8 +836,11 @@ func CheckHostedAgent(a HostedAgent) (HostedAgent, error) {
 	if a.TenantID == "" {
 		bad = append(bad, "tenant_id")
 	}
-	if !IsSecretID(a.TokenSecretID) {
-		bad = append(bad, "token_secret_id")
+	if a.TokenSecretID != "" && !IsSecretID(a.TokenSecretID) {
+		bad = append(bad, "a token_secret_id of a secret's shape")
+	}
+	if a.TokenSecretID == "" && (a.TokenIssued || a.TokenCredentialID != "" || a.TokenHint != "") {
+		bad = append(bad, "a token for token_issued, token_credential_id or token_hint")
 	}
 	if a.KeySecretID != "" && !IsSecretID(a.KeySecretID) {
 		bad = append(bad, "a key_secret_id of a secret's shape")

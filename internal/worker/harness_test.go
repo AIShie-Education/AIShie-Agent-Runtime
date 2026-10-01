@@ -57,13 +57,16 @@ type world struct {
 
 	dir string
 	env sync.Map // the environment secrets are read from
+	// agents are the world's agents in Core by their ids in the
+	// configuration (inCore), which agentDoc names as core.agent_id.
+	agents sync.Map
+	// svc is the site's agent runtime's credential, which the world's
+	// workers are issued its agents' tokens with.
+	svc fakecore.Token
 	// catalogueFetches counts GET /v1/tools.
 	catalogueFetches atomic.Int32
 	// running counts the world's workers that run.
 	running atomic.Int32
-	// noSiteChat: the fake answers as a Core from before me_site_chat,
-	// which asks no agent for it.
-	noSiteChat bool
 	// tools, when set, is served as GET /v1/tools instead of the fake's
 	// own catalogue: a Core behind the URL other than the catalogue says.
 	tools atomic.Pointer[[]byte]
@@ -79,7 +82,7 @@ func newWorld(t *testing.T) *world {
 func newWorldWith(t *testing.T, o fakecore.Options) *world {
 	t.Helper()
 	fc := fakecore.New(o)
-	w := &world{t: t, fc: fc, dir: t.TempDir(), logs: &logBuffer{}, noSiteChat: o.WithoutSiteChat}
+	w := &world{t: t, fc: fc, dir: t.TempDir(), logs: &logBuffer{}}
 	w.srv = httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/tools" {
 			w.catalogueFetches.Add(1)
@@ -106,6 +109,8 @@ func newWorldWith(t *testing.T, o fakecore.Options) *world {
 		w.studentSeats = append(w.studentSeats, w.must(fc.Seat(p.ID, w.co.ID, fakecore.SeatOptions{Preset: "student"})))
 	}
 	w.env.Store("MODEL_KEY", modelKey)
+	w.svc = fc.IssueRuntimeServiceToken("runtime")
+	w.env.Store(credentialVar, w.svc.Token)
 	return w
 }
 
@@ -124,6 +129,11 @@ func (w *world) ok(err error) {
 	}
 }
 
+// credentialVar is the variable the world's workers read the runtime's
+// own credential from, at each use, as run reads CORE_SERVICE_CREDENTIAL's
+// secret: a test removes or replaces it under a running worker.
+const credentialVar = "CORE_SERVICE_CREDENTIAL"
+
 func (w *world) getenv(k string) string {
 	v, _ := w.env.Load(k)
 	s, _ := v.(string)
@@ -139,46 +149,57 @@ type agent struct {
 	owner fakecore.Actor
 }
 
-// ownAgent seats a student's own agent (preset delegate) under student i.
+// ownAgent seats a student's own agent (preset delegate) under student i,
+// a runtime agent the configuration names id.
 func (w *world) ownAgent(id string, i int) agent {
 	w.t.Helper()
 	a, err := w.fc.AddAgent(w.students[i].Name+"'s helper", w.students[i].ID)
 	w.ok(err)
 	m := w.must(w.fc.Seat(a.ID, w.co.ID, fakecore.SeatOptions{Preset: "delegate", Principal: w.studentSeats[i].ID}))
-	w.env.Store(tokenVar(id), a.Token)
+	w.inCore(id, a.ID)
 	return agent{id: id, actor: a, seat: m, owner: w.students[i]}
 }
 
 // tutor seats Sato's course tutor (preset course_tutor), answering every
-// student.
+// student, a runtime agent the configuration names id.
 func (w *world) tutor(id string) agent {
 	w.t.Helper()
 	a, err := w.fc.AddAgent("CS101 Tutor", w.sato.ID)
 	w.ok(err)
 	m := w.must(w.fc.Seat(a.ID, w.co.ID, fakecore.SeatOptions{Preset: "course_tutor", Principal: w.satoSeat.ID}))
-	w.env.Store(tokenVar(id), a.Token)
+	w.inCore(id, a.ID)
 	return agent{id: id, actor: a, seat: m, owner: w.sato}
 }
 
-// answersInSite waits until ag may be asked: Core takes a question for an
-// agent only once what runs it has declared that it answers in the site
-// (me_site_chat), which the runtime does as it starts the agent. With a
-// worker of the world's running, the question waits for that; with none,
-// the agent is one an earlier run of the runtime declared.
-func (w *world) answersInSite(ag agent) {
-	w.t.Helper()
-	if w.noSiteChat || w.fc.SiteChat(ag.actor.ID) {
-		return
-	}
-	if w.running.Load() > 0 {
-		eventually(w.t, ag.id+" declaring that it answers in the site", func() bool { return w.fc.SiteChat(ag.actor.ID) })
-		return
-	}
-	w.ok(w.fc.DeclareSiteChat(ag.actor.ID))
+// inCore records that the configuration's agent id is the agent actorID
+// in Core: agentDoc names it as core.agent_id.
+func (w *world) inCore(id, actorID string) { w.agents.Store(id, actorID) }
+
+// actorOf is the agent in Core the configuration's agent id is.
+func (w *world) actorOf(id string) string {
+	v, _ := w.agents.Load(id)
+	s, _ := v.(string)
+	return s
 }
 
-func tokenVar(id string) string {
-	return "TOKEN_" + strings.ToUpper(strings.NewReplacer("-", "_").Replace(id))
+// answersInSite waits until ag may be asked: Core takes a question for an
+// agent while the runtime holds a live token for it, which AddAgent issued
+// as an earlier run of the runtime would have, and the runtime is issued
+// again as it hosts the agent.
+func (w *world) answersInSite(ag agent) {
+	w.t.Helper()
+	eventually(w.t, ag.id+" asked in the site", func() bool { return w.fc.SiteChat(ag.actor.ID) })
+}
+
+// runtimeToken is the token the runtime holds for ag now: Core's live
+// runtime token of the agent's, for a test that calls Core as the agent.
+func (w *world) runtimeToken(ag agent) string {
+	w.t.Helper()
+	tok := w.fc.RuntimeToken(ag.actor.ID).Token
+	if tok == "" {
+		w.t.Fatalf("%s holds no live token", ag.id)
+	}
+	return tok
 }
 
 // ask has student i ask agent ag a question, and returns the conversation
@@ -218,7 +239,7 @@ func onSchedule(more map[string]any) map[string]any {
 func (w *world) agentDoc(id, model string, over map[string]any, courses map[string]any) map[string]any {
 	a := map[string]any{
 		"id": id, "display_name": "Agent " + id,
-		"core":    map[string]any{"base_url": w.srv.URL, "token_ref": "env://" + tokenVar(id)},
+		"core":    map[string]any{"base_url": w.srv.URL, "agent_id": w.actorOf(id)},
 		"model":   map[string]any{"adapter": "openai_chat", "model": model, "key_ref": "env://MODEL_KEY", "params": map[string]any{"max_output_tokens": 500}},
 		"polling": fastPolling(),
 		"budgets": map[string]any{"per_answer": map[string]any{"wall_clock_s": 10}},
@@ -311,7 +332,10 @@ func (w *world) start(cfg *config.Config, ms models, wo workerOpts) *worker {
 	}
 	o := Options{
 		Config: cfg, Store: st, Metrics: m, Log: log, WorkerID: wo.id,
-		Secrets:    secrets.Resolver{Getenv: w.getenv},
+		Secrets: secrets.Resolver{Getenv: w.getenv},
+		RuntimeCredential: func(ctx context.Context) (string, error) {
+			return secrets.Resolver{Getenv: w.getenv}.Resolve(ctx, secrets.SchemeEnv+credentialVar, "")
+		},
 		Prices:     wo.prices,
 		HTTPClient: &http.Client{Timeout: 5 * time.Second},
 		NewAdapter: func(c llm.Config) (llm.Adapter, error) {
@@ -532,3 +556,10 @@ func counter(t *testing.T, reg *prometheus.Registry, name string, labels map[str
 }
 
 func discardLog() *slog.Logger { return slog.New(slog.DiscardHandler) }
+
+// newCaller is a client of the world's Core with token, as a test calls
+// Core as an agent.
+func newCaller(t *testing.T, w *world, token string) *core.Client {
+	t.Helper()
+	return core.NewClient(core.NewMCPCaller(core.MCPOptions{BaseURL: w.srv.URL, Token: token, HTTPClient: &http.Client{Timeout: 5 * time.Second}}))
+}

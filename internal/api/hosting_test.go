@@ -15,13 +15,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/fakecore"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
 )
 
 // hostWorld is the API over a fake Core: Yuki and Ken, and Yuki's agent,
-// seated as her delegate in CS101.
+// seated as her delegate in CS101, a runtime agent; the API asks Core
+// with the runtime's own credential, svc.
 type hostWorld struct {
 	*fixture
 	t      *testing.T
@@ -33,6 +35,7 @@ type hostWorld struct {
 	ken    fakecore.Actor
 	helper fakecore.Actor
 	yukiM  fakecore.Member
+	svc    fakecore.Token
 	actors *fakeActors
 	// tokens are every token the test handed out, which nothing may
 	// repeat.
@@ -87,6 +90,10 @@ func newHostWorld(t *testing.T, o fakecore.Options, edit func(*Options)) *hostWo
 	h.srv = httptest.NewServer(h.fc.Handler())
 	t.Cleanup(h.srv.Close)
 	h.s.o.CoreBaseURL, h.s.coreHTTP = h.srv.URL, coreClient(h.srv.Client())
+	h.svc = h.fc.IssueRuntimeServiceToken("runtime")
+	if h.s.o.Runtime == nil {
+		h.s.o.Runtime = h.runtime(h.svc.Token)
+	}
 	// The tests' clock stands still: the token routes' allowance would run
 	// out. TestTokenBucket holds it to its rate.
 	h.s.token.reset(Rate{PerMinute: 60000, Burst: 10000})
@@ -99,8 +106,15 @@ func newHostWorld(t *testing.T, o fakecore.Options, edit func(*Options)) *hostWo
 	h.ok(err)
 	_, err = h.fc.Seat(h.helper.ID, h.co.ID, fakecore.SeatOptions{Preset: "delegate", Principal: h.yukiM.ID})
 	h.ok(err)
-	h.tokens = append(h.tokens, h.yuki.Token, h.ken.Token, h.helper.Token)
+	h.tokens = append(h.tokens, h.yuki.Token, h.ken.Token, h.helper.Token, h.svc.Token)
 	return h
+}
+
+// runtime is the runtime's client of Core's agent_runtime service, with
+// the credential token.
+func (h *hostWorld) runtime(token string) *core.RuntimeService {
+	return core.NewRuntimeService(core.RuntimeCaller(core.RuntimeOptions{BaseURL: h.srv.URL, HTTPClient: h.srv.Client(),
+		Credential: func(context.Context) (string, error) { return token, nil }, Once: true}))
 }
 
 func (h *hostWorld) ok(err error) {
@@ -119,12 +133,21 @@ func (h *hostWorld) as(p fakecore.Actor) string {
 	}))
 }
 
-// token issues the agent another token, which nothing may repeat.
-func (h *hostWorld) token(agentID string) fakecore.Token {
+// issued has the hosted agent id issued its token, as the worker running
+// it is: Core's runtime token, sealed in its row. It returns the token.
+func (h *hostWorld) issued(id string) fakecore.Token {
 	h.t.Helper()
-	tok, err := h.fc.IssueLabelledToken(agentID, "AIshie runtime")
+	ctx := context.Background()
+	row, err := h.st.HostedAgent(ctx, id)
+	h.ok(err)
+	tok, err := h.fc.IssueRuntimeToken(row.CoreActorID)
 	h.ok(err)
 	h.tokens = append(h.tokens, tok.Token)
+	sealed, err := h.v.Seal(ctx, store.Secret{ID: vault.NewSecretID(), TenantID: row.TenantID, Kind: store.SecretCoreToken}, tok.Token)
+	h.ok(err)
+	row.TokenSecretID, row.TokenHint, row.TokenIssued, row.TokenCredentialID = sealed.ID, sealed.Hint, true, tok.CredentialID
+	_, err = h.st.UpdateHostedAgent(ctx, *row, sealed)
+	h.ok(err)
 	return tok
 }
 
@@ -140,23 +163,18 @@ func (h *hostWorld) call(method, path string, as fakecore.Actor, body string, he
 	return h.send(r)
 }
 
-// tokenBody is a token route's body.
-func tokenBody(token, actor string) string {
-	m := map[string]string{"token": token}
-	if actor != "" {
-		m["core_actor_id"] = actor
-	}
-	b, _ := json.Marshal(m)
+// agentBody is inspect's and POST /agents' body.
+func agentBody(agentID string) string {
+	b, _ := json.Marshal(map[string]string{"agent_id": agentID})
 	return string(b)
 }
 
-// connect connects the agent by token as the person, and returns the
-// agent.
-func (h *hostWorld) connect(as fakecore.Actor, token string) HostedAgent {
+// host hosts the agent by its id as the person, and returns it.
+func (h *hostWorld) host(as fakecore.Actor, agentID string) HostedAgent {
 	h.t.Helper()
-	a := h.call("POST", "agents", as, tokenBody(token, ""))
+	a := h.call("POST", "agents", as, agentBody(agentID))
 	if a.code != http.StatusCreated {
-		h.t.Fatalf("connect: %d %s", a.code, a.body)
+		h.t.Fatalf("host: %d %s", a.code, a.body)
 	}
 	var v HostedAgent
 	a.decode(h.t, &v)
@@ -208,7 +226,7 @@ func (h *hostWorld) noSecrets(answers ...answer) {
 	}
 	text := b.String()
 	for _, tok := range h.tokens {
-		secret := tok[len("ais_")+12+1:]
+		secret := tok[strings.Index(tok, "_")+12+2:]
 		if strings.Contains(text, tok) || strings.Contains(text, secret) || strings.Contains(text, secret[:16]) {
 			h.t.Errorf("a token is kept or said: %.20s…", tok)
 		}

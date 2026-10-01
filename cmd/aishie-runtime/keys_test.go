@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -142,9 +143,11 @@ func execSQL(t *testing.T, u, sql string) {
 
 // TestCheckLiveOpensSealedSecrets: check --live resolves a sealed://
 // reference as run does, from the store at DATABASE_URL with the keyring
-// KMS_KEY_ID names; without them it says what it lacks. check without
-// --live reads the keyring too, so that a deploy stops before a runtime
-// that could not open its secrets starts.
+// KMS_KEY_ID names, and connects an operator's agent with the token the
+// runtime holds for it there, sealed (store.AgentTokens), issued nothing;
+// without them it says what it lacks. check without --live reads the
+// keyring too, so that a deploy stops before a runtime that could not
+// open its secrets starts.
 func TestCheckLiveOpensSealedSecrets(t *testing.T) {
 	w := newLiveWorld(t)
 	dbURL := scratchDatabase(t)
@@ -162,22 +165,30 @@ func TestCheckLiveOpensSealedSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, err := os.ReadFile(filepath.Join(w.secrets, "agents", "own", "token"))
+	key, err := v.Seal(context.Background(), store.Secret{ID: "sec_key", TenantID: "operator", Kind: store.SecretModelKey}, "sk-sealed-0123456789abcdef")
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := v.Seal(context.Background(), store.Secret{ID: "sec_own", TenantID: "ten_yuki", Kind: store.SecretCoreToken}, strings.TrimSpace(string(token)))
+	if err := st.PutSecret(t.Context(), key); err != nil {
+		t.Fatal(err)
+	}
+	issued, err := w.fc.IssueRuntimeToken(w.ownA)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.PutSecret(t.Context(), s); err != nil {
+	tok, err := v.Seal(context.Background(), store.Secret{ID: "sec_own", TenantID: "operator", Kind: store.SecretCoreToken}, issued.Token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutAgentToken(t.Context(), store.AgentToken{AgentID: "own", CoreActorID: w.ownA, SecretID: tok.ID, CredentialID: issued.CredentialID,
+		Hint: tok.Hint, IssuedAt: time.Now().UTC(), IssuedBy: "w1"}, tok, ""); err != nil {
 		t.Fatal(err)
 	}
 	yaml, err := os.ReadFile(filepath.Join(w.config, "own.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	sealed := strings.Replace(string(yaml), `"secret://agents/own/token"`, `"sealed://sec_own"`, 1)
+	sealed := strings.Replace(string(yaml), "model: {adapter: openai_chat, model: fake-model,", `model: {adapter: openai_chat, model: fake-model, key_ref: "sealed://sec_key",`, 1)
 	if err := os.WriteFile(filepath.Join(w.config, "own.yaml"), []byte(sealed), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -186,13 +197,17 @@ func TestCheckLiveOpensSealedSecrets(t *testing.T) {
 	}
 	kms := "local:" + filepath.Join(dir, "v1")
 
-	code, out, errs := runCmd(t, env("CONFIG", w.config, "DATABASE_URL", dbURL, "KMS_KEY_ID", kms), "check", "--live")
+	code, out, errs := runCmd(t, env("CONFIG", w.config, "DATABASE_URL", dbURL, "KMS_KEY_ID", kms, "SECRETS_DIR", w.secrets), "check", "--live")
 	if code != exitOK || !strings.Contains(out, "sealed secrets: new ones are sealed by local:v1") ||
-		!strings.Contains(out, `agent own: connected as "Yuki's helper"`) || strings.Contains(out+errs, "ais_") {
-		t.Fatalf("check --live with a sealed token: %d\n%s%s", code, out, errs)
+		!strings.Contains(out, "agent own: in Core \"Yuki's helper\"") || !strings.Contains(out, "connected with the token the runtime holds") ||
+		!strings.Contains(out, "Delegate of member "+w.yuki.ID+" in CS101 (A)") || strings.Contains(out+errs, "ais_") || strings.Contains(out+errs, "sk-sealed") {
+		t.Fatalf("check --live with sealed secrets: %d\n%s%s", code, out, errs)
 	}
-	code, out, errs = runCmd(t, env("CONFIG", w.config), "check", "--live")
-	if code != exitFailure || !strings.Contains(out, "sealed://sec_own: this runtime opens no sealed secret: set KMS_KEY_ID") {
+	if n := w.fc.RuntimeIssues(w.ownA); n != 2 {
+		t.Errorf("check --live was issued a token: %d issued", n)
+	}
+	code, out, errs = runCmd(t, env("CONFIG", w.config, "SECRETS_DIR", w.secrets), "check", "--live")
+	if code != exitFailure || !strings.Contains(out, "sealed://sec_key: this runtime opens no sealed secret: set KMS_KEY_ID") {
 		t.Fatalf("check --live without the vault: %d\n%s%s", code, out, errs)
 	}
 	code, out, errs = runCmd(t, env("CONFIG", w.config, "KMS_KEY_ID", "local:"+filepath.Join(dir, "v9")), "check")

@@ -170,8 +170,9 @@ type apiInstance struct {
 
 // startAPI serves the API on 127.0.0.1:0 as run does with API_ADDR: its
 // store st, its assertions Core's for audience, checked against the keys
-// Core publishes, and its Core the world's; its log, redacted and not,
-// among the world's logs. edit sets what else it is given.
+// Core publishes, its Core the world's, asked with the run's agent runtime
+// credential; its log, redacted and not, among the world's logs. edit sets
+// what else it is given.
 func (w *world) startAPI(t *testing.T, st store.Store, audience string, edit func(*api.Options)) *apiInstance {
 	t.Helper()
 	rt := &apiInstance{answers: &logBuffer{}, raw: &logBuffer{}}
@@ -188,6 +189,7 @@ func (w *world) startAPI(t *testing.T, st store.Store, audience string, edit fun
 		Verifier: &webauth.Verifier{Keys: webauth.NewRemoteKeys(w.api.base, &http.Client{Transport: tr}), Issuer: w.api.base, Audience: audience,
 			Now: func() time.Time { return time.Now().Add(time.Duration(rt.offset.Load())) }},
 		Store: st, CoreBaseURL: w.api.base, CoreHTTP: &http.Client{Transport: tr}, Registerer: prometheus.NewRegistry(), Log: logger,
+		Runtime: w.runtimeService(),
 	}
 	if edit != nil {
 		edit(&o)

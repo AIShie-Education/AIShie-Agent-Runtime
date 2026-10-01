@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 )
 
 // person is someone in a world: an actor, their token, and their seat in
@@ -19,11 +21,12 @@ type person struct {
 	name, id, token, member string
 }
 
-// agentSeat is an agent seated in a world's course: its actor, its token
-// and the environment variable the runtime's env:// reference reads it
-// from, and its seat.
+// agentSeat is an agent seated in a world's course: its actor, a runtime
+// agent (hosting runtime) whose token the runtime under test is issued by
+// its id, and its seat. The tests hold no token of its: one that calls
+// Core as the agent takes the one the runtime holds (instance.token).
 type agentSeat struct {
-	id, token, tokenVar, member string
+	id, member string
 }
 
 // world is one test's own piece of Core, built as Core's scripts/e2e.sh
@@ -63,8 +66,8 @@ type capture struct {
 }
 
 // newWorld builds a world in Core for the test named slug, and puts its
-// agents' tokens and its model key in the environment (t.Setenv), where
-// the runtime's env:// references find them.
+// model key in the environment (t.Setenv), where the runtime's env://
+// reference finds it.
 func newWorld(t *testing.T, api *coreAPI, root, slug string) *world {
 	t.Helper()
 	w := &world{api: api, root: root}
@@ -106,7 +109,7 @@ func newWorld(t *testing.T, api *coreAPI, root, slug string) *world {
 
 	// Yuki's own agent: a student's request is a proposal (her
 	// agent_delegate is confirm_required), which an instructor approves.
-	w.own = w.newAgent(t, w.yuki, "Yuki's helper", "E2E_"+env+"_OWN_TOKEN")
+	w.own = w.newAgent(t, w.yuki, "Yuki's helper")
 	req := api.call(t, http.StatusAccepted, w.yuki.token, "POST", w.path("/delegates"), map[string]any{"actor_id": w.own.id, "preset": "delegate"})
 	if req.Status != "proposed" || req.ActionID == "" {
 		t.Fatalf("Yuki's request to seat her agent: %s; want proposed", req)
@@ -124,28 +127,13 @@ func newWorld(t *testing.T, api *coreAPI, root, slug string) *world {
 
 	// Sato's tutor answers the course: seated at once, by the one who
 	// manages its members.
-	w.tutor = w.newAgent(t, w.sato, "CS101 Tutor", "E2E_"+env+"_TUTOR_TOKEN")
+	w.tutor = w.newAgent(t, w.sato, "CS101 Tutor")
 	w.tutor.member = w.memberID(t, w.sato.token, w.path("/delegates"), map[string]any{"actor_id": w.tutor.id, "preset": "course_tutor"})
 
 	w.modelKeyVar = "E2E_" + env + "_MODEL_KEY"
 	w.modelKey = "sk-e2e-" + randomHex(16)
-	t.Setenv(w.own.tokenVar, w.own.token)
-	t.Setenv(w.tutor.tokenVar, w.tutor.token)
 	t.Setenv(w.modelKeyVar, w.modelKey)
 	return w
-}
-
-// issueToken is a new API token from path (an agent's tokens), issued as
-// token. Only agents are given API tokens; people sign in.
-func (w *world) issueToken(t testing.TB, token, path string) string {
-	t.Helper()
-	tok := result[struct {
-		Token string `json:"token"`
-	}](t, w.api, token, "POST", path, map[string]any{"label": "e2e"}).Token
-	if !strings.HasPrefix(tok, "ais_") {
-		t.Fatalf("POST %s issued no token", path)
-	}
-	return tok
 }
 
 // register is the admin registering a person, who signs in with a password
@@ -156,14 +144,51 @@ func (w *world) register(t testing.TB, name string) person {
 	return person{name: name, id: id, token: session}
 }
 
-// newAgent is owner making an agent of their own (My agents) and a token
-// for the runtime, kept in the environment variable tokenVar.
-func (w *world) newAgent(t testing.TB, owner person, name, tokenVar string) agentSeat {
+// newAgent is owner making an agent of their own (My agents), hosted
+// runtime: the site's runtime runs it, issued its token by its id, and its
+// owner holds none.
+func (w *world) newAgent(t testing.TB, owner person, name string) agentSeat {
+	t.Helper()
+	return agentSeat{id: w.createAgent(t, owner, name, "runtime")}
+}
+
+// createAgent is owner making an agent of their own, hosted as hosting
+// says, for good: runtime or mcp.
+func (w *world) createAgent(t testing.TB, owner person, name, hosting string) string {
 	t.Helper()
 	id := result[struct {
 		ActorID string `json:"actor_id"`
-	}](t, w.api, owner.token, "POST", "/v1/me/agents", map[string]any{"display_name": name}).ActorID
-	return agentSeat{id: id, token: w.issueToken(t, owner.token, "/v1/me/agents/"+id+"/tokens"), tokenVar: tokenVar}
+	}](t, w.api, owner.token, "POST", "/v1/me/agents", map[string]any{"display_name": name, "hosting": hosting}).ActorID
+	if a, err := w.runtimeService().Agent(context.Background(), id); err != nil || a.Hosting != hosting {
+		t.Fatalf("%s's agent %q, asked to be hosted %s: %+v, %v", owner.name, name, hosting, a, err)
+	}
+	return id
+}
+
+// runtimeService is the site's agent runtime's client of Core, with the
+// run's credential: what a test asks Core about an agent's hosting with,
+// as the runtime does.
+func (w *world) runtimeService() *core.RuntimeService {
+	return core.NewRuntimeService(core.RuntimeCaller(core.RuntimeOptions{BaseURL: w.api.base, Credential: w.credential,
+		HTTPClient: w.api.hc, Once: true}))
+}
+
+// credential is the run's agent_runtime credential, as the runtime reads
+// it.
+func (w *world) credential(context.Context) (string, error) { return w.api.svc, nil }
+
+// hostedBefore has the agent a issued its token by the site's runtime, as
+// a runtime that ran it before the one under test was, and returns it:
+// people in the site may ask the agent from then on. The runtime under
+// test is issued another as it starts the agent, which revokes this one.
+func (w *world) hostedBefore(t testing.TB, a agentSeat) *core.IssuedToken {
+	t.Helper()
+	it, err := w.runtimeService().IssueToken(context.Background(), a.id, "AIshie agent runtime (e2e, before)")
+	if err != nil {
+		t.Fatalf("the runtime before issued the agent's token: %v", err)
+	}
+	w.addSecret("a token of an agent's issued before the runtime under test", it.Token)
+	return it
 }
 
 // memberID is the seat a POST that seats someone made.
@@ -192,7 +217,7 @@ func (w *world) secrets() []secret {
 	return append([]secret{
 		{"root's session", w.root}, {"the admin's session", w.admin.token},
 		{"Sato's session", w.sato.token}, {"Mori's session", w.mori.token}, {"Yuki's session", w.yuki.token}, {"Ken's session", w.ken.token},
-		{"the token of Yuki's agent", w.own.token}, {"the tutor's token", w.tutor.token}, {"the model key", w.modelKey},
+		{"the agent runtime's credential", w.api.svc}, {"the model key", w.modelKey},
 	}, w.keys...)
 }
 
@@ -278,10 +303,9 @@ func (w *world) ask(t testing.TB, p person, respondent, body string) (conv, msg 
 }
 
 // answersInSite waits until the seat member, when it is an agent's, answers
-// in the site: Core asks an agent nothing (agent_answers_elsewhere) until
-// what runs it has said so with its token (me_site_chat), which the runtime
-// does as it starts the agent. Sato, who reads the roster, reads the seat's
-// site_chat.
+// in the site: Core asks a runtime agent nothing (agent_not_hosted) until
+// the site's runtime is issued its token, as the runtime does as it starts
+// the agent. Sato, who reads the roster, reads the seat's site_chat.
 func (w *world) answersInSite(t testing.TB, member string) {
 	t.Helper()
 	deadline := time.Now().Add(answerWait)
@@ -294,18 +318,10 @@ func (w *world) answersInSite(t testing.TB, member string) {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("the agent seated as %s never came to answer in the site: nothing declared it with me_site_chat", member)
+			t.Fatalf("the agent seated as %s never came to answer in the site: the runtime was never issued its token", member)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-}
-
-// declareSiteChat declares with a's token that it answers in the site, as
-// a runtime that ran it before did: for a question asked before the
-// runtime under test starts.
-func (w *world) declareSiteChat(t testing.TB, a agentSeat) {
-	t.Helper()
-	w.api.call(t, http.StatusOK, a.token, "POST", "/v1/me/site-chat", map[string]any{"on": true})
 }
 
 // followUp has p write again in conv, and returns the message. It may be
@@ -371,11 +387,12 @@ func (w *world) decide(t testing.TB, actionID, decision, reason string) string {
 	}](t, w.api, w.mori.token, "POST", w.path("/actions/"+actionID+"/decide"), body).Outcome
 }
 
-// answerAs is the agent a calling conversation_answer itself, over REST,
+// answerAs is the agent the runtime rt runs as id calling
+// conversation_answer itself, over REST, with the token rt holds for it,
 // under key: a replay, when the runtime sent the same under that key.
-func (w *world) answerAs(t testing.TB, a agentSeat, conv, inReplyTo, body, key string) reply {
+func (w *world) answerAs(t testing.TB, rt *instance, id, conv, inReplyTo, body, key string) reply {
 	t.Helper()
-	r, err := w.api.send(context.Background(), a.token, "POST", w.path("/conversations/"+conv+"/answer"),
+	r, err := w.api.send(context.Background(), rt.token(id), "POST", w.path("/conversations/"+conv+"/answer"),
 		map[string]any{"in_reply_to_message_id": inReplyTo, "body": body}, key)
 	if err != nil {
 		t.Fatal(err)
@@ -392,12 +409,13 @@ type action struct {
 	Result     json.RawMessage `json:"result"`
 }
 
-// actionsMine are the agent a's actions in the course, oldest first, as it
-// reads them itself (GET …/actions/mine).
-func (w *world) actionsMine(t testing.TB, a agentSeat) []action {
+// actionsMine are the actions in the course of the agent the runtime rt
+// runs as id, oldest first, as it reads them itself (GET …/actions/mine)
+// with the token rt holds for it.
+func (w *world) actionsMine(t testing.TB, rt *instance, id string) []action {
 	t.Helper()
 	q := url.Values{"limit": {"200"}}
 	return result[struct {
 		Actions []action `json:"actions"`
-	}](t, w.api, a.token, "GET", w.path("/actions/mine?"+q.Encode()), nil).Actions
+	}](t, w.api, rt.token(id), "GET", w.path("/actions/mine?"+q.Encode()), nil).Actions
 }

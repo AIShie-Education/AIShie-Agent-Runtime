@@ -15,23 +15,27 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/api"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/fakellm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
-// hostingThroughTheAPI is M2's API against the real Core (the contract's
-// §10.2): Yuki hosts her own agent on the school's runtime from the web UI,
-// as the front end does it. The runtime runs in-process, its state in
+// hostingThroughTheAPI is M2's API against the real Core, hosting by an
+// agent's id (the contract's §10.2; AIShie-Core #52): Yuki hosts her
+// own agent, a runtime agent, on the school's runtime from the web UI, as
+// the front end does it. The runtime runs in-process, its state in
 // PostgreSQL, with its API; its calls to OpenAI's own endpoint go to the
-// scripted model. Yuki's session issues her agent a token labelled "AIshie
-// runtime"; the API inspects and connects it (needs_model), tries her key,
-// and takes her model and key (If-Match); the worker runs it, and it
-// answers her. Paused, it calls Core no more; resumed, it runs again. A
-// second token replaces the first, which the new one revokes in Core; the
-// agent deleted, its token is revoked in Core with itself, the next GET is
-// 404, and the store holds nothing of it but its ledger. A person's
-// session and another's agent's token are refused. No answer, log or row
+// scripted model. Nobody pastes a token: the API asks Core, with the
+// runtime's own credential, whether the agent is hers and may be hosted
+// (inspect), and hosts it by its id (needs_model); she tries her key and
+// gives her model and key (If-Match); the worker is issued the agent's
+// token by its id, and it answers her in the site. Paused, its token is
+// revoked in Core and it calls Core no more; resumed, it is issued another.
+// Revoked in Core by its owner, it needs a token, and her asking for one
+// has it issued another. Deleted, its token is revoked in Core, the next GET
+// is 404, and the store holds nothing of it but its ledger. Another's
+// agent, a person, and her mcp agent are refused. No answer, log or row
 // holds a token, the key or an assertion.
 func hostingThroughTheAPI(t *testing.T, w *world) {
 	audience := os.Getenv("E2E_RUNTIME_AUDIENCE")
@@ -94,11 +98,24 @@ func hostingThroughTheAPI(t *testing.T, w *world) {
 		s, _ := e.Error.Details["reason"].(string)
 		return s
 	}
+	agentBody := func(id string) string {
+		b, _ := json.Marshal(map[string]string{"agent_id": id})
+		return string(b)
+	}
+	// inCore is the agent as the site's runtime reads it in Core.
+	inCore := func() *core.RuntimeAgent {
+		t.Helper()
+		view, err := w.runtimeService().Agent(t.Context(), w.own.id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return view
+	}
 
 	// What the front end reads first.
 	var info api.Info
 	decodeAs(answer{code: 200, body: mustGet(t, a, "/runtime/api/v1/info")}, 200, &info)
-	if !info.Features.ConnectByToken || !info.Features.OwnKey || info.Features.SchoolKey || info.Audience != audience {
+	if !info.Features.HostByID || !info.Features.OwnKey || info.Features.SchoolKey || info.Audience != audience {
 		t.Errorf("GET /info: %+v", info)
 	}
 	var me api.Me
@@ -107,44 +124,40 @@ func hostingThroughTheAPI(t *testing.T, w *world) {
 		t.Errorf("GET /me: %+v", me)
 	}
 
-	// Yuki's session issues her agent a token for the runtime.
-	issue := func() (token, credential string) {
-		out := result[struct {
-			Token        string `json:"token"`
-			CredentialID string `json:"credential_id"`
-		}](t, w.api, w.yuki.token, "POST", "/v1/me/agents/"+w.own.id+"/tokens", map[string]any{"label": "AIshie runtime"})
-		w.addSecret("a token of Yuki's agent issued for the runtime", out.Token)
-		return out.Token, out.CredentialID
+	// Refused (the routes that ask Core allow five at once): Sato's tutor,
+	// someone else's; her mcp agent, which her own tools reach, never the
+	// runtime.
+	if an := call("POST", "agents/inspect", agentBody(w.tutor.id)); an.code != 404 || reason(an) != "agent_not_found" {
+		t.Errorf("another's agent: %d %s", an.code, an.body)
 	}
-	first, firstCred := issue()
-	tokenBody := func(token string) string {
-		b, _ := json.Marshal(map[string]string{"token": token, "core_actor_id": w.own.id})
-		return string(b)
+	tools := w.createAgent(t, w.yuki, "Yuki's own tools", "mcp")
+	var mcp api.Inspection
+	decodeAs(call("POST", "agents/inspect", agentBody(tools)), 200, &mcp)
+	if mcp.Hosting != "mcp" || mcp.Hostable || mcp.Reason == nil || *mcp.Reason != "mcp_agent" || mcp.SiteChat {
+		t.Errorf("inspect of her mcp agent: %+v", mcp)
 	}
-
-	// Refused: her own session, a person's; the tutor's token, another's
-	// agent's.
-	if an := call("POST", "agents/inspect", tokenBody(w.yuki.token)); an.code != 422 || reason(an) != "token_not_agent" {
-		t.Errorf("a person's session: %d %s", an.code, an.body)
-	}
-	if an := call("POST", "agents/inspect", `{"token":"`+w.tutor.token+`"}`); an.code != 403 || reason(an) != "not_owner" {
-		t.Errorf("another's agent's token: %d %s", an.code, an.body)
+	if an := call("POST", "agents", agentBody(tools)); an.code != 422 || reason(an) != "mcp_agent" {
+		t.Errorf("hosting her mcp agent: %d %s", an.code, an.body)
 	}
 
-	// Inspect: her delegate seat.
+	// Inspect: hers, a runtime agent, with her delegate seat, hosted
+	// nowhere yet.
 	var ins api.Inspection
-	decodeAs(call("POST", "agents/inspect", tokenBody(first)), 200, &ins)
-	if ins.CoreActorID != w.own.id || ins.OwnerActorID != w.yuki.id || ins.Hosted != nil || len(ins.Seats) != 1 ||
-		ins.Seats[0].Kind != "delegate" || !ins.Seats[0].Answers || ins.OtherTokens == nil {
+	decodeAs(call("POST", "agents/inspect", agentBody(w.own.id)), 200, &ins)
+	if ins.CoreActorID != w.own.id || ins.OwnerActorID != w.yuki.id || ins.Hosting != "runtime" || !ins.Hostable || ins.Reason != nil ||
+		ins.LiveSeats != 1 || ins.SiteChat || ins.Hosted != nil {
 		t.Fatalf("inspect: %+v", ins)
 	}
-	// Connect: needs a model.
+	// Hosted by its id: it needs a model, and the API was issued nothing.
 	var agent api.HostedAgent
-	decodeAs(call("POST", "agents", tokenBody(first)), http.StatusCreated, &agent)
-	if agent.Status != api.StatusNeedsModel || agent.Version != 1 || agent.Token.Prefix != ins.Token.Prefix {
-		t.Fatalf("connect: %+v", agent)
+	decodeAs(call("POST", "agents", agentBody(w.own.id)), http.StatusCreated, &agent)
+	if agent.Status != api.StatusNeedsModel || agent.Version != 1 || agent.CoreActorID != w.own.id || agent.OwnerActorID != w.yuki.id {
+		t.Fatalf("POST /agents: %+v", agent)
 	}
 	id := agent.ID
+	if view := inCore(); view.RuntimeToken != nil || view.SiteChat {
+		t.Errorf("hosted without a model, the agent in Core: %+v", view)
+	}
 
 	// Her key tried: the scripted model takes it.
 	keyBody, _ := json.Marshal(map[string]string{"provider": "openai", "model": "e2e-model", "key": w.modelKey})
@@ -170,8 +183,23 @@ func hostingThroughTheAPI(t *testing.T, w *world) {
 		return got
 	}
 	waitStatus(api.StatusRunning)
+	// The worker was issued its token by its id, and keeps it sealed in
+	// its row: the one Core holds live for it.
+	issued := func() string {
+		t.Helper()
+		row, err := st.HostedAgent(t.Context(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		view := inCore()
+		if !row.TokenIssued || view.RuntimeToken == nil || view.RuntimeToken.CredentialID != row.TokenCredentialID || !view.SiteChat {
+			t.Fatalf("the row %+v; the agent in Core %+v", row, view)
+		}
+		return row.TokenCredentialID
+	}
+	first := issued()
 
-	// It answers her.
+	// It answers her in the site.
 	const q = "Does the agent I host through the API answer?"
 	conv, msg := w.ask(t, w.yuki, w.own.member, q)
 	ans := w.waitAnswer(t, w.yuki, conv, w.own.member)
@@ -190,10 +218,20 @@ func hostingThroughTheAPI(t *testing.T, w *world) {
 		t.Errorf("after an answer: %+v", used)
 	}
 
-	// Paused: it calls Core no more. Resumed: it runs again.
-	decodeAs(call("POST", "agents/"+id+"/pause", ""), 200, &agent)
-	if agent.Status != api.StatusPaused {
-		t.Errorf("paused: %+v", agent)
+	// Paused: its token is revoked in Core, nobody may ask it, and it calls
+	// Core no more. Resumed: it is issued another, and runs again.
+	var paused api.Paused
+	decodeAs(call("POST", "agents/"+id+"/pause", ""), 200, &paused)
+	if paused.Status != api.StatusPaused || paused.Revocation.Outcome != api.RevocationRevoked || paused.Revocation.Problem != nil {
+		t.Errorf("paused: %+v", paused)
+	}
+	if view := inCore(); view.RuntimeToken != nil || view.SiteChat {
+		t.Errorf("paused, the agent in Core: %+v", view)
+	}
+	if r, err := w.api.send(t.Context(), w.yuki.token, "POST", w.path("/conversations"),
+		map[string]any{"respondent_member_id": w.own.member, "body": "Are you there?"}, ""); err != nil || r.Error == nil ||
+		r.Error.Details["reason"] != "agent_not_hosted" {
+		t.Errorf("asking the paused agent: %v %v", r, err)
 	}
 	eventually(t, answerWait, "the paused agent stopped", func() bool {
 		for _, s := range rt.sup.Status() {
@@ -211,45 +249,33 @@ func hostingThroughTheAPI(t *testing.T, w *world) {
 	}
 	decodeAs(call("POST", "agents/"+id+"/resume", ""), 200, &agent)
 	waitStatus(api.StatusRunning)
+	second := issued()
+	if second == first {
+		t.Error("resumed, the agent runs with the token revoked as it was paused")
+	}
 
-	// A second token replaces the first, which it revokes in Core.
-	second, secondCred := issue()
-	var replaced api.TokenReplaced
-	decodeAs(call("PUT", "agents/"+id+"/token", `{"token":"`+second+`"}`), 200, &replaced)
-	if replaced.PreviousToken.Revocation != "revoked" || replaced.PreviousToken.Prefix != ins.Token.Prefix || replaced.Agent.Token.Prefix == ins.Token.Prefix {
-		t.Errorf("PUT /token: %+v", replaced)
+	// Its owner revokes its token in Core: it needs one, and her asking
+	// for one has the worker issued another.
+	w.api.call(t, http.StatusOK, w.yuki.token, "POST", "/v1/me/agents/"+w.own.id+"/credentials/"+second+"/revoke", nil)
+	needs := waitStatus(api.StatusNeedsToken)
+	if needs.Problem == nil || needs.Problem.Reason != "token_refused" {
+		t.Errorf("revoked in Core: %+v", needs)
 	}
-	creds := result[struct {
-		Credentials []struct {
-			ID        string  `json:"id"`
-			RevokedAt *string `json:"revoked_at"`
-		} `json:"credentials"`
-	}](t, w.api, w.yuki.token, "GET", "/v1/me/agents/"+w.own.id+"/credentials", nil).Credentials
-	revoked := map[string]bool{}
-	for _, c := range creds {
-		revoked[c.ID] = c.RevokedAt != nil
-	}
-	if !revoked[firstCred] || revoked[secondCred] {
-		t.Errorf("Core's credentials after the replacement: %+v", creds)
-	}
+	decodeAs(call("POST", "agents/"+id+"/token", ""), 200, &agent)
 	waitStatus(api.StatusRunning)
+	third := issued()
+	if third == second {
+		t.Error("asked for a new token, the agent runs with the one revoked")
+	}
 
-	// Deleted: its token revoked in Core with itself; nothing kept of it.
+	// Deleted: its token revoked in Core; nothing kept of it.
 	var deleted api.Deleted
 	decodeAs(call("DELETE", "agents/"+id, ""), 200, &deleted)
-	if deleted.Deleted.ID != id || deleted.Token.Revocation != "revoked" {
+	if deleted.Deleted.ID != id || deleted.Deleted.CoreActorID != w.own.id || deleted.Revocation.Outcome != api.RevocationRevoked {
 		t.Errorf("DELETE: %+v", deleted)
 	}
-	creds = result[struct {
-		Credentials []struct {
-			ID        string  `json:"id"`
-			RevokedAt *string `json:"revoked_at"`
-		} `json:"credentials"`
-	}](t, w.api, w.yuki.token, "GET", "/v1/me/agents/"+w.own.id+"/credentials", nil).Credentials
-	for _, c := range creds {
-		if c.ID == secondCred && c.RevokedAt == nil {
-			t.Error("the deleted agent's token is not revoked in Core")
-		}
+	if view := inCore(); view.RuntimeToken != nil || view.SiteChat {
+		t.Errorf("deleted, the agent in Core: %+v", view)
 	}
 	if an := call("GET", "agents/"+id, ""); an.code != 404 || reason(an) != "agent_not_found" {
 		t.Errorf("GET after DELETE: %d %s", an.code, an.body)
@@ -283,6 +309,9 @@ func hostingThroughTheAPI(t *testing.T, w *world) {
 	// Nothing the runtime keeps or says holds a secret: its database, and
 	// every answer of the API's (its logs are searched with the others').
 	for what, text := range map[string]string{"the hosted runtime's database": dumpDatabase(t, dbURL), "the API's answers": a.answers.String()} {
+		if strings.Contains(text, "ais_") && what == "the API's answers" {
+			t.Errorf("%s hold a Core token's prefix", what)
+		}
 		for _, s := range w.secrets() {
 			for _, part := range secretParts(s.value) {
 				if strings.Contains(text, part) || strings.Contains(text, hex.EncodeToString([]byte(part))) {

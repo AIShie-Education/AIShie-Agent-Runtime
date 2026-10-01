@@ -23,8 +23,9 @@ const (
 var problemReasons = map[string]bool{
 	store.ReasonTokenRefused: true, store.ReasonSettingsRejected: true, store.ReasonRuntimeMisconfigured: true,
 	store.ReasonOperatorAgent: true, store.ReasonActorInUse: true, store.ReasonTokenOtherAgent: true,
-	store.ReasonTokenNotAgent: true, store.ReasonOwnerChanged: true, store.ReasonCoreTooOld: true,
-	store.ReasonAgentSuspended: true, store.ReasonFailing: true, store.ReasonOfferWithdrawn: true,
+	store.ReasonOwnerChanged: true, store.ReasonCoreTooOld: true, store.ReasonAgentSuspended: true,
+	store.ReasonOwnerSuspended: true, store.ReasonMCPAgent: true, store.ReasonAgentNotFound: true,
+	store.ReasonFailing: true, store.ReasonOfferWithdrawn: true,
 }
 
 // maxDetail bounds a problem's detail, in characters.

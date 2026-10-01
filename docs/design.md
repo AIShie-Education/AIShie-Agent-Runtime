@@ -13,7 +13,7 @@ One binary, `aishie-runtime`:
 ```
 aishie-runtime run        the worker: pollers and answer loops, and /healthz, /metrics, /status;
                           with API_ADDR, the JSON API for the front end on a listener of its own
-aishie-runtime check      validate the configuration; with --live, connect each agent and show its seats
+aishie-runtime check      validate the configuration; with --live, read each agent in Core and show its seats
 aishie-runtime migrate    the store's schema (Postgres)
 aishie-runtime keys       the sealed secrets: check that each opens, or rewrap them under the current key
 aishie-runtime catalogue  fetch Core's GET /v1/tools, print its hash, compare it with a snapshot
@@ -22,9 +22,15 @@ aishie-runtime version
 
 Agents are configured from YAML (§4), with secrets from the environment or
 files, as M1 has it, and, with the store in PostgreSQL, from the registry of
-hosted agents that people connect from AIShie-Frontend (§11): the secret
-store seals their tokens and their owners' keys in the runtime's database,
-and the registry runs them beside the YAML agents. The JSON API the front
+hosted agents that people host by their ids from AIShie-Frontend (§11): the
+secret store seals their owners' keys, and the tokens Core issues the
+runtime for them, in the runtime's database, and the registry runs them
+beside the YAML agents. Every agent the runtime runs, the operator's and the
+people's alike, is an agent Core hosts `runtime`, named by its id: the
+runtime is issued its token by Core's `agent_runtime` service, with the
+runtime's own credential (§11.6), and nobody gives it a token. An agent
+Core hosts `mcp` is its owner's tools' to reach, never the runtime's, and
+the site's runtime is the only one: there is no self-hosted runtime. The JSON API the front
 end calls (§11.4) listens apart, on `API_ADDR`. A module of its own, off
 unless the site's administrators turn it on, transcribes the course's
 files into their text versions in Core (§12). `/status` is the
@@ -450,6 +456,19 @@ by `Run`; each entry has its reason beside it in the code:
 - `service_*`: the site's service credentials, issued, listed and revoked by
   its administrators alone; a token issued is a credential in the model's
   text.
+- `agent_runtime_*`: the site's agent runtime's own service (AIShie-Core
+  #52): who owns an agent and how it is hosted, and its one token issued
+  and revoked by its id, which the runtime calls itself, over REST, with
+  the service's credential, and Core refuses to any other (`service_only`).
+  `agent_*` covers them; they are named for what they are.
+- `conversation_export`, `conversation_export_*`: exporting conversations
+  for audit (AIShie-Core #51), every conversation of the site, a
+  department or a course, retracted messages with their text, as files
+  whose URLs are credentials for them; the site's and the departments'
+  administrators' alone. Core refuses an agent's export whatever role it
+  holds (`people_only`), and gives an export's files again
+  (`conversation_export_file`) to its maker alone. `conversation_*` covers
+  them; they are named for what they are.
 - `sso_*`: the site's identity providers for single sign-on, set up,
   changed, switched, removed and tested by the platform's administrators
   alone: a provider's client secret is a credential, and a change decides
@@ -994,7 +1013,9 @@ writes a state of an older version over one of a newer: a worker that
 read the registry late (every worker writes the state of a paused or a
 rejected agent) cannot undo what the agent's holder wrote. Within one
 worker, one Core actor is one agent: a second agent configured with the
-same token goes to state `error`, naming the first. `SIGHUP` reloads the configuration and the price table:
+same agent in Core (`core.agent_id`, which the configuration also refuses
+twice) goes to state `error`, naming the first, and is issued no token.
+`SIGHUP` reloads the configuration and the price table:
 agents added, removed, paused or changed are started, stopped or restarted.
 A configuration with no agent is valid: the supervisor runs and waits, and
 `run` (at start and on every reload) and `check` say so, so that a server
@@ -1006,74 +1027,68 @@ every 30 s finds the registry's revision moved on. A rebuild from the
 registry goes through `Supervisor.Update`, which restarts only the agents
 whose configuration changed: an agent stopped until a reload (Core refused
 its token) stays stopped through another agent's change, and a hosted
-agent's new token, being a new secret, is a change of its own, which starts
-it again. `SIGHUP` goes through `Reload`, which starts every such agent
-again, since a new token may be in the same file. A hosted agent that does
+agent's row dropping its token (its owner asking for a new one, §11.4) is
+a change of its own, which starts it again, to be issued another. The
+worker's own write of the token it was issued is not: it puts the row as
+it wrote it in force for the agent at once, so that the rebuild the write
+sets off restarts nothing. `SIGHUP` goes through `Reload`, which starts
+every such agent again, an operator's agent being issued a new token. A hosted agent that does
 not pass is not run, and is shown in state `error` with every problem; it
 keeps none of the others from running.
 
-A hosted agent's token must be its own: `me_get` must name the Core actor
-its row does, and that actor must be an agent (a person's own token would
-have the runtime act as the person, in every seat of theirs), or it is
-stopped in state `error` until it changes; `check --live` fails it the same
-way, before reading anything more with the token. And the
-operator's configuration wins a Core actor: a hosted agent on the actor of a
-YAML agent this worker runs is stopped in state `error`, whichever started
-first, until a reload.
+An agent's token is the one Core issued the runtime for it, and `me_get`
+must still name the agent its configuration does, or it is stopped in
+state `error`. And the operator's configuration wins an agent in Core: a
+hosted agent on the agent a YAML agent names (`core.agent_id`) is not run
+(`operator_agent`, refused by the registry and, should the two meet in a
+worker, stopped in state `error` whichever started first, until a
+reload); the API refuses to host one.
 
-A hosted agent runs only for its owner (the product owner's D5): at each
-start, `me_get`'s `owner_actor_id` (Core's C1) must be the owner its row
-names, the person who connected it. When Core names another owner (the
-agent was connected by someone who held its token without owning it, or,
-in a Core from before 169cf50, where an administrator could re-own an
-agent with `actor.set_owner`, it was given to someone else) or none (its
-owner was taken away, as such a Core could), it is
-stopped in state `owner_changed`, whose detail says that its owner in Core
-is no longer the person who connected it here and that its owner must
-connect it again, naming no one; it stays stopped, making no call, through
-other agents' changes, until its row changes (its owner connecting it
-again) or a reload, as an unauthorized agent does. A Core from before C1
-says nothing of owners, which `me_get`'s answer alone cannot tell from an
-agent nobody owns; its catalogue can, since only a Core that names owners
-describes `owner_actor_id`. There the owner cannot be checked, and holding
-the token is not taken as proof of it: the agent is stopped in state
-`error`, saying that Core must be upgraded (`worker.HostedOwnerProblem`).
-`check --live` fails an agent the same way, naming the state `run` would
-give it. When the check passes on a row not yet marked `owner_verified`
-(one stored while holding the token was the proof), the worker marks it,
-with the store's only write of a row, `UpdateHostedAgent`, at the version
-it read: the row's version and the registry's revision move on, and the
-rebuild that follows restarts nothing, since whether an owner has been
-verified changes nothing in how an agent runs. YAML agents are not
+A hosted agent runs only for its owner (the product owner's D5), and only
+while Core hosts it `runtime` (AIShie-Core #52, §11.6). As the worker
+holding its lease starts an agent, before any call as the agent, it reads
+the agent as Core hosts it, with the runtime's own credential
+(`agent_runtime.agent`): an `mcp` agent is not run (state `error`, reason
+`mcp_agent`, until its configuration changes), nor an id Core has no agent
+of (`agent_not_found`), nor any agent against a Core with no such service
+(`core_too_old`). A hosted agent's owner in Core must be the owner its row
+names, the person who hosted it: an agent's owner never changes in Core
+now, but a row from before may name another (an agent given away while
+Core let it be, or hosted with a token its holder did not own); such an
+agent is stopped in state `owner_changed`, whose detail names no one, and
+its token is revoked in Core (`agent_runtime.revoke_token`) and dropped
+from its row; it stays stopped, making no call, until its row changes or a
+reload. An agent suspended in Core is stopped (`agent_suspended`) and its
+token revoked: its hosting has ended, and it is hosted again, issued
+another, by itself once it is reactivated, the start being tried again
+after a backoff. One whose owner is suspended keeps its token, Core
+pausing it while its owner is, and is not started (`owner_suspended`)
+until they are reactivated. When the check passes on a row not yet marked
+`owner_verified` (one stored while holding a pasted token was the proof),
+the worker marks it, at the version it read. YAML agents' owners are not
 checked: their owner is whoever their operator says.
 
-An agent (`worker.Agent`) starts with `me_get` (the token works), the
-catalogue, and `me_memberships`.
+Then the agent runs with the token the runtime holds for it (§11.6): a
+hosted agent's, issued to the runtime and sealed in its row; an operator's
+agent's, sealed in the store (`agent_token`, migration 0013) when the
+runtime has a keyring, else held in the worker's memory. Holding none, the
+worker is issued one by the agent's id (`agent_runtime.issue_token`, under
+a fresh key each time), which revokes the one before, seals it and keeps it
+where every worker finds it, then runs the agent. A hosted agent's row
+holding a token its owner pasted before hosting was by id is issued one in
+its place at its next start, which revokes the pasted one. Only the worker
+holding the agent's lease is issued its token, and it keeps it only while
+the row (or the store's token) is still as it read it: a token another
+worker kept since that this one did not replace is run with instead, and
+this one dropped (Core revoked it as the other was issued); a row paused
+or deleted meanwhile has the token just issued revoked. So two workers
+sharing a store never each hold one, revoking each other's.
 
-Core takes conversations in the site for an agent only after the brain
-running it declares so, with the agent's own token, and only while that
-token is live: `me.site_chat {on: true}`. Until then nobody may open a
-conversation with the agent or ask in one (`agent_answers_elsewhere`), so a
-question can reach an agent only once a runtime has run it. The runtime sends it once each
-time it starts running an agent, right after the first successful
-`me_get` for one with an owner (a hosted agent always has one; a YAML
-agent when `me_get` names one), else once a seat of its answers
-(`conversation_answer` not denied), under a key of its own each time
-(`site-chat:` and a random id: after a token's revocation a replay would do
-nothing). A call Core did not answer is sent again at the next read of the
-seats, within 10 s each time; a refusal is logged and left until the next
-start. It is never sent `on: false`: a restart must not flap it, and the
-token's revocation (a new token put in, the agent deleted) turns it off in
-Core. Core's instructions to an agent say to declare `on: false` when
-what runs it stops; the runtime does not, for the reason above: with
-workers taking agents over from each other, a stopping worker's `false`
-could land after the next worker's `true`. A Core whose catalogue does not
-offer the tool (one from before it, as 571e1f9, the runtime's pin before
-61b7494, was), or that refuses it as a tool it does not know, has nothing to
-declare, which is logged once per catalogue. The model is never offered it
-(`me_*` is on the built-in deny list, §4). The fake Core offers it, and
-refuses a question to an agent that has not declared, as Core does;
-`Options.WithoutSiteChat` answers as a Core from before it.
+An agent (`worker.Agent`) then starts with `me_get` (the token works), the
+catalogue, and `me_memberships`. People in the site may ask an agent Core
+hosts `runtime` while the token the runtime was issued for it is live, it
+and its owner active: nothing is declared (the runtime no longer calls
+`me_site_chat`), and the token's revocation stops the asking.
 
 It reads memberships again every
 `memberships_s`, and at once after a `forbidden`, `not_found` or `denied`,
@@ -1088,18 +1103,25 @@ disabled here) is stopped but not gone, and keeps its memory. Whether a
 seat is a tutor or a delegate, and so which built-in prompt it gets, is read
 at each answer from `answers_course` as `me_memberships` last showed it.
 
-A 401 anywhere stops the agent (state `unauthorized`). So does an MCP
-envelope with status `error` and code `unauthenticated`, which the real Core
-sends where REST answers 401 when the token's actor no longer exists. An
-instance whose configuration was replaced while it wound down (a hosted
-agent's new token put in force before the old instance's answer in
-progress ended) records nothing as it ends: its 401 is most often the old
-token's, which the new one revoked, and the agent starts on its new token
-at the next lease tick. A reload starts an unauthorized or failed agent
-again even when its configuration has not changed, because a new token
-goes into the same secret file (`docs/deploying.md`). Tokens and model keys are read when an
-agent starts, so a rotated one takes effect at the next start. A paused
-agent makes no calls at all.
+A 401 anywhere stops the agent (state `unauthorized`): the token the
+runtime was issued was revoked in Core, by the agent's owner, an
+administrator or a migration. So does an MCP envelope with status `error`
+and code `unauthenticated`, which the real Core sends where REST answers
+401 when the token's actor no longer exists. A hosted agent stays stopped,
+reason `token_refused` (the API's `needs_token`), until its owner asks for
+a new token (`POST /agents/{id}/token`, which drops the row's, and the
+worker is issued another); an operator's agent's token is forgotten, and a
+reload is issued another. An instance whose configuration was replaced
+while it wound down (a hosted agent's new token put in force before the
+old instance's answer in progress ended) records nothing as it ends: its
+401 is most often the old token's, which the new one revoked, and the agent
+starts on its new token at the next lease tick. The runtime's own
+credential is read at each call of the service, so a new one in its place
+is taken with no restart; a model key is read when an agent starts, so a
+rotated one takes effect at the next start. A paused agent makes no calls
+at all; an operator's agent paused or removed in the configuration has its
+token revoked in Core by the worker holding its lease, before the lease
+goes.
 
 ### 5.2 Polling
 
@@ -1771,13 +1793,19 @@ Chinese with a table, overran, and was cut off.
   still waits and takes an answer (`WithdrawnWaits`); each seat's
   ceilings, as Core works them out; an agent's owner
   deciding and reviewing what it did where they could do it themselves;
-  and no question to an agent that has not declared it answers in the site
-  (the worker's tests wait for the runtime's declaration, or, asking
-  before a worker starts, make it as an earlier run would have).
+  and no question to a runtime agent the site's runtime holds no live
+  token for, nor ever to an `mcp` agent (the worker's tests wait for the
+  runtime to be issued the agent's token, or, asking before a worker
+  starts, have it issued as an earlier run would have). It hosts agents as
+  AIShie-Core #52 does (`hosting.go`): each `runtime` or `mcp` for
+  good; the `agent_runtime` service's four REST tools, offered to no
+  model, taken with a service credential of that scope alone; one runtime
+  token per agent, which issuing replaces and revokes; and a Core from
+  before it (`WithoutHosting`), whose catalogue has no such service.
   `internal/fakecore/testdata/fixtures` are envelopes recorded from the
   pinned Core for every row of §2.4 and more (`make record-fixtures`
-  against a live Core, whose recorder declares each agent's site chat with
-  its token); a conformance test holds the fake to them, and Core's own
+  against a live Core, whose recorder is issued each agent's token by the
+  site's runtime); a conformance test holds the fake to them, and Core's own
   client is tested live against the real one. The fake takes a message's
   files as Core's conversation attachments have them (upload URLs on the
   fake itself, the files named in a question, a follow-up or an answer and
@@ -2057,14 +2085,20 @@ Chinese with a table, overran, and was cut off.
   by notification, by poll, and listening again after its connection is
   killed. `storetest` holds both stores to the seat snapshot, and the
   reports by day, course and asker, at the UTC day's edges and the span's.
-  The worker runs hosted agents from their sealed secrets beside
-  YAML ones, pauses them, keeps an unauthorized one stopped through others'
-  changes and starts it again on its new token, and lets YAML win a Core
-  actor whichever started first; the binary picks up an agent connected
-  while it runs, told by the notification; and the end to end connects
-  Yuki's agent to a runtime on Postgres, which answers her against the real
-  Core, with no token, key or the key that seals them in its logs, in any
-  table of its database, or in its status.
+  The worker runs hosted agents beside YAML ones, issued each one's token
+  by its id and keeping it sealed in its row, one token across workers
+  sharing a store; re-issues a token pasted before hosting was by id,
+  paced; refuses an `mcp` agent, one not found and a Core too old, ends
+  the hosting (revoking the token) of an agent whose owner of record is
+  not its owner in Core or that is suspended, pauses them, keeps an
+  unauthorized one stopped through others' changes and starts it again
+  once its owner asks for a new token, and lets YAML win an agent in Core
+  whichever started first; the binary picks up an agent hosted while it
+  runs, told by the notification; and the end to end hosts Yuki's agent by
+  its id in a runtime on Postgres, whose worker is issued its token
+  (revoking one pasted before), which answers her against the real Core,
+  with no token, key or the key that seals them in its logs, in any table
+  of its database, or in its status.
 - `worker`: the fake Core and the scripted model: every row of §5.3's table,
   moved on, duplicates across two workers, denied, 401, 429, quotas,
   budgets, proposals followed, retractions; long polls (§5.2): a question
@@ -2094,10 +2128,11 @@ Chinese with a table, overran, and was cut off.
   exactly and the file fetched once; a scanned handout read by a model
   that takes no files: told its OCR is in progress, it asks again with
   `ask_again` and answers from the text, the file fetched and recognized
-  once and the text kept by its checksum; the site chat declared once per start, by an
-  agent with an owner at once and by one nobody owns once a seat of its
-  answers, never taken back, and not sent to a Core that does not offer
-  it; and Sato's own assistant, given `member_manage`, offered
+  once and the text kept by its checksum; an operator's agent named by its
+  id, issued its token once and keeping it through restarts, its token
+  revoked as it names another agent in Core, is paused or is removed, and
+  forgotten on a 401 for a reload to be issued another; the runtime's own
+  credential missing or refused, then given; and Sato's own assistant, given `member_manage`, offered
   `member_set_role` in his conversation, seating Aoi when he asks, and
   refused before Core the role a document orders for his course tutor,
   his other agent, and for his own seat, and a pause of its own.
@@ -2108,8 +2143,9 @@ Chinese with a table, overran, and was cut off.
   claims each question within a second of its being written (against
   2c1fe1b, some 20 ms), with a schedule that would take 10 s; moved on and duplicates across two
   workers are safe (an agent asked before the runtime starts is one an
-  earlier run declared; every other is asked once the runtime has declared
-  that it answers in the site, which Core requires); a seat set to
+  earlier run was issued the token of; every other is asked once the
+  runtime under test has been issued its token, which Core requires; two
+  workers that share no store are given the one token); a seat set to
   `denied` stops polling and answers again
   when restored; a proposal approved is recorded, and a rejection's reason
   reaches the next attempt; no token or key in any log, before or after
@@ -2136,11 +2172,12 @@ Chinese with a table, overran, and was cut off.
 
 ## 11. Hosted agents
 
-M2 lets people connect their own agents from AIShie-Frontend instead of
-an operator writing YAML. The runtime's side is built in steps: the secret
+M2 lets people host their own agents from AIShie-Frontend instead of an
+operator writing YAML. The runtime's side is built in steps: the secret
 store (§11.1), the registry of hosted agents that runs them beside the YAML
-agents (§11.2), a versioned JSON API for the front end (§11.4), and what
-the site's administrators change through it (§11.5).
+agents (§11.2), a versioned JSON API for the front end (§11.4), what the
+site's administrators change through it (§11.5), and hosting every agent by
+its id, with the runtime's own credential in Core (§11.6).
 
 ### 11.1 The secret store
 
@@ -2194,13 +2231,16 @@ the site's administrators change through it (§11.5).
 
 A hosted agent is a row of `hosted_agent` (migration 0003), with its
 courses' settings in `hosted_course`: what the API writes, from the person
-who connects the agent. `internal/registry` turns each row into the agent
+who hosts the agent, and the token the worker is issued for it.
+`internal/registry` turns each row into the agent
 document a YAML file would hold, and runs it beside the YAML agents:
 
 - **The document.** The row's `settings` (the agent document of §4, as
   JSON) are the document, with what the registry sets itself: `id`,
   `display_name`, `tenant_id` and `paused` from the row; `core` as
-  `{base_url: CORE_BASE_URL, token_ref: sealed://<token_secret_id>}`; and
+  `{base_url: CORE_BASE_URL, agent_id: <core_actor_id>}` (the token the
+  row holds, issued to the runtime, goes to the worker beside the document,
+  never in it); and
   the owner's key, `sealed://<key_secret_id>`, on each model section whose
   key source, as written or inherited from its parent, is `own`, with that
   key source written out (merged over `runtime.defaults`, a fallback that
@@ -2240,7 +2280,8 @@ document a YAML file would hold, and runs it beside the YAML agents:
 - **YAML ∪ registry.** `registry.Build` is the YAML configuration, then
   every hosted agent that passes; the rest are in `Config.Rejected`, which
   the supervisor shows in state `error`. A hosted agent whose id is a YAML
-  agent's loses to it, as does one on a YAML agent's Core actor (§5.1).
+  agent's loses to it, as does one on the agent in Core a YAML agent names
+  (`operator_agent`, §5.1).
   Without `CORE_BASE_URL`, no hosted agent runs, and each says why. The
   registry is on only with the store in PostgreSQL: with memstore there is
   nowhere to keep it, and `run` says it is off.
@@ -2256,8 +2297,12 @@ document a YAML file would hold, and runs it beside the YAML agents:
   neither the watcher nor SIGHUP, nor the signals after it. A registry
   that cannot be read leaves the configuration in force as it is.
 - **The store's side.** Creating an agent stores the secrets it refers to
-  in the same transaction; its token must be a `core_token` and its key a
-  `model_key` of its tenant, and no other agent's. An update names the
+  in the same transaction; its token, when it holds one (none until the
+  worker is issued it, and none while it is paused: pausing destroys it),
+  must be a `core_token` and its key a `model_key` of its tenant, and no
+  other agent's; `token_issued` says the token was issued to the runtime
+  (not pasted by an owner before hosting was by id), and
+  `token_credential_id` names it in Core. An update names the
   version it read (If-Match), and is refused at any other; its Core actor
   and tenant never change; a secret it no longer refers to (a token or key
   replaced) is destroyed with it. Deleting it destroys its courses and its
@@ -2297,7 +2342,9 @@ document a YAML file would hold, and runs it beside the YAML agents:
   the hosted agents it would run and those it would not, with why, and
   passes: they keep no other from running. A registry it cannot read (a
   schema older than the binary's, before a deploy's `migrate up`) is said,
-  and passes too. `check --live` connects the hosted agents as well.
+  and passes too. `check --live` reads the hosted agents in Core as well,
+  and connects those whose rows hold the token the runtime was issued; it
+  is issued none itself.
 
 ### 11.3 Where M2 departs from the handout
 
@@ -2326,7 +2373,8 @@ on Core's own origin with the `Cookie` header stripped, and nothing else:
 also refuses any request a proxy forwarded (`Forwarded`, `X-Forwarded-*`,
 `X-Real-IP`), since a proxy on the same machine connects from loopback.
 The API needs `CORE_BASE_URL`, `API_AUDIENCE`, `DATABASE_URL` and
-`KMS_KEY_ID`, and `run` refuses `API_ADDR` without them.
+`KMS_KEY_ID`, and `run` refuses `API_ADDR` without them; it hosts nothing
+without the runtime's own credential (`CORE_SERVICE_CREDENTIAL`, §11.6).
 
 - **Who is calling** (D2). The front end asks Core for an assertion of
   its signed-in person (`POST /v1/auth/assertion`, audience
@@ -2379,11 +2427,12 @@ The API needs `CORE_BASE_URL`, `API_AUDIENCE`, `DATABASE_URL` and
   most 10,000 keys each (per address, 120 a minute, bursts of 60, for
   requests without an assertion and those whose assertion was refused, and
   30 a minute for refusals alone; per person, 120 a minute, bursts of 40,
-  and for the routes that take a token 10 a minute, bursts of 5, and
+  and for the routes that ask Core about an agent 10 a minute, bursts of
+  5, and
   `keys/test` 6 a minute, bursts of 3, and 100 a UTC day), answered 429
-  with `Retry-After`; the assertion; a query (none is taken, but
-  `DELETE`'s `revoke_token`, and the parameters of the administrators'
-  `GET /admin/tenants` and `GET /admin/costs`, each once, any other
+  with `Retry-After`; the assertion; a query (none is taken, but the
+  parameters of the administrators' `GET /admin/tenants`, `GET
+  /admin/costs` and `GET /admin/transcription/jobs`, each once, any other
   `unknown_parameter`: a route that reads a body refuses one too)
   and a body (JSON only, at most 64 KB, no key twice, in one case or in
   two, no member the route does not take by exactly its name, since
@@ -2400,29 +2449,33 @@ The API needs `CORE_BASE_URL`, `API_AUDIENCE`, `DATABASE_URL` and
 - **The routes.** `GET /info`, which anyone may ask, cached a minute:
   `api: "aishie-runtime"`, `api_version: 1`, the version and commit, the
   audience to ask Core for, the issuer, and the features offered
-  (connecting by token and the owner's own key when the API has a Core
-  and a vault, as `run` always gives it; and the school's plan, when the
-  runtime's settings offer a model on it).
+  (`host_by_id` and the owner's own key when the API has a Core, the
+  runtime's own credential to ask it with and a vault, as `run` gives it;
+  and the school's plan, when the runtime's settings offer a model on it).
   `GET /me`: the person's actor id and name, whether they are an
   administrator, and how many agents they host; it records the person
   (`person`), at most every five minutes. The rest are a hosted agent's
   life, each the owner's alone (another's agent is 404, never 403):
-  - `POST /agents/inspect` and `POST /agents` take an agent's token and
-    ask Core, with it, what it is (`internal/probe`): `me_get`, then
-    `me_memberships`, refused in order when Core refuses the token or
-    cannot be reached, when it is a person's, a suspended agent's,
-    another agent's than the one meant, an agent without an owner (or a
-    Core too old to say) or someone else's. Connecting seals the token
-    in a new row (`needs_model`) and records the agent's seats; the same
-    token again replays the row; another token of an agent hosted
-    already is `already_hosted`; an agent Core has given the caller since
-    an earlier owner connected it is taken over, the earlier row deleted
-    and purged, once Core, asked again with the token just before, still
-    says the agent is the caller's; one the operator's YAML runs is
-    `operator_agent`. Both answers list the agent's other live tokens
-    (`other_tokens`, with Core's `credential_list`) and whether one was
-    used in the last 15 minutes, for the front end to warn that an agent
-    has one brain at a time.
+  - `POST /agents/inspect` and `POST /agents` take an agent's id in Core,
+    `{agent_id}`, and ask Core, with the runtime's own credential, whether
+    the caller owns it and what it is (`agent_runtime.check_owner`, §11.6):
+    another's agent, one nobody owns, a person or no one at all is 404
+    `agent_not_found`, as Core says nothing of them. Inspect answers how
+    Core hosts it (`hosting`), whether it may be hosted here (`hostable`,
+    and when not, why: `mcp_agent`, `agent_suspended`, `owner_suspended`,
+    or `operator_agent` for one the operator's YAML runs), its live seats'
+    count, whether people may ask it in the site now, and whether it is
+    hosted here (`hosted`, its id when it is the caller's); nothing is
+    written. Hosting refuses what inspect says is not hostable (422, 409
+    for `operator_agent`), and writes a new row, naming the agent and the
+    caller as its owner, verified, with no token (`needs_model`): the worker
+    is issued the agent's token once it has a model. Asked again, it
+    replays the row (200, `Idempotency-Replayed`); an earlier owner's row
+    of an agent Core says is the caller's is taken over, deleted, purged
+    and its token revoked, and audited. The runtime's credential missing
+    or refused is 503 `runtime_misconfigured`, a Core from before hosting
+    by id 422 `core_too_old`, a Core not answering 503 `core_unavailable`.
+    Nobody gives the API a token, and it is issued none.
   - `GET /agents` and `GET /agents/{id}`: the agent as its owner reads
     it, with its `version` as a strong ETag, its seats, the proposals
     waiting, today's answers and cost, its model and key hint (on the
@@ -2458,26 +2511,33 @@ The API needs `CORE_BASE_URL`, `API_AUDIENCE`, `DATABASE_URL` and
     A key that is a Core token, or holds one anywhere (`ais_` or
     `aisinv_` and a public prefix, as Core makes them), is refused by
     both, and nothing of it is kept.
-  - `PUT /agents/{id}/token`: a new token of the same agent, sealed in
-    place of the old, whose secret is destroyed with the write; the new
-    token then revokes the old in Core (`credential_list`, then
-    `credential_revoke` of that credential alone, D7). Core refusing the
-    new token (401) means another new token replaced it meanwhile, and
-    says nothing of the old one, which is then said to have failed
-    (`core_refused`), for its owner to revoke. `POST …/pause` and
-    `…/resume` set the row's flag, at the version `If-Match` names when
-    it names one (412 when the row was written after it was read).
-  - `DELETE /agents/{id}`: the stored token opened, the one secret the
-    API ever opens, to revoke itself in Core (unless
-    `revoke_token=false`); then the row, its courses and its secrets
-    destroyed in one transaction, and the agent's notes, attempts,
-    cursors, seats, state and leases purged, its ledger kept. The row is
-    deleted only while it holds the token that was revoked, and is at the
-    version `If-Match` names when it names one: a new token put in
-    meanwhile is revoked in its turn and the row deleted holding it (three
-    tries at most), and with `If-Match` the write meanwhile is 412. An
-    agent suspended in Core cannot revoke its own tokens: the answer says
-    so, and its owner revokes them in AIshie.
+  - `POST /agents/{id}/token` (no body; `If-Match` held to when given):
+    a new token, after Core refused the one the runtime held (revoked
+    there by the agent's owner or an administrator: `needs_token`). Core
+    must still say the agent is the caller's (`owner_changed` when not)
+    and may be hosted; the row's token is dropped, its secret destroyed
+    with the write, and the worker is issued another, which revokes any
+    left. A row holding none changes nothing (200, `Idempotency-Replayed`).
+    `POST …/pause` and `…/resume` set the row's flag, at the version
+    `If-Match` names when it names one (412 when the row was written after
+    it was read). Paused, the row holds no token (the store destroys it
+    with the write), and then the token the runtime held is revoked in
+    Core (`agent_runtime.revoke_token`), after the write, so that no
+    worker is issued one after it; the answer is the agent and
+    `revocation`: `{outcome: revoked | none | failed | not_attempted,
+    problem}`, `failed` saying why (`core_unavailable`,
+    `runtime_misconfigured`, `core_too_old`), and `not_attempted` for an
+    agent the operator runs (`operator_agent`), whose token is the
+    operator's agent's. A pause of an agent paused already writes nothing
+    and audits nothing, but revokes again, so a failed revocation is
+    tried again so. Resumed, the worker is issued another.
+  - `DELETE /agents/{id}` (no query, no body; `If-Match` held to when
+    given): the row, its courses and its secrets destroyed in one
+    transaction, and the agent's notes, attempts, cursors, seats, state
+    and leases purged, its ledger kept; then its token revoked in Core, as
+    a pause revokes it, the answer saying what became of it beside the
+    agent deleted. A worker issued a token meanwhile finds the row gone,
+    and revokes it.
 - **Hosted agents' models** (D9) are called at the providers' own
   endpoints alone, which the API makes from the provider, an endpoint
   choice, an Azure resource or an AWS region (patterns with no dots),
@@ -2740,6 +2800,86 @@ time: not money) stay `runtime.yaml`'s.
   - `GET /info`'s `features.transcription`: this worker's transcriber runs,
     or stands by, as the site's setting in force turns it on, with nothing
     blocking it; what the front end shows the text versions' queue for.
+
+### 11.6 Hosting by an agent's id
+
+Since AIShie-Core #52 every agent is hosted one way in Core, chosen
+when it is made and never changed: `runtime`, which the site's agent
+runtime runs and people in the site may ask, and whose one token is the
+runtime's; or `mcp`, which its owner's own tools reach over MCP with tokens
+the owner issues, and which nobody asks in the site. The runtime hosts
+`runtime` agents alone, by their ids, and is the only runtime that does:
+nobody runs a runtime of their own for an agent, since only the site's,
+holding Core's `agent_runtime` credential, is issued an agent's token, and
+an `mcp` agent is never hosted here.
+
+- **The runtime's own credential.** The runtime is a site service of
+  Core's, `agent_runtime`, with a credential of its own (`aissvc_…`), which
+  Core takes at the service's four REST routes alone (never over MCP, and
+  never any other tool): `CORE_SERVICE_CREDENTIAL`, a reference
+  (`secret://…`, `env://…` or `file://…`; never `sealed://`, since it is the
+  operator's), `secret://core/agent_runtime` by default, the file
+  `core/agent_runtime` under `SECRETS_DIR`, where Deploy writes it at setup
+  (`aishie-core service issue agent_runtime --label runtime --replace`).
+  `run` checks the reference at start as it checks every setting, and says
+  in its log when the credential cannot be read (no agent then runs, each
+  in state `error`, reason `runtime_misconfigured`, tried again after a
+  backoff); it is read at each call, so a new one in its place is taken
+  with no restart. Core refusing it (revoked, expired, another service's,
+  or an agent's token) is `runtime_misconfigured` too, never repeating it.
+  Its calls are paced by one bucket per process, 300 a minute in bursts of
+  50, the worker's and the API's together: Core allows the service 600 a
+  minute in bursts of 100, every worker's together, and the first start
+  after an upgrade issues every hosted agent a token at once.
+- **The service's calls** (`core.RuntimeService`, over `RuntimeCaller`, a
+  REST caller with the credential): `check_owner` (does the person own the
+  agent, and the agent as Core hosts it), `agent` (the agent: its hosting,
+  standing, owner's standing, live seats, whether it is hostable and why
+  not, the runtime token Core holds for it, and whether people may ask it),
+  `issue_token` (the agent's one token, under a fresh idempotency key each
+  time: Core's replay of a call carried out before comes back without the
+  token, and is issued again under another key, which revokes the token
+  never received), and `revoke_token`. None of them is offered to a model
+  (`agent_runtime_*` is on the built-in deny list, §4).
+- **One token per agent.** Core holds at most one live runtime token for
+  an agent, and issuing one revokes the one before: two runtimes, or two
+  workers, each issued one would revoke each other's. So only the worker
+  holding the agent's lease is issued it, and it keeps it where every
+  worker sharing its store finds it (§5.1): a hosted agent's in its row
+  (`token_secret_id`, `token_issued`, `token_credential_id`), an operator's
+  agent's in `agent_token` (migration 0013), each sealed, its tenant the
+  owner's or the operator's (`operator` unless the configuration names
+  one). An operator's agent's is held in the worker's memory without a
+  keyring, issued again when the agent starts on another worker or after a
+  restart. Workers that share no store must not run one agent.
+- **When the hosting ends**, the token is revoked in Core: the owner
+  deleting or pausing the agent (the API, after its write), its owner of
+  record not its owner in Core (`owner_changed`), the agent suspended, an
+  operator's agent paused or taken out of the configuration (the worker
+  holding its lease, before it lets the lease go), or named as another agent
+  in Core. A token revoked elsewhere (its owner, an administrator, a
+  migration) is a 401 to the worker, which stops the agent until a new one
+  is asked for (§5.1).
+- **Operators' agents by id.** A YAML agent names its agent in Core with
+  `core.agent_id` (a UUID; two agents of the configuration may not name
+  one), and the runtime is issued its token as it starts it. `core.token_ref`
+  is refused, saying to give `core.agent_id` in its place and to delete the
+  token's file: the runtime takes no token from anyone.
+- **The upgrade** from a runtime that took pasted tokens. Core's
+  migration 0025 made every agent whose site chat a live token of its own
+  declared `runtime`, that token the runtime's, and every other `mcp`.
+  This runtime's migration 0013 lets a row hold no token, and adds
+  `token_issued` (false for every row from before) and `agent_token`. At
+  each hosted agent's first start after it, the worker reads it in Core,
+  and is issued its token in place of the pasted one, which that revokes;
+  the calls are paced by the service's bucket. A row of an agent Core made
+  `mcp` is not run, in state `error`, reason `mcp_agent`, saying that an
+  `mcp` agent cannot be hosted here: its owner deletes it. YAML agents must
+  be given `core.agent_id` before the upgrade starts, or the configuration
+  does not load. 0013 is additive, but a runtime from before cannot read a
+  row that holds no token, which only this one writes, nor be given an
+  owner's token for a `runtime` agent: going back past it is restoring the
+  deploy's backup, with Core's own rollback (`docs/deploying.md`).
 
 ## 12. The transcriber
 

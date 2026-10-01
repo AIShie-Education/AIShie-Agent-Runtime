@@ -564,7 +564,9 @@ func TestBuiltinDenied(t *testing.T) {
 		"course_join_link_create", "memory_search", "memory_list", "memory_get", "memory_write", "memory_update", "memory_forget",
 		"action_list_mine", "event_list", "document_text", "document_text_update", "document_text_retranscribe", "document_text_queue",
 		"document_text_file", "document_text_renew", "document_text_complete", "service_issue_credential", "service_list_credentials",
-		"service_revoke_credential", "sso_list", "sso_get", "sso_test", "sso_create", "sso_update", "sso_set_enabled", "sso_delete"}
+		"service_revoke_credential", "sso_list", "sso_get", "sso_test", "sso_create", "sso_update", "sso_set_enabled", "sso_delete",
+		"agent_runtime_agent", "agent_runtime_check_owner", "agent_runtime_issue_token", "agent_runtime_revoke_token",
+		"conversation_export", "conversation_export_file"}
 	for _, name := range denied {
 		if !BuiltinDenied(name) {
 			t.Errorf("%s is not denied", name)
@@ -579,6 +581,56 @@ func TestBuiltinDenied(t *testing.T) {
 		if BuiltinDenied(name) {
 			t.Errorf("%s is denied", name)
 		}
+	}
+}
+
+// TestBuiltinDenyNamesTheirOwn: the tools of the snapshot that Core gives
+// no agent's token, the site's agent runtime's service (agent_runtime_*,
+// the service's credential alone) and the export of conversations for
+// audit (conversation_export and _export_file, people alone), are each
+// denied by an entry of their own, not only by the wider agent_* and
+// conversation_*, so that narrowing those never offers one to a model; and
+// a seat holding every permission in its owner's conversation, allowed
+// them by name, is offered none, and Run refuses each.
+func TestBuiltinDenyNamesTheirOwn(t *testing.T) {
+	cat := snapshot(t)
+	own := slices.DeleteFunc(slices.Clone(BuiltinDeny), func(e string) bool { return e == "agent_*" || e == "conversation_*" })
+	names := []string{"agent_runtime_agent", "agent_runtime_check_owner", "agent_runtime_issue_token", "agent_runtime_revoke_token",
+		"conversation_export", "conversation_export_file"}
+	for _, name := range names {
+		if _, ok := cat.Tools[name]; !ok {
+			t.Errorf("%s is not in the snapshot", name)
+		}
+		if !denied(name, own) {
+			t.Errorf("%s is denied by agent_* or conversation_* alone, not by an entry of its own", name)
+		}
+	}
+	if denied("conversation_exports", own) || denied("conversation_get", own) || denied("agent_runtimes", own) {
+		t.Error("the entries of their own deny more than the export and the agent runtime's service")
+	}
+	all := map[string]string{}
+	for _, p := range []string{"document_read", "document_read_draft", "document_write", "rubric_read", "assignment_write",
+		"submission_read", "submission_write", "grade_read", "grade_submit", "grade_post", "member_read", "member_manage",
+		"action_decide", "agent_delegate", "conversation_ask", "conversation_answer", "member_invite"} {
+		all[p] = "autonomous"
+	}
+	s, err := cat.Build(all, config.Tools{Writes: true, Allow: append([]string{"course_get"}, names...)}, ReadWrite, toolschema.OpenAI, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Names(); !slices.Equal(got, []string{"course_get"}) {
+		t.Errorf("offered %v", got)
+	}
+	fc := &fakeCore{}
+	for _, name := range names {
+		parts, err := s.Run(context.Background(), Runner{Client: core.NewClient(fc)}, courseID,
+			[]llm.Part{{Type: llm.PartToolCall, ID: "c1", Name: name, Args: json.RawMessage(`{}`)}})
+		if err != nil || len(parts) != 1 || !parts[0].IsError {
+			t.Errorf("a call of %s: %+v %v", name, parts, err)
+		}
+	}
+	if calls := fc.recorded(); len(calls) != 0 {
+		t.Errorf("Core was called: %+v", calls)
 	}
 }
 

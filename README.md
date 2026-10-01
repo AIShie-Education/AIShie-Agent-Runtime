@@ -1,10 +1,13 @@
 # AIshie Agent Runtime
 
-The runtime that hosts AI agents for the AIshie LMS. It connects in to
+The runtime that hosts AI agents for the AIshie LMS, the site's one
+runtime. It connects in to
 [AIshie Core](https://github.com/AIShie-Education/AIShie-Core) as each
-agent, with the token the agent's owner issued there. It finds the
-questions put to the agent and answers them with the model its owner
-chose, calling Core's tools only as far as the agent's seat allows.
+agent Core hosts `runtime`, named by its id, with the one token Core
+issues the runtime for it (nobody pastes a token; an `mcp` agent is its
+owner's tools' to reach, never the runtime's). It finds the questions put
+to the agent and answers them with the model its owner chose, calling
+Core's tools only as far as the agent's seat allows.
 
 Core is the contract. Its handout, `docs/agent-runtime.md` in AIShie-Core,
 says what an agent may do and how. This repository meets it:
@@ -77,7 +80,7 @@ How it is built, and where it departs from the handout, is in
 
 ```
 aishie-runtime run                         the worker, and /healthz, /metrics, /status on HTTP_ADDR
-aishie-runtime check [--live]              validate the configuration; --live connects each agent,
+aishie-runtime check [--live]              validate the configuration; --live reads each agent in Core,
                                            shows its seats and tools, and tries each model key
 aishie-runtime migrate up                  the store's schema (PostgreSQL)
 aishie-runtime migrate down --yes
@@ -96,7 +99,7 @@ answers in progress `SHUTDOWN_GRACE` to finish.
 ## Configuration
 
 Agents are YAML, one document per agent, in the shape of the handout's §4,
-and, with `DATABASE_URL`, the hosted agents people connect themselves,
+and, with `DATABASE_URL`, the hosted agents people host themselves by their ids,
 which the runtime keeps in its database and runs beside them
 ([`docs/design.md`](docs/design.md) §11).
 Each document holds the agent, and overrides per course if it has any.
@@ -127,7 +130,7 @@ Secrets are never written in the YAML, only referred to:
 | `secret://a/b` | the file `$SECRETS_DIR/a/b`, else the variable `AISHIE_SECRET_A_B` |
 | `env://NAME` | the variable `NAME` |
 | `file:///abs/path`, `file://rel/path` | the file; a relative one is relative to the agent's YAML file |
-| `sealed://sec_…` | a secret sealed in the runtime's own database, under the key `KMS_KEY_ID` names: how hosted agents' tokens and keys are kept |
+| `sealed://sec_…` | a secret sealed in the runtime's own database, under the key `KMS_KEY_ID` names: how hosted agents' keys, and the tokens Core issues the runtime, are kept |
 
 The process is set up from the environment:
 
@@ -137,7 +140,8 @@ The process is set up from the environment:
 | `CONFIG` | the YAML files and directories, separated by commas |
 | `HTTP_ADDR` | where `/healthz`, `/metrics` and `/status` listen (default `127.0.0.1:9090`) |
 | `CORE_BASE_URL_ALLOWLIST` | the Core origins or host patterns an agent may point at |
-| `CORE_BASE_URL` | the Core the hosted agents connect to: those people connect themselves, kept in the database (`DATABASE_URL`) |
+| `CORE_BASE_URL` | the Core the hosted agents run at: those people host themselves, kept in the database (`DATABASE_URL`) |
+| `CORE_SERVICE_CREDENTIAL` | where the runtime's own credential in Core is (its `agent_runtime` service's, `aissvc_…`), with which it is issued each agent's token by the agent's id: `secret://core/agent_runtime` by default ([`docs/deploying.md`](docs/deploying.md#the-runtimes-own-credential-in-core)) |
 | `SECRETS_DIR` | where `secret://` references are looked for |
 | `PRICES` | the price table, instead of the runtime's `prices_ref` |
 | `KMS_KEY_ID` | the key that seals the secrets kept in the database: `local:<dir>/<name>`, a 32-byte key in that file |
@@ -161,9 +165,10 @@ CONFIG=examples/runtime.yaml,examples/agents bin/aishie-runtime check
 
 To run an agent for real, start from one of the examples:
 
-1. Issue the agent a token in Core, and seat it in a course (handout §2.6 and §2.7).
-2. Put the token and a model key where its `token_ref` and `key_ref` point.
-3. Point `core.base_url` at your Core.
+1. Make the agent in Core hosted `runtime`, and seat it in a course (handout §2.6 and §2.7).
+2. Put its id in `core.agent_id`, and a model key where `key_ref` points.
+3. Point `core.base_url` at your Core, and give the runtime its own credential there
+   (`aishie-core service issue agent_runtime`, in the file `CORE_SERVICE_CREDENTIAL` names).
 
 Then:
 

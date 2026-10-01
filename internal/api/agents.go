@@ -10,106 +10,76 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/probe"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/worker"
 )
 
-// The routes of a hosted agent's life (the API contract, §5.5 to §5.13):
-// what a token is, connecting an agent by it, the owner's agents, a new
-// token, pause and resume, and deleting one, its token revoked in Core
-// (D7). Only an agent's owner reads or writes it; another's answers 404,
-// as an id that is not there does.
+// The routes of a hosted agent's life (docs/design.md §11.4): what an
+// agent of the caller's is in Core, hosting it here by its id, the owner's
+// agents, a new token, pause and resume, and deleting one. Every agent is
+// hosted one way in Core, for good (AIShie-Core #52): an agent hosted
+// runtime is the site's runtime's to run, and only it; an mcp agent is
+// never hosted here. Nobody gives the runtime a token: the worker that runs
+// the agent is issued its one token by the agent's id, with the runtime's
+// own credential, and the API revokes it as the hosting ends (paused, or
+// deleted). Only an agent's owner reads or writes it; another's answers
+// 404, as an id that is not there does.
 
 // maxListed bounds GET /agents.
 const maxListed = 50
 
-// tokenRequest is inspect's, POST /agents' and PUT /token's body.
-type tokenRequest struct {
-	Token string `json:"token"`
-	// CoreActorID is the agent the caller means, when given.
-	CoreActorID string `json:"core_actor_id,omitempty"`
+// agentRequest is inspect's and POST /agents' body: the agent's id in
+// Core.
+type agentRequest struct {
+	AgentID string `json:"agent_id"`
 }
 
-// Inspection is POST /agents/inspect's answer: what the token is, the
-// agent's seats as Core lists them now, whether it is hosted here, and the
-// agent's other live tokens.
+// Inspection is POST /agents/inspect's answer: the agent as Core hosts it,
+// whether the runtime may host it (and why not), and whether it is hosted
+// here.
 type Inspection struct {
-	CoreActorID  string       `json:"core_actor_id"`
-	DisplayName  string       `json:"display_name"`
-	OwnerActorID string       `json:"owner_actor_id"`
-	Token        TokenInfo    `json:"token"`
-	Seats        []Seat       `json:"seats"`
-	Hosted       *HostedHere  `json:"hosted"`
-	OtherTokens  *OtherTokens `json:"other_tokens"`
+	CoreActorID  string `json:"core_actor_id"`
+	DisplayName  string `json:"display_name"`
+	OwnerActorID string `json:"owner_actor_id"`
+	// Hosting is how Core hosts it, for good: runtime or mcp.
+	Hosting string `json:"hosting"`
+	// Hostable is whether POST /agents would host it now; Reason, when
+	// not, says why: mcp_agent, agent_suspended, owner_suspended,
+	// operator_agent.
+	Hostable bool    `json:"hostable"`
+	Reason   *string `json:"reason"`
+	// LiveSeats is how many of its seats are live in Core now.
+	LiveSeats int `json:"live_seats"`
+	// SiteChat is whether people in the site may ask it now: Core holds a
+	// live token of the runtime's for it.
+	SiteChat bool        `json:"site_chat"`
+	Hosted   *HostedHere `json:"hosted"`
 }
 
 // HostedHere is an agent's row here: its id when it is the caller's (an
-// earlier owner's is not theirs to name), and whether it holds this very
-// token.
+// earlier owner's is not theirs to name).
 type HostedHere struct {
-	AgentID   *string `json:"agent_id"`
-	ByYou     bool    `json:"by_you"`
-	SameToken bool    `json:"same_token"`
+	ID    *string `json:"id"`
+	ByYou bool    `json:"by_you"`
 }
 
-// Connected is POST /agents' answer: the agent, and its other live tokens
-// in Core, for the one-brain warning.
-type Connected struct {
+// Paused is POST …/pause's answer: the agent, and what became of the
+// token the runtime held for it.
+type Paused struct {
 	HostedAgent
-	OtherTokens *OtherTokens `json:"other_tokens"`
+	Revocation Revocation `json:"revocation"`
 }
 
-// RevokedToken is a token the runtime revoked, or tried to, in Core: what
-// may be shown of it, what became of it, and why it failed.
-type RevokedToken struct {
-	TokenInfo
-	Revocation string  `json:"revocation"`
-	Problem    *string `json:"problem"`
-}
-
-func revokedToken(hint string, r probe.Revocation) RevokedToken {
-	t := RevokedToken{TokenInfo: tokenInfo(hint), Revocation: r.Outcome}
-	if r.Problem != "" {
-		p := r.Problem
-		t.Problem = &p
-	}
-	return t
-}
-
-// TokenReplaced is PUT /token's answer: the agent, and its previous token.
-type TokenReplaced struct {
-	Agent         HostedAgent  `json:"agent"`
-	PreviousToken RevokedToken `json:"previous_token"`
-}
-
-// Deleted is DELETE's answer: the agent gone, and its token.
+// Deleted is DELETE's answer: the agent gone, and what became of its
+// token.
 type Deleted struct {
-	Deleted DeletedAgent `json:"deleted"`
-	Token   RevokedToken `json:"token"`
+	Deleted    DeletedAgent `json:"deleted"`
+	Revocation Revocation   `json:"revocation"`
 }
 
 // DeletedAgent names an agent deleted.
 type DeletedAgent struct {
 	ID          string `json:"id"`
 	CoreActorID string `json:"core_actor_id"`
-}
-
-// tenantOf is the tenant of an owner's agents and secrets.
-func tenantOf(owner string) string { return "ten_" + owner }
-
-// noteAgent puts the agent's id on the request's log line.
-func noteAgent(w http.ResponseWriter, id string) {
-	if rec, ok := w.(*recorder); ok {
-		rec.agent = id
-	}
-}
-
-// storeUnavailable answers a store that did not answer.
-func (s *Server) storeUnavailable(w http.ResponseWriter, what string, err error) {
-	s.o.Log.Warn("the store cannot be reached", "what", what, "err", err)
-	WriteError(w, Error{Code: CodeUnavailable, Reason: ReasonStoreUnavailable, Message: "the runtime's store cannot be reached"})
 }
 
 // errAgentNotFound is an agent that is not there, or not the caller's.
@@ -149,17 +119,6 @@ func (s *Server) writeAgent(ctx context.Context, w http.ResponseWriter, status i
 	writeJSON(w, status, v)
 }
 
-// liveSeats are an agent's seats as Core lists them now, as facts.
-func (s *Server) liveSeats(ins *inspected) []Seat {
-	now := s.o.Now()
-	seats := make([]Seat, 0, len(ins.seats))
-	for _, m := range ins.seats {
-		seats = append(seats, seatOf(worker.SeatSnapshot("", m, now)))
-	}
-	sortSeats(seats)
-	return seats
-}
-
 // limited serves h within the caller's allowance of l.
 func (s *Server) limited(l *limiter, h func(http.ResponseWriter, *http.Request, *Caller)) func(http.ResponseWriter, *http.Request, *Caller) {
 	return func(w http.ResponseWriter, r *http.Request, c *Caller) {
@@ -188,216 +147,170 @@ func (s *Server) limitedKeyTest(h func(http.ResponseWriter, *http.Request, *Call
 	}
 }
 
-// readToken reads a token route's body and the agent it means, having
-// answered a refusal.
-func readToken(w http.ResponseWriter, r *http.Request, c *Caller, au *auditing) (tokenRequest, probe.Want, bool) {
-	var req tokenRequest
+// readAgent reads inspect's and POST /agents' body, and the agent's id in
+// Core it names, having answered a refusal.
+func readAgent(w http.ResponseWriter, r *http.Request, au *auditing) (string, bool) {
+	var req agentRequest
 	if !readBody(w, r, &req) {
-		return req, probe.Want{}, false
+		return "", false
 	}
-	au.detail["token_hint"] = vault.Hint(store.SecretCoreToken, req.Token)
-	want, bad := wantOf(req.CoreActorID, c)
+	id, bad := agentIDOf(req.AgentID)
 	if bad != nil {
 		WriteError(w, *bad)
-		return req, want, false
+		return "", false
 	}
-	if want.ActorID != "" {
-		au.target("core_actor", want.ActorID)
-		au.detail["core_actor_id"] = want.ActorID
-	}
-	return req, want, true
+	au.target("core_actor", id)
+	au.detail["core_actor_id"] = id
+	return id, true
 }
 
-// inspect is POST /agents/inspect: what a token is, before it is
-// connected. Nothing is written; the token is dropped when the request
-// ends.
+// operatorRuns reports whether the operator's configuration runs the agent
+// coreActorID (the worker's view): a hosted agent may not be it.
+func (s *Server) operatorRuns(coreActorID string) bool {
+	if s.o.Actors == nil {
+		return false
+	}
+	_, hosted, ok := s.o.Actors.ActorAgent(s.o.CoreBaseURL, coreActorID)
+	return ok && !hosted
+}
+
+// inspect is POST /agents/inspect: what an agent of the caller's is, as
+// Core hosts it, before it is hosted here. Nothing is written.
 func (s *Server) inspect(w http.ResponseWriter, r *http.Request, c *Caller, au *auditing) {
-	req, want, ok := readToken(w, r, c, au)
+	id, ok := readAgent(w, r, au)
 	if !ok {
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), inspectTimeout)
+	ctx, cancel := context.WithTimeout(r.Context(), askTimeout)
 	defer cancel()
-	ins, e := s.inspectToken(ctx, req.Token, want)
+	view, e := s.ownedAgent(ctx, c, id)
 	if e != nil {
 		WriteError(w, *e)
 		return
 	}
-	au.target("core_actor", ins.me.ID)
-	au.detail["core_actor_id"] = ins.me.ID
-	out := Inspection{CoreActorID: ins.me.ID, DisplayName: ins.me.DisplayName, OwnerActorID: ins.me.OwnerActorID,
-		Token: TokenInfo{Hint: ins.hint, Prefix: ins.prefix}, Seats: s.liveSeats(ins)}
-	var except []string
-	row, err := s.o.Store.HostedAgentByActor(ctx, ins.me.ID)
+	out := Inspection{CoreActorID: view.AgentID, DisplayName: view.DisplayName, OwnerActorID: view.OwnerActorID, Hosting: view.Hosting,
+		Hostable: view.Hostable, LiveSeats: view.LiveSeats, SiteChat: view.SiteChat}
+	reason := hostReason(view.Reason)
+	if view.Hostable && s.operatorRuns(view.AgentID) {
+		out.Hostable, reason = false, ReasonOperatorAgent
+	}
+	if !out.Hostable && reason != "" {
+		out.Reason = &reason
+	}
+	row, err := s.o.Store.HostedAgentByActor(ctx, view.AgentID)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 	case err != nil:
 		s.storeUnavailable(w, "a hosted agent by its actor", err)
 		return
 	default:
-		here := &HostedHere{ByYou: sameActor(row.OwnerActorID, c.ActorID), SameToken: probe.HintPrefix(row.TokenHint) == ins.prefix}
+		here := &HostedHere{ByYou: sameActor(row.OwnerActorID, c.ActorID)}
 		if here.ByYou {
-			id := row.ID
-			here.AgentID = &id
+			rowID := row.ID
+			here.ID = &rowID
 		}
 		out.Hosted = here
-		except = append(except, probe.HintPrefix(row.TokenHint))
 	}
-	out.OtherTokens = s.otherTokens(ctx, ins, except...)
 	writeJSON(w, http.StatusOK, out)
 }
 
-// connectAttempts bounds how often connect looks again for the agent's row
-// when a concurrent connect made one first.
-const connectAttempts = 3
+// hostAttempts bounds how often host looks again for the agent's row when
+// a concurrent request made one first.
+const hostAttempts = 3
 
-// connect is POST /agents: the agent the token is hosted here, the token
-// sealed in its row, its seats recorded. A retry with the same token
-// replays the agent as it is (200, Idempotency-Replayed); another token of
-// an agent the caller hosts already is already_hosted; an earlier owner's
-// row is taken over, deleted and purged first.
-func (s *Server) connect(w http.ResponseWriter, r *http.Request, c *Caller, au *auditing) {
-	req, want, ok := readToken(w, r, c, au)
+// host is POST /agents: the caller's agent, which Core hosts runtime,
+// hosted here by its id, in a new row without a model (needs_model); the
+// worker is issued its token once it has one. Core says whether the agent
+// is the caller's (404 when not) and may be hosted (mcp_agent,
+// agent_suspended, owner_suspended); one the operator's configuration runs
+// is operator_agent. Asked again, it replays the row as it is (200,
+// Idempotency-Replayed); an earlier owner's row of an agent Core says is
+// the caller's is taken over: deleted, purged, and its token revoked.
+func (s *Server) host(w http.ResponseWriter, r *http.Request, c *Caller, au *auditing) {
+	id, ok := readAgent(w, r, au)
 	if !ok {
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), inspectTimeout)
+	ctx, cancel := context.WithTimeout(r.Context(), askTimeout+revokeTimeout)
 	defer cancel()
-	ins, e := s.inspectToken(ctx, req.Token, want)
+	view, e := s.ownedAgent(ctx, c, id)
 	if e != nil {
 		WriteError(w, *e)
 		return
 	}
-	au.target("core_actor", ins.me.ID)
-	au.detail["core_actor_id"] = ins.me.ID
-	for range connectAttempts {
-		row, err := s.o.Store.HostedAgentByActor(ctx, ins.me.ID)
+	if !view.Hostable {
+		WriteError(w, hostRefusal(view))
+		return
+	}
+	if s.operatorRuns(view.AgentID) {
+		WriteError(w, Error{Code: CodeConflict, Reason: ReasonOperatorAgent,
+			Message: "the runtime's operator runs this agent already, and the operator's configuration wins"})
+		return
+	}
+	if !s.keepsTokens(w) {
+		return
+	}
+	for range hostAttempts {
+		row, err := s.o.Store.HostedAgentByActor(ctx, view.AgentID)
 		switch {
 		case errors.Is(err, store.ErrNotFound):
 		case err != nil:
 			s.storeUnavailable(w, "a hosted agent by its actor", err)
 			return
-		case sameActor(row.OwnerActorID, c.ActorID) && probe.HintPrefix(row.TokenHint) == ins.prefix:
-			// The same token, connected again: what the first did.
+		case sameActor(row.OwnerActorID, c.ActorID):
+			// Hosted already: what the first request did.
 			au.target("hosted_agent", row.ID)
 			au.detail["agent_id"], au.detail["replayed"] = row.ID, true
 			noteAgent(w, row.ID)
-			s.writeConnected(ctx, w, http.StatusOK, row, ins, true)
-			return
-		case sameActor(row.OwnerActorID, c.ActorID):
-			au.detail["agent_id"] = row.ID
-			WriteError(w, Error{Code: CodeConflict, Reason: ReasonAlreadyHosted,
-				Message: "the agent is hosted here already, with another token: replace its token with PUT …/token",
-				Details: map[string]any{"agent_id": row.ID}})
+			w.Header().Set("Idempotency-Replayed", "true")
+			s.writeAgent(ctx, w, http.StatusOK, row)
 			return
 		default:
-			// Core gave the agent to the caller since an earlier owner
-			// connected it, and revoked every token it had then.
-			if !s.takeOver(ctx, w, r, c, ins, row) {
+			if !s.takeOver(ctx, w, r, row) {
 				return
 			}
 		}
-		if s.o.Actors != nil {
-			if _, hosted, ok := s.o.Actors.ActorAgent(s.o.CoreBaseURL, ins.me.ID); ok && !hosted {
-				WriteError(w, Error{Code: CodeConflict, Reason: ReasonOperatorAgent,
-					Message: "the runtime's operator runs this agent already, and the operator's configuration wins"})
-				return
-			}
-		}
-		created, done := s.create(ctx, w, c, ins)
-		if done {
-			if created != nil {
-				au.target("hosted_agent", created.ID)
-				au.detail["agent_id"], au.detail["seats"] = created.ID, len(ins.seats)
-			}
+		row, err = s.o.Store.CreateHostedAgent(ctx, store.HostedAgent{
+			ID: "agt_" + uuid.NewString(), CoreActorID: view.AgentID, OwnerActorID: c.ActorID, OwnerVerified: true,
+			TenantID: tenantOf(c.ActorID), DisplayName: view.DisplayName, Settings: []byte(`{}`),
+		})
+		switch {
+		case errors.Is(err, store.ErrExists):
+			continue
+		case err != nil:
+			s.storeUnavailable(w, "a hosted agent created", err)
 			return
 		}
+		au.target("hosted_agent", row.ID)
+		au.detail["agent_id"] = row.ID
+		noteAgent(w, row.ID)
+		w.Header().Set("Location", Prefix+"agents/"+row.ID)
+		s.writeAgent(ctx, w, http.StatusCreated, row)
+		return
 	}
-	s.storeUnavailable(w, "a hosted agent created", errors.New("another connection of the agent kept winning"))
+	s.storeUnavailable(w, "a hosted agent created", errors.New("another request hosting the agent kept winning"))
 }
 
-// takeOver deletes and purges an earlier owner's row of an agent the
-// caller now owns in Core, and audits it; it reports whether connecting
-// may go on, having answered when not. Core is asked again, with the
-// token, just before: since the token was inspected, the agent may have
-// been given to someone else, and its tokens revoked with it, and another
-// person's row is deleted only while Core says the agent is the caller's.
-func (s *Server) takeOver(ctx context.Context, w http.ResponseWriter, r *http.Request, c *Caller, ins *inspected, row *store.HostedAgent) bool {
-	if e := s.recheck(ctx, ins, probe.Want{ActorID: ins.me.ID, Owner: c.ActorID}); e != nil {
-		WriteError(w, *e)
-		return false
-	}
+// takeOver deletes and purges an earlier owner's row of an agent Core
+// says is the caller's (an agent given to them before an agent's owner
+// was fixed in Core), revokes the token the runtime held for it, and
+// audits it; it reports whether hosting may go on, having answered when
+// not.
+func (s *Server) takeOver(ctx context.Context, w http.ResponseWriter, r *http.Request, row *store.HostedAgent) bool {
 	if err := s.o.Store.DeleteHostedAgent(ctx, row.ID, store.DeleteIf{}); err != nil && !errors.Is(err, store.ErrNotFound) {
 		s.storeUnavailable(w, "an earlier owner's hosted agent deleted", err)
 		return false
 	}
 	s.purge(ctx, row.ID)
+	rev := s.revokeHosting(ctx, row.ID, row.CoreActorID)
+	detail := map[string]any{"agent_id": row.ID, "core_actor_id": row.CoreActorID, "revocation": rev.Outcome}
+	if rev.Problem != nil {
+		detail["revocation_problem"] = *rev.Problem
+	}
 	s.Audit(ctx, r, store.AuditEvent{Action: "agent.takeover", TargetType: "hosted_agent", TargetID: row.ID, Outcome: "ok",
-		Detail: mustJSON(map[string]any{"agent_id": row.ID, "core_actor_id": row.CoreActorID, "token_hint": row.TokenHint})})
-	s.o.Log.Info("a hosted agent was taken over by its new owner in Core; the earlier owner's row was deleted", "agent", row.ID)
+		Detail: mustJSON(detail)})
+	s.o.Log.Info("a hosted agent was taken over by its owner in Core; the earlier owner's row was deleted", "agent", row.ID)
 	return true
-}
-
-// create stores the agent ins names, its token sealed, and records its
-// seats; done is false when a concurrent connect stored it first, to be
-// looked at again. It answers otherwise.
-func (s *Server) create(ctx context.Context, w http.ResponseWriter, c *Caller, ins *inspected) (created *store.HostedAgent, done bool) {
-	if s.o.Vault == nil {
-		s.o.Log.Error("the API cannot seal a token: it has no keyring (KMS_KEY_ID)")
-		WriteError(w, Error{Code: CodeInternal, Reason: ReasonInternal, Message: "the runtime cannot keep tokens now"})
-		return nil, true
-	}
-	tenant := tenantOf(c.ActorID)
-	sealed, err := s.o.Vault.Seal(ctx, store.Secret{ID: vault.NewSecretID(), TenantID: tenant, Kind: store.SecretCoreToken,
-		CreatedBy: c.ActorID}, ins.token)
-	if err != nil {
-		s.o.Log.Error("a token could not be sealed", "err", err)
-		WriteError(w, Error{Code: CodeInternal, Reason: ReasonInternal, Message: "the runtime could not keep the token"})
-		return nil, true
-	}
-	row, err := s.o.Store.CreateHostedAgent(ctx, store.HostedAgent{
-		ID: "agt_" + uuid.NewString(), CoreActorID: ins.me.ID, OwnerActorID: c.ActorID, OwnerVerified: true, TenantID: tenant,
-		DisplayName: ins.me.DisplayName, TokenSecretID: sealed.ID, TokenHint: sealed.Hint, Settings: []byte(`{}`),
-	}, sealed)
-	switch {
-	case errors.Is(err, store.ErrExists):
-		return nil, false
-	case err != nil:
-		s.storeUnavailable(w, "a hosted agent created", err)
-		return nil, true
-	}
-	noteAgent(w, row.ID)
-	now := s.o.Now()
-	for _, m := range ins.seats {
-		if err := s.o.Store.SeatSeen(ctx, worker.SeatSnapshot(row.ID, m, now)); err != nil {
-			s.o.Log.Warn("a newly connected agent's seat was not recorded; the worker records it", "agent", row.ID, "err", err)
-		}
-	}
-	w.Header().Set("Location", Prefix+"agents/"+row.ID)
-	s.writeConnected(ctx, w, http.StatusCreated, row, ins, false)
-	return row, true
-}
-
-// writeConnected answers POST /agents: the agent and its other tokens.
-func (s *Server) writeConnected(ctx context.Context, w http.ResponseWriter, status int, row *store.HostedAgent, ins *inspected, replayed bool) {
-	v, err := s.view(ctx, row)
-	if err != nil {
-		s.storeUnavailable(w, "a hosted agent's view", err)
-		return
-	}
-	if replayed {
-		w.Header().Set("Idempotency-Replayed", "true")
-	}
-	w.Header().Set("ETag", etag(row.Version))
-	writeJSON(w, status, Connected{HostedAgent: *v, OtherTokens: s.otherTokens(ctx, ins)})
-}
-
-// purge removes what the store holds of a deleted agent but its ledger;
-// what it misses, or a worker writes after it, housekeeping purges.
-func (s *Server) purge(ctx context.Context, id string) {
-	if err := s.o.Store.PurgeAgent(ctx, id); err != nil {
-		s.o.Log.Warn("a deleted agent was not purged; housekeeping purges it", "agent", id, "err", err)
-	}
 }
 
 // AgentList is GET /agents' answer.
@@ -452,129 +365,81 @@ func checkVersion(w http.ResponseWriter, row *store.HostedAgent, version int, na
 	return true
 }
 
-// replaceAttempts bounds PUT /token's read-modify-write when the row
+// renewAttempts bounds POST …/token's read-modify-write when the row
 // changes under it.
-const replaceAttempts = 3
+const renewAttempts = 3
 
-// replaceToken is PUT /agents/{id}/token: a new token of the agent's own,
-// which Core must say is the agent's and the caller's, sealed in its row;
-// the previous one's secret is destroyed with the write, and the new
-// token revokes it in Core. The same token again changes nothing.
-func (s *Server) replaceToken(w http.ResponseWriter, r *http.Request, c *Caller, au *auditing) {
+// renewToken is POST /agents/{id}/token: the agent issued a new token,
+// after Core refused the one the runtime held (revoked there by its owner
+// or an administrator: status needs_token). Core must still say the agent
+// is the caller's and may be hosted; the token the row holds is dropped,
+// at the version If-Match names when it names one, and the worker running
+// the agent is issued another, which revokes any left in Core. A row
+// holding none changes nothing (200, Idempotency-Replayed).
+func (s *Server) renewToken(w http.ResponseWriter, r *http.Request, c *Caller, au *auditing) {
 	version, named, bad := ifMatch(r)
 	if bad != nil {
 		WriteError(w, *bad)
 		return
 	}
-	var req tokenRequest
-	if !readBody(w, r, &req) {
-		return
-	}
-	if req.CoreActorID != "" {
-		WriteError(w, Error{Code: CodeInvalidArgument, Reason: ReasonUnknownField, Message: "PUT …/token takes the token alone",
-			Details: map[string]any{"field": "/core_actor_id"}})
-		return
-	}
-	au.detail["new_hint"] = vault.Hint(store.SecretCoreToken, req.Token)
-	ctx, cancel := context.WithTimeout(r.Context(), inspectTimeout+revokeTimeout)
+	ctx, cancel := context.WithTimeout(r.Context(), askTimeout+2*storeTimeout)
 	defer cancel()
 	row := s.ownRow(ctx, w, r.PathValue("id"), c)
 	if row == nil || !checkVersion(w, row, version, named) {
 		return
 	}
-	au.detail["agent_id"], au.detail["old_hint"] = row.ID, row.TokenHint
-	ictx, icancel := context.WithTimeout(ctx, inspectTimeout)
-	defer icancel()
-	ins, e := s.inspectToken(ictx, req.Token, probe.Want{ActorID: row.CoreActorID, Owner: c.ActorID})
-	if e != nil {
+	au.detail["agent_id"], au.detail["core_actor_id"] = row.ID, row.CoreActorID
+	view, e := s.ownedAgent(ctx, c, row.CoreActorID)
+	switch {
+	case e != nil && e.Reason == ReasonAgentNotFound:
+		WriteError(w, Error{Code: CodeFailedPrecondition, Reason: ReasonOwnerChanged,
+			Message: "Core does not say the agent is yours: delete it here"})
+		return
+	case e != nil:
 		WriteError(w, *e)
 		return
-	}
-	oldHint := row.TokenHint
-	if probe.HintPrefix(oldHint) == ins.prefix {
-		s.replayToken(ctx, w, row, au)
+	case !view.Hostable:
+		WriteError(w, hostRefusal(view))
 		return
 	}
-	if s.o.Vault == nil {
-		WriteError(w, Error{Code: CodeInternal, Reason: ReasonInternal, Message: "the runtime cannot keep tokens now"})
-		return
-	}
-	sealed, err := s.o.Vault.Seal(ctx, store.Secret{ID: vault.NewSecretID(), TenantID: row.TenantID, Kind: store.SecretCoreToken,
-		CreatedBy: c.ActorID}, ins.token)
-	if err != nil {
-		s.o.Log.Error("a token could not be sealed", "agent", row.ID, "err", err)
-		WriteError(w, Error{Code: CodeInternal, Reason: ReasonInternal, Message: "the runtime could not keep the token"})
-		return
-	}
-	var updated *store.HostedAgent
-	for attempt := range replaceAttempts {
+	for attempt := range renewAttempts {
+		if row.TokenSecretID == "" {
+			au.skip = true
+			w.Header().Set("Idempotency-Replayed", "true")
+			s.writeAgent(ctx, w, http.StatusOK, row)
+			return
+		}
 		next := *row
-		next.TokenSecretID, next.TokenHint, next.DisplayName, next.OwnerVerified = sealed.ID, sealed.Hint, ins.me.DisplayName, true
-		updated, err = s.o.Store.UpdateHostedAgent(ctx, next, sealed)
-		if !errors.Is(err, store.ErrConflict) || named || attempt == replaceAttempts-1 {
-			break
+		next.TokenSecretID, next.TokenHint, next.TokenIssued, next.TokenCredentialID = "", "", false, ""
+		updated, err := s.o.Store.UpdateHostedAgent(ctx, next)
+		switch {
+		case err == nil:
+			au.detail["version"] = updated.Version
+			s.writeAgent(ctx, w, http.StatusOK, updated)
+			return
+		case errors.Is(err, store.ErrNotFound):
+			WriteError(w, errAgentNotFound)
+			return
+		case !errors.Is(err, store.ErrConflict):
+			s.storeUnavailable(w, "a hosted agent's token dropped", err)
+			return
+		case named || attempt == renewAttempts-1:
+			s.writeMismatch(ctx, w, row.ID, row.Version)
+			return
 		}
 		if row = s.ownRow(ctx, w, row.ID, c); row == nil {
 			return
 		}
-		if probe.HintPrefix(row.TokenHint) == ins.prefix {
-			// A concurrent request gave this very token: what it did,
-			// and never the token revoked as the one replaced.
-			s.replayToken(ctx, w, row, au)
-			return
-		}
-		oldHint = row.TokenHint
 	}
-	switch {
-	case errors.Is(err, store.ErrNotFound):
-		WriteError(w, errAgentNotFound)
-		return
-	case errors.Is(err, store.ErrConflict):
-		s.writeMismatch(ctx, w, row.ID, row.Version)
-		return
-	case err != nil:
-		s.storeUnavailable(w, "a hosted agent's token replaced", err)
-		return
-	}
-	// The new token, the agent's own, revokes the one it replaces: the
-	// old secret is never opened. Core refusing the new token means another
-	// has replaced it meanwhile, and says nothing of the old one: that is
-	// failed, for its owner to revoke.
-	rctx, rcancel := context.WithTimeout(ctx, revokeTimeout)
-	defer rcancel()
-	rev := probe.RevokeReplaced(rctx, ins.client, probe.HintPrefix(oldHint), s.o.Now())
-	au.detail["old_hint"], au.detail["revocation"] = oldHint, rev.Outcome
-	if rev.Problem != "" {
-		au.detail["revocation_problem"] = rev.Problem
-		s.o.Log.Warn("the token a new one replaced was not revoked in Core", "agent", updated.ID, "revocation", rev.String())
-	}
-	v, err := s.view(ctx, updated)
-	if err != nil {
-		s.storeUnavailable(w, "a hosted agent's view", err)
-		return
-	}
-	w.Header().Set("ETag", etag(updated.Version))
-	writeJSON(w, http.StatusOK, TokenReplaced{Agent: *v, PreviousToken: revokedToken(oldHint, rev)})
-}
-
-// replayToken answers PUT /token given the token the row holds already:
-// the agent as it is, its token not revoked, nothing written.
-func (s *Server) replayToken(ctx context.Context, w http.ResponseWriter, row *store.HostedAgent, au *auditing) {
-	au.detail["revocation"] = probe.NotAttempted
-	v, err := s.view(ctx, row)
-	if err != nil {
-		s.storeUnavailable(w, "a hosted agent's view", err)
-		return
-	}
-	w.Header().Set("Idempotency-Replayed", "true")
-	w.Header().Set("ETag", etag(row.Version))
-	writeJSON(w, http.StatusOK, TokenReplaced{Agent: *v, PreviousToken: revokedToken(row.TokenHint, probe.Revocation{Outcome: probe.NotAttempted})})
 }
 
 // pause is POST /agents/{id}/pause (paused) and …/resume: the agent set
 // to it, at the version If-Match names when it names one (a write since is
-// 412), and at any otherwise. Already so, nothing is written, and nothing
-// audited.
+// 412), and at any otherwise. Paused, its row holds no token, and the
+// token the runtime held for it is revoked in Core, after the write, so
+// that no worker is issued one after it; pausing an agent paused already
+// writes nothing, and audits nothing, but revokes again (one that failed
+// is tried again so). Resumed, the worker that runs it is issued another.
 func (s *Server) pause(paused bool) func(http.ResponseWriter, *http.Request, *Caller, *auditing) {
 	return func(w http.ResponseWriter, r *http.Request, c *Caller, au *auditing) {
 		version, named, bad := ifMatch(r)
@@ -582,122 +447,71 @@ func (s *Server) pause(paused bool) func(http.ResponseWriter, *http.Request, *Ca
 			WriteError(w, *bad)
 			return
 		}
-		ctx, cancel := context.WithTimeout(r.Context(), 2*storeTimeout)
+		ctx, cancel := context.WithTimeout(r.Context(), 2*storeTimeout+revokeTimeout)
 		defer cancel()
 		row := s.ownRow(ctx, w, r.PathValue("id"), c)
 		if row == nil || !checkVersion(w, row, version, named) {
 			return
 		}
 		au.detail["agent_id"] = row.ID
+		updated := row
 		if row.Paused == paused {
 			au.skip = true
-			s.writeAgent(ctx, w, http.StatusOK, row)
+		} else {
+			var err error
+			updated, err = s.o.Store.SetHostedAgentPaused(ctx, row.ID, paused, heldTo(version, named))
+			switch {
+			case errors.Is(err, store.ErrNotFound):
+				WriteError(w, errAgentNotFound)
+				return
+			case errors.Is(err, store.ErrConflict):
+				s.writeMismatch(ctx, w, row.ID, row.Version)
+				return
+			case err != nil:
+				s.storeUnavailable(w, "a hosted agent paused", err)
+				return
+			}
+			au.detail["version"] = updated.Version
+		}
+		if !paused {
+			s.writeAgent(ctx, w, http.StatusOK, updated)
 			return
 		}
-		updated, err := s.o.Store.SetHostedAgentPaused(ctx, row.ID, paused, heldTo(version, named))
-		switch {
-		case errors.Is(err, store.ErrNotFound):
-			WriteError(w, errAgentNotFound)
-			return
-		case errors.Is(err, store.ErrConflict):
-			s.writeMismatch(ctx, w, row.ID, row.Version)
-			return
-		case err != nil:
-			s.storeUnavailable(w, "a hosted agent paused", err)
+		rev := s.revokeHosting(ctx, updated.ID, updated.CoreActorID)
+		au.detail["revocation"] = rev.Outcome
+		if rev.Problem != nil {
+			au.detail["revocation_problem"] = *rev.Problem
+		}
+		v, err := s.view(ctx, updated)
+		if err != nil {
+			s.storeUnavailable(w, "a hosted agent's view", err)
 			return
 		}
-		au.detail["version"] = updated.Version
-		s.writeAgent(ctx, w, http.StatusOK, updated)
+		w.Header().Set("ETag", etag(updated.Version))
+		writeJSON(w, http.StatusOK, Paused{HostedAgent: *v, Revocation: rev})
 	}
 }
 
-// revokeParam reads DELETE's one query parameter, revoke_token, true by
-// default, having answered a refusal: any other parameter is
-// unknown_parameter, and a value but true or false invalid_field.
-func revokeParam(w http.ResponseWriter, r *http.Request) (bool, bool) {
-	q := r.URL.Query()
-	for k := range q {
-		if k != "revoke_token" {
-			WriteError(w, Error{Code: CodeInvalidArgument, Reason: ReasonUnknownParameter, Message: "DELETE takes revoke_token alone",
-				Details: map[string]any{"field": k}})
-			return false, false
-		}
-	}
-	if strings.Contains(r.URL.RawQuery, ";") {
-		WriteError(w, Error{Code: CodeInvalidArgument, Reason: ReasonUnknownParameter, Message: "DELETE takes revoke_token alone",
-			Details: map[string]any{"field": ""}})
-		return false, false
-	}
-	vs, ok := q["revoke_token"]
-	if !ok {
-		return true, true
-	}
-	if len(vs) == 1 && (vs[0] == "true" || vs[0] == "false") {
-		return vs[0] == "true", true
-	}
-	WriteError(w, Error{Code: CodeInvalidArgument, Reason: ReasonInvalidField, Message: "revoke_token is true or false",
-		Details: map[string]any{"field": "revoke_token"}})
-	return false, false
-}
-
-// deleteAttempts bounds DELETE's revocation and deletion when a new token
-// is put in the row between them.
-const deleteAttempts = 3
-
-// remove is DELETE /agents/{id}: the agent's token revoked in Core with
-// itself (D7, unless revoke_token=false), then the agent, its courses and
-// its secrets destroyed in one transaction, which stops it on every
-// worker, and what the store held of it purged, its ledger kept. The row
-// is deleted whatever became of the revocation, but only while it holds
-// the token that was revoked, and is at the version If-Match names when it
-// names one: a new token put in meanwhile (PUT /token) is revoked in its
-// turn, and the row deleted holding it, at most deleteAttempts times;
-// with If-Match, a write meanwhile is 412.
+// remove is DELETE /agents/{id}: the agent, its courses and its secrets
+// (its token, its key) destroyed in one transaction, at the version
+// If-Match names when it names one (a write since is 412), which stops it
+// on every worker; then the token the runtime held for it revoked in Core
+// (a worker issued one meanwhile finds the row gone, and revokes it), and
+// what the store held of it purged, its ledger kept.
 func (s *Server) remove(w http.ResponseWriter, r *http.Request, c *Caller, au *auditing) {
-	revoke, ok := revokeParam(w, r)
-	if !ok {
-		return
-	}
-	var none struct{}
-	if !decodeBody(w, r, &none, true) {
-		return
-	}
 	version, named, bad := ifMatch(r)
 	if bad != nil {
 		WriteError(w, *bad)
 		return
 	}
-	// Each attempt's revocation has revokeTimeout, and the whole stays
-	// within the server's WriteTimeout.
-	ctx, cancel := context.WithTimeout(r.Context(), deleteAttempts*revokeTimeout+2*storeTimeout)
+	ctx, cancel := context.WithTimeout(r.Context(), revokeTimeout+2*storeTimeout)
 	defer cancel()
 	row := s.ownRow(ctx, w, r.PathValue("id"), c)
 	if row == nil || !checkVersion(w, row, version, named) {
 		return
 	}
-	var rev probe.Revocation
-	var err error
-	for attempt := range deleteAttempts {
-		au.detail["agent_id"], au.detail["core_actor_id"], au.detail["token_hint"] = row.ID, row.CoreActorID, row.TokenHint
-		rev = probe.Revocation{Outcome: probe.NotAttempted}
-		if revoke {
-			rev = s.revokeStored(ctx, row)
-		}
-		err = s.o.Store.DeleteHostedAgent(ctx, row.ID, store.DeleteIf{TokenSecretID: row.TokenSecretID, Version: heldTo(version, named)})
-		if !errors.Is(err, store.ErrConflict) || named || attempt == deleteAttempts-1 {
-			break
-		}
-		// A new token was put in the row after its token was revoked: the
-		// row is read again, and the token now in force revoked in its
-		// turn, so that no token is left working for an agent deleted.
-		if row = s.ownRow(ctx, w, row.ID, c); row == nil {
-			return
-		}
-	}
-	au.detail["revocation"] = rev.Outcome
-	if rev.Problem != "" {
-		au.detail["revocation_problem"] = rev.Problem
-	}
+	au.detail["agent_id"], au.detail["core_actor_id"] = row.ID, row.CoreActorID
+	err := s.o.Store.DeleteHostedAgent(ctx, row.ID, store.DeleteIf{Version: heldTo(version, named)})
 	switch {
 	case errors.Is(err, store.ErrNotFound):
 		WriteError(w, errAgentNotFound)
@@ -710,27 +524,10 @@ func (s *Server) remove(w http.ResponseWriter, r *http.Request, c *Caller, au *a
 		return
 	}
 	s.purge(ctx, row.ID)
-	writeJSON(w, http.StatusOK, Deleted{Deleted: DeletedAgent{ID: row.ID, CoreActorID: row.CoreActorID}, Token: revokedToken(row.TokenHint, rev)})
-}
-
-// revokeStored revokes the agent's stored token in Core with itself:
-// opened from the vault here, the one stored secret the API opens, and
-// dropped straight after.
-func (s *Server) revokeStored(ctx context.Context, row *store.HostedAgent) probe.Revocation {
-	if s.o.Vault == nil {
-		s.o.Log.Error("the API cannot open a token to revoke it: it has no keyring (KMS_KEY_ID)", "agent", row.ID)
-		return probe.Revocation{Outcome: probe.Failed, Problem: probe.ProblemCoreRefused}
+	rev := s.revokeHosting(ctx, row.ID, row.CoreActorID)
+	au.detail["revocation"] = rev.Outcome
+	if rev.Problem != nil {
+		au.detail["revocation_problem"] = *rev.Problem
 	}
-	token, err := vault.Opener{Vault: s.o.Vault, Store: s.o.Store}.OpenSecret(ctx, row.TokenSecretID)
-	if err != nil {
-		s.o.Log.Error("a hosted agent's token could not be opened to revoke it", "agent", row.ID, "err", err)
-		return probe.Revocation{Outcome: probe.Failed, Problem: probe.ProblemCoreRefused}
-	}
-	rctx, cancel := context.WithTimeout(ctx, revokeTimeout)
-	defer cancel()
-	rev := probe.RevokeToken(rctx, probe.NewClient(s.o.CoreBaseURL, token, s.coreHTTP), probe.HintPrefix(row.TokenHint), s.o.Now())
-	if rev.Problem != "" {
-		s.o.Log.Warn("a deleted agent's token was not revoked in Core; its owner revokes it", "agent", row.ID, "revocation", rev.String())
-	}
-	return rev
+	writeJSON(w, http.StatusOK, Deleted{Deleted: DeletedAgent{ID: row.ID, CoreActorID: row.CoreActorID}, Revocation: rev})
 }

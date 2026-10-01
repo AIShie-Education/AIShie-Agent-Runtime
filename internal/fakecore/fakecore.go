@@ -16,20 +16,20 @@
 // message carries (attachments.go): uploaded with conversation_upload_url
 // and a PUT to the fake itself, named in conversation_open, _ask and
 // _answer, listed by conversation_messages and served through
-// conversation_attachment's download URL.
+// conversation_attachment's download URL; and the site's agent runtime's
+// service (hosting.go), which hosts the runtime agents by their ids and is
+// issued each one's one token, as AIShie-Core #52 has it.
 //
 // The tools the runtime calls (me_*, conversation_*, event_list,
-// action_list_mine, and credential_list and credential_revoke, with which
-// an agent's token revokes a token of its own; me_site_chat, but with
-// Options.WithoutSiteChat) are carried out with Core's semantics:
-// authorization,
-// each seat's ceilings (the most it may hold of each permission, as Core's
-// domain.Ceiling works them out, and as its views show them), idempotency,
-// proposals and their decisions (an agent's owner's among them, where they
-// could have done it themselves), the inbox, events and who sees them, the
-// reads that wait for news (wait_s, wait.go) within Core's bounds on calls
-// waiting, and no question to an agent that has not declared it answers in
-// the site; so
+// action_list_mine, and agent_runtime_* with the service's credential) are
+// carried out with Core's semantics: authorization, each seat's ceilings
+// (the most it may hold of each permission, as Core's domain.Ceiling works
+// them out, and as its views show them), idempotency, proposals and their
+// decisions (an agent's owner's among them, where they could have done it
+// themselves), the inbox, events and who sees them, the reads that wait
+// for news (wait_s, wait.go) within Core's bounds on calls waiting, and no
+// question to an agent people in the site may not ask: an mcp agent, or a
+// runtime agent whose runtime token does not live; so
 // are the writes people make that the test controls go through
 // (conversation_open, conversation_ask, action_decide, action_review), and
 // document_create and member_add, writes a model makes through its seat's
@@ -70,14 +70,12 @@ type Options struct {
 	// BaseURL is where the fake is served, for the download URLs it hands
 	// out; empty takes it from each request.
 	BaseURL string
-	// BeforeOwners answers as a Core from before me_get said who owns an
-	// agent (Core's C1): me_get names no one's owner, and the catalogue,
-	// GET /v1/tools and tools/list alike, describes no owner_actor_id.
-	BeforeOwners bool
-	// WithoutSiteChat answers as a Core from before me.site_chat, as the
-	// runtime was pinned to before 61b7494 (sitechat.go): its catalogue
-	// has no such tool, and the fake knows none.
-	WithoutSiteChat bool
+	// WithoutHosting answers as a Core from before an agent's hosting
+	// (AIShie-Core #52, hosting.go): its catalogue has no agent_runtime
+	// service, so no runtime there is issued an agent's token by its id.
+	// Its agents are hosted as ever here, and asked in the site as a
+	// runtime agent is.
+	WithoutHosting bool
 	// WithoutWait answers as a Core from before its reads waited for news,
 	// as the runtime was pinned to before 2c1fe1b (wait.go): its catalogue
 	// offers no wait_s and no seen_state, and a call that gives either is
@@ -153,16 +151,15 @@ type Core struct {
 	downloads   map[string]download
 	calls       []Call
 	nextKey     int
-	// siteChat is each actor's last me.site_chat.
-	siteChat map[string]bool
 	// draftWrites are the conversation_draft calls carried out, in order.
 	draftWrites []DraftWrite
 	// presetIDs are the built-in presets' ids, by name.
 	presetIDs map[string]string
-	// service is the site's transcription service's actor, nil before
-	// its first credential; serviceCreds its credentials, by id; textNews
-	// is closed, and replaced, when a text version is queued (text.go).
-	service      *actor
+	// services are the site services' actors by scope, each made with its
+	// first credential (the transcription service's, text.go, and the
+	// agent runtime's, hosting.go); serviceCreds their credentials, by id;
+	// textNews is closed, and replaced, when a text version is queued.
+	services     map[string]*actor
 	serviceCreds map[string]*credential
 	textNews     chan struct{}
 
@@ -207,8 +204,6 @@ func implemented() map[string]*impl {
 		"grade.get":               gradeGet(),
 		"component.tree":          componentTree(),
 		"gradebook.get":           gradebookGet(),
-		"credential.list":         credentialList(),
-		"credential.revoke":       credentialRevoke(),
 		"me.site_chat":            meSiteChat(),
 		"member.list":             memberList(),
 		"member.get":              memberGet(),
@@ -230,27 +225,16 @@ var theCatalogue = sync.OnceValues(func() (*catalogue, error) {
 	return withImpls(catalogueJSON)
 })
 
-// catalogueBeforeOwners is theCatalogue as a Core from before C1 serves
-// it (Options.BeforeOwners), loaded once.
-var catalogueBeforeOwners = sync.OnceValues(func() (*catalogue, error) {
-	raw, err := withoutOwners(catalogueJSON)
-	if err != nil {
-		return nil, err
-	}
-	return withImpls(raw)
-})
-
 // catalogueOf is the catalogue as the older Core o names serves it: from
-// before C1 (Options.BeforeOwners), before me.site_chat
-// (Options.WithoutSiteChat), before wait_s (Options.WithoutWait), before
-// conversation.draft (Options.WithoutDraft), before several files to a
-// version (Options.WithoutFiles), or any of them.
+// before an agent's hosting (Options.WithoutHosting), before wait_s
+// (Options.WithoutWait), before conversation.draft (Options.WithoutDraft),
+// before several files to a version (Options.WithoutFiles), or any of them.
 func catalogueOf(o Options) (*catalogue, error) {
 	raw := catalogueJSON
 	for _, older := range []struct {
 		is   bool
 		edit func([]byte) ([]byte, error)
-	}{{o.BeforeOwners, withoutOwners}, {o.WithoutSiteChat, withoutSiteChat}, {o.WithoutWait, withoutWait}, {o.WithoutDraft, withoutDraft},
+	}{{o.WithoutHosting, withoutHosting}, {o.WithoutWait, withoutWait}, {o.WithoutDraft, withoutDraft},
 		{o.WithoutFiles, withoutFiles}} {
 		if !older.is {
 			continue
@@ -281,10 +265,7 @@ func withImpls(raw []byte) (*catalogue, error) {
 // time, as the SDK panics on a tool it cannot register.
 func New(o Options) *Core {
 	load := theCatalogue
-	if o.BeforeOwners {
-		load = catalogueBeforeOwners
-	}
-	if o.WithoutSiteChat || o.WithoutWait || o.WithoutDraft || o.WithoutFiles {
+	if o.WithoutHosting || o.WithoutWait || o.WithoutDraft || o.WithoutFiles {
 		load = func() (*catalogue, error) { return catalogueOf(o) }
 	}
 	cat, err := load()
@@ -309,7 +290,7 @@ func New(o Options) *Core {
 		members: map[string]*member{}, conversations: map[string]*conversation{}, messages: map[string]*message{},
 		actions: map[string]*action{}, keys: map[actorKey]*action{}, blobs: map[string]*versionFile{},
 		uploads: map[string]*upload{}, putURLs: map[string]*upload{}, attachments: map[string]*attachment{}, downloads: map[string]download{},
-		siteChat: map[string]bool{}, presetIDs: map[string]string{}, serviceCreds: map[string]*credential{},
+		presetIDs: map[string]string{}, services: map[string]*actor{}, serviceCreds: map[string]*credential{},
 		waiters: map[*waiter]struct{}{}, shutdown: make(chan struct{}),
 	}
 	c.system = &actor{id: newID(), kind: "system", name: "system", status: statusActive}

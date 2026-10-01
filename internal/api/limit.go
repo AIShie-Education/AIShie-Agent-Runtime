@@ -24,7 +24,7 @@ var (
 	// RateGeneral is each person's allowance of authenticated requests.
 	RateGeneral = Rate{PerMinute: 120, Burst: 40}
 	// RateToken is each person's allowance of requests that ask Core about
-	// a token: inspect, POST /agents, PUT /token.
+	// an agent: inspect, POST /agents, POST …/token.
 	RateToken = Rate{PerMinute: 10, Burst: 5}
 	// RateKeyTest is each person's allowance of keys/test, beside
 	// KeyTestsPerDay.

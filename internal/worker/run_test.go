@@ -51,7 +51,9 @@ func TestNoSecretOrTextInTheLogs(t *testing.T) {
 	w.ok(w.fc.Reject(p.ActionID, "Private rejection reason."))
 	w.ok(w.fc.Retract(got[0].ID, w.satoSeat.ID, "private retraction reason"))
 	eventually(t, "the retraction noted", func() bool { return strings.Contains(wk.state("yuki-helper").Detail, "retracted") })
-	w.ok(w.fc.Revoke(own.actor.Token))
+	issued := []string{w.runtimeToken(own), w.runtimeToken(tu)}
+	_, err := w.fc.RevokeRuntimeToken(own.actor.ID)
+	w.ok(err)
 	wk.waitState("yuki-helper", store.AgentUnauthorized)
 	wk.stop()
 
@@ -59,7 +61,7 @@ func TestNoSecretOrTextInTheLogs(t *testing.T) {
 	if !strings.Contains(logs, `"msg":"answer"`) {
 		t.Fatal("the run logged no answer")
 	}
-	secrets := []string{modelKey, own.actor.Token, tu.actor.Token, w.sato.Token, w.students[0].Token, "ais_"}
+	secrets := append(issued, modelKey, own.actor.Token, tu.actor.Token, w.svc.Token, w.sato.Token, w.students[0].Token, "ais_", "aissvc_")
 	for _, s := range secrets {
 		if strings.Contains(logs, s) {
 			t.Errorf("a log line holds a secret (%.8s…)", s)

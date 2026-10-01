@@ -16,8 +16,8 @@ import (
 )
 
 // noQuery refuses a query parameter, answering the refusal
-// (unknown_parameter, naming the first): no route takes one but DELETE,
-// which reads its own (the API contract, §1). It reports whether the
+// (unknown_parameter, naming the first): no route takes one but the
+// administrators' that read their own (queryOf). It reports whether the
 // request may go on.
 func noQuery(w http.ResponseWriter, r *http.Request) bool {
 	q := r.URL.Query()

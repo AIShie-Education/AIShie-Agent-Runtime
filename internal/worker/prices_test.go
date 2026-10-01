@@ -23,7 +23,7 @@ func TestSitePricesCostTheCalls(t *testing.T) {
 	w := newWorld(t)
 	yukis := w.ownAgent("agt_yuki", 0)
 	h := w.hosting()
-	h.host("agt_yuki", yukis, "", hostedSettings("own-m"))
+	h.host("agt_yuki", yukis, hostedSettings("own-m"))
 	ctx := context.Background()
 	row, err := h.st.CreateSitePrice(ctx, store.SitePrice{ID: "own", Provider: "scripted", Model: "scripted-model", From: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
 		InputPUSD: 1_000_000, CacheReadPUSD: 1_000_000, CacheWritePUSD: 1_000_000, OutputPUSD: 2_000_000, CreatedBy: "admin"})
@@ -34,6 +34,7 @@ func TestSitePricesCostTheCalls(t *testing.T) {
 	own := scripted.New(scripted.Reply("First."), scripted.Reply("Second."))
 	wk := w.start(cfg, models{"own-m": own}, workerOpts{store: h.st, prices: table, edit: func(o *Options) {
 		o.Secrets = secrets.Resolver{Getenv: w.getenv, Sealed: vault.Opener{Vault: h.v, Store: h.st}}
+		o.Sealer = h.v
 	}})
 	callOf := func(conv string) store.LLMCall {
 		t.Helper()

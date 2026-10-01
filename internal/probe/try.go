@@ -1,3 +1,8 @@
+// Package probe tries a model's key with one call (TryModel), outside an
+// agent's run: the API does it for the people who host agents
+// (keys/test), and check --live for the operator. The key is used for as
+// long as the call that brought it, and never written anywhere: not in an
+// error, a log line, or anything returned.
 package probe
 
 import (

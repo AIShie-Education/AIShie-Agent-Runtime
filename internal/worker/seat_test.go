@@ -117,18 +117,22 @@ func TestHoldLiftsWhenTheSeatChanges(t *testing.T) {
 	})
 }
 
-// TestUnauthorizedStopsTheAgent: Core refuses the token (401); the agent
-// stops, its state says so, and it makes no more calls.
+// TestUnauthorizedStopsTheAgent: Core refuses the token (401): it was
+// revoked in Core, by the agent's owner or an administrator. The agent
+// stops, its state says so, it makes no more calls, and the runtime
+// forgets the token; a reload is issued another, and runs the agent.
 func TestUnauthorizedStopsTheAgent(t *testing.T) {
 	w := newWorld(t)
 	own := w.ownAgent("yuki-helper", 0)
 	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": scripted.New()}, workerOpts{})
 	wk.waitState("yuki-helper", store.AgentRunning)
 	eventually(t, "the inbox polled", func() bool { return len(w.calls(own.actor.ID, "conversation_inbox")) > 0 })
+	first := w.fc.RuntimeToken(own.actor.ID)
 
-	w.ok(w.fc.Revoke(own.actor.Token))
+	_, err := w.fc.RevokeRuntimeToken(own.actor.ID)
+	w.ok(err)
 	st := wk.waitState("yuki-helper", store.AgentUnauthorized)
-	if !strings.Contains(st.Detail, "token") {
+	if !strings.Contains(st.Detail, "token") || !strings.Contains(st.Detail, "SIGHUP") {
 		t.Errorf("detail %q", st.Detail)
 	}
 	time.Sleep(50 * time.Millisecond)
@@ -140,13 +144,16 @@ func TestUnauthorizedStopsTheAgent(t *testing.T) {
 	if got := counter(t, wk.reg, "agents", map[string]string{"state": store.AgentUnauthorized}); got != 1 {
 		t.Errorf("agents{state=unauthorized} = %v", got)
 	}
+	if issues := w.fc.RuntimeIssues(own.actor.ID); issues != 2 {
+		t.Errorf("Core issued the agent's token %d times before the reload; want 2 (its creation's and the worker's)", issues)
+	}
 
-	// A reload starts it again: its owner may have put a new token in place.
-	token, err := w.fc.IssueToken(own.actor.ID)
-	w.ok(err)
-	w.env.Store(tokenVar("yuki-helper"), token)
+	// A reload is issued another token, and starts it again.
 	wk.sup.Reload(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)))
 	wk.waitState("yuki-helper", store.AgentRunning)
+	if again := w.fc.RuntimeToken(own.actor.ID); again.Token == "" || again.CredentialID == first.CredentialID {
+		t.Errorf("the reload was not issued another token: %+v", again)
+	}
 }
 
 // TestUnauthenticatedEnvelopeStopsTheAgent: over MCP, Core answers a call
@@ -243,12 +250,20 @@ func TestRateLimitedSlowsTheAgent(t *testing.T) {
 	}
 }
 
-// TestUnauthorizedAtStart: a token Core refuses from the first call stops
-// the agent at once, and it is not started again until a reload.
+// TestUnauthorizedAtStart: the token Core issued refused from the first
+// call stops the agent at once, and it is not started again until a
+// reload, which is issued another.
 func TestUnauthorizedAtStart(t *testing.T) {
 	w := newWorld(t)
 	own := w.ownAgent("yuki-helper", 0)
-	w.ok(w.fc.Revoke(own.actor.Token))
+	var refusing atomic.Bool
+	refusing.Store(true)
+	w.fc.Inject(func(c fakecore.InjectedCall) *fakecore.Injection {
+		if c.ActorID != own.actor.ID || !refusing.Load() {
+			return nil
+		}
+		return &fakecore.Injection{Status: http.StatusUnauthorized}
+	})
 	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": scripted.New()}, workerOpts{})
 	wk.waitState("yuki-helper", store.AgentUnauthorized)
 	time.Sleep(200 * time.Millisecond) // ten lease ticks, and restarts twenty times over
@@ -261,17 +276,28 @@ func TestUnauthorizedAtStart(t *testing.T) {
 	if refused != 1 {
 		t.Errorf("Core refused %d calls; the agent should have stopped at the first", refused)
 	}
+	if issues := w.fc.RuntimeIssues(own.actor.ID); issues != 2 {
+		t.Errorf("Core issued the agent's token %d times; want 2 (its creation's and the worker's)", issues)
+	}
+	refusing.Store(false)
+	wk.sup.Reload(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)))
+	wk.waitState("yuki-helper", store.AgentRunning)
+	if issues := w.fc.RuntimeIssues(own.actor.ID); issues != 3 {
+		t.Errorf("Core issued the agent's token %d times after the reload; want 3", issues)
+	}
 }
 
-// TestOneActorOneAgent: two agents configured with one agent's token; the
-// worker runs one of them, and holds the other in error, saying why,
-// rather than answer every question twice over.
+// TestOneActorOneAgent: two agents named as one agent in Core (which the
+// configuration refuses; two files loaded apart, here); the worker runs one
+// of them, and holds the other in error, saying why, rather than answer
+// every question twice over. The one held is issued no token.
 func TestOneActorOneAgent(t *testing.T) {
 	w := newWorld(t)
 	own := w.ownAgent("yuki-helper", 0)
-	w.env.Store(tokenVar("yuki-twin"), own.actor.Token)
+	w.inCore("yuki-twin", own.actor.ID)
 	model := scripted.New(scripted.Reply("Answered once."))
-	cfg := w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil), w.agentDoc("yuki-twin", "m1", nil, nil))
+	cfg := w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil))
+	cfg.Agents = append(cfg.Agents, w.config(nil, w.agentDoc("yuki-twin", "m1", nil, nil)).Agents...)
 	wk := w.start(cfg, models{"m1": model}, workerOpts{})
 	var running, refused string
 	eventually(t, "one agent running, the other refused", func() bool {
@@ -286,7 +312,7 @@ func TestOneActorOneAgent(t *testing.T) {
 		}
 		return true
 	})
-	if !strings.Contains(refused, running) || !strings.Contains(refused, "token") {
+	if !strings.Contains(refused, running) || !strings.Contains(refused, "one agent in Core is one agent here") {
 		t.Errorf("the refused agent's detail: %q", refused)
 	}
 	conv, _ := w.ask(0, own, "How many of you are there?")
@@ -294,6 +320,9 @@ func TestOneActorOneAgent(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	if n := len(model.Requests()); n != 1 {
 		t.Errorf("the model was called %d times", n)
+	}
+	if issues := w.fc.RuntimeIssues(own.actor.ID); issues != 2 {
+		t.Errorf("Core issued the agent's token %d times; want 2 (its creation's and the one agent's)", issues)
 	}
 }
 

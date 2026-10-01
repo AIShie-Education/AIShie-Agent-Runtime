@@ -123,8 +123,8 @@ func TestWithoutWait(t *testing.T) {
 	}
 	wantEnvelope(t, mustCall(t, w.agentC, "conversation_inbox", inCourseArgs(w, "wait_s", 5)), "error", codeInvalidArgument, "")
 	wantEnvelope(t, mustCall(t, w.agentC, "conversation_inbox", inCourseArgs(w)), "executed", "", "")
-	both := newFakeWorld(t, Options{WithoutWait: true, WithoutSiteChat: true, BeforeOwners: true})
-	if both.fc.cat.byName["me.site_chat"] != nil || both.fc.cat.byName["event.list"].props["wait_s"] != nil {
+	both := newFakeWorld(t, Options{WithoutWait: true, WithoutHosting: true})
+	if both.fc.cat.byName["agent_runtime.agent"] != nil || both.fc.cat.byName["event.list"].props["wait_s"] != nil {
 		t.Error("the older Cores' catalogue is not each of them")
 	}
 }

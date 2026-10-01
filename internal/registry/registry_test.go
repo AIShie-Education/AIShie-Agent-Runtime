@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
@@ -24,15 +26,19 @@ const (
 	course2 = "0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0a1c"
 )
 
-// row is a hosted agent as the API would store it: its token and its
-// owner's key sealed, and settings as JSON.
+// row is a hosted agent as the API would store it, and a worker since: its
+// owner's key, and the token the worker was issued, sealed, and settings
+// as JSON.
 func row(id string, settings string) store.HostedAgent {
 	return store.HostedAgent{
-		ID: id, CoreActorID: "actor-" + id, OwnerActorID: "owner-" + id, OwnerVerified: true, TenantID: "ten_owner",
-		DisplayName: "Agent " + id, TokenSecretID: "sec_t_" + id, KeySecretID: "sec_k_" + id,
+		ID: id, CoreActorID: actorOf(id), OwnerActorID: "owner-" + id, OwnerVerified: true, TenantID: "ten_owner",
+		DisplayName: "Agent " + id, TokenSecretID: "sec_t_" + id, TokenIssued: true, KeySecretID: "sec_k_" + id,
 		Settings: json.RawMessage(settings),
 	}
 }
+
+// actorOf is the hosted agent id's agent in Core: a UUID of its own.
+func actorOf(id string) string { return uuid.NewSHA1(uuid.NameSpaceOID, []byte(id)).String() }
 
 const ownModel = `{"model": {"adapter": "openai_chat", "model": "gpt-4.1-mini", "key_source": "own"}}`
 
@@ -76,7 +82,7 @@ func TestDocument(t *testing.T) {
 	m := doc(t, a, courses, config.KeyOwn)
 	for path, want := range map[string]any{
 		"agent.id": "agt_1", "agent.display_name": "Agent agt_1", "agent.tenant_id": "ten_owner", "agent.paused": true,
-		"agent.core.base_url": core, "agent.core.token_ref": "sealed://sec_t_agt_1",
+		"agent.core.base_url": core, "agent.core.agent_id": actorOf("agt_1"),
 		"agent.model.key_ref":                        "sealed://sec_k_agt_1",
 		"agent.model.fallback.key_ref":               "sealed://sec_k_agt_1",
 		"agent.prompt.system_text":                   "Be kind.",
@@ -183,7 +189,7 @@ runtime:
 agent:
   id: a1
   display_name: A1
-  core: {base_url: "https://lms.example.edu", token_ref: "env://A1_TOKEN"}
+  core: {base_url: "https://lms.example.edu", agent_id: "0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0aa1"}
   model: {adapter: openai_chat, model: gpt-4.1-mini, key_ref: "env://OPENAI_API_KEY"}
 ` + extra
 	if err := os.WriteFile(filepath.Join(dir, "agents.yaml"), []byte(body), 0o600); err != nil {
@@ -202,7 +208,10 @@ func hostedStore(t *testing.T, rows []store.HostedAgent, courses ...store.Hosted
 	t.Helper()
 	st := memstore.New()
 	for _, a := range rows {
-		secrets := []store.Secret{fakeSecret(a.TokenSecretID, a.TenantID, store.SecretCoreToken)}
+		var secrets []store.Secret
+		if a.TokenSecretID != "" {
+			secrets = append(secrets, fakeSecret(a.TokenSecretID, a.TenantID, store.SecretCoreToken))
+		}
 		if a.KeySecretID != "" {
 			secrets = append(secrets, fakeSecret(a.KeySecretID, a.TenantID, store.SecretModelKey))
 		}
@@ -249,7 +258,7 @@ func TestBuild(t *testing.T) {
 agent:
   id: agt_taken
   display_name: A YAML agent with a registry-shaped id
-  core: {base_url: "https://lms.example.edu", token_ref: "env://X"}
+  core: {base_url: "https://lms.example.edu", agent_id: "0192f3c1-7d2e-7c3a-9b1f-2a4c6e8f0aa2"}
   model: {adapter: openai_chat, model: gpt-4.1-mini, key_ref: "env://Y"}
 `)
 	rows := []store.HostedAgent{
@@ -289,8 +298,9 @@ agent:
 		t.Error("Build changed the YAML configuration")
 	}
 	ok := cfg.Agents[3]
-	if ok.Hosted == nil || ok.Hosted.CoreActorID != "actor-agt_ok" || ok.Hosted.OwnerActorID != "owner-agt_ok" || !ok.Hosted.OwnerVerified ||
-		ok.Core.BaseURL != core || ok.Core.TokenRef != "sealed://sec_t_agt_ok" || ok.Model.KeyRef != "sealed://sec_k_agt_ok" ||
+	if ok.Hosted == nil || ok.Hosted.CoreActorID != actorOf("agt_ok") || ok.Hosted.OwnerActorID != "owner-agt_ok" || !ok.Hosted.OwnerVerified ||
+		ok.Hosted.TokenSecretID != "sec_t_agt_ok" || !ok.Hosted.TokenIssued || ok.Core.AgentID != actorOf("agt_ok") || ok.Core.TokenRef != "" ||
+		ok.Core.BaseURL != core || ok.Model.KeyRef != "sealed://sec_k_agt_ok" ||
 		ok.Polling.InboxIdleS != 20 || ok.File != "registry:agt_ok" || ok.TenantID != "ten_owner" {
 		t.Errorf("the hosted agent: %+v", ok)
 	}
@@ -941,5 +951,32 @@ func TestBuildWithAndCheckPriced(t *testing.T) {
 	}
 	if err := CheckPriced(t.Context(), yaml, row("agt_default", ownModel), nil, Options{CoreBaseURL: core}, nil, time.Now()); err != nil {
 		t.Errorf("no quota in dollars: %v", err)
+	}
+}
+
+// A hosted agent hosted by its id and issued no token yet is built, its
+// row's token none; one that is the agent in Core a YAML agent names
+// (core.agent_id, in any case) is not run, operator_agent: one agent in
+// Core is one agent here, with one token.
+func TestBuildByTheAgentsID(t *testing.T) {
+	fresh := row("agt_fresh", ownModel)
+	fresh.TokenSecretID, fresh.TokenIssued = "", false
+	taken := row("agt_taken", ownModel)
+	yaml := yamlConfig(t, "")
+	yaml.Agents[0].Core.AgentID = strings.ToUpper(taken.CoreActorID)
+	st := hostedStore(t, []store.HostedAgent{fresh, taken})
+	cfg, _, err := Build(t.Context(), yaml, st, Options{CoreBaseURL: core})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := agentIDs(cfg), []string{"a1", "agt_fresh"}; !slices.Equal(got, want) {
+		t.Fatalf("agents %v, want %v; rejected %v", got, want, rejectedWhy(cfg))
+	}
+	if h := cfg.Agents[1].Hosted; h == nil || h.TokenSecretID != "" || h.TokenIssued || cfg.Agents[1].Core.AgentID != fresh.CoreActorID {
+		t.Errorf("the agent hosted by its id: %+v", cfg.Agents[1])
+	}
+	if len(cfg.Rejected) != 1 || cfg.Rejected[0].AgentID != "agt_taken" || cfg.Rejected[0].Reason != store.ReasonOperatorAgent ||
+		!strings.Contains(cfg.Rejected[0].Detail(), `YAML agent "a1" is this agent in Core`) {
+		t.Errorf("rejected: %+v", cfg.Rejected)
 	}
 }

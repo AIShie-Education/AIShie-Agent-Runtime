@@ -9,7 +9,7 @@ agent:
     base_url: https://lms.example.edu
     transport: mcp                 # mcp | rest
     mcp_protocol: "2025-11-25"     # pinned
-    token_ref: secret://ten_instr_42/agents/cs101-tutor/core_token
+    agent_id: 0192f3c1-7a2b-7c3d-8e4f-5a6b7c8d9e02   # the agent in Core, hosted by the runtime
   model:
     adapter: anthropic             # openai_chat | openai_responses | anthropic | gemini | bedrock_converse
     model: claude-sonnet-4-5       # the provider's model id; Azure: the deployment name

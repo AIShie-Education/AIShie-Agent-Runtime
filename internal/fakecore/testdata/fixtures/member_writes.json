@@ -569,6 +569,7 @@
      "assignment_scope": "all",
      "created_at": "<time>",
      "display_name": "CS101 Registrar",
+     "hosting": "runtime",
      "id": "<id:26>",
      "kind": "agent",
      "perm_ceiling_reasons": {
@@ -638,6 +639,7 @@
      "assignment_scope": "all",
      "created_at": "<time>",
      "display_name": "CS101 Tutor",
+     "hosting": "runtime",
      "id": "<id:6>",
      "kind": "agent",
      "owner_actor_id": "<id:7>",

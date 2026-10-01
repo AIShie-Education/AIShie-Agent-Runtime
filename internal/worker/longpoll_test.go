@@ -250,7 +250,7 @@ func TestLongPollCapAcrossSeats(t *testing.T) {
 	w := newWorld(t)
 	a, err := w.fc.AddAgent("CS Tutor", w.sato.ID)
 	w.ok(err)
-	w.env.Store(tokenVar("tutor"), a.Token)
+	w.inCore("tutor", a.ID)
 	courses := []fakecore.Course{w.co}
 	principals := []fakecore.Member{w.satoSeat}
 	for i := 2; i <= 4; i++ {
@@ -308,7 +308,7 @@ func TestLongPollCapAcrossSeats(t *testing.T) {
 	}
 	co := courses[slices.IndexFunc(seats, func(m fakecore.Member) bool { return m.ID == last.ID })]
 	student := w.must(w.fc.Seat(w.students[0].ID, co.ID, fakecore.SeatOptions{Preset: "student"}))
-	eventually(t, "the tutor declaring that it answers in the site", func() bool { return w.fc.SiteChat(a.ID) })
+	eventually(t, "the tutor asked in the site", func() bool { return w.fc.SiteChat(a.ID) })
 	cv, _, err := w.fc.Ask(co.ID, student.ID, last.ID, "Which seat answers me?")
 	w.ok(err)
 	w.waitAnswers(cv.ID, 1)

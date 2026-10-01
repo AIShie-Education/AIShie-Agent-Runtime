@@ -334,12 +334,70 @@ func testRegistry(t *testing.T, open Opener) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got.Paused != paused || got.Version != i+2 {
-				t.Errorf("SetHostedAgentPaused(%v) = paused %v at version %d", paused, got.Paused, got.Version)
+			if got.Paused != paused || got.Version != i+2 || got.TokenSecretID != "" {
+				t.Errorf("SetHostedAgentPaused(%v) = paused %v at version %d, token %q", paused, got.Paused, got.Version, got.TokenSecretID)
 			}
 		}
+		missingSecret(t, s, "sec_t1")
 		if _, err := s.SetHostedAgentPaused(ctx, "agt_9", true, 0); !errors.Is(err, store.ErrNotFound) {
 			t.Errorf("pausing an agent not there: %v", err)
+		}
+	})
+
+	t.Run("hosted by its id before it holds a token, then issued one, and paused without it", func(t *testing.T) {
+		s, ctx := open(t), t.Context()
+		a := hosted("agt_1", "actor-1", "owner1", "")
+		a.TokenHint = ""
+		got := create(t, s, a)
+		want := a
+		want.Version, want.UpdatedAt = 1, a.CreatedAt
+		sameHosted(t, *got, want)
+		sameHosted(t, *getHosted(t, s, "agt_1"), want)
+
+		// Issued: the token sealed in its row, Core's id of it beside it.
+		issued := *got
+		issued.TokenSecretID, issued.TokenHint, issued.TokenIssued, issued.TokenCredentialID = "sec_t1", "ais_k7v2m4qhx3ab…", true, "cred-1"
+		got2, err := s.UpdateHostedAgent(ctx, issued, sealed("sec_t1", "ten_owner1", store.SecretCoreToken))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want = issued
+		want.Version, want.UpdatedAt = 2, time.Time{}
+		sameHosted(t, *got2, want)
+		sameHosted(t, *getHosted(t, s, "agt_1"), want)
+
+		// Paused, it holds no token, and its secret is destroyed.
+		paused, err := s.SetHostedAgentPaused(ctx, "agt_1", true, 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !paused.Paused || paused.TokenSecretID != "" || paused.TokenHint != "" || paused.TokenIssued || paused.TokenCredentialID != "" ||
+			paused.Version != 3 {
+			t.Errorf("paused: %+v", paused)
+		}
+		missingSecret(t, s, "sec_t1")
+		resumed, err := s.SetHostedAgentPaused(ctx, "agt_1", false, 0)
+		if err != nil || resumed.Paused || resumed.TokenSecretID != "" || resumed.Version != 4 {
+			t.Errorf("resumed: %+v, %v", resumed, err)
+		}
+
+		// A row said to hold an issued token, or a hint, holds one.
+		for name, mutate := range map[string]func(*store.HostedAgent){
+			"issued with no token":       func(x *store.HostedAgent) { x.TokenIssued = true },
+			"a credential with no token": func(x *store.HostedAgent) { x.TokenCredentialID = "cred-2" },
+			"a hint with no token":       func(x *store.HostedAgent) { x.TokenHint = "ais_k7v2m4qhx3ab…" },
+		} {
+			x := *resumed
+			mutate(&x)
+			if _, err := s.UpdateHostedAgent(ctx, x); err == nil {
+				t.Errorf("%s: updated", name)
+			}
+		}
+		if err := s.DeleteHostedAgent(ctx, "agt_1", store.DeleteIf{Version: 4}); err != nil {
+			t.Fatalf("deleting a row with no token: %v", err)
+		}
+		if _, err := s.HostedAgent(ctx, "agt_1"); !errors.Is(err, store.ErrNotFound) {
+			t.Errorf("after the delete: %v", err)
 		}
 	})
 
@@ -368,7 +426,7 @@ func testRegistry(t *testing.T, open Opener) {
 	t.Run("deleted only as it was read", func(t *testing.T) {
 		s, ctx := open(t), t.Context()
 		a := *create(t, s, hosted("agt_1", "actor-1", "owner1", "sec_t1"), sealed("sec_t1", "ten_owner1", store.SecretCoreToken))
-		// A new token put in since the delete read it (PUT /token).
+		// A new token put in since the delete read it.
 		a.TokenSecretID, a.TokenHint = "sec_t2", "ais_newprefix0000…"
 		if _, err := s.UpdateHostedAgent(ctx, a, sealed("sec_t2", "ten_owner1", store.SecretCoreToken)); err != nil {
 			t.Fatal(err)

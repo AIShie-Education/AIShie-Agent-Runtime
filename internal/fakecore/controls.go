@@ -263,16 +263,23 @@ func fileToken() string {
 }
 
 // addActor registers an actor and issues it a token: a person's, labelled
-// "record" and issued by itself; an agent's, labelled "runtime" and issued
-// by its owner, as the recorder issues them through Core.
-func (c *Core) addActor(name, kind string, owner *actor) Actor {
-	a := &actor{id: newID(), kind: kind, name: name, status: statusActive, owner: owner}
+// "record" and issued by itself, as the recorder's people sign in; an mcp
+// agent's, labelled "my tools" and issued by its owner (agent.issue_token);
+// a runtime agent's, its one token, issued to the site's agent runtime by
+// the agent_runtime service (agent_runtime.issue_token), as the runtime
+// is issued it when it hosts the agent. Called with the lock held.
+func (c *Core) addActor(name, kind, hosting string, owner *actor) Actor {
+	a := &actor{id: newID(), kind: kind, name: name, status: statusActive, owner: owner, hosting: hosting}
 	c.actors[a.id] = a
-	issuer, label := a, "record"
-	if owner != nil {
-		issuer, label = owner, "runtime"
+	var cr *credential
+	switch {
+	case hosting == hostingRuntime:
+		cr, _ = c.issueRuntime(a, c.serviceOf(scopeAgentRuntime), defaultRuntimeLabel, c.now())
+	case owner != nil:
+		cr = c.issue(a, owner, "my tools")
+	default:
+		cr = c.issue(a, a, "record")
 	}
-	cr := c.issue(a, issuer, label)
 	return Actor{ID: a.id, Name: name, Kind: kind, Token: cr.token}
 }
 
@@ -280,72 +287,49 @@ func (c *Core) addActor(name, kind string, owner *actor) Actor {
 func (c *Core) AddPerson(name string) Actor {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.addActor(name, "human", nil)
+	return c.addActor(name, "human", "", nil)
 }
 
-// AddAgent creates an agent the person ownerID owns, and issues it a token.
-// It is seated only as its owner's delegate.
+// AddAgent creates a runtime agent the person ownerID owns, and has the
+// site's agent runtime issued its one token (Actor.Token), as hosting it
+// does: people in the site may ask it. It is seated only as its owner's
+// delegate. The runtime under test is issued another when it hosts it,
+// which revokes this one (RuntimeToken is the one that lives).
 func (c *Core) AddAgent(name, ownerID string) (Actor, error) {
+	return c.addAgent("AddAgent", name, ownerID, hostingRuntime)
+}
+
+// AddMCPAgent creates an mcp agent the person ownerID owns, and issues it a
+// token from its owner (agent.issue_token), for its owner's own tools:
+// nobody asks it in the site, and the runtime does not host it.
+func (c *Core) AddMCPAgent(name, ownerID string) (Actor, error) {
+	return c.addAgent("AddMCPAgent", name, ownerID, hostingMCP)
+}
+
+func (c *Core) addAgent(control, name, ownerID, hosting string) (Actor, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	owner := c.actors[ownerID]
 	if owner == nil || owner.kind != "human" {
-		return Actor{}, fmt.Errorf("fakecore: AddAgent: %s is not a person here", ownerID)
+		return Actor{}, fmt.Errorf("fakecore: %s: %s is not a person here", control, ownerID)
 	}
-	return c.addActor(name, "agent", owner), nil
+	return c.addActor(name, "agent", hosting, owner), nil
 }
 
-// AddUnownedAgent registers an agent nobody owns, as an administrator's
-// actor.register does, and issues it a token. It is seated as anyone is
-// (Seat without Principal), as member.add seats it.
+// AddUnownedAgent registers a runtime agent nobody owns, as an
+// administrator's actor.register does, and has the site's agent runtime
+// issued its token. It is seated as anyone is (Seat without Principal), as
+// member.add seats it.
 func (c *Core) AddUnownedAgent(name string) Actor {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.addActor(name, "agent", nil)
-}
-
-// SetOwner gives the agent agentID the person ownerID as its owner, or
-// takes its owner away when ownerID is "", as an administrator could in a
-// Core from before 169cf50: refused while the agent is seated in a course
-// that is not archived, and revoking every token the agent has, since
-// whoever owned it before may hold them. IssueToken issues it the next.
-// Core no longer does it at all (its owner is fixed when it is registered,
-// and the database refuses a change): SetOwner is for the runtime's
-// defences against an owner that changes, and for tests' agents nobody
-// owns, which AddUnownedAgent makes as Core does.
-func (c *Core) SetOwner(agentID, ownerID string) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	a := c.actors[agentID]
-	if a == nil || a.kind != "agent" {
-		return fmt.Errorf("fakecore: SetOwner: %s is not an agent here", agentID)
-	}
-	var owner *actor
-	if ownerID != "" {
-		if owner = c.actors[ownerID]; owner == nil || owner.kind != "human" {
-			return fmt.Errorf("fakecore: SetOwner: %s is not a person here", ownerID)
-		}
-	}
-	if a.owner == owner {
-		return errors.New("fakecore: SetOwner: the agent already has that owner")
-	}
-	for _, m := range c.memberList {
-		if m.actor == a && m.status != statusRemoved && m.course.status != statusArchived {
-			return fmt.Errorf("fakecore: SetOwner: %s is seated in %s: take it out first", a.name, m.course.code)
-		}
-	}
-	a.owner = owner
-	now := c.now()
-	for _, cr := range c.tokens {
-		if cr.actor == a && !cr.revoked() {
-			cr.revokedAt = &now
-		}
-	}
-	return nil
+	return c.addActor(name, "agent", hostingRuntime, nil)
 }
 
 // IssueToken issues the actor another token, labelled "runtime", from its
-// owner (itself, for an actor nobody owns).
+// owner (itself, for an actor nobody owns): a person's, or an mcp agent's.
+// A runtime agent's one token is the runtime's (IssueRuntimeToken), as
+// Core refuses its owner one (hosted_by_runtime).
 func (c *Core) IssueToken(actorID string) (string, error) {
 	t, err := c.IssueLabelledToken(actorID, "runtime")
 	return t.Token, err
@@ -362,13 +346,16 @@ type Token struct {
 
 // IssueLabelledToken issues the actor another token labelled label, from
 // its owner (itself, for an actor nobody owns), as agent.issue_token and
-// credential.issue_token do.
+// credential.issue_token do: refused for a runtime agent.
 func (c *Core) IssueLabelledToken(actorID, label string) (Token, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	a := c.actors[actorID]
-	if a == nil {
+	switch {
+	case a == nil:
 		return Token{}, fmt.Errorf("fakecore: IssueToken: no actor %s", actorID)
+	case a.hosting == hostingRuntime:
+		return Token{}, fmt.Errorf("fakecore: IssueToken: %s is a runtime agent, whose one token is the runtime's (hosted_by_runtime): IssueRuntimeToken", actorID)
 	}
 	issuer := a
 	if a.owner != nil {
@@ -397,9 +384,12 @@ func (c *Core) Revoke(token string) error {
 // assertions.
 type CredentialRecord struct {
 	ID, Prefix, Label string
-	CreatedAt         time.Time
-	LastUsedAt        *time.Time
-	RevokedAt         *time.Time
+	// IssuedTo is agent_runtime for a runtime agent's token, issued to the
+	// site's agent runtime; "" for any other.
+	IssuedTo   string
+	CreatedAt  time.Time
+	LastUsedAt *time.Time
+	RevokedAt  *time.Time
 }
 
 // Credentials lists the actor's tokens, newest first, as credential_list
@@ -409,7 +399,7 @@ func (c *Core) Credentials(actorID string) []CredentialRecord {
 	defer c.mu.Unlock()
 	var out []CredentialRecord
 	for _, cr := range c.credentialsOf(c.actors[actorID]) {
-		r := CredentialRecord{ID: cr.id, Prefix: cr.prefix, Label: cr.label, CreatedAt: cr.createdAt}
+		r := CredentialRecord{ID: cr.id, Prefix: cr.prefix, Label: cr.label, IssuedTo: cr.issuedTo, CreatedAt: cr.createdAt}
 		if cr.lastUsed != nil {
 			t := *cr.lastUsed
 			r.LastUsedAt = &t

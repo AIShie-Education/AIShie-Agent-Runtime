@@ -1,0 +1,733 @@
+{
+ "scenario": "hosting",
+ "steps": [
+  {
+   "body": {
+    "result": {
+     "agent": {
+      "agent_id": "<id:1>",
+      "display_name": "CS101 Tutor",
+      "hostable": true,
+      "hosting": "runtime",
+      "live_seats": 1,
+      "owner_actor_id": "<id:2>",
+      "owner_name": "Sato",
+      "owner_status": "active",
+      "runtime_token": {
+       "created_at": "<time>",
+       "credential_id": "<id:3>",
+       "last_used_at": "<time>",
+       "token_prefix": "<prefix>"
+      },
+      "site_chat": true,
+      "status": "active"
+     },
+     "owns": true
+    },
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "GET",
+   "path": "/v1/services/agent_runtime/owners/<id:2>/agents/<id:1>",
+   "step": "check_owner"
+  },
+  {
+   "body": {
+    "result": {
+     "owns": false
+    },
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "GET",
+   "path": "/v1/services/agent_runtime/owners/<id:4>/agents/<id:1>",
+   "step": "check_owner_not_theirs"
+  },
+  {
+   "body": {
+    "result": {
+     "owns": false
+    },
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "GET",
+   "path": "/v1/services/agent_runtime/owners/<id:2>/agents/<id:5>",
+   "step": "check_owner_no_agent"
+  },
+  {
+   "body": {
+    "result": {
+     "owns": false
+    },
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "GET",
+   "path": "/v1/services/agent_runtime/owners/<id:2>/agents/<id:4>",
+   "step": "check_owner_a_person"
+  },
+  {
+   "body": {
+    "result": {
+     "agent_id": "<id:1>",
+     "display_name": "CS101 Tutor",
+     "hostable": true,
+     "hosting": "runtime",
+     "live_seats": 1,
+     "owner_actor_id": "<id:2>",
+     "owner_name": "Sato",
+     "owner_status": "active",
+     "runtime_token": {
+      "created_at": "<time>",
+      "credential_id": "<id:3>",
+      "last_used_at": "<time>",
+      "token_prefix": "<prefix>"
+     },
+     "site_chat": true,
+     "status": "active"
+    },
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "GET",
+   "path": "/v1/services/agent_runtime/agents/<id:1>",
+   "step": "agent"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "not_found",
+     "message": "no such agent"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 404,
+   "method": "GET",
+   "path": "/v1/services/agent_runtime/agents/<id:5>",
+   "step": "agent_no_agent"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "not_found",
+     "message": "no such agent"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 404,
+   "method": "GET",
+   "path": "/v1/services/agent_runtime/agents/<id:4>",
+   "step": "agent_a_person"
+  },
+  {
+   "args": {},
+   "envelope": {
+    "result": {
+     "display_name": "CS101 Tutor",
+     "hosting": "runtime",
+     "id": "<id:1>",
+     "kind": "agent",
+     "owner_actor_id": "<id:2>",
+     "status": "active"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "me_runtime",
+   "text_is_envelope": true,
+   "tool": "me_get"
+  },
+  {
+   "args": {
+    "idempotency_key": "site-chat:on",
+    "on": true
+   },
+   "envelope": {
+    "action_id": "<id:6>",
+    "result": {
+     "site_chat": true
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "site_chat_on",
+   "text_is_envelope": true,
+   "tool": "me_site_chat"
+  },
+  {
+   "args": {
+    "idempotency_key": "site-chat:off",
+    "on": false
+   },
+   "envelope": {
+    "action_id": "<id:7>",
+    "result": {
+     "site_chat": true
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "site_chat_off",
+   "text_is_envelope": true,
+   "tool": "me_site_chat"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "service_only"
+     },
+     "message": "not permitted"
+    },
+    "status": "denied"
+   },
+   "content_type": "application/json",
+   "http_status": 403,
+   "method": "GET",
+   "path": "/v1/services/agent_runtime/agents/<id:1>",
+   "step": "agent_as_an_agent"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "not_for_services"
+     },
+     "message": "not permitted"
+    },
+    "status": "denied"
+   },
+   "content_type": "application/json",
+   "http_status": 403,
+   "method": "GET",
+   "path": "/v1/me",
+   "step": "me_as_the_service"
+  },
+  {
+   "body": "invalid token: a site service's credential is taken at its service's REST routes alone\n",
+   "content_type": "text/plain; charset=utf-8",
+   "http_status": 401,
+   "step": "service_over_mcp"
+  },
+  {
+   "body": {
+    "result": {
+     "agent_id": "<id:8>",
+     "display_name": "Sato's tools",
+     "hostable": false,
+     "hosting": "mcp",
+     "live_seats": 1,
+     "owner_actor_id": "<id:2>",
+     "owner_name": "Sato",
+     "owner_status": "active",
+     "reason": "not_runtime_hosted",
+     "site_chat": false,
+     "status": "active"
+    },
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "GET",
+   "path": "/v1/services/agent_runtime/agents/<id:8>",
+   "step": "agent_mcp"
+  },
+  {
+   "body": {
+    "result": {
+     "agent": {
+      "agent_id": "<id:8>",
+      "display_name": "Sato's tools",
+      "hostable": false,
+      "hosting": "mcp",
+      "live_seats": 1,
+      "owner_actor_id": "<id:2>",
+      "owner_name": "Sato",
+      "owner_status": "active",
+      "reason": "not_runtime_hosted",
+      "site_chat": false,
+      "status": "active"
+     },
+     "owns": true
+    },
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "GET",
+   "path": "/v1/services/agent_runtime/owners/<id:2>/agents/<id:8>",
+   "step": "check_owner_mcp"
+  },
+  {
+   "body": {
+    "action_id": "<id:9>",
+    "error": {
+     "code": "failed_precondition",
+     "details": {
+      "reason": "not_runtime_hosted"
+     },
+     "message": "that agent is an mcp agent: its owner's own tools reach it over MCP, with tokens of the owner's, and the site's agent runtime does not host it"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "content_type": "application/json",
+   "http_status": 422,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/agents/<id:8>/token",
+   "request": {},
+   "step": "issue_mcp"
+  },
+  {
+   "body": {
+    "action_id": "<id:10>",
+    "result": {
+     "agent_id": "<id:8>",
+     "revoked": []
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/agents/<id:8>/token/revoke",
+   "request": {},
+   "step": "revoke_mcp"
+  },
+  {
+   "args": {},
+   "envelope": {
+    "result": {
+     "display_name": "Sato's tools",
+     "hosting": "mcp",
+     "id": "<id:8>",
+     "kind": "agent",
+     "owner_actor_id": "<id:2>",
+     "status": "active"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "me_mcp",
+   "text_is_envelope": true,
+   "tool": "me_get"
+  },
+  {
+   "args": {
+    "idempotency_key": "site-chat:mcp",
+    "on": true
+   },
+   "envelope": {
+    "action_id": "<id:11>",
+    "error": {
+     "code": "failed_precondition",
+     "details": {
+      "reason": "not_runtime_hosted"
+     },
+     "message": "only a runtime agent is asked in the site, by the token the site's agent runtime holds for it; an mcp agent, reached by its owner's own tools, is asked nothing there"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "site_chat_mcp",
+   "text_is_envelope": true,
+   "tool": "me_site_chat"
+  },
+  {
+   "args": {
+    "body": "Can you help me?",
+    "course_id": "<id:12>",
+    "idempotency_key": "open:ken:mcp",
+    "respondent_member_id": "<id:13>"
+   },
+   "envelope": {
+    "action_id": "<id:14>",
+    "error": {
+     "code": "failed_precondition",
+     "details": {
+      "reason": "mcp_agent"
+     },
+     "message": "that agent is never asked in the site: it is used from its owner's own tools, over MCP"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "open_mcp",
+   "text_is_envelope": true,
+   "tool": "conversation_open"
+  },
+  {
+   "body": {
+    "action_id": "<id:15>",
+    "result": {
+     "agent_id": "<id:1>",
+     "credential_id": "<id:16>",
+     "replaced": [
+      "<id:3>"
+     ],
+     "token": "<token>",
+     "token_prefix": "<prefix>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/agents/<id:1>/token",
+   "request": {
+    "label": "agent runtime"
+   },
+   "step": "issue"
+  },
+  {
+   "body": {
+    "action_id": "<id:15>",
+    "replayed": true,
+    "result": {
+     "agent_id": "<id:1>",
+     "credential_id": "<id:16>",
+     "replaced": [
+      "<id:3>"
+     ],
+     "token_prefix": "<prefix>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/agents/<id:1>/token",
+   "replayed_header": "true",
+   "request": {
+    "label": "agent runtime"
+   },
+   "step": "issue_replay"
+  },
+  {
+   "body": {
+    "action_id": "<id:17>",
+    "error": {
+     "code": "invalid_argument",
+     "details": {
+      "field": "label"
+     },
+     "message": "label is 1 to 200 characters"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/agents/<id:1>/token",
+   "request": {
+    "label": " "
+   },
+   "step": "issue_bad_label"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "not_found",
+     "message": "no such agent"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 404,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/agents/<id:5>/token",
+   "request": {},
+   "step": "issue_no_agent"
+  },
+  {
+   "body": "invalid token: the credential is missing or not valid\n",
+   "content_type": "text/plain; charset=utf-8",
+   "http_status": 401,
+   "step": "replaced_token"
+  },
+  {
+   "args": {},
+   "envelope": {
+    "result": {
+     "display_name": "CS101 Tutor",
+     "hosting": "runtime",
+     "id": "<id:1>",
+     "kind": "agent",
+     "owner_actor_id": "<id:2>",
+     "status": "active"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "me_issued",
+   "text_is_envelope": true,
+   "tool": "me_get"
+  },
+  {
+   "body": {
+    "result": {
+     "agent_id": "<id:1>",
+     "display_name": "CS101 Tutor",
+     "hostable": true,
+     "hosting": "runtime",
+     "live_seats": 1,
+     "owner_actor_id": "<id:2>",
+     "owner_name": "Sato",
+     "owner_status": "active",
+     "runtime_token": {
+      "created_at": "<time>",
+      "credential_id": "<id:16>",
+      "last_used_at": "<time>",
+      "token_prefix": "<prefix>"
+     },
+     "site_chat": true,
+     "status": "active"
+    },
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "GET",
+   "path": "/v1/services/agent_runtime/agents/<id:1>",
+   "step": "agent_issued"
+  },
+  {
+   "body": {
+    "action_id": "<id:18>",
+    "result": {
+     "agent_id": "<id:1>",
+     "revoked": [
+      "<id:16>"
+     ]
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/agents/<id:1>/token/revoke",
+   "request": {},
+   "step": "revoke"
+  },
+  {
+   "body": {
+    "action_id": "<id:18>",
+    "replayed": true,
+    "result": {
+     "agent_id": "<id:1>",
+     "revoked": [
+      "<id:16>"
+     ]
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/agents/<id:1>/token/revoke",
+   "replayed_header": "true",
+   "request": {},
+   "step": "revoke_replay"
+  },
+  {
+   "body": {
+    "action_id": "<id:19>",
+    "result": {
+     "agent_id": "<id:1>",
+     "revoked": []
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/agents/<id:1>/token/revoke",
+   "request": {},
+   "step": "revoke_none"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "not_found",
+     "message": "no such agent"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 404,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/agents/<id:5>/token/revoke",
+   "request": {},
+   "step": "revoke_no_agent"
+  },
+  {
+   "body": "invalid token: the credential is missing or not valid\n",
+   "content_type": "text/plain; charset=utf-8",
+   "http_status": 401,
+   "step": "revoked_token"
+  },
+  {
+   "body": {
+    "result": {
+     "agent_id": "<id:1>",
+     "display_name": "CS101 Tutor",
+     "hostable": true,
+     "hosting": "runtime",
+     "live_seats": 1,
+     "owner_actor_id": "<id:2>",
+     "owner_name": "Sato",
+     "owner_status": "active",
+     "site_chat": false,
+     "status": "active"
+    },
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "GET",
+   "path": "/v1/services/agent_runtime/agents/<id:1>",
+   "step": "agent_not_hosted"
+  },
+  {
+   "args": {
+    "body": "Are you there?",
+    "course_id": "<id:12>",
+    "idempotency_key": "open:yuki:not-hosted",
+    "respondent_member_id": "<id:20>"
+   },
+   "envelope": {
+    "action_id": "<id:21>",
+    "error": {
+     "code": "failed_precondition",
+     "details": {
+      "reason": "agent_not_hosted"
+     },
+     "message": "that agent is not running in the site just now: the site's agent runtime does not host it at the moment; ask again later, or ask its owner"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "open_not_hosted",
+   "text_is_envelope": true,
+   "tool": "conversation_open"
+  },
+  {
+   "body": {
+    "result": {
+     "agent_id": "<id:1>",
+     "display_name": "CS101 Tutor",
+     "hostable": false,
+     "hosting": "runtime",
+     "live_seats": 1,
+     "owner_actor_id": "<id:2>",
+     "owner_name": "Sato",
+     "owner_status": "active",
+     "reason": "agent_suspended",
+     "site_chat": false,
+     "status": "suspended"
+    },
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "GET",
+   "path": "/v1/services/agent_runtime/agents/<id:1>",
+   "step": "agent_suspended"
+  },
+  {
+   "body": {
+    "action_id": "<id:22>",
+    "error": {
+     "code": "failed_precondition",
+     "details": {
+      "reason": "agent_suspended"
+     },
+     "message": "that agent is suspended: it is hosted again once it is reactivated"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "content_type": "application/json",
+   "http_status": 422,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/agents/<id:1>/token",
+   "request": {},
+   "step": "issue_suspended"
+  },
+  {
+   "body": {
+    "action_id": "<id:23>",
+    "result": {
+     "agent_id": "<id:1>",
+     "credential_id": "<id:24>",
+     "token": "<token>",
+     "token_prefix": "<prefix>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "POST",
+   "path": "/v1/services/agent_runtime/agents/<id:1>/token",
+   "request": {},
+   "step": "issue_reactivated"
+  },
+  {
+   "body": {
+    "result": {
+     "agent": {
+      "agent_id": "<id:1>",
+      "display_name": "CS101 Tutor",
+      "hostable": true,
+      "hosting": "runtime",
+      "live_seats": 1,
+      "owner_actor_id": "<id:2>",
+      "owner_name": "Sato",
+      "owner_status": "active",
+      "runtime_token": {
+       "created_at": "<time>",
+       "credential_id": "<id:24>",
+       "token_prefix": "<prefix>"
+      },
+      "site_chat": true,
+      "status": "active"
+     },
+     "owns": true
+    },
+    "status": "executed"
+   },
+   "content_type": "application/json",
+   "http_status": 200,
+   "method": "GET",
+   "path": "/v1/services/agent_runtime/owners/<id:2>/agents/<id:1>",
+   "step": "check_owner_hosted"
+  }
+ ]
+}
