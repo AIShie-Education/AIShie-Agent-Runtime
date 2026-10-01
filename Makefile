@@ -39,8 +39,14 @@ e2e: build ## the runtime against the pinned Core (scripts/ci-core.sh), with a s
 	scripts/e2e.sh
 
 .PHONY: live
+# -v, so that the log says which providers were tried and which were
+# skipped for want of a key: a run with no key passes, having tried none.
 live: ## the adapters against the real providers whose keys are set (OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, ...)
-	LIVE=1 go test -count=1 -run Live ./internal/llm/...
+	LIVE=1 go test -count=1 -v -run Live ./internal/llm/...
+
+.PHONY: live-core
+live-core: ## Core's client and a seat's toolset against a throwaway Core (scripts/live-core.sh), when the Core pin moves
+	scripts/live-core.sh
 
 .PHONY: record-fixtures
 # Record against a Core started with CORE_RATE_LIMIT_PER_MINUTE=600 and

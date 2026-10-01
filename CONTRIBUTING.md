@@ -3,10 +3,11 @@
 ## The loop
 
 ```
-make ci       # what CI runs: lint (gofmt, go mod tidy, the workflows, go vet, golangci-lint, shellcheck),
-              # the scripts' tests, the Go tests with the store on Postgres, the end to end against Core
-make live     # the adapters against the real providers whose keys are set
-make docker   # the image, as CI builds it; never pushed
+make ci        # what CI runs: lint (gofmt, go mod tidy, the workflows, go vet, golangci-lint, shellcheck),
+               # the scripts' tests, the Go tests with the store on Postgres, the end to end against Core
+make live      # the adapters against the real providers whose keys are set
+make live-core # Core's client and a seat's toolset against a throwaway Core, when the pin moves
+make docker    # the image, as CI builds it; never pushed
 ```
 
 `make test` wants a PostgreSQL whose role can create databases:
@@ -225,5 +226,7 @@ Move the three together, in one pull request:
    sanitiser's tests. A changed fixture is a change in Core's behaviour: the
    fake Core must follow it, and `make test` fails until it does.
 
-4. `make ci`, then push the three together. From then on, every pull
-   request's end to end, and every release's, runs against the new Core.
+4. `make ci` and `make live-core` (the live tests against a Core of their
+   own, which CI does not run: docs/design.md §10), then push the three
+   together. From then on, every pull request's end to end, and every
+   release's, runs against the new Core.
