@@ -158,6 +158,56 @@ func TestConvert(t *testing.T) {
 	empty(t, c.cfg.TempDir)
 }
 
+// TestRendition: a file's PDF rendition is every page of it, whatever
+// MaxPages says (no page range, never capped), made by the PDF export of
+// the application that opens its family: Writer's, Impress's (hidden
+// slides, no notes pages), Calc's or Draw's; a PDF past the bytes asked for
+// is ErrTooLarge.
+func TestRendition(t *testing.T) {
+	fixtures := t.TempDir()
+	three := doctexttest.PDF(doctexttest.PDFPage{Lines: []string{"one"}}, doctexttest.PDFPage{Lines: []string{"two"}}, doctexttest.PDFPage{Lines: []string{"three"}})
+	if err := os.WriteFile(filepath.Join(fixtures, "made"), three, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, log := fakeConverter(t, Config{MaxPages: 2}, `cp `+fixtures+`/made "$out/in.pdf"`)
+	for _, tc := range []struct {
+		f      Format
+		data   []byte
+		filter string
+	}{
+		{Format{"docx", Document, true}, doctexttest.DOCX(doctexttest.Doc{}), "pdf:writer_pdf_Export:{"},
+		{Format{"pps", Slides, false}, cfbMagic, "pdf:impress_pdf_Export:{"},
+		{Format{"xlsx", Workbook, true}, doctexttest.XLSX(doctexttest.Sheet{Name: "A"}), "pdf:calc_pdf_Export:{"},
+		{Format{"odg", Drawing, false}, []byte("PK\x03\x04 a drawing"), "pdf:draw_pdf_Export:{"},
+	} {
+		out, err := c.Rendition(t.Context(), tc.data, tc.f, int64(len(three)))
+		if err != nil {
+			t.Fatalf("%s: %v", tc.f.Ext, err)
+		}
+		if !bytes.Equal(out.Data, three) || out.Pages != 3 || out.Capped {
+			t.Errorf("%s: output of %d bytes, %d pages, capped %v", tc.f.Ext, len(out.Data), out.Pages, out.Capped)
+		}
+		filter := readLog(t, log, "filter")
+		if !strings.HasPrefix(filter, tc.filter) || strings.Contains(filter, "PageRange") ||
+			!strings.Contains(filter, `"MaxImageResolution":{"type":"long","value":"300"}`) {
+			t.Errorf("%s: the filter %q", tc.f.Ext, filter)
+		}
+		if hidden := strings.Contains(filter, `"ExportHiddenSlides":{"type":"boolean","value":"true"}`); hidden != (tc.f.Family == Slides) {
+			t.Errorf("%s: the filter %q", tc.f.Ext, filter)
+		}
+		if in := readLog(t, log, "in"); !strings.HasSuffix(strings.TrimSpace(in), "/in."+tc.f.Ext) {
+			t.Errorf("the file is given as %q", in)
+		}
+	}
+	if _, err := c.Rendition(t.Context(), cfbMagic, Format{"doc", Document, false}, int64(len(three))-1); !errors.Is(err, ErrTooLarge) {
+		t.Errorf("a PDF a byte past the bound: %v", err)
+	}
+	if _, err := c.Rendition(t.Context(), []byte("just text"), Format{"doc", Document, false}, 1<<20); !errors.Is(err, ErrMalformed) {
+		t.Errorf("a file that is no Office file: %v", err)
+	}
+	empty(t, c.cfg.TempDir)
+}
+
 // TestConvertFails: a file LibreOffice makes nothing of (it ends well all
 // the same), or one it fails on, is ErrMalformed; one that takes longer
 // than the timeout is ErrTimeout, its process group killed; one whose PDF

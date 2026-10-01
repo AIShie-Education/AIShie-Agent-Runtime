@@ -102,15 +102,31 @@ func (c *Converter) filter(family Family, to Target) string {
 	case ToXLSX:
 		return "xlsx:Calc MS Excel 2007 XML"
 	}
-	opts := []string{
-		`"PageRange":{"type":"string","value":"1-` + strconv.Itoa(c.cfg.MaxPages) + `"}`,
-		`"ReduceImageResolution":{"type":"boolean","value":"true"}`,
-		`"MaxImageResolution":{"type":"long","value":"` + strconv.Itoa(maxImageDPI) + `"}`,
+	return pdfFilter(family, c.cfg.MaxPages)
+}
+
+// pdfFilter is the PDF export filter of LibreOffice's application that
+// opens a file of family (Writer's, Impress's, Calc's or Draw's), and its
+// options: pictures brought down to maxImageDPI, and, with pages above 0,
+// only the first pages pages. A presentation's PDF has a page for every
+// slide, the hidden ones too, and no notes pages.
+func pdfFilter(family Family, pages int) string {
+	var opts []string
+	if pages > 0 {
+		opts = append(opts, `"PageRange":{"type":"string","value":"1-`+strconv.Itoa(pages)+`"}`)
 	}
+	opts = append(opts,
+		`"ReduceImageResolution":{"type":"boolean","value":"true"}`,
+		`"MaxImageResolution":{"type":"long","value":"`+strconv.Itoa(maxImageDPI)+`"}`)
 	name := "writer_pdf_Export"
-	if family == Slides {
+	switch family {
+	case Slides:
 		name = "impress_pdf_Export"
 		opts = append(opts, `"ExportHiddenSlides":{"type":"boolean","value":"true"}`, `"ExportNotesPages":{"type":"boolean","value":"false"}`)
+	case Workbook:
+		name = "calc_pdf_Export"
+	case Drawing:
+		name = "draw_pdf_Export"
 	}
 	return "pdf:" + name + ":{" + strings.Join(opts, ",") + "}"
 }
@@ -119,12 +135,26 @@ func (c *Converter) filter(family Family, to Target) string {
 // configured timeout and ctx. Its error is ErrMalformed (LibreOffice could
 // not open or convert it), ErrTooLarge, ErrTimeout, or ctx's own.
 func (c *Converter) Convert(ctx context.Context, data []byte, f Format, to Target) (*Output, error) {
-	return c.convert(ctx, data, f, string(to), c.filter(f.Family, to))
+	return c.convert(ctx, data, f, string(to), c.filter(f.Family, to), maxOutput)
+}
+
+// Rendition converts data, a file of format f of any family, to a PDF of
+// every page it has, as a file's PDF rendition is made (package
+// rendition): no page left out, whatever Config.MaxPages says, and no
+// larger than maxBytes (ErrTooLarge past it), within the configured
+// timeout and ctx. Its Pages are the PDF's, counted. Its errors are
+// Convert's.
+func (c *Converter) Rendition(ctx context.Context, data []byte, f Format, maxBytes int64) (*Output, error) {
+	out, err := c.convert(ctx, data, f, string(ToPDF), pdfFilter(f.Family, 0), maxBytes)
+	if out != nil {
+		out.Capped = false
+	}
+	return out, err
 }
 
 // convert has LibreOffice convert data, of format f, with filter, to a file
-// of the extension ext.
-func (c *Converter) convert(ctx context.Context, data []byte, f Format, ext, filter string) (*Output, error) {
+// of the extension ext, of at most maxOut bytes.
+func (c *Converter) convert(ctx context.Context, data []byte, f Format, ext, filter string, maxOut int64) (*Output, error) {
 	if !validExt(f.Ext) || !validExt(ext) {
 		return nil, fmt.Errorf("office: %q is not a format's extension", f.Ext)
 	}
@@ -174,7 +204,7 @@ func (c *Converter) convert(ctx context.Context, data []byte, f Format, ext, fil
 	switch {
 	case err != nil || st.Size() == 0:
 		return nil, fmt.Errorf("%w: LibreOffice made nothing of it", ErrMalformed)
-	case st.Size() > maxOutput:
+	case st.Size() > maxOut:
 		return nil, ErrTooLarge
 	}
 	b, err := os.ReadFile(out) //nolint:gosec // a path of the converter's own making.
@@ -185,7 +215,7 @@ func (c *Converter) convert(ctx context.Context, data []byte, f Format, ext, fil
 	if ext == string(ToPDF) {
 		pctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
-		n, err := doctext.PDFPages(pctx, b, doctext.Limits{})
+		n, err := doctext.PDFPages(pctx, b, doctext.Limits{MaxInflated: max(maxOut, doctext.DefaultLimits().MaxInflated)})
 		if err != nil {
 			return nil, fmt.Errorf("%w: its PDF does not read: %w", ErrMalformed, err)
 		}
