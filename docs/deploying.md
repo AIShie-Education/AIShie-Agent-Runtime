@@ -133,32 +133,46 @@ prompt or the price table can sit beside the agents, in a subdirectory: a
 price table named `.yaml` in the agents' directory itself would be read as
 configuration, and refused.
 
+Each agent names its agent in Core by its id, `core.agent_id`: an agent
+Core hosts `runtime` (chosen for good when it is made, in Core's My agents
+or by an administrator's `actor.register`; an `mcp` agent is its owner's
+tools' to reach, and the runtime does not host it). Nobody gives the
+runtime an agent's token: the runtime is issued it by the agent's id, with
+its own credential in Core ([below](#the-runtimes-own-credential-in-core)),
+as it starts the agent, and keeps it sealed in its database (with
+`KMS_KEY_ID`; in memory without it, issued again at each start). Two
+agents of the configuration may not name one agent in Core: each would be
+issued its one token, revoking the other's. A configuration that still
+names a token (`core.token_ref`, from before) does not load: replace it
+with `core.agent_id`, and delete the token's file.
+
 Secrets are never written in the YAML (`check` refuses what looks like a
 token). A reference says where each one is:
 
-- `secret://agents/cs101-tutor/core_token` is the file
-  `/etc/aishie-runtime/secrets/agents/cs101-tutor/core_token`, one value per
-  file (a trailing newline is dropped). Where there is no such file, it is
-  the variable `AISHIE_SECRET_AGENTS_CS101_TUTOR_CORE_TOKEN` in the env file.
+- `secret://keys/openai` is the file `/etc/aishie-runtime/secrets/keys/openai`,
+  one value per file (a trailing newline is dropped). Where there is no
+  such file, it is the variable `AISHIE_SECRET_KEYS_OPENAI` in the env file.
 - `env://NAME` is the variable `NAME` in the env file.
 
 Both directories are root's, and the runtime reads them through their group,
 65532, the image's user: files `640`, directories `750`. The container
-cannot write to either. To add an agent and its Core token (issued as
-Core's `docs/deploying.md` says, An agent's token):
+cannot write to either. To add an agent (its id is in Core's My agents, or
+`actor.get`):
 
 ```
 install -g 65532 -m 640 cs101-tutor.yaml /etc/aishie-runtime/agents/
-install -D -g 65532 -m 640 /dev/stdin /etc/aishie-runtime/secrets/agents/cs101-tutor/core_token
-    (paste the token, Enter, Ctrl-D)
 aishie-runtime check --live
 ```
 
 `check` loads and validates the configuration as `run` will; `--live` also
-resolves the secrets, connects each agent to Core, shows its seats and what
-its model is offered (its reads, and the writes its owner's conversations
-are offered besides), and tries each model key with one call. A
-`core.base_url` must be within `CORE_BASE_URL_ALLOWLIST`.
+resolves the secrets, reads each agent in Core with the runtime's own
+credential (how Core hosts it, its live seats, whether people may ask it
+now), connects with the token the runtime holds for it, if any, to show
+its seats and what its model is offered (its reads, and the writes its
+owner's conversations are offered besides), and tries each model key with
+one call. It is issued no token itself: that would revoke the one a
+running runtime holds. A `core.base_url` must be within
+`CORE_BASE_URL_ALLOWLIST`.
 
 `check` also shows, as `deprecated:`, what an agent's settings hold that
 the runtime takes but no longer does as they say, and `run` logs it when it
@@ -362,22 +376,72 @@ aishie-runtime-deploy "$(docker inspect -f '{{.Config.Image}}' aishie-runtime)"
 ## Hosted agents
 
 Besides the agents in `/etc/aishie-runtime/agents`, the runtime runs the
-agents people connect to it themselves, from AIShie-Frontend
+agents people host on it themselves, by their ids, from AIShie-Frontend
 (`docs/design.md` §11): the registry, kept in the runtime's database with
-their tokens and keys sealed. It is on whenever `DATABASE_URL` is set; the
-runtime puts a change to it in force at once, and `check` lists the hosted
-agents it would run, and those it would not, with why. `/status` marks them
-`hosted`. They connect to `CORE_BASE_URL`, which must be a Core that names
-an agent's owner (`me.get`'s `owner_actor_id`, since Core's C1): a hosted
-agent runs only while Core names as its owner the person who connected it,
-and is stopped otherwise, in state `owner_changed`, or in state `error` on
-an older Core, which cannot say. `check --live` checks the owner as `run`
+their owners' keys, and the tokens Core issues the runtime for them,
+sealed. It is on whenever `DATABASE_URL` is set; the runtime puts a change
+to it in force at once, and `check` lists the hosted agents it would run,
+and those it would not, with why. `/status` marks them `hosted`. They run
+at `CORE_BASE_URL`, which must be a Core that hosts agents by their ids
+(AIShie-Core #52 or later, with its `agent_runtime` service): a hosted
+agent runs only while Core hosts it `runtime` and names as its owner the
+person who hosted it, and is stopped otherwise, in state `owner_changed`
+(its token revoked), or `error` (`mcp_agent`, `agent_suspended`,
+`owner_suspended`, `core_too_old`). `check --live` reads them as `run`
 does, and tries a hosted agent's model as `run` calls it (below). A hosted
-agent whose id or Core actor is a YAML agent's does not run: the
-operator's configuration wins. A hosted agent's owner being known, its
-model may act for them in the conversations they open, as far as its seats'
+agent whose id is a YAML agent's, or that is the agent in Core a YAML agent
+names, does not run: the operator's configuration wins. There is one
+runtime for the site: an owner cannot run a runtime of their own for an
+agent, since only the runtime holding Core's `agent_runtime` credential is
+issued an agent's token. A hosted agent's owner being known, its model may
+act for them in the conversations they open, as far as its seats'
 permissions allow, unless they turn that off (`tools.writes`, through the
 API).
+
+### The runtime's own credential in Core
+
+The runtime is a site service of Core's, `agent_runtime`, and holds a
+credential of its own (`aissvc_…`), with which it asks Core whether a
+person owns an agent and may host it, is issued each agent's token by its
+id, and revokes it when the hosting ends. It is the file
+`/etc/aishie-runtime/secrets/core/agent_runtime` (`CORE_SERVICE_CREDENTIAL`,
+`secret://core/agent_runtime` by default, the file `core/agent_runtime`
+under the secrets' mount), which the compose stack (aishie-deploy) writes
+at setup. On a server of this repository's own deploy, issue it on Core's
+server and put it there, without it ever reaching the screen:
+
+```
+docker exec -i aishie-core aishie-core service issue agent_runtime --label runtime --replace 2>/dev/null |
+    ssh root@runtime-host 'install -D -g 65532 -m 640 /dev/stdin /etc/aishie-runtime/secrets/core/agent_runtime'
+```
+
+(`aishie-core service issue` prints the credential alone on standard
+output, and what it did on standard error; `--replace` revokes the
+service's other credentials, which is how it is rotated: the runtime reads
+the file at each call, and takes a new one with no restart.) A platform
+administrator can issue one from Core's site too (`service.issue_credential`,
+scope `agent_runtime`). Without it, or with one Core refuses, no agent
+runs: each is in state `error`, reason `runtime_misconfigured`, the log
+says why, and they start by themselves once it is there.
+
+### Upgrading to hosting by id
+
+Core's migration 0025 (AIShie-Core #52) made every agent whose token
+was declared as answering in the site a `runtime` agent, that token the
+runtime's, and every other agent `mcp`. Before deploying a runtime that
+hosts by id: issue its credential (above), and give every YAML agent its
+`core.agent_id` in place of `core.token_ref` (`check` refuses the old
+form), its agent in Core being `runtime`. Then `migrate up` (the deploy
+does it) adds what lets a hosted agent's row hold no token. At each
+hosted agent's first start, the runtime is issued its token in place of
+the one its owner pasted, which that revokes; a site with many is paced
+within Core's limit. A hosted agent Core made `mcp` is not run, in state
+`error` (`mcp_agent`): its owner deletes it in the front end. There is no
+rolling back past this release on its own: the release before takes
+pasted tokens, which Core no longer issues an owner for a `runtime` agent,
+and cannot read a hosted agent that holds no token (one hosted since, its
+model not yet chosen, or paused). Going back means restoring the backup the
+deploy took (`deploy-*.dump`), with Core's own rollback.
 
 ### The school's AI plan
 
@@ -465,21 +529,22 @@ API_TRUSTED_PROXIES=127.0.0.1/32
 ```
 
 and deploy the running image again. `curl -s 127.0.0.1:9091/runtime/api/v1/info`
-answers with the audience, and `features` says the API connects agents by
-their tokens and takes their owners' own keys; `/status` is not there, and
+answers with the audience, and `features` says the API hosts agents by
+their ids (`host_by_id`, which needs the runtime's own credential) and takes
+their owners' own keys; `/status` is not there, and
 on `HTTP_ADDR` it refuses any request a proxy forwarded, so pointing Caddy
 at `9090` by mistake exposes nothing. In the compose stack (aishie-deploy),
 the stack sets all of this itself.
 
-Through the API, a person connects an agent of theirs by a token Core
-issued it, chooses its model and gives their own key for it, tries a key,
-pauses and resumes the agent, gives it a new token and deletes it. What
-the runtime does with Core on their behalf is with the agent's own token:
-it asks Core what the token is, and revokes the token a new one replaces,
-and an agent's token when the agent is deleted, a new token given while it
-is being deleted among them. An agent suspended in Core cannot revoke its
-tokens; its owner then revokes them in AIshie, as the front end says. Every change, and every refusal, is in the audit
-(`docs/design.md` §11.4), with hints of tokens and keys, never the values.
+Through the API, a person hosts an agent of theirs by its id, chooses its
+model and gives their own key for it, tries a key, pauses and resumes the
+agent, asks for a new token after its owner or an administrator revoked
+the one the runtime held, and deletes it. Nobody gives the runtime a token:
+what the runtime does with Core on their behalf is with its own credential,
+asking Core whether the agent is theirs and may be hosted (an `mcp` agent
+may not), and revoking the agent's token when they pause or delete it.
+Every change, and every refusal, is in the audit (`docs/design.md`
+§11.4), with hints of keys, never the values.
 
 A hosted agent's model is called only at the providers' own endpoints,
 which the runtime makes from the provider its owner chose (or the offer of
@@ -628,8 +693,9 @@ not this runtime made it, and the file itself otherwise.
 
 ## The key that seals secrets
 
-The tokens and keys of hosted agents, which people give the runtime rather
-than an operator writing them in files, are kept in its database, sealed
+The keys of hosted agents, which people give the runtime rather than an
+operator writing them in files, and the agents' tokens Core issues the
+runtime, are kept in its database, sealed
 (`docs/design.md` §11.1): each under a data key of its own, which the key
 in `/etc/aishie-runtime/secrets/kek/` wraps. The env file names it:
 `KMS_KEY_ID=local:/secrets/kek/v1`, the path the container sees.
@@ -682,7 +748,8 @@ running (above): a restart does not read the file again.
 | `DATABASE_URL` | the runtime's own database. Never Core's: `aishie-runtime-deploy` refuses the one Core's env file names, and backs up only a database on this server. |
 | `HTTP_ADDR` | where `/healthz`, `/status` and `/metrics` are served: `127.0.0.1:9090`. Keep it on localhost. |
 | `CORE_BASE_URL_ALLOWLIST` | the Core installations an agent may point at, comma-separated: origins (`https://lms.example.edu`) or host patterns (`*.example.edu`). |
-| `CORE_BASE_URL` | the Core that hosted agents, those people connect rather than an operator writing YAML, connect to: `https://lms.example.edu`, within `CORE_BASE_URL_ALLOWLIST`. `setup-server.sh` sets it to the Core it was given. Unset, no hosted agent runs, and each one's state says so. |
+| `CORE_BASE_URL` | the Core that hosted agents, those people host rather than an operator writing YAML, run at: `https://lms.example.edu`, within `CORE_BASE_URL_ALLOWLIST`. `setup-server.sh` sets it to the Core it was given. Unset, no hosted agent runs, and each one's state says so. |
+| `CORE_SERVICE_CREDENTIAL` | where the runtime's own credential in Core is ([above](#the-runtimes-own-credential-in-core)): `secret://core/agent_runtime` (the default), `env://NAME` or `file://…`, never the credential itself. |
 | `LOG_FORMAT`, `LOG_LEVEL` | `json` (the default) or `text`; `info` by default. |
 | `LOG_REDACT_EXTRA` | comma-separated regular expressions removed from every log line, beside the tokens and keys the runtime always removes. |
 | `EGRESS_PROXY` | the proxy for every call out (Core, the providers, Core's file downloads); without it, the usual `HTTPS_PROXY`. It must refuse the addresses the runtime refuses hosted agents' models ([above](#the-api-for-the-front-end)): the runtime can check only the proxy's. |
@@ -748,11 +815,13 @@ The key only runs `aishie-runtime-deploy`, but that script deploys any image
 of this repository. Anyone with write access to the repository can run a
 workflow that reads the secret, or copy the key out. They can also push an
 image of their own under this repository's name and deploy it, and the
-runtime holds the agents' Core tokens and the providers' keys. On GitHub
+runtime holds its own credential in Core, the agents' tokens and the providers' keys. On GitHub
 Free, nothing narrows that down to a branch or to people: write access is
 access to everything the runtime can reach. When someone loses write
 access, replace the key, delete any package versions they pushed, and
-replace the agents' tokens and keys.
+replace the runtime's credential in Core (`--replace`, which revokes the
+agents' tokens with the old one's hosting: the runtime is issued new ones)
+and the keys.
 
 To replace the key: on the server, delete `~aishie-deploy/.ssh/authorized_keys`
 and any `/root/aishie-runtime-deploy-key*` left, run `setup-server.sh` again
@@ -808,14 +877,17 @@ machine's loopback, should `HTTP_ADDR` listen wider).
 - **The agents:** `curl -s 127.0.0.1:9090/status` is each agent's state
   (running, paused, unauthorized, …), its seats and what holds any back, the
   proposals waiting, the answers and spend today, and the catalogue's hash.
-  An agent `unauthorized` has a Core token that no longer works: issue a new
-  one, put it in its secret file, and reload; a hosted agent's owner
-  connects it again with a new token instead. A hosted agent
-  `owner_changed` is one whose owner in Core is no longer the person who
-  connected it here (Core names someone else, or no one): it does not run
-  until its owner in Core connects it again. A hosted agent in state
-  `error` that says Core does not say who owns an agent is on a Core from
-  before owners were named (C1): upgrade Core, then reload the runtime.
+  An agent `unauthorized` holds a token that was revoked in Core (by its
+  owner, an administrator or a migration): a reload (SIGHUP) has the
+  runtime issued another for a YAML agent; a hosted agent's owner asks for
+  a new one in the front end instead. An agent in state `error` with the
+  reason `runtime_misconfigured` waits for the runtime's own credential in
+  Core ([above](#the-runtimes-own-credential-in-core)); with `mcp_agent`,
+  it is an agent Core hosts `mcp`, which the runtime does not host; with
+  `core_too_old`, Core must be upgraded. A hosted agent `owner_changed` is
+  one whose owner in Core is not the person who hosted it here (a row from
+  before an agent's owner was fixed in Core): its token is revoked, and it
+  does not run until its owner in Core hosts it again.
 - **Metrics:** `curl -s 127.0.0.1:9090/metrics`, in Prometheus's format, for
   a Prometheus on the same machine, or through an SSH tunnel. The one to
   watch is `presence_gap_seconds`: above 60, Core shows the agents as away.
@@ -917,8 +989,8 @@ else regularly:
 
 - `/var/backups/aishie-runtime/`, the database;
 - `/etc/aishie-runtime/`, the env file, the agents' configuration and their
-  secrets. It holds every agent's Core token and the providers' keys: keep
-  the copy encrypted.
+  secrets. It holds the runtime's own credential in Core and the providers'
+  keys: keep the copy encrypted.
 - `/etc/aishie-runtime/secrets/kek/`, the keyring, which is in the copy
   above: keep that copy apart from the database's. The database's backups
   hold the hosted agents' secrets sealed, and the keyring opens them; the
