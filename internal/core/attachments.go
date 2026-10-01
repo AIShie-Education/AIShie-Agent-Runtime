@@ -37,17 +37,20 @@ const ToolAttachment = "conversation_attachment"
 const ReasonRetracted = "retracted"
 
 // AttachmentFile is conversation_attachment's result: the file, the
-// message that carries it, and a URL that serves it, GET as it is with no
-// Authorization header before ExpiresAt. The URL is a credential: it goes
-// to no model and into no log.
+// message that carries it, a URL that serves it, GET as it is with no
+// Authorization header before ExpiresAt, and, for an Office or OpenDocument
+// file of a Core that converts them, its PDF rendition, with a URL of its
+// own once it is done. The URLs are credentials: they go to no model and
+// into no log.
 type AttachmentFile struct {
 	Attachment
-	ConversationID string `json:"conversation_id"`
-	MessageID      string `json:"message_id"`
-	MessageSeq     int64  `json:"message_seq"`
-	AuthorMemberID string `json:"author_member_id"`
-	DownloadURL    string `json:"download_url"`
-	ExpiresAt      string `json:"expires_at"`
+	ConversationID string         `json:"conversation_id"`
+	MessageID      string         `json:"message_id"`
+	MessageSeq     int64          `json:"message_seq"`
+	AuthorMemberID string         `json:"author_member_id"`
+	DownloadURL    string         `json:"download_url"`
+	ExpiresAt      string         `json:"expires_at"`
+	Rendition      *RenditionView `json:"rendition,omitempty"`
 }
 
 // Attachment is conversation_attachment: the file attachmentID of the

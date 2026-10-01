@@ -229,11 +229,11 @@ func ee2env(err error) *core.Envelope {
 }
 
 // attachmentFile is a file a message carries, as the pipeline takes a
-// document's file: its URL, its name, type, size and checksum, the file's
-// id and its message's.
+// document's file: its URL, its name, type, size and checksum, its
+// rendition, the file's id and its message's.
 func attachmentFile(att *core.AttachmentFile, courseID string) *docFile {
 	d := &docFile{url: att.DownloadURL, title: att.Filename, contentType: att.ContentType, byteSize: att.ByteSize, courseID: courseID,
-		attachmentID: att.ID, messageID: att.MessageID}
+		attachmentID: att.ID, messageID: att.MessageID, rendition: att.Rendition}
 	if att.Checksum != nil {
 		d.checksum = *att.Checksum
 	}

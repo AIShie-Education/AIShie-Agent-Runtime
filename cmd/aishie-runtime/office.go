@@ -29,7 +29,8 @@ func newOffice(ctx context.Context, env config.Env, m *metrics.Metrics, log *slo
 	}
 	if cfg.Mode == office.ModeOff {
 		o.Off = "it is turned off"
-		log.Info("the conversion of Office files is off (OFFICE_PDF=off): presentations and documents are given as the runtime's text of them")
+		log.Info("the conversion of Office files is off (OFFICE_PDF=off): presentations and documents are given as the PDF Core keeps " +
+			"of them where it has one, to a model that takes files, and otherwise as the runtime's text of them")
 		return office.NewService(ctx, o), nil, nil
 	}
 	c, err := office.NewConverter(ctx, cfg)
@@ -38,8 +39,9 @@ func newOffice(ctx context.Context, env config.Env, m *metrics.Metrics, log *slo
 		return nil, nil, err
 	case errors.Is(err, office.ErrUnavailable):
 		o.Off = "LibreOffice is not installed"
-		log.Warn("the conversion of Office files is off: presentations and documents are given as the runtime's text of them, and older "+
-			"Office files not at all; the image has what it needs, and OFFICE_PDF=on refuses to start without it", "why", err.Error())
+		log.Warn("the conversion of Office files is off: presentations and documents are given as the PDF Core keeps of them where it "+
+			"has one, to a model that takes files, and otherwise as the runtime's text of them, older Office files not at all; the image "+
+			"has what it needs, and OFFICE_PDF=on refuses to start without it", "why", err.Error())
 		return office.NewService(ctx, o), nil, nil
 	case err != nil:
 		return nil, nil, err
