@@ -1,11 +1,15 @@
 package worker
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -78,8 +82,13 @@ func load(t *testing.T, waitS float64) {
 		actors[a.ID] = id
 		docs = append(docs, w.agentDoc(id, "m1", polling, nil))
 	}
+	tr := loadTransport()
+	t.Cleanup(tr.CloseIdleConnections)
 	wk := w.start(w.config(nil, docs...), models{"m1": scripted.New()}, workerOpts{
-		edit: func(o *Options) { o.Timing.LeaseEvery = 200 * time.Millisecond },
+		edit: func(o *Options) {
+			o.Timing.LeaseEvery = 200 * time.Millisecond
+			o.HTTPClient = &http.Client{Timeout: o.HTTPClient.Timeout, Transport: tr}
+		},
 	})
 	// Fifty agents and their 250 seats start much more slowly than one,
 	// and on a busy machine slower still: they are given a minute.
@@ -220,6 +229,37 @@ func waitPolled(t *testing.T, fc *fakecore.Core, actors map[string]string, cours
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
+}
+
+// loadTransport is how the load test's agents reach the fake Core. The
+// fake speaks HTTP/1.1, a connection to each call under way, where Core
+// behind TLS multiplexes them over HTTP/2: the client keeps a connection
+// for every call that may be under way at once, 250 long polls and the
+// rest, rather than Go's two, which would have every round of long polls
+// dial some 250 connections afresh. Those it still dials meet a listener
+// that a busy machine is slow to accept from, whose backlog (128 on
+// macOS) the kernel answers past with a reset: a connection reset while
+// it is being made carried no call, and is made again, after a
+// millisecond, until the call's time is out. Any other failure is the
+// call's, and a long poll that meets one has been cut.
+func loadTransport() *http.Transport {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.MaxIdleConnsPerHost = 1000
+	d := &net.Dialer{Timeout: 30 * time.Second}
+	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		for {
+			c, err := d.DialContext(ctx, network, addr)
+			if err == nil || !errors.Is(err, syscall.ECONNRESET) || ctx.Err() != nil {
+				return c, err
+			}
+			select {
+			case <-ctx.Done():
+				return nil, err
+			case <-time.After(time.Millisecond):
+			}
+		}
+	}
+	return tr
 }
 
 func docsIDs(docs []map[string]any) map[string]bool {
