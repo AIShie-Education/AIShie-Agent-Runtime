@@ -727,10 +727,14 @@ func (r Runner) render(ctx context.Context, tool string, env *core.Envelope, fa 
 	if fa.part > 1 && g.rec.GivenAs == givenFile && g.rec.Part == 0 {
 		g.rec.Note = strings.TrimPrefix(g.rec.Note+"; ", "; ") + FilePartArg + " does not apply: the file itself is given, whole"
 	}
+	part := fa.part
 	if fa.first > 0 && !g.pages {
-		g.rec.Note = strings.TrimPrefix(g.rec.Note+"; ", "; ") + FilePagesArg + " does not apply: " + r.noPages(g.rec)
+		var why string
+		if part, why = r.pagesOfText(&g, doc, fa.first, fa.last); why != "" {
+			g.rec.Note = strings.TrimPrefix(g.rec.Note+"; ", "; ") + FilePagesArg + " does not apply: " + why
+		}
 	}
-	content := r.fit(c, doc, g, fa.part)
+	content := r.fit(c, doc, g, part)
 	if g.file == nil {
 		return content, nil
 	}

@@ -213,12 +213,21 @@ func TestRunFilePages(t *testing.T) {
 			t.Errorf("%s: %s", args, p.Content)
 		}
 	}
-	// A model that takes no files: the text version, and why not the pages.
+	// A model that takes no files: the text version, of the pages asked
+	// for alone, and why not the pages themselves; of pages it has not,
+	// all of it, and why.
 	r.FileInput = false
-	p := run(`{"document_id":"` + docID + `","file_pages":"1-2"}`)[0]
-	if rec = fileRecordOf(t, p); rec["given_as"] != givenText || rec["text_source"] == nil ||
-		!strings.Contains(rec["note"].(string), "file_pages does not apply: this model does not take files") {
+	p := run(`{"document_id":"` + docID + `","file_pages":"2"}`)[0]
+	if rec = fileRecordOf(t, p); rec["given_as"] != givenText || rec["text_source"] == nil || rec["part_holds"] != "page 2" ||
+		contentOf(t, p)["file_text"] != "## 第 2 頁\n\nPage 2 says hello." ||
+		!strings.Contains(rec["note"].(string), "file_text is page 2 alone, as file_pages asked, of the file's text, since this model does not take files") {
 		t.Errorf("no files: %s", p.Content)
+	}
+	p = run(`{"document_id":"` + docID + `","file_pages":"5"}`)[0]
+	if rec = fileRecordOf(t, p); rec["given_as"] != givenText || rec["part_holds"] != nil ||
+		!strings.Contains(contentOf(t, p)["file_text"].(string), "Page 1 says hello.") ||
+		!strings.Contains(rec["note"].(string), "file_pages does not apply: the file's text has no page 5") {
+		t.Errorf("no files, a page past the last: %s", p.Content)
 	}
 	// Pages of a PDF where none are cut: the whole of it.
 	r.FileInput, so.noCuts = true, true

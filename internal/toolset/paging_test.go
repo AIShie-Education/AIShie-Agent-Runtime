@@ -214,6 +214,27 @@ func TestReadPartsOfOneLongSlide(t *testing.T) {
 	if hits.Load() != 1 {
 		t.Errorf("the file was fetched %d times", hits.Load())
 	}
+
+	// Asked for by its slide (file_pages), to this model given text: the
+	// last slide alone; the long one, longer than a part, by the part that
+	// holds its start.
+	pages := func(n string) (map[string]any, string) {
+		parts, err := delegateSet(t).Run(context.Background(), r, courseID,
+			[]llm.Part{call("d", "document_get", fmt.Sprintf(`{"document_id":%q,"version_id":%q,"file_pages":%q}`, docID, version1, n))})
+		if err != nil {
+			t.Fatal(err)
+		}
+		text, _ := contentOf(t, parts[0])["file_text"].(string)
+		return fileRecordOf(t, parts[0]), text
+	}
+	if rec, text := pages("3"); rec["part_holds"] != "slide 3" || text != want.Text[want.Sections[2].Offset:] || rec["part"] != nil {
+		t.Errorf("slide 3: %v %q", rec, text)
+	}
+	if rec, text := pages("2"); rec["part"] != float64(1) || rec["part_holds"] != holds[0] || !strings.Contains(text, "line 0 of") ||
+		!strings.Contains(rec["note"].(string), "slide 2, which file_pages asked for, is longer than one result: the part of the file's text "+
+			"that holds its start is given") {
+		t.Errorf("slide 2: %v", rec)
+	}
 }
 
 // TestFilePartAsked checks what a part the model asks for gives beside the
