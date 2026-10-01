@@ -1121,7 +1121,8 @@ course never says it".
   (staff's or an AI transcription), otherwise the runtime's own reading of
   the file (a text file, a PDF's text, an Office Open XML file's), and the
   version's own text (`body_md`). A search starts neither OCR nor
-  LibreOffice: a scanned file, an older Office file or an OpenDocument one
+  LibreOffice, and fetches no PDF of Core's (§13): a scanned file, an
+  older Office file or an OpenDocument one
   is searchable once its text version is done, which the transcriber
   (§12) makes where the site's administrators have turned it on; without
   it such a file is never searchable, though a model that reads it is
@@ -1200,9 +1201,11 @@ course never says it".
   slide's text alone to one given its text (Reading in parts); one on
   neither (a text file's, a Word file's, a sheet's), whose text every
   runtime reads as the index does, by its part; but in a Word file given
-  as LibreOffice's PDF of it, whose pages the index does not know, the
-  hit says so (`read_note`), and `read` gives the file from its first
-  pages. (A Word file of little but pictures, which a runtime with
+  as its PDF (Core's rendition of it, or LibreOffice's), whose pages the
+  index does not know, the hit says so (`read_note`), and `read` gives the
+  file from its first pages. Which a model is given is what `document_get`
+  gives it now: a deck or a Word file whose PDF Core made is given as its
+  pages even where LibreOffice does not convert here. (A Word file of little but pictures, which a runtime with
   LibreOffice reads from its PDF, is pointed at its first part, which
   holds all the few words the index has of it.) Of the version's own
   text, the version. A version of several files names the file
@@ -2140,7 +2143,9 @@ Chinese with a table, overran, and was cut off.
   not the index's, read by its slide, which gives that slide's text and
   OCR's, and to a model that takes files its slide as drawn; a Word file
   given as its PDF's pages saying its page is not known, and given as text
-  read by its part; arguments refused before anything is read; and the
+  read by its part; a deck and a Word file whose PDF Core made, where
+  LibreOffice does not convert, pointed into Core's PDF as into
+  LibreOffice's; arguments refused before anything is read; and the
   tool offered with `document_list` and `document_get` alone, never where
   denied. Against the fake Core, Yuki's agent and Sato's, which reads
   drafts, sharing the worker's index, find the published slide, and
