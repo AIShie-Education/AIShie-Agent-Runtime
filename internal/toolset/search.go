@@ -693,6 +693,11 @@ func (r Runner) readForIndex(ctx context.Context, courseID string, f *scopeFile)
 	if len(text) > store.MaxSearchText {
 		text = text[:runeFloor(text, store.MaxSearchText)]
 	}
+	// A store keeps no NUL, which a text file may hold (one saved as
+	// UTF-16, every other byte): each is kept as a space, of its length,
+	// so that the passages' places and parts stand, and the file is kept
+	// rather than read again at every search as one not read yet.
+	text = strings.ReplaceAll(text, "\x00", " ")
 	for _, c := range search.Chunks(text, sections, search.DefaultChunkBytes) {
 		for _, piece := range withinParts(c, parts) {
 			terms := search.Terms(text[piece.start:piece.end])

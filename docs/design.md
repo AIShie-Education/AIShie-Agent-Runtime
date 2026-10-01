@@ -2133,8 +2133,10 @@ Chinese with a table, overran, and was cut off.
   without a text version is said to have no text, and kept so, and files
   the time ran out for are said not to be read yet; a text version Core
   could not give just now is not kept in its place, and the next search
-  finds its words; a version Core gives as purged leaves the index (and a
-  document listed as purged, which today's Core does not list); hits a
+  finds its words; a text file holding NUL, which no store keeps, is kept
+  with a space for each, found, and read once; a version Core gives as
+  purged leaves the index (and a document listed as purged, which today's
+  Core does not list); hits a
   page at a time to the last, a long text version's hit naming the part
   that `document_get`, called as it is, gives it in; in a long text of no
   pages, a text file's and a text version's, every one of 200 words found

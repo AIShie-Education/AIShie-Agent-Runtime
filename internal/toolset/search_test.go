@@ -1021,6 +1021,24 @@ func TestSearchKeepsNoTextVersionItCouldNotRead(t *testing.T) {
 	}
 }
 
+// TestSearchKeepsATextWithNUL: a text file holding NUL, which no store
+// keeps, is kept with each as a space, found, and not read again by the
+// next search as one not read yet.
+func TestSearchKeepsATextWithNUL(t *testing.T) {
+	notes := "Merge sort splits the list in two.\x00\x00\n\nQuicksort is not stable.\x00"
+	c := newSearchCore(t, oneFile("notes.txt", "text/plain", []byte(notes), nil)...)
+	index := memstore.New()
+	for i := range 2 {
+		res, part := searchFor(t, searchRunner(c, index, nil, false), `{"query":"quicksort stable"}`)
+		if len(res.Result.Hits) != 1 || res.Result.Searched.NotYet != 0 || strings.ContainsRune(res.Result.Hits[0].Excerpt, 0) {
+			t.Errorf("search %d: %s", i+1, part.Content)
+		}
+	}
+	if n := c.fetched(sfileReadingPDF); n != 1 {
+		t.Errorf("the file was fetched %d times", n)
+	}
+}
+
 // TestSearchTiesInTheCoursesOrder: passages that match alike are given in
 // the course's order, as staff set it (sort_order), before the order Core
 // lists the documents in, the oldest first.
