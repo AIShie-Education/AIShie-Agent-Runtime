@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -77,7 +79,9 @@ func load(t *testing.T, waitS float64) {
 	wk := w.start(w.config(nil, docs...), models{"m1": scripted.New()}, workerOpts{
 		edit: func(o *Options) { o.Timing.LeaseEvery = 200 * time.Millisecond },
 	})
-	eventually(t, "every agent polling every course", func() bool {
+	// Fifty agents and their 250 seats start much more slowly than one,
+	// and on a busy machine slower still: they are given a minute.
+	eventuallyWithin(t, time.Minute, "every agent polling every course", func() bool {
 		st := wk.sup.Status()
 		if len(st) != agents {
 			return false
@@ -90,13 +94,18 @@ func load(t *testing.T, waitS float64) {
 		return true
 	})
 
-	// Half a scaled minute to settle, then four seconds, two scaled
-	// minutes, measured.
-	time.Sleep(time.Second)
+	// Settled once every agent has polled every course's inbox, its first
+	// polls spread over the idle interval behind it; then measured for
+	// four seconds, two scaled minutes, and for as long after as it takes
+	// every agent to poll every course's inbox within the window, which a
+	// busy machine, its calls slower, makes longer. The share is reckoned
+	// over the window as it was: a slower machine polls less, never more.
+	waitPolled(t, w.fc, actors, courses, time.Time{})
 	from := time.Now()
-	window := 4 * time.Second
-	time.Sleep(window)
+	time.Sleep(4 * time.Second)
+	waitPolled(t, w.fc, actors, courses, from)
 	to := time.Now()
+	window := to.Sub(from).Round(time.Millisecond)
 
 	polls := map[string]int{}
 	inboxes := map[string]map[string]bool{}
@@ -154,6 +163,47 @@ func load(t *testing.T, waitS float64) {
 	}
 	t.Logf("%d agents in %d courses: %d polling calls in %s, %.0f%% of their share; no 429",
 		agents, courses, total, window, 100*float64(total)/(allowed*agents))
+}
+
+// waitPolled waits until each of actors (agents' ids by their actors')
+// has polled the inbox of every one of courses courses since from, failing
+// the test, with those not yet polled, after a deadline. It reads the
+// fake's log at intervals of 50 ms: it holds every call made.
+func waitPolled(t *testing.T, fc *fakecore.Core, actors map[string]string, courses int, from time.Time) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		inboxes := map[string]map[string]bool{}
+		for _, c := range fc.Calls() {
+			if c.Tool != "conversation_inbox" || c.At.Before(from) {
+				continue
+			}
+			var args struct {
+				CourseID string `json:"course_id"`
+			}
+			if json.Unmarshal(c.Args, &args) != nil {
+				continue
+			}
+			if inboxes[c.ActorID] == nil {
+				inboxes[c.ActorID] = map[string]bool{}
+			}
+			inboxes[c.ActorID][args.CourseID] = true
+		}
+		var short []string
+		for actor, id := range actors {
+			if n := len(inboxes[actor]); n < courses {
+				short = append(short, fmt.Sprintf("%s %d", id, n))
+			}
+		}
+		if len(short) == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			slices.Sort(short)
+			t.Fatalf("not every agent polled all %d courses' inboxes (agent, courses polled): %s", courses, strings.Join(short, ", "))
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 func docsIDs(docs []map[string]any) map[string]bool {
