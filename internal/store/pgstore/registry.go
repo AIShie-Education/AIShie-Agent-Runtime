@@ -53,15 +53,15 @@ func (s *Store) Person(ctx context.Context, coreActorID string) (*store.Person, 
 
 // hostedColumns are what scanHosted reads, in its order.
 const hostedColumns = `id, core_actor_id, owner_actor_id, owner_verified, tenant_id, display_name,
-	token_secret_id, token_hint, COALESCE(key_secret_id, ''), key_hint, key_provider, paused, settings::text, version,
-	created_at, updated_at`
+	COALESCE(token_secret_id, ''), token_hint, token_issued, token_credential_id, COALESCE(key_secret_id, ''), key_hint, key_provider,
+	paused, settings::text, version, created_at, updated_at`
 
 func scanHosted(row pgx.Row) (*store.HostedAgent, error) {
 	var a store.HostedAgent
 	var settings string
 	if err := row.Scan(&a.ID, &a.CoreActorID, &a.OwnerActorID, &a.OwnerVerified, &a.TenantID, &a.DisplayName,
-		&a.TokenSecretID, &a.TokenHint, &a.KeySecretID, &a.KeyHint, &a.KeyProvider, &a.Paused, &settings, &a.Version,
-		&a.CreatedAt, &a.UpdatedAt); err != nil {
+		&a.TokenSecretID, &a.TokenHint, &a.TokenIssued, &a.TokenCredentialID, &a.KeySecretID, &a.KeyHint, &a.KeyProvider, &a.Paused,
+		&settings, &a.Version, &a.CreatedAt, &a.UpdatedAt); err != nil {
 		return nil, err
 	}
 	a.Settings = compact(settings)
@@ -135,13 +135,14 @@ func (s *Store) CreateHostedAgent(ctx context.Context, a store.HostedAgent, secr
 		var err error
 		out, err = scanHosted(tx.QueryRow(ctx, `
 			INSERT INTO hosted_agent (id, core_actor_id, owner_actor_id, owner_verified, tenant_id, display_name,
-			                          token_secret_id, token_hint, key_secret_id, key_hint, key_provider, paused, settings, version,
-			                          created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, 1,
-			        COALESCE($14::timestamptz, now()), COALESCE($14::timestamptz, now()))
+			                          token_secret_id, token_hint, token_issued, token_credential_id, key_secret_id, key_hint, key_provider,
+			                          paused, settings, version, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::jsonb, 1,
+			        COALESCE($16::timestamptz, now()), COALESCE($16::timestamptz, now()))
 			RETURNING `+hostedColumns,
 			a.ID, a.CoreActorID, a.OwnerActorID, a.OwnerVerified, a.TenantID, a.DisplayName,
-			a.TokenSecretID, a.TokenHint, orNull(a.KeySecretID), a.KeyHint, a.KeyProvider, a.Paused, string(a.Settings), orNow(a.CreatedAt)))
+			orNull(a.TokenSecretID), a.TokenHint, a.TokenIssued, a.TokenCredentialID, orNull(a.KeySecretID), a.KeyHint, a.KeyProvider,
+			a.Paused, string(a.Settings), orNow(a.CreatedAt)))
 		return hostedErr(a, err)
 	})
 	if err != nil {
@@ -243,11 +244,11 @@ func (s *Store) UpdateHostedAgent(ctx context.Context, a store.HostedAgent, secr
 		out, err = scanHosted(tx.QueryRow(ctx, `
 			UPDATE hosted_agent
 			   SET owner_actor_id = $2, owner_verified = $3, display_name = $4, token_secret_id = $5, token_hint = $6,
-			       key_secret_id = $7, key_hint = $8, key_provider = $9, paused = $10, settings = $11::jsonb,
-			       version = version + 1, updated_at = now()
+			       token_issued = $7, token_credential_id = $8, key_secret_id = $9, key_hint = $10, key_provider = $11, paused = $12,
+			       settings = $13::jsonb, version = version + 1, updated_at = now()
 			 WHERE id = $1
 			RETURNING `+hostedColumns,
-			a.ID, a.OwnerActorID, a.OwnerVerified, a.DisplayName, a.TokenSecretID, a.TokenHint,
+			a.ID, a.OwnerActorID, a.OwnerVerified, a.DisplayName, orNull(a.TokenSecretID), a.TokenHint, a.TokenIssued, a.TokenCredentialID,
 			orNull(a.KeySecretID), a.KeyHint, a.KeyProvider, a.Paused, string(a.Settings)))
 		if err != nil {
 			return hostedErr(a, err)
@@ -272,17 +273,33 @@ func (s *Store) UpdateHostedAgent(ctx context.Context, a store.HostedAgent, secr
 }
 
 // SetHostedAgentPaused pauses or resumes the agent, at version when it is
-// not 0, whatever its version otherwise.
+// not 0, whatever its version otherwise; paused, it holds no token, and its
+// token's secret is destroyed with the write.
 func (s *Store) SetHostedAgentPaused(ctx context.Context, id string, paused bool, version int) (*store.HostedAgent, error) {
 	var out *store.HostedAgent
 	err := s.readCommitted(ctx, func(tx pgx.Tx) error {
-		var err error
-		out, err = scanHosted(tx.QueryRow(ctx, `
-			UPDATE hosted_agent SET paused = $2, version = version + 1, updated_at = now()
-			 WHERE id = $1 AND ($3::int = 0 OR version = $3::int)
-			RETURNING `+hostedColumns, id, paused, version))
+		var token string
+		err := tx.QueryRow(ctx, `SELECT COALESCE(token_secret_id, '') FROM hosted_agent WHERE id = $1 AND ($2::int = 0 OR version = $2::int)
+			FOR UPDATE`, id, version).Scan(&token)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return missingOrMoved(ctx, tx, id)
+		}
+		if err != nil {
+			return err
+		}
+		out, err = scanHosted(tx.QueryRow(ctx, `
+			UPDATE hosted_agent SET paused = $2, version = version + 1, updated_at = now(),
+			       token_secret_id = CASE WHEN $2 THEN NULL ELSE token_secret_id END,
+			       token_hint = CASE WHEN $2 THEN '' ELSE token_hint END,
+			       token_issued = CASE WHEN $2 THEN false ELSE token_issued END,
+			       token_credential_id = CASE WHEN $2 THEN '' ELSE token_credential_id END
+			 WHERE id = $1
+			RETURNING `+hostedColumns, id, paused))
+		if err != nil {
+			return err
+		}
+		if paused && token != "" {
+			_, err = tx.Exec(ctx, `DELETE FROM secret WHERE id = $1`, token)
 		}
 		return err
 	})
@@ -314,7 +331,7 @@ func (s *Store) DeleteHostedAgent(ctx context.Context, id string, cond store.Del
 		err := tx.QueryRow(ctx, `
 			DELETE FROM hosted_agent
 			 WHERE id = $1 AND ($2::text = '' OR token_secret_id = $2::text) AND ($3::int = 0 OR version = $3::int)
-			RETURNING token_secret_id, COALESCE(key_secret_id, '')`, id, cond.TokenSecretID, cond.Version).
+			RETURNING COALESCE(token_secret_id, ''), COALESCE(key_secret_id, '')`, id, cond.TokenSecretID, cond.Version).
 			Scan(&token, &key)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return missingOrMoved(ctx, tx, id)

@@ -26,7 +26,7 @@ var update = flag.Bool("update", false, "rewrite testdata/schema.golden from the
 // them.
 var tables = []string{"lease", "attempt", "cursor", "note", "seat", "llm_call", "answer", "agent_state", "secret",
 	"person", "hosted_agent", "hosted_course", "audit", "ocr_text", "site_setting", "school_offer", "site_price", "site_tenant_quota",
-	"transcription_credential", "transcription_job"}
+	"transcription_credential", "transcription_job", "agent_token"}
 
 // newest is the newest migration the binary carries.
 func newest(t *testing.T) uint {
@@ -570,5 +570,112 @@ func TestLedgerMigratesTheCallsBefore(t *testing.T) {
 	if err != nil || len(rows) != 1 || rows[0].ModelCalls != 2 || rows[0].CostPUSD != 14 || rows[0].Transcription.Calls != 1 ||
 		rows[0].Transcription.CostPUSD != 3 {
 		t.Fatalf("the report after the migration: %+v, %v", rows, err)
+	}
+}
+
+// The hosted agents from before 0013 hold the tokens their owners pasted:
+// read on the new schema as tokens not issued, which the worker replaces.
+// The release before reads every row that holds a token on it, an issued
+// token's among them; and 0013's down deletes the rows that hold none,
+// which only this release writes, and forgets the operator's tokens.
+func TestHostingByIDMigratesTheRowsBefore(t *testing.T) {
+	u := freshDatabase(t)
+	ctx := t.Context()
+	m, err := newMigrator(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Migrate(12); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := pgx.Connect(ctx, u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(context.Background()) }()
+	secret := func(id string) {
+		t.Helper()
+		if _, err := conn.Exec(ctx, `INSERT INTO secret (id, tenant_id, kind, kek_id, wrapped_dek, nonce, ciphertext, hint, created_by, created_at)
+			VALUES ($1, 'ten_o1', 'core_token', 'local:v1', '\x01', '\x02', '\x03', 'ais_k7v2m4qhx3ab…', 'o1', now())`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The release before's CreateHostedAgent.
+	insert := `INSERT INTO hosted_agent (id, core_actor_id, owner_actor_id, owner_verified, tenant_id, display_name,
+		token_secret_id, token_hint, key_secret_id, key_hint, key_provider, paused, settings, version, created_at, updated_at)
+		VALUES ($1, $2, 'o1', true, 'ten_o1', 'Helper', $3, 'ais_k7v2m4qhx3ab…', NULL, '', '', false, '{}', 1, now(), now())`
+	secret("sec_pasted")
+	if _, err := conn.Exec(ctx, insert, "agt_pasted", "actor-1", "sec_pasted"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(u, Up); err != nil {
+		t.Fatal(err)
+	}
+	s := openOn(t, u)
+	pasted, err := s.HostedAgent(ctx, "agt_pasted")
+	if err != nil || pasted.TokenSecretID != "sec_pasted" || pasted.TokenIssued || pasted.TokenCredentialID != "" {
+		t.Fatalf("a row from before: %+v, %v", pasted, err)
+	}
+	// The release before's write, and its read, on the new schema.
+	secret("sec_old")
+	if _, err := conn.Exec(ctx, insert, "agt_old", "actor-2", "sec_old"); err != nil {
+		t.Fatalf("the release before's write on the new schema: %v", err)
+	}
+	issued := *pasted
+	issued.TokenSecretID, issued.TokenIssued, issued.TokenCredentialID = "sec_issued", true, "cred-1"
+	if _, err := s.UpdateHostedAgent(ctx, issued, store.Secret{ID: "sec_issued", TenantID: "ten_o1", Kind: store.SecretCoreToken,
+		KEKID: "local:v1", WrappedDEK: []byte{1}, Nonce: []byte{2}, Ciphertext: []byte{3}, Hint: "ais_k7v2m4qhx3ab…"}); err != nil {
+		t.Fatal(err)
+	}
+	before := `SELECT id, token_secret_id FROM hosted_agent ORDER BY id`
+	read := func(want ...string) {
+		t.Helper()
+		rows, err := conn.Query(ctx, before)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for rows.Next() {
+			var id, token string
+			if err := rows.Scan(&id, &token); err != nil {
+				t.Fatalf("the release before's read: %v", err)
+			}
+			got = append(got, id+":"+token)
+		}
+		if rows.Err() != nil || strings.Join(got, " ") != strings.Join(want, " ") {
+			t.Fatalf("the release before reads %q, %v; want %q", got, rows.Err(), want)
+		}
+	}
+	read("agt_old:sec_old", "agt_pasted:sec_issued")
+
+	// Rows of this release's alone: hosted by an id before a model, and an
+	// operator's agent's token.
+	if _, err := s.CreateHostedAgent(ctx, store.HostedAgent{ID: "agt_new", CoreActorID: "actor-3", OwnerActorID: "o1", OwnerVerified: true,
+		TenantID: "ten_o1", DisplayName: "New"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PutAgentToken(ctx, store.AgentToken{AgentID: "tutor", CoreActorID: "actor-4", SecretID: "sec_yaml", CredentialID: "cred-2"},
+		store.Secret{ID: "sec_yaml", TenantID: "operator", Kind: store.SecretCoreToken, KEKID: "local:v1", WrappedDEK: []byte{1},
+			Nonce: []byte{2}, Ciphertext: []byte{3}}, ""); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+	m, err = newMigrator(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Migrate(12); err != nil {
+		t.Fatalf("0013 down: %v", err)
+	}
+	if _, err := m.Close(); err != nil {
+		t.Fatal(err)
+	}
+	read("agt_old:sec_old", "agt_pasted:sec_issued")
+	var n int
+	if err := conn.QueryRow(ctx, `SELECT count(*) FROM secret WHERE id = 'sec_yaml'`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("the operator's token's secret after the down: %d, %v", n, err)
+	}
+	if err := Migrate(u, Up); err != nil {
+		t.Fatalf("up again: %v", err)
 	}
 }

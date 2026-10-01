@@ -6,6 +6,13 @@ agent_state.worker text not null
 agent_state.updated_at timestamp with time zone not null
 agent_state.reason text not null default ''::text
 agent_state.config_version integer not null default 0
+agent_token.agent_id text not null
+agent_token.core_actor_id text not null
+agent_token.secret_id text not null
+agent_token.credential_id text not null
+agent_token.hint text not null
+agent_token.issued_at timestamp with time zone not null
+agent_token.issued_by text not null
 answer.agent_id text not null
 answer.id text not null
 answer.seq bigint not null identity
@@ -71,7 +78,7 @@ hosted_agent.owner_actor_id text not null
 hosted_agent.owner_verified boolean not null
 hosted_agent.tenant_id text not null
 hosted_agent.display_name text not null
-hosted_agent.token_secret_id text not null
+hosted_agent.token_secret_id text
 hosted_agent.token_hint text not null
 hosted_agent.key_secret_id text
 hosted_agent.key_hint text not null
@@ -81,6 +88,8 @@ hosted_agent.version integer not null
 hosted_agent.created_at timestamp with time zone not null
 hosted_agent.updated_at timestamp with time zone not null
 hosted_agent.key_provider text not null default ''::text
+hosted_agent.token_issued boolean not null default false
+hosted_agent.token_credential_id text not null default ''::text
 hosted_course.agent_id text not null
 hosted_course.course_id text not null
 hosted_course.settings jsonb not null
@@ -244,6 +253,9 @@ transcription_job.file_id text not null default ''::text
 transcription_job.position integer not null default 0
 -- constraints
 agent_state agent_state_pkey PRIMARY KEY (agent_id)
+agent_token agent_token_pkey PRIMARY KEY (agent_id)
+agent_token agent_token_secret_id_fkey FOREIGN KEY (secret_id) REFERENCES secret(id)
+agent_token agent_token_secret_id_key UNIQUE (secret_id)
 answer answer_pkey PRIMARY KEY (agent_id, id)
 attempt attempt_pkey PRIMARY KEY (agent_id, key)
 attempt attempt_state_known CHECK ((state = ANY (ARRAY['sending'::text, 'executed'::text, 'proposed'::text, 'failed'::text, 'denied'::text, 'error'::text, 'rejected'::text, 'cancelled'::text])))
@@ -256,9 +268,10 @@ hosted_agent hosted_agent_key_secret_id_fkey FOREIGN KEY (key_secret_id) REFEREN
 hosted_agent hosted_agent_key_secret_id_key UNIQUE (key_secret_id)
 hosted_agent hosted_agent_pkey PRIMARY KEY (id)
 hosted_agent hosted_agent_settings_object CHECK ((jsonb_typeof(settings) = 'object'::text))
+hosted_agent hosted_agent_token_issued CHECK (((token_secret_id IS NOT NULL) OR ((NOT token_issued) AND (token_credential_id = ''::text) AND (token_hint = ''::text))))
 hosted_agent hosted_agent_token_secret_id_fkey FOREIGN KEY (token_secret_id) REFERENCES secret(id)
 hosted_agent hosted_agent_token_secret_id_key UNIQUE (token_secret_id)
-hosted_agent hosted_agent_two_secrets CHECK ((key_secret_id IS DISTINCT FROM token_secret_id))
+hosted_agent hosted_agent_two_secrets CHECK (((key_secret_id IS NULL) OR (key_secret_id IS DISTINCT FROM token_secret_id)))
 hosted_course hosted_course_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES hosted_agent(id) ON DELETE CASCADE
 hosted_course hosted_course_pkey PRIMARY KEY (agent_id, course_id)
 hosted_course hosted_course_settings_object CHECK ((jsonb_typeof(settings) = 'object'::text))
@@ -307,6 +320,8 @@ transcription_job transcription_job_seq_key UNIQUE (seq)
 transcription_job transcription_job_status_known CHECK ((status = ANY (ARRAY['working'::text, 'done'::text, 'failed'::text, 'skipped'::text, 'dropped'::text])))
 -- indexes
 CREATE UNIQUE INDEX agent_state_pkey ON public.agent_state USING btree (agent_id)
+CREATE UNIQUE INDEX agent_token_pkey ON public.agent_token USING btree (agent_id)
+CREATE UNIQUE INDEX agent_token_secret_id_key ON public.agent_token USING btree (secret_id)
 CREATE INDEX answer_agent_course_idx ON public.answer USING btree (agent_id, course_id, at)
 CREATE INDEX answer_agent_idx ON public.answer USING btree (agent_id, at)
 CREATE INDEX answer_asker_idx ON public.answer USING btree (course_id, opener_member_id, at)

@@ -56,6 +56,8 @@ type Store struct {
 	// pricesAt is when the site's prices last changed.
 	pricesAt time.Time
 	tenants  map[string]store.TenantQuota
+	// tokens are the operator's agents' tokens, by agent.
+	tokens map[string]store.AgentToken
 	// tx is the transcriber's.
 	tx transcription
 }
@@ -113,6 +115,7 @@ func New() *Store {
 		offers:   map[string]store.SchoolOffer{},
 		prices:   map[string]store.SitePrice{},
 		tenants:  map[string]store.TenantQuota{},
+		tokens:   map[string]store.AgentToken{},
 		tx:       transcription{jobs: map[string]store.TranscriptionJob{}},
 	}
 }
@@ -790,6 +793,11 @@ func (s *Store) secretInUse(id string) error {
 	if c := s.tx.cred; c != nil && c.SecretID == id {
 		return fmt.Errorf("secret %s: %w", id, store.ErrInUse)
 	}
+	for _, t := range s.tokens {
+		if t.SecretID == id {
+			return fmt.Errorf("secret %s: %w", id, store.ErrInUse)
+		}
+	}
 	return nil
 }
 
@@ -982,7 +990,8 @@ func (s *Store) UpdateHostedAgent(_ context.Context, a store.HostedAgent, secret
 }
 
 // SetHostedAgentPaused pauses or resumes the agent, at version when it is
-// not 0, whatever its version otherwise.
+// not 0, whatever its version otherwise; paused, it holds no token, and its
+// token's secret is destroyed with the write.
 func (s *Store) SetHostedAgentPaused(_ context.Context, id string, paused bool, version int) (*store.HostedAgent, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -992,6 +1001,10 @@ func (s *Store) SetHostedAgentPaused(_ context.Context, id string, paused bool, 
 		return nil, fmt.Errorf("hosted agent %s: %w", id, store.ErrNotFound)
 	case version != 0 && a.Version != version:
 		return nil, fmt.Errorf("hosted agent %s at version %d: %w", id, version, store.ErrConflict)
+	}
+	if paused && a.TokenSecretID != "" {
+		delete(s.secrets, a.TokenSecretID)
+		a.TokenSecretID, a.TokenHint, a.TokenIssued, a.TokenCredentialID = "", "", false, ""
 	}
 	a.Paused, a.Version, a.UpdatedAt = paused, a.Version+1, s.clock()
 	s.hosted[id] = a
@@ -1227,4 +1240,54 @@ func (s *Store) AskerUsage(_ context.Context, agentID, courseID string, since, u
 	}
 	slices.SortFunc(out, func(a, b store.AskerUsage) int { return strings.Compare(a.OpenerMemberID, b.OpenerMemberID) })
 	return out, nil
+}
+
+// AgentToken is the agent's token, or store.ErrNotFound.
+func (s *Store) AgentToken(_ context.Context, agentID string) (*store.AgentToken, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.tokens[agentID]
+	if !ok {
+		return nil, fmt.Errorf("agent token of %s: %w", agentID, store.ErrNotFound)
+	}
+	return &t, nil
+}
+
+// PutAgentToken stores t with its secret in place of the agent's token,
+// while that is still the secret prev, destroying the one replaced.
+func (s *Store) PutAgentToken(_ context.Context, t store.AgentToken, secret store.Secret, prev string) error {
+	if err := store.CheckAgentToken(t, secret); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	held := s.tokens[t.AgentID].SecretID
+	if held != prev {
+		return fmt.Errorf("agent token of %s: %w", t.AgentID, store.ErrConflict)
+	}
+	if _, ok := s.secrets[secret.ID]; ok {
+		return fmt.Errorf("secret %s: %w", secret.ID, store.ErrExists)
+	}
+	secret.CreatedAt = s.orNow(secret.CreatedAt)
+	s.secrets[secret.ID] = copySecret(secret)
+	t.IssuedAt = s.orNow(t.IssuedAt)
+	s.tokens[t.AgentID] = t
+	if held != "" {
+		delete(s.secrets, held)
+	}
+	return nil
+}
+
+// DeleteAgentToken forgets the agent's token, while it is still secretID
+// ("" for any), and destroys its secret.
+func (s *Store) DeleteAgentToken(_ context.Context, agentID, secretID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.tokens[agentID]
+	if !ok || (secretID != "" && t.SecretID != secretID) {
+		return nil
+	}
+	delete(s.tokens, agentID)
+	delete(s.secrets, t.SecretID)
+	return nil
 }
