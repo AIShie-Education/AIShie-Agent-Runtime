@@ -17,8 +17,9 @@ import (
 // otherwise, saying why; with OFFICE_PDF=on, an error without them, and the
 // runtime does not start. PDFs are cut into parts of their pages wherever
 // poppler's pdftocairo, pdfseparate and pdfunite are, whatever OFFICE_PDF
-// says, and given whole where they are not.
-func newOffice(ctx context.Context, env config.Env, m *metrics.Metrics, log *slog.Logger) (*office.Service, error) {
+// says, and given whole where they are not. The converter is returned too,
+// for the renditions (newRenditions): nil where it is off.
+func newOffice(ctx context.Context, env config.Env, m *metrics.Metrics, log *slog.Logger) (*office.Service, *office.Converter, error) {
 	cfg := env.Office.WithDefaults()
 	o := office.ServiceOptions{Config: cfg, Metrics: m, Log: log}
 	if p, err := office.NewPager(cfg); err != nil {
@@ -29,20 +30,20 @@ func newOffice(ctx context.Context, env config.Env, m *metrics.Metrics, log *slo
 	if cfg.Mode == office.ModeOff {
 		o.Off = "it is turned off"
 		log.Info("the conversion of Office files is off (OFFICE_PDF=off): presentations and documents are given as the runtime's text of them")
-		return office.NewService(ctx, o), nil
+		return office.NewService(ctx, o), nil, nil
 	}
 	c, err := office.NewConverter(ctx, cfg)
 	switch {
 	case err != nil && cfg.Mode == office.ModeOn:
-		return nil, err
+		return nil, nil, err
 	case errors.Is(err, office.ErrUnavailable):
 		o.Off = "LibreOffice is not installed"
 		log.Warn("the conversion of Office files is off: presentations and documents are given as the runtime's text of them, and older "+
 			"Office files not at all; the image has what it needs, and OFFICE_PDF=on refuses to start without it", "why", err.Error())
-		return office.NewService(ctx, o), nil
+		return office.NewService(ctx, o), nil, nil
 	case err != nil:
-		return nil, err
+		return nil, nil, err
 	}
 	o.Converter = c
-	return office.NewService(ctx, o), nil
+	return office.NewService(ctx, o), c, nil
 }

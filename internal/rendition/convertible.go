@@ -1,9 +1,29 @@
-// Package rendition is the runtime's side of Core's PDF renditions
-// (AIShie-Core's migration 0026, its docs/schema.md §2.4 Renditions):
-// every Office or OpenDocument file Core keeps, of a document's version or
-// carried by a message, is previewed in the site as a PDF the site's agent
-// runtime converts once. It holds Core's one table of which files are
-// converted (Convertible), and the format each is converted from.
+// Package rendition is the runtime's renditions worker (docs/design.md
+// §13), its side of Core's PDF renditions (AIShie-Core's migration 0026,
+// its docs/schema.md §2.4 Renditions): every Office or OpenDocument file
+// Core keeps, of a document's version of any kind or carried by a
+// message, is previewed in the site as a PDF the site's agent runtime
+// converts once, on the server. It holds Core's one table of which files
+// are converted (Convertible), and the format each is converted from.
+//
+// The worker (Service) is on wherever LibreOffice converts here (package
+// office, OFFICE_PDF) and Core is named, unless RENDITIONS=off: no AI, no
+// cost and no switch of the site's. With the runtime's own credential in
+// Core, the agent_runtime service's (CORE_SERVICE_CREDENTIAL), read at
+// each call and paced with every other call of that service, it claims
+// from Core's queue as many files as it converts at once
+// (RENDITIONS_CONCURRENCY), waiting for one when none waits (a long
+// poll), fetches each from its short-lived URL within MaxFileBytes,
+// converts it with LibreOffice in the sandbox every conversion runs in
+// (RENDITIONS_TIMEOUT), renews its claim every half of its lease
+// (RENDITIONS_LEASE) meanwhile, uploads the PDF to the URL Core gives for
+// the claim, and completes it: done, with its pages; or skipped
+// (password_protected, unsupported, too_large) or failed
+// (conversion_failed, timeout). Core saying the claim is lost, or the
+// file gone, drops the work. Several processes may run it against one
+// Core: Core never gives one file to two claims. Nothing it logs holds a
+// file's name, its URL, the upload's, the credential, or what a file
+// holds.
 package rendition
 
 import (

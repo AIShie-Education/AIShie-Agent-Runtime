@@ -59,6 +59,15 @@ func NewConverter(ctx context.Context, cfg Config) (*Converter, error) {
 // Describe names the converter: LibreOffice and its version.
 func (c *Converter) Describe() string { return c.version }
 
+// WithTimeout is a copy of c, the same LibreOffice in the same sandbox,
+// whose conversions may each take timeout (at least 5 s): the renditions'
+// own, beside the conversions for the models.
+func (c *Converter) WithTimeout(timeout time.Duration) *Converter {
+	cp := *c
+	cp.cfg.Timeout = max(timeout, 5*time.Second)
+	return &cp
+}
+
 // Config is the converter's configuration, its defaults filled in.
 func (c *Converter) Config() Config { return c.cfg }
 
@@ -235,6 +244,11 @@ func (c *Converter) run(ctx context.Context, timeout time.Duration, dir string, 
 		Stdout: out,
 	})
 }
+
+// IsContainer reports whether data is held as an Office file is: a zip
+// (Office Open XML, OpenDocument), a Compound File Binary file (the older
+// formats), or RTF. LibreOffice converts nothing else (ErrMalformed).
+func IsContainer(data []byte) bool { return container(data) }
 
 // container reports whether data is held as an Office file is: a zip
 // (Office Open XML, OpenDocument), a Compound File Binary file (the older

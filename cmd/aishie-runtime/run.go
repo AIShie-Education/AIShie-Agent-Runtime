@@ -39,8 +39,9 @@ const stopMargin = 5 * time.Second
 // SHUTDOWN_GRACE (and a second SIGINT or SIGTERM stops it at once). It runs
 // the YAML agents and, with the store in PostgreSQL, the registry's hosted
 // agents, put in force again whenever the registry changes (LISTEN
-// aishie_registry, and a poll), and the transcriber, as the site's
-// settings and TRANSCRIBE say (package transcribe). SIGHUP reads the YAML
+// aishie_registry, and a poll), the transcriber, as the site's settings
+// and TRANSCRIBE say (package transcribe), and the renditions worker, as
+// RENDITIONS says (package rendition). SIGHUP reads the YAML
 // again; a configuration that does not load is logged, and the one running
 // stays.
 func cmdRun(ctx context.Context, args []string, getenv func(string) string, stderr io.Writer, sigs <-chan os.Signal) int {
@@ -118,7 +119,7 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 	h.setOCR(recognizer)
 	// So do the conversions: what they had made is not kept.
 	officeCtx, stopOffice := context.WithCancel(ctx)
-	converter, err := newOffice(officeCtx, env, m, log)
+	converter, conv, err := newOffice(officeCtx, env, m, log)
 	if err != nil {
 		stopOffice()
 		log.Error("OFFICE_PDF=on, and LibreOffice cannot run here", "err", err)
@@ -133,6 +134,11 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 		}
 	}
 	bucket := serviceBucket()
+	renditions, err := newRenditions(ctx, env, conv, converter, client, credential, bucket, m, log)
+	if err != nil {
+		log.Error("RENDITIONS=on, and PDF renditions cannot be made here", "err", err)
+		return exitFailure
+	}
 	var sealer worker.Sealer
 	if v != nil {
 		sealer = v
@@ -176,7 +182,7 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 	log.Info("aishie-runtime started", "version", version.Version, "commit", version.Commit, "worker", sup.WorkerID(),
 		"addr", srv.Addr(), "api", apiAddr, "agents", len(cfg.Agents), "hosted", len(h.hosted), "registry", h.pg != nil,
 		"store", kind, "prices", l.pricesPath, "kek", kekID(v), "ocr", recognizer.String(), "office", converter.String(),
-		"transcriber", transcriberState(transcriber.Status()))
+		"transcriber", transcriberState(transcriber.Status()), "renditions", renditions.String())
 	warnNoAgents(log, cfg)
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -192,6 +198,10 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 	// in Core, and the versions are claimed again.
 	trDone := make(chan struct{})
 	go func() { defer close(trDone); transcriber.Run(ctx) }()
+	// So do the renditions': their claims lapse, and Core gives the files
+	// out again.
+	rendDone := make(chan struct{})
+	go func() { defer close(rendDone); renditions.Run(ctx) }()
 	srvDone := make(chan error, 1)
 	go func() { srvDone <- srv.Serve(ctx) }()
 	apiDone := make(chan error, 1)
@@ -236,7 +246,7 @@ wait:
 	stopOffice()
 	deadline := time.NewTimer(env.ShutdownGrace + stopMargin)
 	defer deadline.Stop()
-	for supDone != nil || watchDone != nil || trDone != nil {
+	for supDone != nil || watchDone != nil || trDone != nil || rendDone != nil {
 		select {
 		case <-supDone:
 			supDone = nil
@@ -244,6 +254,8 @@ wait:
 			watchDone = nil
 		case <-trDone:
 			trDone = nil
+		case <-rendDone:
+			rendDone = nil
 		case sig := <-sigs:
 			if sig == syscall.SIGHUP {
 				continue
