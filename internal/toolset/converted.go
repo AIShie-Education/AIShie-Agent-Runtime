@@ -120,10 +120,10 @@ func (r Runner) giveConverted(ctx context.Context, g given, d *docFile, mt strin
 // form (the file's own, or LibreOffice's of an older or OpenDocument deck),
 // with what OCR read of the slides that show pictures or charts
 // (giveSlides); a Word document's text as the runtime reads it; another
-// document's as the runtime reads LibreOffice's PDF of it, page by page,
-// with OCR where that has no text to read; a workbook's as the runtime
-// reads LibreOffice's Excel form of it. pdf is LibreOffice's PDF of it, when
-// made; why says why the PDF is not given to a model that takes files ("":
+// document's as the runtime reads its PDF (Core's or LibreOffice's,
+// pdfOf), page by page, with OCR where that has no text to read; a
+// workbook's as the runtime reads LibreOffice's Excel form of it. pdf is
+// its PDF, when had; why says why the PDF is not given to a model that takes files ("":
 // the model takes none). What was read is kept (Runner.Texts).
 func (r Runner) giveConvertedText(ctx context.Context, g given, d *docFile, mt, sum string, data, pdf []byte, why string) given {
 	rec := g.rec
@@ -284,7 +284,7 @@ func (r Runner) giveConvertedReading(ctx context.Context, g given, d *docFile, r
 	return g
 }
 
-// giveDocumentPDFText gives the text of LibreOffice's PDF of a document,
+// giveDocumentPDFText gives the text of the PDF of a document (pdfOf),
 // as rd read it, where that reads as text; where it does not, what OCR
 // recognizes of the PDF (giveOCR).
 func (r Runner) giveDocumentPDFText(ctx context.Context, g given, d *docFile, rd *fileReading, data []byte) given {

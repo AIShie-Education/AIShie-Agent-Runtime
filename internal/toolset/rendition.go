@@ -60,15 +60,18 @@ func (r Runner) pdfOf(ctx context.Context, d *docFile, sum string, f office.Form
 // renditionPDF is Core's PDF of d's file, whose checksum is sum, where
 // Core says its rendition is done and the PDF is within what the runtime
 // fetches of a file: the PDF kept of the file, or the one fetched now; nil
-// where there is none, or it could not be had.
+// where there is none, or it could not be had, which is not tried again
+// in the call (a document's text read after its PDF, OCR's pages picked
+// from it).
 func (r Runner) renditionPDF(ctx context.Context, d *docFile, sum string) *office.Output {
-	if d == nil || !d.renditionDone() || r.Office == nil || r.Files == nil || d.rendition.ByteSize > r.MaxFileBytes {
+	if d == nil || d.renditionMissed || !d.renditionDone() || r.Office == nil || r.Files == nil || d.rendition.ByteSize > r.MaxFileBytes {
 		return nil
 	}
 	out, err := r.Office.TakeRendition(ctx, sum, func(ctx context.Context) ([]byte, error) {
 		return r.fetchRendition(ctx, d)
 	})
 	if err != nil {
+		d.renditionMissed = true
 		return nil
 	}
 	return out

@@ -179,7 +179,7 @@ func New(reg prometheus.Registerer) *Metrics {
 			Name: "office_requests_total",
 			Help: "Asks for an Office file's conversion, by what they found: cached (a kept conversion), failed (a kept failure), " +
 				"started, in_progress, busy (the queue full), off (no conversion here); and for Core's PDF of one: rendition (fetched " +
-				"from Core), rendition_failed (not taken, and converted here instead).",
+				"from Core), rendition_failed (not taken, or not taken a few minutes before, and converted here instead).",
 		}, []string{"result"}),
 		OfficeJobs: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "office_conversions_total",

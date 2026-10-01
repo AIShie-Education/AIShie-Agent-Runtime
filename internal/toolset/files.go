@@ -131,9 +131,10 @@ type fileRecord struct {
 	// docx, xlsx or pdf) when the text is not the file's own but the
 	// runtime's reading of it; ExtractedOCR when its OCR recognized it.
 	ExtractedFrom string `json:"extracted_from,omitempty"`
-	// ConvertedTo is what LibreOffice converted the file to (pdf, pptx or
-	// xlsx) when what is given is of that: the PDF as a file part, or the
-	// runtime's text of what was made.
+	// ConvertedTo is what the file was converted to (pdf, pptx or xlsx),
+	// by LibreOffice here or, for its PDF, Core's rendition of it, when
+	// what is given is of that: the PDF as a file part, or the runtime's
+	// text of what was made.
 	ConvertedTo string `json:"converted_to,omitempty"`
 	// Conversion says where the file's conversion stands, when what it is
 	// converted to is not given (yet): ConversionInProgress or
@@ -191,8 +192,10 @@ type docFile struct {
 	courseID string
 	// rendition is the file's PDF rendition as Core showed it, nil where
 	// it has none (rendition.go): done, its URL is a credential for the
-	// PDF, as url is for the file.
-	rendition *core.RenditionView
+	// PDF, as url is for the file. renditionMissed says Core's PDF was
+	// tried in this call and not had, and is not tried again in it.
+	rendition       *core.RenditionView
+	renditionMissed bool
 	// first and last are the pages of the file the model asked for
 	// (FilePagesArg), 0 for none.
 	first, last int

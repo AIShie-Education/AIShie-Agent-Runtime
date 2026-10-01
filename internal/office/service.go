@@ -58,6 +58,13 @@ type State struct {
 // LibreOffice cannot convert is not tried at every question.
 const FailedRetention = time.Hour
 
+// RenditionRetention is how long a PDF of Core's not taken
+// (TakeRendition) is remembered, so that one that cannot be fetched, or is
+// not one the runtime gives, is not fetched again at every question,
+// megabytes each time, where nothing here converts the file instead; and
+// is tried again after, as its URL, or Core's PDF, may be good by then.
+const RenditionRetention = 5 * time.Minute
+
 // Service converts Office files for a worker process: at most
 // Config.Concurrency at once, the others waiting their turn, at most
 // Config.Queue of them; each file converted once, in the background, and
@@ -296,17 +303,23 @@ func failure(err error) (outcome, why string) {
 // whether LibreOffice is here or not. Its error is ErrRendition, saying
 // why the PDF is not taken, and the caller converts the file itself; what
 // fetch's error says, which may name where the PDF is, is neither returned
-// nor logged.
+// nor logged. A PDF not taken is remembered for RenditionRetention (but
+// for a fetch cancelled with ctx), and not fetched again meanwhile.
 func (s *Service) TakeRendition(ctx context.Context, sum string, fetch func(context.Context) ([]byte, error)) (*Output, error) {
 	if s == nil {
 		return nil, fmt.Errorf("%w: no conversions here", ErrRendition)
 	}
-	key := string(ToPDF) + "\x00" + sum
+	key, missed := string(ToPDF)+"\x00"+sum, "rendition\x00"+sum
 	s.mu.Lock()
 	if e := s.cache.get(key, s.now()); e != nil && e.out != nil {
 		s.mu.Unlock()
 		s.count("cached")
 		return e.out, nil
+	}
+	if e := s.cache.get(missed, s.now()); e != nil {
+		s.mu.Unlock()
+		s.count("rendition_failed")
+		return nil, fmt.Errorf("%w: %s", ErrRendition, e.why)
 	}
 	s.mu.Unlock()
 	start := s.now()
@@ -319,6 +332,11 @@ func (s *Service) TakeRendition(ctx context.Context, sum string, fetch func(cont
 		"ms", s.now().Sub(start).Milliseconds())
 	if out == nil {
 		s.count("rendition_failed")
+		if outcome != "cancelled" {
+			s.mu.Lock()
+			s.cache.put(&entry{key: missed, why: outcome, expires: s.now().Add(RenditionRetention)})
+			s.mu.Unlock()
+		}
 		return nil, fmt.Errorf("%w: %s", ErrRendition, outcome)
 	}
 	s.count("rendition")
