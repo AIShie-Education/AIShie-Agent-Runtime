@@ -74,8 +74,29 @@ func hostingThroughTheAPI(t *testing.T, w *world) {
 		hdr  http.Header
 		body []byte
 	}
+	// call waits, as a client is told to, when the API answers 429: Yuki
+	// asks Core about an agent (inspect, POST /agents, POST …/token) more
+	// than RateToken's burst of five in a few seconds, and on a fast
+	// machine the sixth comes before her bucket has another.
 	call := func(method, path, body string, headers ...string) answer {
 		t.Helper()
+		for range 3 {
+			code, hdr, raw := a.do(t, method, "/runtime/api/v1/"+path, as(), body, headers...)
+			if code != http.StatusTooManyRequests {
+				return answer{code, hdr, raw}
+			}
+			var e struct {
+				Error struct {
+					Details struct {
+						RetryAfter int `json:"retry_after_seconds"`
+					} `json:"details"`
+				} `json:"error"`
+			}
+			_ = json.Unmarshal(raw, &e)
+			wait := min(max(e.Error.Details.RetryAfter, 1), 15)
+			t.Logf("%s %s: 429, waiting %ds as told", method, path, wait)
+			time.Sleep(time.Duration(wait) * time.Second)
+		}
 		code, hdr, raw := a.do(t, method, "/runtime/api/v1/"+path, as(), body, headers...)
 		return answer{code, hdr, raw}
 	}
