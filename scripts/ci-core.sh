@@ -56,6 +56,8 @@
 #   CORE_IMAGE   an image to run instead of the pinned one
 #   CORE_PORT    where Core listens on 127.0.0.1 (8080)
 #   CORE_DIR     where the env file, the log and the files go
+#   CORE_CONTAINER  the image's container (aishie-ci-core): another name, with
+#                another CORE_PORT and CORE_DIR, lets two Cores run at once
 #   CORE_RATE_LIMIT_PER_MINUTE  Core's per-actor limit (0, none; the rate-limit
 #                test sets its own)
 #   CORE_RATE_LIMIT_BURST, CORE_PROPOSAL_TTL  Core's RATE_LIMIT_BURST and
@@ -68,7 +70,7 @@ DIR=${CORE_DIR:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/aishie-ci-core}
 DIR=${DIR//\/\//\/} # macOS's TMPDIR ends in a /
 PORT=${CORE_PORT:-8080}
 URL=http://127.0.0.1:$PORT
-CONTAINER=aishie-ci-core
+CONTAINER=${CORE_CONTAINER:-aishie-ci-core}
 
 die() { echo "ci-core: $*" >&2; exit 1; }
 in_actions() { [ "${GITHUB_ACTIONS:-}" = true ]; }
@@ -153,7 +155,7 @@ start() {
     want=${want%%@*}
     commit=$(printf '%s\n' "$version" | sed -n 's/^[^(]*(\([^,]*\),.*/\1/p')
     if [ -z "$commit" ]; then
-      echo "ci-core: cannot read the commit from «$version»; not comparing it with the pin" >&2
+      echo "ci-core: cannot read the commit from «${version}»; not comparing it with the pin" >&2
     elif [ "$commit" != "$want" ]; then
       die "the pin's tag says commit $want, but its digest is commit $commit: fix .github/core-image"
     fi
@@ -323,6 +325,8 @@ stop() {
     rm -f "$DIR/pid" "$DIR/command"
   fi
   if [ -f "$DIR/container" ]; then
+    # The one start ran, whatever CORE_CONTAINER says now.
+    CONTAINER=$(cat "$DIR/container")
     logs
     docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
     rm -f "$DIR/container"
