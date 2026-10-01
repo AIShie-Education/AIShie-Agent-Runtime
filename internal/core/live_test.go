@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -32,9 +33,35 @@ type liveREST struct {
 }
 
 // call makes one request and fails the test unless Core answers want. It
-// returns the body's result. A 429 is waited out, under a Core started with
-// a small limit.
+// returns the body's result.
 func (c *liveREST) call(want int, method, path, token string, body any) map[string]any {
+	c.t.Helper()
+	status, raw := c.do(method, path, token, body)
+	if status != want {
+		c.t.Fatalf("%s %s: HTTP %d, want %d: %s", method, path, status, want, redact(string(raw), token))
+	}
+	var out struct {
+		Result map[string]any `json:"result"`
+	}
+	_ = json.Unmarshal(raw, &out)
+	return out.Result
+}
+
+// refused makes one request that Core must refuse, and returns its
+// envelope, whatever the HTTP status: the test fails if it was executed.
+func (c *liveREST) refused(method, path, token string, body any) *Envelope {
+	c.t.Helper()
+	status, raw := c.do(method, path, token, body)
+	var env Envelope
+	if err := json.Unmarshal(raw, &env); err != nil || env.Status == StatusExecuted || env.Error == nil {
+		c.t.Fatalf("%s %s: HTTP %d, want a refusal: %s", method, path, status, redact(string(raw), token))
+	}
+	return &env
+}
+
+// do makes one request under a key of its own, and returns Core's answer.
+// A 429 is waited out, under a Core started with a small limit.
+func (c *liveREST) do(method, path, token string, body any) (int, []byte) {
 	c.t.Helper()
 	c.n++
 	var b []byte
@@ -47,21 +74,13 @@ func (c *liveREST) call(want int, method, path, token string, body any) map[stri
 	key := fmt.Sprintf("%s-%d", c.run, c.n)
 	for range 20 {
 		status, raw, retryAfter := c.send(method, path, token, key, b)
-		if status == http.StatusTooManyRequests {
-			time.Sleep(retryAfter)
-			continue
+		if status != http.StatusTooManyRequests {
+			return status, raw
 		}
-		if status != want {
-			c.t.Fatalf("%s %s: HTTP %d, want %d: %s", method, path, status, want, redact(string(raw), token))
-		}
-		var out struct {
-			Result map[string]any `json:"result"`
-		}
-		_ = json.Unmarshal(raw, &out)
-		return out.Result
+		time.Sleep(retryAfter)
 	}
 	c.t.Fatalf("%s %s: refused as too many calls twenty times", method, path)
-	return nil
+	return 0, nil
 }
 
 func (c *liveREST) send(method, path, token, key string, body []byte) (status int, raw []byte, retryAfter time.Duration) {
@@ -163,6 +182,24 @@ func liveCore(t *testing.T) (base, root, run string) {
 	return base, root, hex.EncodeToString(suffix)
 }
 
+// runtimeService is the site's agent runtime's client of Core (runtime.go),
+// with a credential of the agent_runtime service's own, which root issues
+// for the test and revokes after it. It replaces none: whatever else holds
+// one on this Core keeps it.
+func (c *liveREST) runtimeService(root string) *RuntimeService {
+	c.t.Helper()
+	issued := c.call(200, "POST", "/v1/services/agent_runtime/credentials", root, map[string]any{"label": "live " + c.run})
+	credential, id := str(c.t, issued, "token"), str(c.t, issued, "credential_id")
+	if !strings.HasPrefix(credential, ServiceTokenPrefix) {
+		c.t.Fatalf("Core issued the agent runtime no credential (%s…): is it older than AIShie-Core #52?", ServiceTokenPrefix)
+	}
+	c.t.Cleanup(func() {
+		c.call(200, "POST", "/v1/services/agent_runtime/credentials/"+id+"/revoke", root, map[string]any{})
+	})
+	return NewRuntimeService(RuntimeCaller(RuntimeOptions{BaseURL: c.base,
+		Credential: func(context.Context) (string, error) { return credential, nil }}))
+}
+
 func str(t *testing.T, m map[string]any, key string) string {
 	t.Helper()
 	s, ok := m[key].(string)
@@ -191,12 +228,16 @@ func show(e *Envelope) string {
 }
 
 // TestLiveContract drives both transports through a real Core: a course
-// tutor seated over REST as Core's own scripts/e2e.sh seats one, a student's
-// question, and the calls a runtime makes, over MCP and over REST, which
-// must give the same envelopes. It runs only against a throwaway Core
-// (scripts/ci-core.sh start), named by E2E_CORE_URL and E2E_ROOT_TOKEN.
-// The calls go through Retrying, which leaves every envelope as it came, so
-// that a Core started with a small limit is waited out.
+// tutor seated over REST as Core's own scripts/e2e.sh seats one, hosted by
+// its id as the site's agent runtime hosts it (AIShie-Core #52: issued its
+// one token with the agent_runtime service's credential, and asked nothing
+// before, nor after the token is revoked; an mcp agent never asked, nor
+// hosted), a student's question, and the calls a runtime makes, over MCP
+// and over REST, which must give the same envelopes. It runs only against a
+// throwaway Core (scripts/ci-core.sh start, or make live-core), named by
+// E2E_CORE_URL and E2E_ROOT_TOKEN. The calls go through Retrying, which
+// leaves every envelope as it came, so that a Core started with a small
+// limit is waited out.
 func TestLiveContract(t *testing.T) {
 	base, root, run := liveCore(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -218,10 +259,50 @@ func TestLiveContract(t *testing.T) {
 	rest.call(200, "POST", C+"/instructors", admin, map[string]any{"actor_id": satoID})
 	rest.call(200, "POST", C+"/members", sato, map[string]any{"actor_id": yukiID, "preset": "student"})
 
-	// Sato's own agent, seated as the course's tutor; Yuki asks it.
-	tutorID := str(t, rest.call(200, "POST", "/v1/me/agents", sato, map[string]any{"display_name": "CS101 Tutor"}), "actor_id")
-	tutor := str(t, rest.call(200, "POST", "/v1/me/agents/"+tutorID+"/tokens", sato, map[string]any{"label": "runtime"}), "token")
+	// Sato's own agent, the course's tutor, is hosted by the site's agent
+	// runtime by its id (AIShie-Core #52): Sato holds no token of it, and
+	// nobody asks it in the site until the runtime is issued its one token.
+	svc := rest.runtimeService(root)
+	tutorID := str(t, rest.call(200, "POST", "/v1/me/agents", sato, map[string]any{"display_name": "CS101 Tutor", "hosting": HostingRuntime}), "actor_id")
+	if e := rest.refused("POST", "/v1/me/agents/"+tutorID+"/tokens", sato, map[string]any{"label": "mine"}); e.Reason() != "hosted_by_runtime" {
+		t.Fatalf("Sato issued a token of his runtime agent: %s", show(e))
+	}
 	tutorM := str(t, rest.call(200, "POST", C+"/delegates", sato, map[string]any{"actor_id": tutorID, "preset": "course_tutor"}), "member_id")
+	ask := func(respondent, body string) *Envelope {
+		return rest.refused("POST", C+"/conversations", yuki, map[string]any{"respondent_member_id": respondent, "body": body})
+	}
+	if e := ask(tutorM, "Anyone there?"); e.Code() != CodeFailedPrecondition || e.Reason() != "agent_not_hosted" {
+		t.Fatalf("a question to the tutor before the runtime hosts it: %s", show(e))
+	}
+	if a, err := svc.Agent(ctx, tutorID); err != nil || a.Hosting != HostingRuntime || !a.Hostable || a.RuntimeToken != nil || a.SiteChat ||
+		a.OwnerActorID != satoID || a.LiveSeats != 1 {
+		t.Fatalf("the tutor before it is hosted: %+v %v", a, err)
+	}
+	if owns, a, err := svc.CheckOwner(ctx, satoID, tutorID); err != nil || !owns || a.AgentID != tutorID {
+		t.Fatalf("Sato owns the tutor: %v %+v %v", owns, a, err)
+	}
+	if owns, a, err := svc.CheckOwner(ctx, yukiID, tutorID); err != nil || owns || a != nil {
+		t.Fatalf("Yuki owns the tutor: %v %+v %v", owns, a, err)
+	}
+	issued, err := svc.IssueToken(ctx, tutorID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tutor := issued.Token
+	if a, err := svc.Agent(ctx, tutorID); err != nil || a.RuntimeToken == nil || a.RuntimeToken.CredentialID != issued.CredentialID || !a.SiteChat {
+		t.Fatalf("the tutor once hosted: %+v %v", a, err)
+	}
+
+	// An agent of Sato's own tools (hosting mcp) is never the runtime's,
+	// and nobody asks it in the site.
+	scriptsID := str(t, rest.call(200, "POST", "/v1/me/agents", sato, map[string]any{"display_name": "Sato's scripts", "hosting": HostingMCP}), "actor_id")
+	scriptsM := str(t, rest.call(200, "POST", C+"/delegates", sato, map[string]any{"actor_id": scriptsID, "preset": "course_tutor"}), "member_id")
+	if _, err := svc.IssueToken(ctx, scriptsID, ""); !IsReason(err, ReasonNotRuntimeHosted) {
+		t.Fatalf("the runtime issued a token of an mcp agent: %v", err)
+	}
+	if e := ask(scriptsM, "Anyone there?"); e.Code() != CodeFailedPrecondition || e.Reason() != "mcp_agent" {
+		t.Fatalf("a question to an mcp agent: %s", show(e))
+	}
 	conv := str(t, rest.call(200, "POST", C+"/conversations", yuki, map[string]any{"respondent_member_id": tutorM, "body": "What does HW3 ask for?"}), "conversation_id")
 
 	cat, err := FetchCatalogue(ctx, nil, base)
@@ -257,13 +338,30 @@ func TestLiveContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(listed) != cat.Len() {
-		t.Errorf("tools/list offers %d tools, GET /v1/tools %d", len(listed), cat.Len())
-	}
+	// tools/list offers an agent every tool of the catalogue but the site
+	// services' own, which Core serves over REST alone, to their own
+	// credentials: the agent runtime's hosting and renditions, and the
+	// transcriber's queue.
+	restOnly := []string{ToolRuntimeAgent, ToolRuntimeCheckOwner, ToolRuntimeIssueToken, ToolRuntimeRevokeToken,
+		ToolRenditionClaim, ToolRenditionFile, ToolRenditionRenew, ToolRenditionUploadURL, ToolRenditionComplete,
+		ToolTextQueue, ToolTextFile, ToolTextRenew, ToolTextComplete}
+	offered := map[string]bool{}
 	for _, tl := range listed {
+		offered[tl.Name] = true
 		if _, ok := cat.Tool(tl.Name); !ok {
 			t.Errorf("tools/list offers %s, which the catalogue lacks", tl.Name)
 		}
+		if slices.Contains(restOnly, tl.Name) {
+			t.Errorf("tools/list offers %s, a site service's, to an agent", tl.Name)
+		}
+	}
+	for _, name := range restOnly {
+		if _, ok := cat.Tool(name); !ok {
+			t.Errorf("the catalogue lacks %s", name)
+		}
+	}
+	if len(listed) != cat.Len()-len(restOnly) {
+		t.Errorf("tools/list offers %d tools, GET /v1/tools %d, of which %d are the services' over REST alone", len(listed), cat.Len(), len(restOnly))
 	}
 
 	// both makes a call over each transport; the envelopes must be the same.
@@ -288,7 +386,7 @@ func TestLiveContract(t *testing.T) {
 	}
 
 	var me Actor
-	if err := both("me_get", struct{}{}).Decode(&me); err != nil || me.ID != tutorID || me.Kind != "agent" {
+	if err := both("me_get", struct{}{}).Decode(&me); err != nil || me.ID != tutorID || me.Kind != "agent" || me.Hosting != HostingRuntime {
 		t.Fatalf("me_get: %+v %v", me, err)
 	}
 	var seats struct {
@@ -418,7 +516,9 @@ func TestLiveContract(t *testing.T) {
 		}
 	}
 
-	// 401: a token that was never issued, then the tutor's own, revoked.
+	// 401: a token that was never issued, then the tutor's own, revoked by
+	// the runtime as it stops hosting the tutor. Sato sees it listed as the
+	// runtime's, and Yuki can ask the tutor nothing more.
 	for _, c := range []Caller{
 		NewMCPCaller(MCPOptions{BaseURL: base, Token: "ais_bogus_" + run}),
 		NewRESTCaller(RESTOptions{BaseURL: base, Token: "ais_bogus_" + run, Catalogue: cat}),
@@ -429,14 +529,22 @@ func TestLiveContract(t *testing.T) {
 	}
 	var creds struct {
 		Credentials []struct {
-			ID string `json:"id"`
+			ID        string  `json:"id"`
+			IssuedTo  *string `json:"issued_to"`
+			RevokedAt *string `json:"revoked_at"`
 		} `json:"credentials"`
 	}
 	raw, _ := json.Marshal(rest.call(200, "GET", "/v1/me/agents/"+tutorID+"/credentials", sato, nil))
-	if err := json.Unmarshal(raw, &creds); err != nil || len(creds.Credentials) != 1 {
+	if err := json.Unmarshal(raw, &creds); err != nil || len(creds.Credentials) != 1 || creds.Credentials[0].ID != issued.CredentialID ||
+		creds.Credentials[0].IssuedTo == nil || *creds.Credentials[0].IssuedTo != "agent_runtime" {
 		t.Fatalf("the tutor's credentials: %s %v", raw, err)
 	}
-	rest.call(200, "POST", "/v1/me/agents/"+tutorID+"/credentials/"+creds.Credentials[0].ID+"/revoke", sato, map[string]any{})
+	if revoked, err := svc.RevokeToken(ctx, tutorID); err != nil || len(revoked) != 1 || revoked[0] != issued.CredentialID {
+		t.Fatalf("the runtime revoked the tutor's token: %v %v", revoked, err)
+	}
+	if revoked, err := svc.RevokeToken(ctx, tutorID); err != nil || len(revoked) != 0 {
+		t.Fatalf("the runtime revoked the tutor's token again: %v %v", revoked, err)
+	}
 	for _, c := range []Caller{mcp, rst, mcpR, rstR} {
 		_, err := c.Call(ctx, "me_get", nil)
 		if !errors.Is(err, ErrUnauthenticated) {
@@ -445,6 +553,9 @@ func TestLiveContract(t *testing.T) {
 		if strings.Contains(err.Error(), tutor) {
 			t.Fatal("the error carries the token")
 		}
+	}
+	if e := ask(tutorM, "Are you still there?"); e.Code() != CodeFailedPrecondition || e.Reason() != "agent_not_hosted" {
+		t.Fatalf("a question to the tutor once the runtime stopped hosting it: %s", show(e))
 	}
 }
 
@@ -464,8 +575,10 @@ func TestLiveRateLimited(t *testing.T) {
 	defer cancel()
 	rest := &liveREST{t: t, base: base, run: "limited-" + run}
 	// An actor of its own: nobody else spends its allowance, and it spends
-	// nobody else's. An agent, since only agents are given API tokens.
-	id := str(t, rest.call(200, "POST", "/v1/actors", root, map[string]any{"kind": "agent", "display_name": "Busy " + run}), "actor_id")
+	// nobody else's. An agent, since only agents are given API tokens, and
+	// an mcp one, whose tokens are issued to whoever runs it, not to the
+	// site's agent runtime alone.
+	id := str(t, rest.call(200, "POST", "/v1/actors", root, map[string]any{"kind": "agent", "display_name": "Busy " + run, "hosting": HostingMCP}), "actor_id")
 	token := str(t, rest.call(200, "POST", "/v1/actors/"+id+"/tokens", root, map[string]any{"label": "live"}), "token")
 	cat, err := FetchCatalogue(ctx, nil, base)
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -18,23 +19,27 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext/doctexttest"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolschema"
 )
 
 // TestLiveCore runs a student's own agent's toolset against a real Core
 // (scripts/ci-core.sh start, then E2E_CORE_URL and E2E_ROOT_TOKEN, root's
-// signed-in session): the live catalogue passes Check, a delegate's seat is
-// offered the eleven reads, and what the model would write, strict nulls
-// and a wrong course included, reaches Core and is executed. A document's
-// files come back from Core's own file store as text and as a file part,
-// and no URL reaches the model.
+// signed-in session; or make live-core): the agent is hosted by its id, its
+// token issued to the site's agent runtime (AIShie-Core #52); the live
+// catalogue passes Check, a delegate's seat is offered the twelve reads,
+// and what the model would write, strict nulls and a wrong course
+// included, reaches Core and is executed. A document's files come back
+// from Core's own file store as text and as a file part, a Word file as
+// its text beside the PDF rendition the runtime made of it, and no URL
+// reaches the model, the rendition's included.
 func TestLiveCore(t *testing.T) {
 	base, root := os.Getenv("E2E_CORE_URL"), os.Getenv("E2E_ROOT_TOKEN")
 	if base == "" || root == "" {
 		t.Skip("E2E_CORE_URL and E2E_ROOT_TOKEN are not set")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	c := &liveREST{t: t, base: strings.TrimRight(base, "/")}
 	run := fmt.Sprint(time.Now().UnixNano())
@@ -91,10 +96,25 @@ func TestLiveCore(t *testing.T) {
 	c.result(sato, "POST", E+"/documents/"+otherDoc+"/publish", nil)
 	mdDoc := document("Week 1 notes", map[string]any{"upload_token": upload("text/markdown", []byte(markdown))})
 	pdfDoc := document("Lab sheet", map[string]any{"upload_token": upload("application/pdf", pdf)})
+	handout := doctexttest.DOCX(doctexttest.Doc{Blocks: []doctexttest.Block{{Text: "Hash tables", Heading: 1}, {Text: "Open addressing and chaining."}}})
+	wordDoc := document("Week 5 handout", map[string]any{"upload_token": upload(doctexttest.DOCXType, handout)})
 
-	// Yuki's own agent, seated as her delegate once Sato approves.
-	agentID := c.result(yuki, "POST", "/v1/me/agents", map[string]any{"display_name": "Yuki's helper"})["actor_id"].(string)
-	agent := c.result(yuki, "POST", "/v1/me/agents/"+agentID+"/tokens", map[string]any{"label": "runtime"})["token"].(string)
+	// The site's agent runtime, with a credential of the agent_runtime
+	// service's own, makes the Word file's PDF rendition as it makes every
+	// Office file's (AIShie-Core's migration 0026), here with no
+	// LibreOffice: the PDF is the lab sheet's bytes.
+	svc := c.runtimeService(root, run)
+	renderPDF(ctx, t, svc, courseID, handout, pdf)
+
+	// Yuki's own agent, hosted by the site's agent runtime by its id
+	// (AIShie-Core #52): the runtime is issued its one token, and Yuki
+	// holds none. It is seated as her delegate once Sato approves.
+	agentID := c.result(yuki, "POST", "/v1/me/agents", map[string]any{"display_name": "Yuki's helper", "hosting": core.HostingRuntime})["actor_id"].(string)
+	issued, err := svc.IssueToken(ctx, agentID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := issued.Token
 	seat := c.envelope(yuki, "POST", C+"/delegates", map[string]any{"actor_id": agentID, "preset": "delegate"})
 	if seat.Status == core.StatusProposed {
 		c.result(sato, "POST", C+"/actions/"+seat.ActionID+"/decide", map[string]any{"decision": "approve"})
@@ -120,8 +140,12 @@ func TestLiveCore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if set.Len() != len(DefaultAllow) {
-		t.Fatalf("a delegate is offered %v, want the %d defaults", set.Names(), len(DefaultAllow))
+	// A student's delegate reads what she reads, and is offered no write
+	// in a conversation that may have none.
+	reads := []string{"assignment_get", "assignment_list", "component_tree", "course_get", "document_get", "document_list",
+		"grade_get", "grade_list", "gradebook_get", "submission_get", "submission_list", "submission_roster"}
+	if !slices.Equal(set.Names(), reads) {
+		t.Fatalf("a delegate is offered %v, want %v", set.Names(), reads)
 	}
 
 	// What a strict model writes: every property, null for what it leaves
@@ -139,6 +163,7 @@ func TestLiveCore(t *testing.T) {
 		call("9", "grade_list", `{"after":null,"assignment_id":null,"limit":null,"student_member_id":null}`),
 		call("10", "component_tree", `{}`),
 		call("11", "gradebook_get", `{"student_member_id":"`+yukiMember+`","treat_ungraded_as_zero":null}`),
+		call("12", "document_get", `{"document_id":"`+wordDoc+`","version_id":null}`),
 	}
 	r := Runner{Client: client, Files: NewHTTPFetcher(nil), FileInput: true}
 	parts, err := set.Run(ctx, r, courseID, calls)
@@ -169,6 +194,16 @@ func TestLiveCore(t *testing.T) {
 	if rec := contentOf(t, parts[4])["file"].(map[string]any); rec["given_as"] != givenFile {
 		t.Errorf("the PDF: %v", rec)
 	}
+	// The Word file is given as its text. Core shows its PDF rendition,
+	// done, at a URL of its own, which reaches the model no more than the
+	// file's.
+	word := contentOf(t, parts[11])
+	if rec := word["file"].(map[string]any); rec["given_as"] != givenText || !strings.Contains(fmt.Sprint(word["file_text"]), "Open addressing and chaining.") {
+		t.Errorf("the Word file: %v, text %q", rec, word["file_text"])
+	}
+	if r := renditionOf(t, c.result(sato, "GET", C+"/documents/"+wordDoc, nil)); r.State != core.RenditionDone || r.PageCount != 1 || r.DownloadURL == "" {
+		t.Errorf("the Word file's rendition, as Sato is shown it: %+v", r)
+	}
 	if len(parts) != len(calls)+1 || parts[len(calls)].File == nil || !bytes.Equal(parts[len(calls)].File.Data, pdf) ||
 		parts[len(calls)].File.Name != "Lab sheet.pdf" {
 		t.Errorf("the PDF is not the file part after the results")
@@ -193,6 +228,120 @@ func TestLiveCore(t *testing.T) {
 	if n := mcp.calls.Load() - before; n != 1 {
 		t.Errorf("%d calls to Core, want 1: the second is refused before Core", n)
 	}
+}
+
+// runtimeService is the site's agent runtime's client of Core, with a
+// credential of the agent_runtime service's own, which root issues for the
+// test and revokes after it. It replaces none: whatever else holds one on
+// this Core keeps it.
+func (c *liveREST) runtimeService(root, run string) *core.RuntimeService {
+	c.t.Helper()
+	issued := c.result(root, "POST", "/v1/services/agent_runtime/credentials", map[string]any{"label": "toolset live " + run})
+	credential, id := issued["token"].(string), issued["credential_id"].(string)
+	if !strings.HasPrefix(credential, core.ServiceTokenPrefix) {
+		c.t.Fatalf("Core issued the agent runtime no credential (%s…): is it older than AIShie-Core #52?", core.ServiceTokenPrefix)
+	}
+	c.t.Cleanup(func() { c.result(root, "POST", "/v1/services/agent_runtime/credentials/"+id+"/revoke", nil) })
+	return core.NewRuntimeService(core.RuntimeCaller(core.RuntimeOptions{BaseURL: c.base,
+		Credential: func(context.Context) (string, error) { return credential, nil }}))
+}
+
+// renderPDF makes the PDF rendition of the Office file of the course's that
+// is queued, original, as the runtime's renditions worker does: claimed,
+// the file fetched from the claim's URL, its PDF uploaded, and done. It
+// claims what other courses queued too, and leaves it to lapse.
+func renderPDF(ctx context.Context, t *testing.T, svc *core.RuntimeService, courseID string, original, pdf []byte) {
+	t.Helper()
+	var claim *core.ClaimedRendition
+	for deadline := time.Now().Add(30 * time.Second); claim == nil; {
+		if time.Now().After(deadline) {
+			t.Fatal("the Word file's rendition was never claimed")
+		}
+		claimed, err := svc.ClaimRenditions(ctx, core.MaxRenditionClaims, time.Minute, 5*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := range claimed {
+			if claimed[i].CourseID == courseID {
+				claim = &claimed[i]
+			}
+		}
+	}
+	if claim.Source != core.RenditionOfDocumentFile || claim.FileID == "" || claim.ByteSize != int64(len(original)) {
+		t.Fatalf("the claim: source %s, file %q, %d bytes", claim.Source, claim.FileID, claim.ByteSize)
+	}
+	cl := core.ClaimOfRendition(*claim)
+	f, err := svc.RenditionFile(ctx, cl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fetch(ctx, t, http.MethodGet, f.DownloadURL, nil, nil); !bytes.Equal(got, original) {
+		t.Fatalf("the claimed file is %d bytes, not the Word file's %d", len(got), len(original))
+	}
+	if _, err := svc.RenewRendition(ctx, cl, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	up, err := svc.RenditionUploadURL(ctx, cl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fetch(ctx, t, http.MethodPut, up.UploadURL, up.Headers, pdf)
+	key := core.RenditionKey(cl, 1)
+	done := core.RenditionCompletion{Status: core.RenditionDone, UploadToken: up.UploadToken, PageCount: 1}
+	for range 2 { // the second, a replay under the same key
+		r, err := svc.CompleteRendition(ctx, cl, key, done)
+		if err != nil || r.State != core.RenditionDone || r.ByteSize != int64(len(pdf)) {
+			t.Fatalf("the rendition completed: %+v %v", r, err)
+		}
+	}
+	if _, err := svc.RenewRendition(ctx, cl, time.Minute); !core.IsReason(err, core.ReasonLeaseLost) {
+		t.Fatalf("a claim renewed once done: %v", err)
+	}
+}
+
+// fetch makes a request of a file's URL, with no credential but the URL,
+// and returns the body; anything but a 2xx fails the test.
+func fetch(ctx context.Context, t *testing.T, method, u string, headers map[string]string, body []byte) []byte {
+	t.Helper()
+	var rd io.Reader
+	if body != nil {
+		rd = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u, rd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode/100 != 2 {
+		t.Fatalf("%s a file's URL: HTTP %d", method, resp.StatusCode)
+	}
+	return b
+}
+
+// renditionOf is the rendition of the one file of a document_get result's
+// version, as Core shows it.
+func renditionOf(t *testing.T, doc map[string]any) core.RenditionView {
+	t.Helper()
+	var d struct {
+		Version struct {
+			Files []struct {
+				Rendition *core.RenditionView `json:"rendition"`
+			} `json:"files"`
+		} `json:"version"`
+	}
+	b, _ := json.Marshal(doc)
+	if err := json.Unmarshal(b, &d); err != nil || len(d.Version.Files) != 1 || d.Version.Files[0].Rendition == nil {
+		t.Fatalf("no rendition in %s", b)
+	}
+	return *d.Version.Files[0].Rendition
 }
 
 // liveREST sets a course up through Core's REST API.
