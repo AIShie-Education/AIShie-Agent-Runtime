@@ -74,7 +74,7 @@ and a test that passed alone then fails.
   another is made to: a scripted model that waits on a channel the fake
   Core closes, not one that waits long enough.
 - "Nothing more happens" is held over events that keep happening (lease
-  ticks a store counts, polls the fake Core logs), and counts what was
+  ticks a store counts, calls another agent begins), and counts what was
   begun after, not what landed after (`countCalls` in the worker's
   tests): a call cancelled in flight is logged by the fake Core when it
   ends. Likewise what is counted when it ends is read once it has ended,
@@ -85,13 +85,16 @@ and a test that passed alone then fails.
 - No test is skipped or retried for being slow.
 
 Try a test that waits under load before calling it done, with the race
-detector and many runs, beside a few busy processes that end with it:
+detector and many runs, beside a few busy processes that end with it,
+in zsh or bash; `go test`'s `-timeout` bounds it, interrupted or not:
 
 ```
 (
-  trap 'kill $(jobs -p) 2>/dev/null' EXIT
-  for _ in $(seq 16); do yes > /dev/null & done
-  go test -race -count=50 -run 'TestName$' ./internal/worker
+  pids=()
+  trap 'kill "${pids[@]}" 2>/dev/null' EXIT
+  trap 'exit 130' INT TERM
+  for _ in $(seq 16); do yes > /dev/null & pids+=($!); done
+  go test -race -count=50 -timeout 10m -run 'TestName$' ./internal/worker
 )
 ```
 
