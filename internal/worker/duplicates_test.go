@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -220,14 +221,17 @@ func TestWriteAheadResendsWhatACrashLeft(t *testing.T) {
 }
 
 // leaseSwitch is a store whose agent leases can be made to belong to
-// someone else.
+// someone else, and which counts the agent leases it refuses: the lease
+// ticks that find the lease lost.
 type leaseSwitch struct {
 	store.Store
-	taken atomic.Bool
+	taken   atomic.Bool
+	refused atomic.Int32
 }
 
 func (s *leaseSwitch) AcquireLease(ctx context.Context, name, holder string, ttl time.Duration) (bool, error) {
 	if s.taken.Load() && strings.HasPrefix(name, "agent:") {
+		s.refused.Add(1)
 		return false, nil
 	}
 	return s.Store.AcquireLease(ctx, name, holder, ttl)
@@ -235,24 +239,35 @@ func (s *leaseSwitch) AcquireLease(ctx context.Context, name, holder string, ttl
 
 // TestLeaseLostStopsTheAgentAtOnce: when a renewal of the agent's lease
 // fails, the agent stops at once and calls Core no more; when the lease is
-// had again, it starts again and answers.
+// had again, it starts again and answers. Its calls are counted as it
+// begins them, on its connection to Core, and "no more" is over ten lease
+// ticks that find the lease lost, not over a time: a long poll the stop
+// cancelled is logged by Core as it ends, which on a busy machine is after
+// the agent has stopped, and a busy machine ticks as many times, later.
 func TestLeaseLostStopsTheAgentAtOnce(t *testing.T) {
 	w := newWorld(t)
 	own := w.ownAgent("yuki-helper", 0)
 	st := &leaseSwitch{Store: memstore.New()}
 	model := scripted.New(scripted.Reply("Back with the lease."))
-	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": model}, workerOpts{store: st})
+	var began atomic.Int32
+	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": model},
+		workerOpts{store: st, edit: countCalls("yuki-helper", &began)})
 	eventually(t, "the inbox polled", func() bool { return len(w.calls(own.actor.ID, "conversation_inbox")) > 0 })
 
 	st.taken.Store(true)
+	// Not running is its pollers and its answers returned: whatever it
+	// calls after this, it began after.
 	eventually(t, "the agent stopped", func() bool {
 		s := wk.sup.Status()
 		return len(s) == 1 && !s[0].Running && !s[0].Leased
 	})
-	n := len(w.calls(own.actor.ID, ""))
-	time.Sleep(200 * time.Millisecond) // ten lease ticks, many inbox intervals
-	if more := len(w.calls(own.actor.ID, "")) - n; more != 0 {
-		t.Errorf("%d calls to Core after the lease was lost", more)
+	n, ticks := began.Load(), st.refused.Load()
+	if n == 0 {
+		t.Fatal("none of the agent's calls was counted")
+	}
+	eventually(t, "ten lease ticks more", func() bool { return st.refused.Load() >= ticks+10 })
+	if more := began.Load() - n; more != 0 {
+		t.Errorf("%d calls to Core begun after the lease was lost", more)
 	}
 
 	st.taken.Store(false)
@@ -332,14 +347,24 @@ func TestHandoverIsNotATakeover(t *testing.T) {
 }
 
 // hangingLeases is a store whose agent leases, once hung, are never
-// answered until the caller gives up.
+// answered until the caller gives up; it notes how long the caller gave
+// each, by its context's deadline (-1 for none).
 type hangingLeases struct {
 	store.Store
-	hung atomic.Bool
+	hung  atomic.Bool
+	mu    sync.Mutex
+	given []time.Duration
 }
 
 func (s *hangingLeases) AcquireLease(ctx context.Context, name, holder string, ttl time.Duration) (bool, error) {
 	if s.hung.Load() && strings.HasPrefix(name, "agent:") {
+		given := time.Duration(-1)
+		if dl, ok := ctx.Deadline(); ok {
+			given = time.Until(dl)
+		}
+		s.mu.Lock()
+		s.given = append(s.given, given)
+		s.mu.Unlock()
 		<-ctx.Done()
 		return false, ctx.Err()
 	}
@@ -348,7 +373,10 @@ func (s *hangingLeases) AcquireLease(ctx context.Context, name, holder string, t
 
 // TestLeaseRenewalThatHangsStopsTheAgent: a store that stops answering
 // the renewal of an agent's lease has failed to renew it; the agent stops
-// well within the lease's life, not when the store answers.
+// well within the lease's life, not when the store answers, which it never
+// does. How long the renewal waits is read off the deadline it gives the
+// store, which is what the supervisor decides, not off how long a busy
+// machine takes to stop the agent after it.
 func TestLeaseRenewalThatHangsStopsTheAgent(t *testing.T) {
 	w := newWorld(t)
 	own := w.ownAgent("yuki-helper", 0)
@@ -356,13 +384,15 @@ func TestLeaseRenewalThatHangsStopsTheAgent(t *testing.T) {
 	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": scripted.New()}, workerOpts{store: st})
 	eventually(t, "the inbox polled", func() bool { return len(w.calls(own.actor.ID, "conversation_inbox")) > 0 })
 	st.hung.Store(true)
-	hungAt := time.Now()
 	eventually(t, "the agent stopped", func() bool {
 		s := wk.sup.Status()
 		return len(s) == 1 && !s[0].Running
 	})
+	st.mu.Lock()
+	given := slices.Clone(st.given)
+	st.mu.Unlock()
 	// The harness's lease lasts 1 s: a renewal waits a third of it.
-	if took := time.Since(hungAt); took > time.Second {
-		t.Errorf("the agent stopped %s after the store hung", took)
+	if len(given) == 0 || given[0] < 0 || given[0] > time.Second/3 {
+		t.Errorf("the renewals that hung were given %v (-1: no deadline); want a third of the lease's second at most", given)
 	}
 }
