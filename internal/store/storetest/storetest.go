@@ -93,8 +93,9 @@
 //   - The search's files are kept by version and key, each at one
 //     revision, in one course; a search reads only the files it names at
 //     the revisions it names, in its course. Its passages come back those
-//     that hold the most of its terms first, then by version, key and
-//     place, bytewise. Using a file moves when it was used on, never back.
+//     that hold the most of its terms first, of those the shortest, then
+//     by version, key and place, bytewise. Using a file moves when it was
+//     used on, once a store.SearchUseGrain at most, never back.
 package storetest
 
 import (

@@ -45,8 +45,8 @@ says what an agent may do and how. This repository meets it:
   the call that reads it, so that a model need not read whole decks to
   find one. It searches only what the asking seat may read, as Core gives
   it that seat, from an index the runtime builds in its own store as
-  searches need it and drops when a version is purged; no PostgreSQL
-  extension is needed.
+  searches need it, and drops as it hears of a version's purge, or after
+  30 days unused; no PostgreSQL extension is needed.
 - **Text versions of the course's files.** A module of its own, off until
   the site's administrators turn it on: one worker at a time claims the
   files waiting in Core's queue, has a model of the school's plan
