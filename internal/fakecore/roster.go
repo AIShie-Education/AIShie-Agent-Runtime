@@ -140,7 +140,7 @@ func documentVersions() *impl {
 			if doc.versionID != "" {
 				v := versionSummary{ID: doc.versionID, Seq: 1, HasFile: len(doc.files) > 0, AuthorMemberID: doc.authorMemberID,
 					CreatedAt: doc.versionCreatedAt, Published: !doc.draft}
-				files := filesOf(doc, "", false)
+				files := filesOf(doc, "", false, rc.now)
 				if !c.opts.WithoutFiles {
 					v.Files = &files
 				}

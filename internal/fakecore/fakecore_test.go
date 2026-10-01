@@ -121,8 +121,9 @@ func TestCatalogueSnapshot(t *testing.T) {
 	if len(before.tools) != len(cat.tools)-1 || before.byName["conversation.draft"] != nil {
 		t.Errorf("the catalogue without conversation.draft has %d tools", len(before.tools))
 	}
-	// The service's four tools of hosting, and the five of its renditions.
-	if len(older.tools) != len(cat.tools)-9 || older.byName["agent_runtime.issue_token"] != nil ||
+	// The service's four tools of hosting, the five of its renditions, and
+	// the two that send a rendition back.
+	if len(older.tools) != len(cat.tools)-11 || older.byName["agent_runtime.issue_token"] != nil || older.byName["document.rendition_retry"] != nil ||
 		older.byName["agent_runtime.rendition_claim"] != nil {
 		t.Errorf("the catalogue without the agent runtime's service has %d tools", len(older.tools))
 	}
