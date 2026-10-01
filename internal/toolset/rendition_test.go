@@ -55,9 +55,12 @@ type renditionWorld struct {
 	stale     int
 	// pdfSize is the PDF's size as Core says it, 0 for its own.
 	pdfSize int
-	token   int
-	hits    map[string]int
-	asked   []string
+	// later are the fields Core's answers after the first give otherwise,
+	// as for another file: another version's, other bytes.
+	later map[string]any
+	token int
+	hits  map[string]int
+	asked []string
 	// urls are every URL handed out, which nothing given the model, nor
 	// any log, may hold.
 	urls []string
@@ -161,6 +164,11 @@ func (w *renditionWorld) Call(_ context.Context, tool string, _ json.RawMessage)
 		res = f
 	default:
 		return &core.Envelope{Status: core.StatusError, Error: &core.Error{Code: core.CodeInvalidArgument, Message: "not this"}}, nil
+	}
+	if len(w.asked) > 1 {
+		for k, v := range w.later {
+			f[k] = v
+		}
 	}
 	b, _ := json.Marshal(res)
 	return executed(string(b)), nil
@@ -316,6 +324,114 @@ func TestRenditionURLLapsed(t *testing.T) {
 			}
 			w.holdsNoURL(t, "the fetch's error", err.Error())
 		}
+	}
+}
+
+// TestRenditionURLOfAnotherFile: a fresh URL Core gives on being asked
+// again is taken for the file alone: one of another version, or of other
+// bytes, or of another message's file, is never fetched, and the file is
+// converted here.
+func TestRenditionURLOfAnotherFile(t *testing.T) {
+	for _, later := range []map[string]any{
+		{"version_id": "0190a1b2-0000-7000-8000-0000000000ff"},
+		{"checksum": checksum([]byte("another file"))},
+	} {
+		w := newRenditionWorld(t, lectureDeck(3), doctexttest.PPTXType, corePDF(3))
+		w.set(func(w *renditionWorld) { w.stale, w.later = 1, later })
+		o := &stubOffice{out: map[office.Target]*office.Output{office.ToPDF: pdfOf(3)}}
+		_, file := getDoc(t, w.runner(o, true), firstPart)
+		if file == nil || !bytes.Equal(file.Data, pdfOf(3).Data) {
+			t.Errorf("%v: the model was given %+v", later, file)
+		}
+		if got := fmt.Sprint(w.tools()); got != "[document_get document_file]" {
+			t.Errorf("%v: Core was asked %s", later, got)
+		}
+		if _, pdfs := w.fetched(); pdfs != 1 {
+			t.Errorf("%v: the PDF's URLs fetched %d times", later, pdfs)
+		}
+		if converted, _, _ := o.record(); fmt.Sprint(converted) != "[pptx>pdf]" {
+			t.Errorf("%v: LibreOffice was asked %v", later, converted)
+		}
+	}
+
+	for _, later := range []map[string]any{{"id": fileSlides}, {"checksum": checksum([]byte("another file"))}} {
+		w := newRenditionWorld(t, lectureDeck(3), doctexttest.PPTXType, corePDF(3))
+		w.set(func(w *renditionWorld) { w.stale, w.later = 1, later })
+		o := &stubOffice{out: map[office.Target]*office.Output{office.ToPDF: pdfOf(3)}}
+		_, _, file := readAttachment(t, w.runner(o, true), idArgs(fileHandout))
+		if file == nil || !bytes.Equal(file.Data, pdfOf(3).Data) {
+			t.Errorf("an attachment, %v: the model was given %+v", later, file)
+		}
+		if got := fmt.Sprint(w.tools()); got != "[conversation_attachment conversation_attachment]" {
+			t.Errorf("an attachment, %v: Core was asked %s", later, got)
+		}
+		if _, pdfs := w.fetched(); pdfs != 1 {
+			t.Errorf("an attachment, %v: the PDF's URLs fetched %d times", later, pdfs)
+		}
+	}
+}
+
+// TestRenditionTriedOnce: Core's PDF that could not be had is not fetched
+// again in the same call, where the runtime then reads the file's text
+// from its PDF (an OpenDocument text, LibreOffice's PDF of it being made),
+// or picks the slides OCR reads from it (a deck, with no LibreOffice).
+func TestRenditionTriedOnce(t *testing.T) {
+	odt := "application/vnd.oasis.opendocument.text"
+	for status, want := range map[int]int{http.StatusForbidden: 2, http.StatusInternalServerError: 1} {
+		w := newRenditionWorld(t, []byte("PK\x03\x04odt"), odt, corePDF(3))
+		w.set(func(w *renditionWorld) { w.pdfStatus = status })
+		o := &stubOffice{convert: func(office.Format, office.Target) office.State { return office.State{Status: office.StatusPending} }}
+		c, file := getDoc(t, w.runner(o, true), firstPart)
+		if file != nil || c["file"].(map[string]any)["conversion"] != ConversionInProgress {
+			t.Errorf("HTTP %d: %v", status, c["file"])
+		}
+		if _, pdfs := w.fetched(); pdfs != want || len(o.fetches()) != 1 {
+			t.Errorf("HTTP %d: the PDF's URLs fetched %d times, taken %d times", status, pdfs, len(o.fetches()))
+		}
+		if n := strings.Count(fmt.Sprint(w.tools()), core.ToolDocumentFile); n != want-1 {
+			t.Errorf("HTTP %d: Core asked again %d times", status, n)
+		}
+	}
+
+	w := newRenditionWorld(t, lectureDeck(3), doctexttest.PPTXType, corePDF(3))
+	w.set(func(w *renditionWorld) { w.pdfStatus = http.StatusInternalServerError })
+	r := w.runner(&stubOffice{off: "LibreOffice is not installed"}, true)
+	r.OCR = &fakeOCR{respond: func(_ int, data func(context.Context) ([]byte, error)) ocr.State {
+		_, _ = data(context.Background())
+		return ocr.State{Status: ocr.StatusBusy, Why: "no"}
+	}}
+	if c, file := getDoc(t, r, firstPart); file != nil || c["file"].(map[string]any)["given_as"] != givenText {
+		t.Errorf("a deck, with no LibreOffice: %v", c["file"])
+	}
+	if _, pdfs := w.fetched(); pdfs != 1 {
+		t.Errorf("a deck, with no LibreOffice: the PDF's URL fetched %d times", pdfs)
+	}
+}
+
+// TestRenditionPartsApart: the parts of a file's PDF are kept by which
+// PDF they are cut from, Core's or LibreOffice's, as the two may break
+// their pages apart differently: a deck given in parts of LibreOffice's
+// PDF, then of Core's once its rendition is done, is cut from each under
+// a name of its own.
+func TestRenditionPartsApart(t *testing.T) {
+	deck := lectureDeck(25)
+	w := newRenditionWorld(t, deck, doctexttest.PPTXType, corePDF(25))
+	w.set(func(w *renditionWorld) { w.state = core.RenditionQueued })
+	o := &stubOffice{out: map[office.Target]*office.Output{office.ToPDF: pdfOf(25)}}
+	r := w.runner(o, true)
+	if c, file := getDoc(t, r, firstPart); file == nil || c["file"].(map[string]any)["parts"] != float64(3) {
+		t.Fatalf("LibreOffice's PDF: %v", c["file"])
+	}
+	w.set(func(w *renditionWorld) { w.state = core.RenditionDone })
+	if c, file := getDoc(t, r, firstPart); file == nil || c["file"].(map[string]any)["parts"] != float64(3) {
+		t.Fatalf("Core's PDF: %v", c["file"])
+	}
+	if _, pdfs := w.fetched(); pdfs != 1 {
+		t.Errorf("Core's PDF fetched %d times", pdfs)
+	}
+	sum := checksum(deck)
+	if got := fmt.Sprint(o.rangeNames()); got != fmt.Sprint([]string{sum + "/pdf", sum + "/rendition"}) {
+		t.Errorf("parts cut under %s", got)
 	}
 }
 

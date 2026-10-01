@@ -300,8 +300,10 @@ func TestCacheBound(t *testing.T) {
 // without LibreOffice here, and whatever a conversion of the file said
 // before. One of more pages than a PDF made here has is cut to so many,
 // and said to be; where nothing cuts it, it is not taken, nor one that is
-// not a PDF, nor one not fetched, and nothing is kept of them: the caller
-// converts the file itself.
+// not a PDF, nor one not fetched, and the caller converts the file itself:
+// nothing of them is kept as the file's PDF, and they are remembered for
+// RenditionRetention, not fetched again until then, but for a fetch
+// cancelled, which the next question tries again.
 func TestServiceTakesRendition(t *testing.T) {
 	three := doctexttest.PDF(doctexttest.PDFPage{Lines: []string{"1"}}, doctexttest.PDFPage{Lines: []string{"2"}}, doctexttest.PDFPage{Lines: []string{"3"}})
 	conv := &stubConverter{err: ErrMalformed}
@@ -336,19 +338,27 @@ func TestServiceTakesRendition(t *testing.T) {
 		t.Errorf("without LibreOffice: %+v %v", out, err)
 	}
 
+	now := time.Now()
+	clock := func() time.Time { return now }
+	cancelled, cancel := context.WithCancel(context.Background())
+	cancel()
 	cases := []struct {
 		what  string
 		s     *Service
+		ctx   context.Context
 		fetch func(context.Context) ([]byte, error)
 	}{
-		{"past the pages, and nothing to cut it", NewService(context.Background(), ServiceOptions{Config: Config{MaxPages: 2}}), give(three, nil)},
-		{"not a PDF", s, give([]byte("<html>expired</html>"), nil)},
-		{"not fetched", s, give(nil, errors.New(`Get "https://files.example/rendition.pdf?X-Amz-Signature=5ecre7": EOF`))},
+		{"past the pages, and nothing to cut it", NewService(context.Background(), ServiceOptions{Config: Config{MaxPages: 2}}), context.Background(), give(three, nil)},
+		{"not a PDF", s, context.Background(), give([]byte("<html>expired</html>"), nil)},
+		{"not fetched", s, context.Background(), give(nil, errors.New(`Get "https://files.example/rendition.pdf?X-Amz-Signature=5ecre7": EOF`))},
+		{"cancelled", s, cancelled, give(nil, context.Canceled)},
 	}
-	for _, tc := range cases {
+	for i, tc := range cases {
+		sum := sum3 + string(rune('a'+i))
 		var logs strings.Builder
-		tc.s.log = slog.New(slog.NewJSONHandler(&logs, nil))
-		out, err := tc.s.TakeRendition(context.Background(), sum3, tc.fetch)
+		tc.s.log, tc.s.now = slog.New(slog.NewJSONHandler(&logs, nil)), clock
+		before := fetches
+		out, err := tc.s.TakeRendition(tc.ctx, sum, tc.fetch)
 		if out != nil || !errors.Is(err, ErrRendition) {
 			t.Errorf("%s: %+v %v", tc.what, out, err)
 		}
@@ -358,13 +368,26 @@ func TestServiceTakesRendition(t *testing.T) {
 			}
 		}
 		tc.s.mu.Lock()
-		kept := tc.s.cache.get(string(ToPDF)+"\x00"+sum3, time.Now())
+		kept := tc.s.cache.get(string(ToPDF)+"\x00"+sum, now)
 		tc.s.mu.Unlock()
 		if kept != nil {
 			t.Errorf("%s: kept %+v", tc.what, kept)
 		}
+		// Asked again a moment later, and once its time is up.
+		out, again := tc.s.TakeRendition(context.Background(), sum, tc.fetch)
+		if out != nil || !errors.Is(again, ErrRendition) || again.Error() != err.Error() && tc.what != "cancelled" {
+			t.Errorf("%s, asked again: %+v %v, first %v", tc.what, out, again, err)
+		}
+		if want := map[bool]int{true: 2, false: 1}[tc.what == "cancelled"]; fetches-before != want {
+			t.Errorf("%s: fetched %d times, asked twice", tc.what, fetches-before)
+		}
+		now = now.Add(RenditionRetention + time.Second)
+		_, _ = tc.s.TakeRendition(context.Background(), sum, tc.fetch)
+		if want := map[bool]int{true: 3, false: 2}[tc.what == "cancelled"]; fetches-before != want {
+			t.Errorf("%s: fetched %d times, the last past its time", tc.what, fetches-before)
+		}
 	}
-	if requests("rendition_failed") != 2 {
+	if requests("rendition_failed") != 9 {
 		t.Errorf("rendition_failed %v", requests("rendition_failed"))
 	}
 	var none *Service

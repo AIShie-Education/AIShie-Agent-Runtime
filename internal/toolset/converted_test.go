@@ -31,6 +31,7 @@ type stubOffice struct {
 	mu        sync.Mutex
 	converted []string
 	ranges    [][2]int
+	names     []string
 	picks     [][]int
 	badSum    bool
 	taken     map[string]*office.Output
@@ -90,9 +91,10 @@ func (s *stubOffice) fetches() []error {
 
 func (s *stubOffice) Cuts() bool { return !s.noCuts }
 
-func (s *stubOffice) Range(_ context.Context, _ string, _ []byte, first, last int) ([]byte, error) {
+func (s *stubOffice) Range(_ context.Context, sum string, _ []byte, first, last int) ([]byte, error) {
 	s.mu.Lock()
 	s.ranges = append(s.ranges, [2]int{first, last})
+	s.names = append(s.names, sum)
 	s.mu.Unlock()
 	return numberedPDF(first, last), nil
 }
@@ -108,6 +110,13 @@ func (s *stubOffice) record() (converted []string, ranges [][2]int, picks [][]in
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.converted...), append([][2]int(nil), s.ranges...), append([][]int(nil), s.picks...)
+}
+
+// rangeNames are the names the PDFs ranges were cut from were given by.
+func (s *stubOffice) rangeNames() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.names...)
 }
 
 // numberedPDF is a PDF of pages first to last, each saying its number.
