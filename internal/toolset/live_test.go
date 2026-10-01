@@ -68,7 +68,11 @@ func TestLiveCore(t *testing.T) {
 		c.result(sato, "POST", C+"/documents/"+id+"/publish", nil)
 		return id
 	}
-	upload := func(contentType string, data []byte) string {
+	// upload puts a file in the course as Core's front end does, and gives
+	// it, named, as a document's one file in files, which Core has taken
+	// since AIShie-Core #49: a Core with #61 (#54) refuses upload_token
+	// alone.
+	upload := func(filename, contentType string, data []byte) map[string]any {
 		up := c.result(sato, "GET", C+"/upload-url?kind=material&content_type="+url.QueryEscape(contentType), nil)
 		req, _ := http.NewRequestWithContext(ctx, http.MethodPut, up["upload_url"].(string), bytes.NewReader(data))
 		for k, v := range up["headers"].(map[string]any) {
@@ -82,7 +86,7 @@ func TestLiveCore(t *testing.T) {
 		if resp.StatusCode/100 != 2 {
 			t.Fatalf("upload: HTTP %d", resp.StatusCode)
 		}
-		return up["upload_token"].(string)
+		return map[string]any{"files": []map[string]any{{"upload_token": up["upload_token"].(string), "filename": filename}}}
 	}
 	textDoc := document("Syllabus", map[string]any{"body_md": "# Syllabus\nWeekly labs."})
 
@@ -94,10 +98,10 @@ func TestLiveCore(t *testing.T) {
 	c.result(admin, "POST", E+"/instructors", map[string]any{"actor_id": satoID})
 	otherDoc := c.result(sato, "POST", E+"/documents", map[string]any{"kind": "material", "title": "Answers", "body_md": "not for CS"})["document_id"].(string)
 	c.result(sato, "POST", E+"/documents/"+otherDoc+"/publish", nil)
-	mdDoc := document("Week 1 notes", map[string]any{"upload_token": upload("text/markdown", []byte(markdown))})
-	pdfDoc := document("Lab sheet", map[string]any{"upload_token": upload("application/pdf", pdf)})
+	mdDoc := document("Week 1 notes", upload("Week 1 notes.md", "text/markdown", []byte(markdown)))
+	pdfDoc := document("Lab sheet", upload("Lab sheet.pdf", "application/pdf", pdf))
 	handout := doctexttest.DOCX(doctexttest.Doc{Blocks: []doctexttest.Block{{Text: "Hash tables", Heading: 1}, {Text: "Open addressing and chaining."}}})
-	wordDoc := document("Week 5 handout", map[string]any{"upload_token": upload(doctexttest.DOCXType, handout)})
+	wordDoc := document("Week 5 handout", upload("Week 5 handout.docx", doctexttest.DOCXType, handout))
 
 	// The site's agent runtime, with a credential of the agent_runtime
 	// service's own, makes the Word file's PDF rendition as it makes every
