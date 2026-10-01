@@ -125,7 +125,10 @@ func (s *Seat) nextEvents(r float64, waited bool) time.Time {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	next := s.lastEvents.Add(Jitter(d, p.Jitter, r))
-	for len(s.followUps) > 0 && !s.followUps[0].After(s.lastEvents) {
+	// A follow-up is made by a read that began at or after it, not by one
+	// that ended after it: one under way when it was asked for (an answer
+	// beginning to be written, say) may have read before its news.
+	for len(s.followUps) > 0 && !s.followUps[0].After(s.lastEventsStart) {
 		s.followUps = s.followUps[1:]
 	}
 	if len(s.followUps) > 0 && s.followUps[0].Before(next) {
