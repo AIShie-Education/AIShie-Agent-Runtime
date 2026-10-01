@@ -204,59 +204,29 @@ releases are made.
 ## Deploying
 
 Every green commit on `main` is published to
-`ghcr.io/aishie-education/aishie-agent-runtime`, moves `:edge`, and is
-deployed to the `edge` environment, the test site. Tags `v*` are releases:
-the highest stable one is `:stable` too, and the `stable` environment,
-schools' sites, is deployed by hand from the Deploy workflow. The image serves no port to the internet: it connects out, to
-Core and the model providers. [`docs/deploying.md`](docs/deploying.md) says
-how a server is set up, how the workflow is connected, and how to roll
-back.
+`ghcr.io/aishie-education/aishie-agent-runtime` as `:sha-<commit>`, and moves
+`:edge`. Tags `v*` are releases: the highest stable one is `:stable` too.
+This repository and its image are public: anyone pulls the image, and clones
+the code, with no login. The image serves no port to the internet: it
+connects out, to Core and the model providers.
 
-### Renaming the settings
+A site runs the runtime with Core and the web front end, one Docker Compose
+stack per server, which
+[AIShie-Deploy](https://github.com/AIShie-Education/AIShie-Deploy) sets up
+and documents. The server keeps itself up to date: every five minutes it
+pulls the tag each service follows, `:edge` on a test site and the release
+its operator names on a school's, and deploys a new image by a safe
+sequence. Nothing in this repository reaches a server.
 
-The environments were called `staging` and `production`, and are `edge` and
-`stable` now. Deploy reads each of its settings by the new name first and,
-until a later release that removes this, by the old one, with a warning in
-the run that names the setting to add; so deploys go on while the settings
-are renamed. In this repository's settings, before merging the rename if you
-can:
-
-1. **Environments** (Settings → Environments → New environment): make `edge`
-   with the rules `staging` has, and `stable` with the rules `production`
-   has: its required reviewers, and Deployment branches and tags (`edge`:
-   branch `main` and tags `v*`; `stable`: tags `v*` only). **Give `stable`
-   production's protection before its first deploy.** GitHub neither renames
-   environments nor carries their rules over: the first run that names
-   `stable` creates it with no protection at all, and then nothing but
-   Deploy's own check that it runs from a stable release's tag stands
-   between write access to this repository and the schools' sites.
-2. **Variables and secrets** (Settings → Secrets and variables → Actions):
-   add each one that is set under its new name, with the same value, then
-   delete the old one.
-
-   | Kind | Old name | New name |
-   | --- | --- | --- |
-   | Variable | `DEPLOY_TARGET_STAGING` | `DEPLOY_TARGET_EDGE` |
-   | Variable | `DEPLOY_KNOWN_HOSTS_STAGING` | `DEPLOY_KNOWN_HOSTS_EDGE` |
-   | Secret | `DEPLOY_SSH_KEY_STAGING` | `DEPLOY_SSH_KEY_EDGE` |
-   | Variable | `DEPLOY_TARGET_PRODUCTION` | `DEPLOY_TARGET_STABLE` |
-   | Variable | `DEPLOY_KNOWN_HOSTS_PRODUCTION` | `DEPLOY_KNOWN_HOSTS_STABLE` |
-   | Secret | `DEPLOY_SSH_KEY_PRODUCTION` | `DEPLOY_SSH_KEY_STABLE` |
-
-   A variable's value can be copied from its page. A secret's cannot be read
-   back: paste the key from wherever a copy is kept or, with none, give the
-   server a new key ([docs/deploying.md](docs/deploying.md#connecting-the-deploy-workflow),
-   to replace the key), which `setup-server.sh` prints under the new name.
-3. Once a deploy to each environment runs without a warning, the
-   environments `staging` and `production` can be deleted, with the
-   deployments they recorded.
-
-The Deploy form offers `edge` and `stable` alone, as GitHub takes nothing
-but a choice's options there; a workflow that calls Deploy with `staging`
-or `production` has them taken as `edge` and `stable`, with a warning.
-Servers need nothing: `deploy/setup-server.sh` takes `edge` or `stable`, or
-their old names until the same later release, only to name the settings it
-prints.
+The older way is still here: [`deploy/`](deploy) adds the runtime to a
+server of Core's own, and the Deploy workflow deploys to it over SSH once
+this repository has the server's address and key; until then a deploy
+records itself, says which image is ready and does nothing.
+[`docs/deploying.md`](docs/deploying.md) says how such a server is set up,
+how the workflow is connected, and how to roll back; what it says of the
+runtime's own settings (the agents and their secrets, OCR, LibreOffice, the
+renditions, hosted agents, the school's plan, the API) holds in the stack
+as well.
 
 ## License
 

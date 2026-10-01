@@ -52,7 +52,7 @@ case $ENVIRONMENT in
   staging | production)
     old=$ENVIRONMENT
     if [ "$old" = staging ]; then ENVIRONMENT=edge; else ENVIRONMENT=stable; fi
-    echo "notice: $old is called $ENVIRONMENT now: setting this server up for $ENVIRONMENT (README.md, Renaming the settings)" >&2
+    echo "notice: $old is called $ENVIRONMENT now: setting this server up for $ENVIRONMENT (docs/deploying.md, Settings from before the rename)" >&2
     ;;
   *) usage ;;
 esac
@@ -247,12 +247,7 @@ fi
 upper=$(echo "$ENVIRONMENT" | tr '[:lower:]' '[:upper:]')
 say "Done. What is left"
 cat <<DONE
-1. Let this server pull the image. Docker keeps one login per registry, so
-   on a server that runs Core too, the account Core's image is pulled with
-   must be able to read this one as well (a GitHub token, classic, with
-   read:packages):
-     docker login ghcr.io -u <GitHub user name>
-2. The agents: their YAML in $ETC/agents, and each secret
+1. The agents: their YAML in $ETC/agents, and each secret
    it refers to as a file in $ETC/secrets (secret://a/b is
    the file a/b there), readable by group 65532 (docs/deploying.md, The
    agents' configuration and secrets):
@@ -261,11 +256,12 @@ cat <<DONE
      AISHIE_RUNTIME_IMAGE=ghcr.io/aishie-education/aishie-agent-runtime:sha-<commit> aishie-runtime check
    Copy $ETC/secrets/kek somewhere safe, and not where the
    database's backups go: it opens the secrets the runtime keeps there.
-3. Start it, with the image of the latest green push to main (the CI run's
-   publish / image job, or the package's page, names it), or of a release:
+2. Start it, with the image of the latest green push to main (the CI run's
+   publish / image job, or the package's page, names it), or of a release.
+   The image is public: this server pulls it with no login.
      aishie-runtime-deploy ghcr.io/aishie-education/aishie-agent-runtime:sha-<commit>
      curl -s 127.0.0.1:9090/healthz
-4. For the Deploy workflow, in the AIShie-Agent-Runtime repository's
+3. For the Deploy workflow, in the AIShie-Agent-Runtime repository's
    Settings → Secrets and variables → Actions (not Core's):
      variable DEPLOY_TARGET_$upper       $USER_NAME@$HOST
      variable DEPLOY_KNOWN_HOSTS_$upper  $HOST $(cut -d' ' -f1,2 /etc/ssh/ssh_host_ed25519_key.pub)

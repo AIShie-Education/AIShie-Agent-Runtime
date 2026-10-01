@@ -12,9 +12,8 @@ make docker   # the image, as CI builds it; never pushed
 `make test` wants a PostgreSQL whose role can create databases:
 `TEST_DATABASE_URL` names its maintenance database (`postgres:///postgres`,
 over the local socket, by default). `make e2e` runs the Core pinned in
-`.github/core-image` in Docker, which takes `docker login ghcr.io` with a
-token that can read Core's image (classic, `read:packages`); without Docker,
-give it a binary of Core: `CORE_BIN=../AIShie-Core/bin/aishie-core make e2e`.
+`.github/core-image` in Docker, pulled from ghcr.io with no login, as Core's
+image is public; without Docker, give it a binary of Core: `CORE_BIN=../AIShie-Core/bin/aishie-core make e2e`.
 The scripts run it by whatever name it has, so a Core from before its
 rename, whose binary is `aishiterud`, runs as well.
 
@@ -84,9 +83,11 @@ notes and for the Deploy workflow's summary.
 ## Releasing
 
 A push to `main` goes out by itself once CI passes: its image is pushed to
-GHCR as `:sha-<commit>` and `:edge`, and deployed to `edge`. When pushes
-come faster than they are published, one that a newer push overtakes while
-it waits is not published. A release is made by a tag, from `main`:
+GHCR as `:sha-<commit>` and `:edge`, which edge servers pull within five
+minutes ([AIShie-Deploy](https://github.com/AIShie-Education/AIShie-Deploy)).
+When pushes come faster than they are published, one that a newer push
+overtakes while it waits is not published. A release is made by a tag, from
+`main`:
 
 ```
 git switch main && git pull
@@ -101,21 +102,27 @@ to the release page, and a multi-architecture image to
 `ghcr.io/aishie-education/aishie-agent-runtime`. The release notes list the
 store's migrations new in the release; for a stable release, new since the
 last stable one, pre-releases included. A tag with a hyphen
-(`v0.1.0-rc.1`) is a pre-release: it leaves `:latest` and `:stable` alone
-and is deployed to edge. A stable release moves `:stable` to itself when it
-is the highest stable release.
+(`v0.1.0-rc.1`) is a pre-release: it leaves `:latest` and `:stable` alone.
+A stable release moves `:stable` to itself when it is the highest stable
+release.
 
-A stable release goes to stable when somebody runs **Deploy** for it:
-Actions → Deploy → Run workflow, use the workflow from the release's tag, and
-give the environment `stable` and the image the release run's summary
-names (`ghcr.io/aishie-education/aishie-agent-runtime:1.2.3`). That run is the
-decision to deploy and to migrate. For stable, Deploy takes nothing else:
-run from a branch or a pre-release's tag, or given an image that is not a
-stable release's, it stops before it deploys. To roll back, run Deploy from
-the newest release's tag, whose checks are the current ones, with the image
-of the release before: `migrate up` leaves a schema a newer release migrated
-as it is, and a migration keeps the release before it working. A release
-further back may need what a later migration has dropped.
+A stable release goes to a school's site when its operator names it in the
+server's `/etc/aishie/aishie.env` (AIShie-Deploy's README, Upgrading
+stable): that is the decision to deploy and to migrate. Going back is
+pinning the release before (its README, Rolling back): `migrate up` leaves
+a schema a newer release migrated as it is, and a migration keeps the
+release before it working. A release further back may need what a later
+migration has dropped.
+
+To a server of Core's own that the runtime joins (the older way,
+[docs/deploying.md](docs/deploying.md)), somebody runs **Deploy** for it
+instead: Actions → Deploy → Run workflow, use the workflow from the
+release's tag, and give the environment `stable` and the image the release
+run's summary names (`ghcr.io/aishie-education/aishie-agent-runtime:1.2.3`).
+For stable, Deploy takes nothing else: run from a branch or a pre-release's
+tag, or given an image that is not a stable release's, it stops before it
+deploys. To roll back there, run Deploy from the newest release's tag, whose
+checks are the current ones, with the image of the release before.
 
 To try the build without publishing anything:
 
@@ -127,61 +134,48 @@ goreleaser release --snapshot --clean
 
 Before the first push to `main` after the CD workflows land, in GitHub:
 
-- **Core's image** (Core's package settings): the end to end pulls
-  `ghcr.io/aishie-education/aishie-core`, which is private, with this
-  repository's `GITHUB_TOKEN`. An owner of the AIShie-Education organization, or
-  an admin of the package, lets this repository read it, once: the
-  package's settings
-  (<https://github.com/orgs/AIShie-Education/packages/container/aishie-core/settings>)
-  → Manage Actions access → Add Repository → `AIShie-Agent-Runtime`, role
-  **Read**. Until then every pull request's end to end fails at the pull,
-  and says so, and so does every release.
 - **Environments** (repository Settings → Environments): `edge` and
   `stable`. Let `edge` take branch `main` and tags `v*`, and `stable` tags
   `v*` only (Deployment branches and tags → Selected branches and tags).
   Create them first: a run that names an environment that does not exist
-  creates it, with no rules. Required reviewers on a private repository need
-  GitHub Enterprise; where they are there, add them to `stable`. On GitHub
-  Free, GitHub's docs say a private repository cannot configure
-  environments: the workflows still run, the environments carry no rules,
-  and only Deploy's own check keeps the environment `stable` to stable
-  releases. A repository set up when they were called `staging` and
-  `production` needs `edge` and `stable` made as well, with the same rules
-  ([README.md](README.md#renaming-the-settings)).
-- **Packages** (organization Settings → Packages): Package Creation must allow
-  Private, and Default Package Settings should keep "Inherit access from
-  source repository". The first publish then creates
-  `aishie-agent-runtime` private, linked to this repository, which its
-  workflows can write to. Do not push the image by hand before that: a
-  package pushed from outside a workflow is not linked, and the workflow
-  cannot push to it until it is given access (package settings, Manage
-  Actions access). The servers pull it with a token of their own
-  ([docs/deploying.md](docs/deploying.md)); on a server that runs Core too,
-  the account Core's image is pulled with must be able to read this package
-  as well.
+  creates it, with no rules. The repository is public, so its environments
+  take protection rules on GitHub Free: add required reviewers to `stable`.
+  A repository set up when they were called `staging` and `production` needs
+  `edge` and `stable` made as well, with the same rules
+  ([docs/deploying.md](docs/deploying.md#settings-from-before-the-rename)).
+- **Packages** (organization Settings → Packages): Default Package Settings
+  should keep "Inherit access from source repository". The first publish
+  then creates `aishie-agent-runtime` linked to this repository, which its
+  workflows can write to. The package must be public (its settings → Danger
+  Zone → Change visibility → Public): servers pull it with no login. Do not
+  push the image by hand before the first publish: a package pushed from
+  outside a workflow is not linked, and the workflow cannot push to it until
+  it is given access (package settings, Manage Actions access).
 - **Allowed actions** (organization Settings → Actions → General →
   Policies): if the organization allows only selected actions, allow
   `docker/*` and `goreleaser/*` with the rest. Pull requests' CI uses only
   `actions/*`, so a policy that leaves the others out first shows at the
   first publish or release.
-- **Variables and secrets**, when they apply: `ATTESTATIONS` = `true` where
-  artifact attestations are available (a public repository, or GitHub
-  Enterprise Cloud). For each environment with a server, the repository
-  variables `DEPLOY_TARGET_EDGE` and `DEPLOY_KNOWN_HOSTS_EDGE` and the
-  repository secret `DEPLOY_SSH_KEY_EDGE` (`_STABLE` for stable),
-  which `deploy/setup-server.sh` prints ([docs/deploying.md](docs/deploying.md)).
-  They are this repository's, not Core's, and not the environment's: a
-  private repository on GitHub Free has no environment variables or secrets.
+- **Variables and secrets**, when they apply. Releases are attested with no
+  setting, the repository being public (a private one would need GitHub
+  Enterprise Cloud and `ATTESTATIONS` = `true`). For each environment with a
+  server of Core's own that the runtime joins (the older way:
+  [docs/deploying.md](docs/deploying.md)), the repository variables
+  `DEPLOY_TARGET_EDGE` and `DEPLOY_KNOWN_HOSTS_EDGE` and the repository
+  secret `DEPLOY_SSH_KEY_EDGE` (`_STABLE` for stable), which
+  `deploy/setup-server.sh` prints. They are this repository's, not Core's,
+  and not the environment's, as the workflow was written when the
+  repository was private and GitHub Free gave it no environment variables
+  or secrets.
   For `live.yml`, each provider's key as a secret (`OPENAI_API_KEY`, …) and
   its model as a variable (`OPENAI_MODEL`, …); a provider without a key is
   skipped.
-- **Minutes and storage**: on GitHub Free a private repository has 2,000
-  Actions minutes a month, and runs stop when they are used up unless there
-  is a payment method. Every push to `main` runs the whole of CI, the end to
+- **Minutes and storage**: the repository is public, so its Actions minutes
+  on GitHub's standard runners cost nothing, and neither does a public
+  package's storage. Every push to `main` runs the whole of CI, the end to
   end against Core included, and a two-architecture image build; `live.yml`
   runs every night. Every green push also leaves a `:sha-*` image, with its
-  SBOM and provenance; GitHub says container storage is free for now.
-  Nothing deletes old images automatically, since deleting untagged versions
+  SBOM and provenance. Nothing deletes old images automatically, since deleting untagged versions
   can break a multi-architecture image; prune them from the package page
   when needed.
 
