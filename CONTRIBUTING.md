@@ -80,8 +80,15 @@ and a test that passed alone then fails.
   ends. Likewise what is counted when it ends is read once it has ended,
   not once the test has stopped it.
 - Where a time bound is itself the point, it is generous (seconds, for a
-  program the sandbox runs below the runtime's priority) or reckoned from
-  what was measured.
+  program the sandbox runs below the runtime's priority), tied to what it
+  bounds (an agent whose lease renewal hangs stops before the lease would
+  lapse, on a lease of seconds), or reckoned from what was measured.
+- A fake reached over the loopback is a server like any other: a busy
+  machine is slow to accept its connections, and the kernel resets those
+  past its listener's backlog. A test that makes many calls at once keeps
+  its connections between calls, and makes again a connection reset as
+  it is made, which carried no call (`loadTransport` in the worker's
+  load test); a call that failed once under way still fails.
 - No test is skipped or retried for being slow.
 
 Try a test that waits under load before calling it done, with the race

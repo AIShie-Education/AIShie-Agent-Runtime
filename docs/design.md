@@ -2219,7 +2219,9 @@ Chinese with a table, overran, and was cut off.
   timeout, and a decision on a proposal settled at once; and the load test
   on the schedule and long-polling, each measured until every agent has
   polled every course's inbox, and no course polled more than four times
-  as often as another of its agent's, and one; no token in any log line; the
+  as often as another of its agent's, and one, its calls carried over
+  connections kept between them, as HTTP/2 to Core carries them; no token
+  in any log line; the
   safety evaluations (injected instructions to call other tools, to answer
   about other students, to post links carrying data); an owner's write
   proposed then executed, counted, logged without its arguments and
