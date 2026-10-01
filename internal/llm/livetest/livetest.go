@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -32,16 +31,14 @@ var bound = []string{"course_id", "idempotency_key"}
 // (internal/core/testdata/catalogue.json) under their MCP names, with
 // Core's schemas as they are; with unbound, without the arguments the
 // runtime binds (course_id, idempotency_key), as the runtime declares
-// them.
+// them. It is called from an adapter's tests, which run in the adapter's
+// directory (internal/llm/<adapter>), so the catalogue is found from there,
+// as the other tests find it, and under -trimpath too.
 func CatalogueTools(t testing.TB, unbound bool) []llm.Tool {
 	t.Helper()
-	_, here, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("livetest: cannot tell where the catalogue is")
-	}
-	raw, err := os.ReadFile(filepath.Join(filepath.Dir(here), "..", "..", "core", "testdata", "catalogue.json"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "core", "testdata", "catalogue.json"))
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("livetest: the catalogue, from an adapter's directory: %v", err)
 	}
 	var cat struct {
 		Tools []struct {
