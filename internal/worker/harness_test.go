@@ -384,13 +384,7 @@ func (wk *worker) stop() {
 // eventually waits for cond, failing the test after a deadline.
 func eventually(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	eventuallyWithin(t, 15*time.Second, what, cond)
-}
-
-// eventuallyWithin is eventually, failing the test after d.
-func eventuallyWithin(t *testing.T, d time.Duration, what string, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(d)
+	deadline := time.Now().Add(15 * time.Second)
 	for !cond() {
 		if time.Now().After(deadline) {
 			t.Fatalf("timed out waiting for %s", what)

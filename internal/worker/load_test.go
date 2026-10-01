@@ -16,11 +16,12 @@ import (
 
 // TestLoad is §8.2's load test, short: 50 agents in 5 courses each, idle,
 // against the fake Core's per-actor limiter. Their polling stays within
-// max_rate_share of Core's allowance, and Core never answers 429: on the
-// schedule, as against a Core from before wait_s, and long-polling their
-// inboxes, every call one call to the share however long it waits, with
-// none sent back to the schedule (5 seats an agent, 250 in all, are within
-// Core's bounds on calls waiting).
+// max_rate_share of Core's allowance, every course has its turn, none
+// more than four times another of its agent's (and one), and Core
+// never answers 429: on the schedule, as against a Core from before
+// wait_s, and long-polling their inboxes, every call one call to the share
+// however long it waits, with none sent back to the schedule (5 seats an
+// agent, 250 in all, are within Core's bounds on calls waiting).
 //
 // Time is scaled down 30 times: a minute of Core's is two seconds here.
 // Every interval is divided by 30 (inbox 2 s hot, 10 s idle to 30 s at
@@ -47,6 +48,7 @@ func load(t *testing.T, waitS float64) {
 		courses = 5
 		share   = 0.03
 		rate    = 600 * scale // calls a minute, scaled
+		fair    = 4           // the most an agent polls one course's inbox to another's (and one)
 	)
 	w := newWorldWith(t, fakecore.Options{RatePerMinute: int(rate), RateBurst: 100})
 	var cos []fakecore.Course
@@ -81,7 +83,7 @@ func load(t *testing.T, waitS float64) {
 	})
 	// Fifty agents and their 250 seats start much more slowly than one,
 	// and on a busy machine slower still: they are given a minute.
-	eventuallyWithin(t, time.Minute, "every agent polling every course", func() bool {
+	within(t, time.Minute, "every agent polling every course", func() bool {
 		st := wk.sup.Status()
 		if len(st) != agents {
 			return false
@@ -108,7 +110,7 @@ func load(t *testing.T, waitS float64) {
 	window := to.Sub(from).Round(time.Millisecond)
 
 	polls := map[string]int{}
-	inboxes := map[string]map[string]bool{}
+	inboxes := map[string]map[string]int{} // inbox polls by agent, by course
 	limited, waited := 0, 0
 	for _, c := range w.fc.Calls() {
 		if c.HTTPStatus == http.StatusTooManyRequests {
@@ -129,9 +131,9 @@ func load(t *testing.T, waitS float64) {
 			}
 			w.ok(json.Unmarshal(c.Args, &args))
 			if inboxes[id] == nil {
-				inboxes[id] = map[string]bool{}
+				inboxes[id] = map[string]int{}
 			}
-			inboxes[id][args.CourseID] = true
+			inboxes[id][args.CourseID]++
 			if args.WaitS > 0 {
 				waited++
 			}
@@ -147,22 +149,36 @@ func load(t *testing.T, waitS float64) {
 		t.Errorf("Core answered 429 %d times", limited)
 	}
 	allowed := share * rate / 60 * window.Seconds() // calls an agent's polling may make in the window
-	total := 0
+	total, worst := 0, 0.0
 	for id := range docsIDs(docs) {
 		n := polls[id]
 		total += n
 		if float64(n) > allowed*1.3 {
 			t.Errorf("%s polled %d times in %s; its share is %.0f", id, n, window, allowed)
 		}
-		if len(inboxes[id]) != courses {
-			t.Errorf("%s polled %d courses' inboxes, not %d", id, len(inboxes[id]), courses)
+		// Every course had its turn: waitPolled has seen to a poll of
+		// each, however long a busy machine took over them. The turns are
+		// held to one another, which a busy machine slows alike: none more
+		// than four times the least, given the one more that the window's
+		// end may have cut off.
+		least, most := -1, 0
+		for _, co := range cos {
+			n := inboxes[id][co.ID]
+			most = max(most, n)
+			if least < 0 || n < least {
+				least = n
+			}
 		}
+		if most > fair*(least+1) {
+			t.Errorf("%s polled one course's inbox %d times in %s, another's %d", id, least, window, most)
+		}
+		worst = max(worst, float64(most)/float64(least+1))
 	}
 	if float64(total) > allowed*agents*1.1 {
 		t.Errorf("the agents polled %d times in %s; their share is %.0f", total, window, allowed*agents)
 	}
-	t.Logf("%d agents in %d courses: %d polling calls in %s, %.0f%% of their share; no 429",
-		agents, courses, total, window, 100*float64(total)/(allowed*agents))
+	t.Logf("%d agents in %d courses: %d polling calls in %s, %.0f%% of their share; no 429; an agent's turns at its courses' inboxes at worst %.1f to one (and one)",
+		agents, courses, total, window, 100*float64(total)/(allowed*agents), worst)
 }
 
 // waitPolled waits until each of actors (agents' ids by their actors')
