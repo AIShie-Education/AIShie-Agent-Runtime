@@ -334,13 +334,14 @@ are converted to `.xlsx` and read as any workbook. `docs/design.md` §4
   is a PDF of its own, in a second or less.
 - **How the model sees it:** a file whose PDF Core keeps already (its
   rendition, [below](#office-files-previewed-as-pdf-renditions)) is given
-  as that PDF, fetched from Core and not converted here, even where
-  LibreOffice is missing. Otherwise the first question about a file
-  converts it and waits for it up to 2 min (`OFFICE_PDF_TIMEOUT`), never
-  past half the answer's time left. A file not ready by then is given as its text
-  meanwhile, where the runtime reads it without LibreOffice, and the model
-  is told to ask again in a minute to see its pages; a file LibreOffice
-  cannot open (damaged, protected by a password) is said so.
+  as that PDF, fetched from Core and not converted here; to a model that
+  takes files, even where LibreOffice is missing. Otherwise the first
+  question about a file converts it and waits for it up to 2 min
+  (`OFFICE_PDF_TIMEOUT`), never past half the answer's time left. A file
+  not ready by then is given as its text meanwhile, where the runtime
+  reads it without LibreOffice, and the model is told to ask again in a
+  minute to see its pages; a file LibreOffice cannot open (damaged,
+  protected by a password) is said so.
 - **What it may reach:** nothing outside the file. LibreOffice runs as OCR's
   programs do (held in memory, time and what it may write, killed with its
   children at its timeout, nothing of the runtime's environment), from a
@@ -356,10 +357,12 @@ are converted to `.xlsx` and read as any workbook. `docs/design.md` §4
   pages a file part, at most`. With `OFFICE_PDF=auto` (the default) and
   LibreOffice missing (a binary run outside the image), it is off with a
   warning, and files are given as before, but for those whose PDF Core
-  keeps; `OFFICE_PDF=on` refuses to start without it.
+  keeps, which a model that takes files is still given; `OFFICE_PDF=on`
+  refuses to start without it.
 - **Watching it:** `office_conversions_total{to,outcome}`,
   `office_conversion_seconds{to}`, `office_requests_total{result}` (Core's
-  PDFs fetched are `rendition`, those not taken `rendition_failed`),
+  PDFs fetched are `rendition`, those not taken `rendition_failed`: one
+  not taken is not fetched again for five minutes),
   `pdf_cuts_total{op,outcome}`, `pdf_cut_seconds{op}`,
   `office_conversions_running` and `office_conversions_waiting` in
   `/metrics`. One log line a conversion, with the start of the file's
@@ -835,7 +838,7 @@ running (above): a restart does not read the file again.
 | `OCR_PAGE_TIMEOUT`, `OCR_TIMEOUT`, `OCR_MEMORY_MB` | how long one page may take to render or read (`90s`), one file in all (`15m`), and the memory each program may take (`1024`). |
 | `OCR_CONCURRENCY`, `OCR_QUEUE`, `OCR_WAIT` | the files a worker reads at once (`1`, at most 8), those that may wait (`8`), and how long a question waits for a file's text before the model is told to ask again (`5s`; `0` waits not at all). |
 | `OFFICE_PDF` | `auto` (the default: on where LibreOffice is, as in the image), `on` (the runtime does not start without it) or `off` ([above](#presentations-and-documents-libreoffice)). |
-| `OFFICE_PDF_TIMEOUT`, `OFFICE_PDF_MAX_PAGES`, `OFFICE_PDF_MEMORY_MB` | how long one file may take to convert (`2m`), the most pages a PDF made has (`300`), and the memory LibreOffice may take (`2048`). |
+| `OFFICE_PDF_TIMEOUT`, `OFFICE_PDF_MAX_PAGES`, `OFFICE_PDF_MEMORY_MB` | how long one file may take to convert (`2m`), the most pages a PDF given to a model has, LibreOffice's or Core's (`300`), and the memory LibreOffice may take (`2048`). |
 | `PDF_PART_PAGES` | the pages of a PDF given to a model as one file, when it has more: a longer one is given in parts (`10`, and never more than the model's provider takes in a file); the transcriber's ranges of pages too. |
 | `TRANSCRIBE` | `auto` (the default: the transcriber runs when the site's administrators turn it on), `on` (the runtime does not start where it cannot run) or `off` (never, whatever the site says) ([above](#transcribing-the-courses-files)). |
 | `RENDITIONS` | `auto` (the default: the PDF renditions of the Office files Core keeps are made wherever LibreOffice converts and `CORE_BASE_URL` is set), `on` (the runtime does not start where they cannot be) or `off` ([above](#office-files-previewed-as-pdf-renditions)). |

@@ -667,7 +667,8 @@ ask for pages of the file itself to check one against the text:
 `file_pages`, the runtime's other argument of `document_get` (`"3"`,
 `"3-5"`; at most 10 at a time, and never more than its provider takes in a
 file), gives those pages as a PDF of their own, cut from the file or from
-LibreOffice's PDF of it, a deck's speaker notes beside them, and no text; a
+its PDF (Core's where its rendition is done, else LibreOffice's), a deck's
+speaker notes beside them, and no text; a
 model that takes no files is given the text, and told `file_pages` does
 not apply. `file_part` and `file_pages` are not asked for together. A text
 version not done (pending, working, failed, skipped), or none, changes
@@ -903,7 +904,13 @@ and a model that takes files sees its pages as they look.
   or claimed, failed or skipped, none for the file, a Core from before
   renditions), or its PDF cannot be had (not fetched, not a PDF that
   reads, past the pages with nothing to cut it), the runtime converts the
-  file itself, as below. The URL reaches no model (Core's result is
+  file itself, as below. A PDF of Core's not had is tried once a call
+  (not again for the document's text read from its PDF, or OCR's slides
+  picked from it), and one not taken is remembered by the file's checksum
+  for five minutes (`office.RenditionRetention`; but for a fetch the
+  question's end cancelled), and not fetched again meanwhile, so that
+  where nothing here converts the file, a PDF that cannot be had is not
+  fetched, up to 50 MiB, at every question. The URL reaches no model (Core's result is
   stripped of every `download_url`) and no log: what the fetch said is
   dropped, leaving the server's status or that it was too large, and the
   conversions log a PDF taken or not by the start of the file's checksum
@@ -938,7 +945,8 @@ and a model that takes files sees its pages as they look.
   headings, lists and tables kept, unless it is little but pictures (under
   200 letters besides them: scanned pages, as a school's often are);
   that one, and another document (`.doc`, `.odt`, `.rtf`), is the
-  runtime's text of LibreOffice's PDF of it, page by page, and where that
+  runtime's text of its PDF (Core's where its rendition is done, else
+  LibreOffice's), page by page, and where that
   has no text to read, what OCR recognizes of the PDF, under a checksum of
   the runtime's own.
 - *In the background, once* (`office.Service`, the worker's). One file is
@@ -994,7 +1002,8 @@ and a model that takes files sees its pages as they look.
   log line and `check` say which.
 - *Counted*: `office_requests_total{result}` (`cached`, `failed`,
   `started`, `in_progress`, `busy`, `off`; and `rendition`, a PDF of
-  Core's fetched, `rendition_failed`, one not taken),
+  Core's fetched, `rendition_failed`, one not taken, or remembered as not
+  taken),
   `office_conversions_total{to,outcome}` (`done`, `failed`, `timeout`,
   `too_large`, `cancelled`), `office_conversion_seconds{to}`,
   `pdf_cuts_total{op,outcome}` and `pdf_cut_seconds{op}` (`range`: a
@@ -2090,7 +2099,10 @@ Chinese with a table, overran, and was cut off.
   before, no PDF fetched; a URL the server refuses asked of
   `document_file` again and the fresh one fetched, one past its
   `download_expires_at` not tried, and where the fresh one is refused too,
-  or the server fails, the deck converted here; a PDF past `MaxFileBytes`
+  or the server fails, the deck converted here; a fresh URL of another
+  version, other bytes or another message's file never fetched; a PDF not
+  had tried once a call, for its text or OCR too; the parts of Core's PDF
+  and of LibreOffice's cut under names apart; a PDF past `MaxFileBytes`
   not fetched, or not read past it where Core said it was smaller; a
   message's deck given as Core's PDF by `attachment_get` and with the
   question, a lapsed URL asked of `conversation_attachment` again; to a
@@ -2099,7 +2111,8 @@ Chinese with a table, overran, and was cut off.
   an OpenDocument deck given as Core's PDF to a model that takes files,
   and as before to one that takes none, or without a PDF of Core's; and,
   with the worker's own conversions, Core's PDF taken, or not taken for
-  each refusal, no URL, its signature or its path in a result or in their
+  each refusal (and, in `office`, remembered for `RenditionRetention` but
+  for a fetch cancelled), no URL, its signature or its path in a result or in their
   log, and a conversion of the file after finding Core's PDF. The fake Core
   carries out `document_create` through its pipeline, held to the
   `model_writes` fixture recorded from Core; `member_add`, `member_get`,
