@@ -2217,7 +2217,8 @@ Chinese with a table, overran, and was cut off.
   stopping and a worker stopping ending their waits at once, a 429's
   slowdown spacing long polls, a long poll outlasting the client's own
   timeout, and a decision on a proposal settled at once; and the load test
-  on the schedule and long-polling; no token in any log line; the
+  on the schedule and long-polling, each measured until every agent has
+  polled every course's inbox; no token in any log line; the
   safety evaluations (injected instructions to call other tools, to answer
   about other students, to post links carrying data); an owner's write
   proposed then executed, counted, logged without its arguments and
