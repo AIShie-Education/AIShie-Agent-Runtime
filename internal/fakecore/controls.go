@@ -1,7 +1,6 @@
 package fakecore
 
 import (
-	"bytes"
 	"crypto/rand"
 	"encoding/base32"
 	"encoding/base64"
@@ -194,8 +193,7 @@ func (c *Core) AddCourse(code string) Course {
 	syllabus := doc(kindMaterial, "Syllabus", 0)
 	syllabus.bodyMD = ptr("# " + code + " syllabus\n\nWeekly lectures, one assignment a fortnight, and a final exam.")
 	slides := doc(kindMaterial, "Lecture 1 slides", 1)
-	slides.file, slides.contentType, slides.fileToken = []byte("%PDF-1.4\n% fakecore: lecture 1 slides\n"), ptr("application/pdf"), fileToken()
-	c.blobs[slides.fileToken] = slides
+	c.addFiles(slides, now, false, []File{{ContentType: "application/pdf", Data: []byte("%PDF-1.4\n% fakecore: lecture 1 slides\n")}})
 	instructions := doc(kindInstructions, "HW1 instructions", 2)
 	instructions.bodyMD = ptr("Answer the three questions at the end of chapter 1. Show your working.")
 	published := now
@@ -214,28 +212,45 @@ func (c *Core) AddCourse(code string) Course {
 
 // AddFile adds a material to the course, published, whose one version is
 // a file: data, of contentType ("" for a file whose type was not
-// recorded), as a person uploads a deck of slides or a handout.
-// document_get gives it a download_url as Core does, and serves it. Its
-// text version is queued, for the transcription service to claim. It
-// returns the document's id.
+// recorded), as a person uploads a deck of slides or a handout, named
+// from the title as Core names a file uploaded under the deprecated
+// upload_token. document_get gives it a download_url as Core does, and
+// serves it. Its text version is queued, for the transcription service to
+// claim. It returns the document's id.
 func (c *Core) AddFile(courseID, title, contentType string, data []byte) (string, error) {
+	id, _, err := c.AddFiles(courseID, title, "", File{ContentType: contentType, Data: data})
+	return id, err
+}
+
+// AddFiles adds a material to the course, published, whose one version is
+// body (none for "") and files, in order (AIShie-Core #49): a lecture's
+// slides, its handout and a sample program. A file given no name is named
+// from the title. Each file's text version is queued, for the
+// transcription service to claim. It returns the document's id and its
+// files' ids, in order.
+func (c *Core) AddFiles(courseID, title, body string, files ...File) (string, []string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	co := c.courses[courseID]
 	if co == nil {
-		return "", fmt.Errorf("fakecore: AddFile: no course %s", courseID)
+		return "", nil, fmt.Errorf("fakecore: AddFiles: no course %s", courseID)
+	}
+	if len(files) == 0 && body == "" {
+		return "", nil, errors.New("fakecore: AddFiles: a version is text, files, or both")
 	}
 	now := c.now()
 	d := &document{id: newID(), kind: kindMaterial, title: title, course: co, sortOrder: len(co.documents), createdAt: now,
-		versionID: newID(), authorMemberID: newID(), versionCreatedAt: now, file: bytes.Clone(data), fileToken: fileToken()}
-	if contentType != "" {
-		d.contentType = &contentType
+		versionID: newID(), authorMemberID: newID(), versionCreatedAt: now}
+	if body != "" {
+		d.bodyMD = &body
 	}
-	d.text = c.newText(now, false)
+	c.addFiles(d, now, true, files)
 	co.documents = append(co.documents, d)
-	c.blobs[d.fileToken] = d
-	c.queued()
-	return d.id, nil
+	ids := make([]string, len(d.files))
+	for i, f := range d.files {
+		ids[i] = f.id
+	}
+	return d.id, ids, nil
 }
 
 func ptr[T any](v T) *T { return &v }

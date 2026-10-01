@@ -3,9 +3,10 @@
 // student's own agent and a course tutor answer, the moved-on, duplicate and
 // denied paths hold, proposals are followed, an idle agent long-polling its
 // inbox notices a question within a second, a question withdrawn stops the
-// answer being written to it, the transcriber gives the course's files
-// their text versions in Core (alone, after the others: Core's queue is
-// the whole site's), and no token reaches a log.
+// answer being written to it, a version of several files is read file by
+// file, the transcriber gives the course's files their text versions in
+// Core, each file of a version on its own (alone, after the others: Core's
+// queue is the whole site's), and no token reaches a log.
 //
 // Each test seats its own people and agents through Core's REST API, as
 // root and then as those people, each signed in with a password of their

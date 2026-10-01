@@ -440,7 +440,8 @@ func disposition(filename string) string {
 // ---------------------------------------------------------------------------
 
 // File is a file a person attaches to a message (AskWithFiles,
-// FollowUpWithFiles): its name, the type they declare, and its bytes.
+// FollowUpWithFiles), or puts in a document's version (AddFiles): its
+// name, the type they declare, and its bytes.
 type File struct {
 	Filename    string
 	ContentType string

@@ -14,6 +14,7 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext/doctexttest"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/fakecore"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/scripted"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
@@ -37,6 +38,13 @@ type fileResult struct {
 		} `json:"next_part"`
 	} `json:"file"`
 	FileText string `json:"file_text"`
+	// Files are a version of several files': each's record and text.
+	Files []struct {
+		FileID   string `json:"file_id"`
+		Name     string `json:"name"`
+		GivenAs  string `json:"given_as"`
+		FileText string `json:"file_text"`
+	} `json:"files"`
 }
 
 // resultsOf are the tool results of the last message of a model request.
@@ -326,33 +334,77 @@ func TestScanReadByOCR(t *testing.T) {
 // (here the course's staff wrote it) reaches the model as that text, marked
 // as the staff's, in place of the runtime's reading of the file; the
 // worker keeps it, and drops it as Core's event says the text changed, the
-// model then given the new text.
+// model then given the new text. So it is against a Core of one file a
+// version (before AIShie-Core #49), whose event names no file.
 func TestTextVersionReachesTheModel(t *testing.T) {
+	for name, o := range map[string]fakecore.Options{"files": {}, "one_file_a_version": {WithoutFiles: true}} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorldWith(t, o)
+			docID, err := w.fc.AddFile(w.co.ID, "Reading 3", "application/pdf", doctexttest.PDF(doctexttest.PDFPage{Lines: []string{"Reading 3"}}))
+			w.ok(err)
+			w.ok(w.fc.EditText(docID, w.satoSeat.ID, "## 第 1 頁\n\nStable sorts keep equal keys in order."))
+			get := scripted.ToolCall{Name: "document_get", Args: `{"document_id":"` + docID + `"}`}
+			yuki := w.ownAgent("yuki-helper", 0)
+			m := scripted.New(scripted.CallTools(get), scripted.Reply("They keep equal keys in order."), scripted.CallTools(get),
+				scripted.Reply("Now they say otherwise."))
+			wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "files", nil, nil)), models{"files": m}, workerOpts{})
+			c1, _ := w.ask(0, yuki, "What do stable sorts do?")
+			w.waitAnswers(c1, 1)
+			res, files := resultsOf(t, m.Requests()[1])
+			if d := res[0]; len(files) != 0 || d.File.GivenAs != "text" || d.FileText != "## 第 1 頁\n\nStable sorts keep equal keys in order." ||
+				!strings.Contains(d.File.Note, "written or corrected by the course's staff") || d.File.Name != "Reading 3.pdf" && !o.WithoutFiles ||
+				d.File.Name != "Reading 3" && o.WithoutFiles {
+				t.Fatalf("the text version: %+v, %d files", d, len(files))
+			}
+			if st := wk.sup.texts.Stats(); st.Readings != 1 {
+				t.Fatalf("the text version is not kept: %+v", st)
+			}
+			w.ok(w.fc.EditText(docID, w.satoSeat.ID, "## 第 1 頁\n\nStable sorts may reorder equal keys."))
+			eventually(t, "the text kept dropped on the event", func() bool { return wk.sup.texts.Stats().Readings == 0 })
+			c2, _ := w.ask(0, yuki, "Are you sure?")
+			w.waitAnswers(c2, 1)
+			res, _ = resultsOf(t, m.Requests()[3])
+			if d := res[0]; d.FileText != "## 第 1 頁\n\nStable sorts may reorder equal keys." {
+				t.Errorf("the new text: %+v", d)
+			}
+		})
+	}
+}
+
+// TestTextVersionsOfFilesReachTheModel: a version of two files, each with
+// a text of its own the course's staff wrote, reaches the model file by
+// file under each file's name; the worker keeps each text by its file, and
+// drops only the file's whose text Core's event says changed, the model
+// then given its new text beside the other's, kept.
+func TestTextVersionsOfFilesReachTheModel(t *testing.T) {
 	w := newWorld(t)
-	docID, err := w.fc.AddFile(w.co.ID, "Reading 3", "application/pdf", doctexttest.PDF(doctexttest.PDFPage{Lines: []string{"Reading 3"}}))
+	docID, ids, err := w.fc.AddFiles(w.co.ID, "Week 3", "",
+		fakecore.File{Filename: "slides.pdf", ContentType: "application/pdf", Data: doctexttest.PDF(doctexttest.PDFPage{Lines: []string{"Slides"}})},
+		fakecore.File{Filename: "handout.txt", ContentType: "text/plain", Data: []byte("The handout.")})
 	w.ok(err)
-	w.ok(w.fc.EditText(docID, w.satoSeat.ID, "## 第 1 頁\n\nStable sorts keep equal keys in order."))
+	w.ok(w.fc.EditFileText(docID, ids[0], w.satoSeat.ID, "## 第 1 頁\n\nThe slides' text."))
+	w.ok(w.fc.EditFileText(docID, ids[1], w.satoSeat.ID, "## 第 1 頁\n\nThe handout's text."))
 	get := scripted.ToolCall{Name: "document_get", Args: `{"document_id":"` + docID + `"}`}
 	yuki := w.ownAgent("yuki-helper", 0)
-	m := scripted.New(scripted.CallTools(get), scripted.Reply("They keep equal keys in order."), scripted.CallTools(get),
-		scripted.Reply("Now they say otherwise."))
+	m := scripted.New(scripted.CallTools(get), scripted.Reply("Read."), scripted.CallTools(get), scripted.Reply("Read again."))
 	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "files", nil, nil)), models{"files": m}, workerOpts{})
-	c1, _ := w.ask(0, yuki, "What do stable sorts do?")
+	c1, _ := w.ask(0, yuki, "What is in week 3?")
 	w.waitAnswers(c1, 1)
 	res, files := resultsOf(t, m.Requests()[1])
-	if d := res[0]; len(files) != 0 || d.File.GivenAs != "text" || d.FileText != "## 第 1 頁\n\nStable sorts keep equal keys in order." ||
-		!strings.Contains(d.File.Note, "written or corrected by the course's staff") {
-		t.Fatalf("the text version: %+v, %d files", d, len(files))
+	if d := res[0]; len(files) != 0 || len(d.Files) != 2 || d.Files[0].Name != "slides.pdf" || d.Files[0].FileText != "## 第 1 頁\n\nThe slides' text." ||
+		d.Files[1].FileID != ids[1] || d.Files[1].FileText != "## 第 1 頁\n\nThe handout's text." {
+		t.Fatalf("the files' texts: %+v, %d files", d, len(files))
 	}
-	if st := wk.sup.texts.Stats(); st.Readings != 1 {
-		t.Fatalf("the text version is not kept: %+v", st)
+	if st := wk.sup.texts.Stats(); st.Readings != 2 {
+		t.Fatalf("the texts are not kept: %+v", st)
 	}
-	w.ok(w.fc.EditText(docID, w.satoSeat.ID, "## 第 1 頁\n\nStable sorts may reorder equal keys."))
-	eventually(t, "the text kept dropped on the event", func() bool { return wk.sup.texts.Stats().Readings == 0 })
-	c2, _ := w.ask(0, yuki, "Are you sure?")
+	w.ok(w.fc.EditFileText(docID, ids[1], w.satoSeat.ID, "## 第 1 頁\n\nThe handout, corrected."))
+	eventually(t, "the handout's text dropped on its event", func() bool { return wk.sup.texts.Stats().Readings == 1 })
+	c2, _ := w.ask(0, yuki, "And now?")
 	w.waitAnswers(c2, 1)
 	res, _ = resultsOf(t, m.Requests()[3])
-	if d := res[0]; d.FileText != "## 第 1 頁\n\nStable sorts may reorder equal keys." {
+	if d := res[0]; len(d.Files) != 2 || d.Files[0].FileText != "## 第 1 頁\n\nThe slides' text." ||
+		d.Files[1].FileText != "## 第 1 頁\n\nThe handout, corrected." {
 		t.Errorf("the new text: %+v", d)
 	}
 }

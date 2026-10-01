@@ -302,10 +302,10 @@ func (s *Set) Run(ctx context.Context, r Runner, courseID string, calls []llm.Pa
 	defer cancel()
 
 	type outcome struct {
-		part llm.Part
-		file *llm.File
-		env  *core.Envelope
-		err  error
+		part  llm.Part
+		files []*llm.File
+		env   *core.Envelope
+		err   error
 	}
 	outs := make([]outcome, len(preps))
 	sem := make(chan struct{}, r.MaxParallel)
@@ -323,13 +323,13 @@ func (s *Set) Run(ctx context.Context, r Runner, courseID string, calls []llm.Pa
 				return
 			}
 			defer func() { <-sem }()
-			part, file, env, err := s.send(ctx, r, p)
+			part, files, env, err := s.send(ctx, r, p)
 			if err != nil {
 				cancel()
 			} else if r.Seen != nil {
 				r.Seen(toolCalls[i], env)
 			}
-			outs[i] = outcome{part, file, env, err}
+			outs[i] = outcome{part, files, env, err}
 		})
 	}
 	wg.Wait()
@@ -360,8 +360,8 @@ func (s *Set) Run(ctx context.Context, r Runner, courseID string, calls []llm.Pa
 		}
 	}
 	for _, o := range outs {
-		if o.file != nil {
-			parts = append(parts, llm.Part{Type: llm.PartFile, File: o.file})
+		for _, f := range o.files {
+			parts = append(parts, llm.Part{Type: llm.PartFile, File: f})
 		}
 	}
 	return parts, nil
@@ -446,6 +446,9 @@ func (s *Set) prepare(r Runner, courseID string, call llm.Part) prepared {
 		case errors.Is(err, errBothFileArgs):
 			return refusedCall(res, core.CodeInvalidArgument, fmt.Sprintf(
 				"%s: ask for %s (a part of the file's text) or %s (pages of the file), not both; call it again", call.Name, FilePartArg, FilePagesArg))
+		case errors.Is(err, errFileID):
+			return refusedCall(res, core.CodeInvalidArgument, fmt.Sprintf(
+				"%s: %s is the id of one of the version's files, as result.version.files lists them; call it again", call.Name, FileIDArg))
 		case err != nil:
 			return refusedCall(res, core.CodeInvalidArgument, fmt.Sprintf(
 				"%s: %s is the part of the file to read, a whole number from 1 (file.parts says how many there are); call it again", call.Name, FilePartArg))
@@ -485,10 +488,14 @@ func bindKey(args json.RawMessage, key string) (json.RawMessage, error) {
 }
 
 // send sends one prepared call. Its error is fatal to the answer;
-// everything else is in the result.
-func (s *Set) send(ctx context.Context, r Runner, p prepared) (llm.Part, *llm.File, *core.Envelope, error) {
+// everything else is in the result, and the files given with it.
+func (s *Set) send(ctx context.Context, r Runner, p prepared) (llm.Part, []*llm.File, *core.Envelope, error) {
 	if p.attach != nil {
-		return s.sendAttachment(ctx, r, p)
+		res, file, env, err := s.sendAttachment(ctx, r, p)
+		if file == nil {
+			return res, nil, env, err
+		}
+		return res, []*llm.File{file}, env, err
 	}
 	res := p.res
 	env, err := r.Client.Call(ctx, res.Name, p.args)
@@ -504,10 +511,10 @@ func (s *Set) send(ctx context.Context, r Runner, p prepared) (llm.Part, *llm.Fi
 		return refuse(res, codeUnavailable,
 			"Core could not be reached for this call; answer without it, or try it once more"), nil, nil, nil
 	}
-	content, file := r.render(ctx, res.Name, env, p.file)
+	content, files := r.render(ctx, res.Name, env, p.file)
 	res.Content = content
 	res.IsError = env.Status != core.StatusExecuted && env.Status != core.StatusProposed
-	return res, file, env, nil
+	return res, files, env, nil
 }
 
 // record is what came of a write sent: env nil when Core did not answer.
@@ -622,7 +629,8 @@ func refuse(res llm.Part, code, msg string) llm.Part {
 
 // content is a result as the model gets it: Core's envelope, field for
 // field in Core's order (status first), then what became of a document's
-// file, and its text when that is given as text.
+// file, and its text when that is given as text; or, of a version of
+// several files, what became of each, in order (versionfiles.go).
 type content struct {
 	// Status is Core's, or the runtime's own tool's; "" in what the
 	// question is given of its files (GiveAttachments), which Attachment
@@ -637,6 +645,10 @@ type content struct {
 	Error       *core.Error     `json:"error,omitempty"`
 	File        *fileRecord     `json:"file,omitempty"`
 	FileText    string          `json:"file_text,omitempty"`
+	// FilesNote and Files are a version of several files: how they are
+	// given, and each's record and text.
+	FilesNote string      `json:"files_note,omitempty"`
+	Files     []fileEntry `json:"files,omitempty"`
 }
 
 // truncated is a result cut to size (rule 5): status and error whole, and
@@ -649,26 +661,45 @@ type truncated struct {
 	ResultTruncated string      `json:"result_truncated"`
 }
 
-// render is the content of Core's answer to a call, and the file to give
+// render is the content of Core's answer to a call, and the files to give
 // the model beside it, if any; fa is what the model asked of a document's
-// file by the runtime's own arguments.
-func (r Runner) render(ctx context.Context, tool string, env *core.Envelope, fa fileArgs) (string, *llm.File) {
+// file by the runtime's own arguments. A document_get result is given
+// without its URLs or its files' text bodies, which the runtime gives
+// itself: a version of one file (or the one file of several fa names)
+// with its file's record and text, and one of several as renderVersion
+// gives it.
+func (r Runner) render(ctx context.Context, tool string, env *core.Envelope, fa fileArgs) (string, []*llm.File) {
 	c := content{Status: env.Status, ActionID: env.ActionID, ReviewState: env.ReviewState,
 		Replayed: env.Replayed, Note: env.Note, Error: env.Error}
-	var doc *docFile
+	var ver *docVersion
 	if len(env.Result) > 0 {
 		// A result that does not read cannot be searched for URLs, so none
 		// of it goes to the model.
 		if v, err := decodeJSON(env.Result); err == nil {
-			if tool == "document_get" && env.Status == core.StatusExecuted {
-				doc = documentFile(v)
+			if tool == FilePartTool && env.Status == core.StatusExecuted {
+				ver = documentVersion(v)
+				stripTextBodies(v)
 			}
 			stripDownloadURLs(v)
 			c.Result = json.RawMessage(encodeJSON(v))
 		}
 	}
-	if doc == nil {
+	if ver == nil || len(ver.files) == 0 {
+		if ver != nil && fa.fileID != "" {
+			c.FilesNote = FileIDArg + " does not apply: the version holds no files"
+		}
 		return r.fit(c, nil, given{}, 0), nil
+	}
+	doc := ver.files[0]
+	switch {
+	case fa.fileID != "":
+		if doc = ver.byID(fa.fileID); doc == nil {
+			c.FilesNote = fmt.Sprintf("no file of this version has %s %s: result.version.files lists the version's files, "+
+				"by their ids; call %s again with one of them", FileIDArg, fa.fileID, FilePartTool)
+			return r.fit(c, nil, given{}, 0), nil
+		}
+	case len(ver.files) > 1:
+		return r.renderVersion(ctx, c, ver, fa)
 	}
 	doc.courseID, doc.first, doc.last = fa.courseID, fa.first, fa.last
 	g := r.giveFile(ctx, doc, fa.part)
@@ -679,7 +710,11 @@ func (r Runner) render(ctx context.Context, tool string, env *core.Envelope, fa 
 	if fa.first > 0 && !g.pages {
 		g.rec.Note = strings.TrimPrefix(g.rec.Note+"; ", "; ") + FilePagesArg + " does not apply: " + r.noPages(g.rec)
 	}
-	return r.fit(c, doc, g, fa.part), g.file
+	content := r.fit(c, doc, g, fa.part)
+	if g.file == nil {
+		return content, nil
+	}
+	return content, []*llm.File{g.file}
 }
 
 // fit makes c at most MaxResultBytes: the envelope, then a file's text, whole
@@ -815,6 +850,28 @@ func encodeJSON(v any) string {
 		return `{"status":"error","error":{"code":"internal","message":"the runtime could not write this result"}}`
 	}
 	return strings.TrimSuffix(b.String(), "\n")
+}
+
+// stripTextBodies removes the bodies of a document_get result's text
+// versions, the version's and each file's: the runtime gives each file's
+// text itself, in parts that fit a result (textversion.go), and Core's
+// copies beside it would take the room the text is given in, twice.
+func stripTextBodies(v any) {
+	m, _ := v.(map[string]any)
+	version, _ := m["version"].(map[string]any)
+	if version == nil {
+		return
+	}
+	if t, ok := version["text"].(map[string]any); ok {
+		delete(t, "body")
+	}
+	files, _ := version["files"].([]any)
+	for _, f := range files {
+		fm, _ := f.(map[string]any)
+		if t, ok := fm["text"].(map[string]any); ok {
+			delete(t, "body")
+		}
+	}
 }
 
 // stripDownloadURLs removes every download_url from a result: the URL is a

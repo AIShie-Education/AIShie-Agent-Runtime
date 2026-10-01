@@ -99,14 +99,17 @@ type documentIDIn struct {
 
 // versionSummary is a version as Core's document.versions lists it.
 type versionSummary struct {
-	ID             string    `json:"id"`
-	Seq            int       `json:"seq"`
-	HasFile        bool      `json:"has_file"`
-	ContentType    *string   `json:"content_type,omitempty"`
-	ByteSize       *int64    `json:"byte_size,omitempty"`
-	AuthorMemberID string    `json:"author_member_id"`
-	CreatedAt      time.Time `json:"created_at"`
-	Published      bool      `json:"published"`
+	ID          string  `json:"id"`
+	Seq         int     `json:"seq"`
+	HasFile     bool    `json:"has_file"`
+	ContentType *string `json:"content_type,omitempty"`
+	ByteSize    *int64  `json:"byte_size,omitempty"`
+	// Files are the version's files, without URLs or text; none from a
+	// Core before several files to a version (Options.WithoutFiles).
+	Files          *[]fileView `json:"files,omitempty"`
+	AuthorMemberID string      `json:"author_member_id"`
+	CreatedAt      time.Time   `json:"created_at"`
+	Published      bool        `json:"published"`
 	// Text is the version's text version, never its body.
 	Text *textView `json:"text,omitempty"`
 }
@@ -135,14 +138,15 @@ func documentVersions() *impl {
 				Versions []versionSummary `json:"versions"`
 			}{Versions: []versionSummary{}}
 			if doc.versionID != "" {
-				v := versionSummary{ID: doc.versionID, Seq: 1, HasFile: doc.file != nil, ContentType: doc.contentType,
-					AuthorMemberID: doc.authorMemberID, CreatedAt: doc.versionCreatedAt, Published: !doc.draft}
-				if doc.file != nil {
-					n := int64(len(doc.file))
-					v.ByteSize = &n
+				v := versionSummary{ID: doc.versionID, Seq: 1, HasFile: len(doc.files) > 0, AuthorMemberID: doc.authorMemberID,
+					CreatedAt: doc.versionCreatedAt, Published: !doc.draft}
+				files := filesOf(doc, "", false)
+				if !c.opts.WithoutFiles {
+					v.Files = &files
 				}
-				if doc.text != nil {
-					v.Text = doc.text.view(false)
+				if len(files) > 0 {
+					f := files[0]
+					v.ContentType, v.ByteSize, v.Text = &f.ContentType, &f.ByteSize, f.Text
 				}
 				out.Versions = append(out.Versions, v)
 			}

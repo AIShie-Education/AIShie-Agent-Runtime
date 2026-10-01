@@ -544,7 +544,7 @@ func (s *Server) testCredential(ctx context.Context, w http.ResponseWriter, toke
 		return false
 	}
 	svc := core.NewService(core.NewRESTCaller(core.RESTOptions{BaseURL: s.o.CoreBaseURL, Token: token, Catalogue: cat, HTTPClient: s.coreHTTP}))
-	_, err = svc.Renew(ctx, uuid.Nil.String(), uuid.NewString(), core.MinLease)
+	_, err = svc.Renew(ctx, core.Claim{VersionID: uuid.Nil.String(), LeaseID: uuid.NewString()}, core.MinLease)
 	var se *core.ServiceError
 	switch {
 	case err == nil, core.IsNotFound(err), errors.As(err, &se) && se.Code == core.CodeConflict:
@@ -625,8 +625,13 @@ type JobList struct {
 // no price held them) and their tokens (null for no call), and when it
 // started and ended.
 type TranscriptionJob struct {
-	ID           string     `json:"id"`
-	VersionID    string     `json:"version_id"`
+	ID        string `json:"id"`
+	VersionID string `json:"version_id"`
+	// FileID and Position are the file of the version the job was of
+	// (a version holds several since AIShie-Core #49), null for a job of a
+	// Core before it.
+	FileID       *string    `json:"file_id"`
+	Position     *int       `json:"position"`
 	DocumentID   string     `json:"document_id"`
 	CourseID     string     `json:"course_id"`
 	Status       string     `json:"status"`
@@ -722,6 +727,10 @@ func jobView(j store.TranscriptionJob) TranscriptionJob {
 		Reason: strPtr(j.Reason), Backfill: j.Backfill, Attempt: j.Attempt, ContentType: j.ContentType, ByteSize: j.ByteSize,
 		Pages: clonePtr(j.Pages), PagesSent: j.PagesSent, Offer: strPtr(j.Offer), Model: strPtr(j.Model), ModelCalls: j.ModelCalls,
 		StartedAt: j.StartedAt.UTC()}
+	if j.FileID != "" {
+		id, pos := j.FileID, j.Position
+		v.FileID, v.Position = &id, &pos
+	}
 	if j.CostPUSD != nil {
 		usd := costUSD(*j.CostPUSD)
 		v.CostUSD = &usd

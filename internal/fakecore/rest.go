@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"math"
+	"mime"
 	"net/http"
 	"regexp"
 	"slices"
@@ -330,26 +331,26 @@ func coerce(s *jsonschema.Schema, values []string) any {
 }
 
 // serveBlob serves a file document_get or conversation_attachment pointed
-// at, as a download.
+// at, as a download under its name.
 func (c *Core) serveBlob(w http.ResponseWriter, r *http.Request) {
 	c.mu.Lock()
-	doc := c.blobs[r.PathValue("token")]
+	f := c.blobs[r.PathValue("token")]
 	c.mu.Unlock()
-	if doc == nil && c.serveAttachment(w, r.PathValue("token")) {
+	if f == nil && c.serveAttachment(w, r.PathValue("token")) {
 		return
 	}
-	if doc == nil {
+	if f == nil {
 		writeError(w, forbid("the download URL is not valid, or has expired"))
 		return
 	}
 	h := w.Header()
-	if doc.contentType != nil {
-		h.Set("Content-Type", *doc.contentType)
+	if f.contentType != "" {
+		h.Set("Content-Type", f.contentType)
 	}
-	h.Set("Content-Length", strconv.Itoa(len(doc.file)))
-	h.Set("Content-Disposition", "attachment")
+	h.Set("Content-Length", strconv.Itoa(len(f.data)))
+	h.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": f.filename}))
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	h.Set("Cache-Control", "private, no-store")
-	_, _ = w.Write(doc.file)
+	_, _ = w.Write(f.data)
 }

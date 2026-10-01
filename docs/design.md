@@ -422,6 +422,11 @@ by `Run`; each entry has its reason beside it in the code:
   `actor_lookup_by_email`, the departments' administrators' own.)
 - `document_upload_url`: a signed URL for bytes the model cannot send, and a
   credential for the upload besides.
+- `document_file`: one file of a version with a fresh URL, a credential for
+  the file. `document_get` gives the model every file of a version, and one
+  of them by the runtime's own `file_id` (Files, below), fetched by the
+  runtime, which asks `document_file` itself for a fresh URL where one has
+  lapsed.
 - `document_purge`: removing a document's or a version's text and file for
   good, an administrator's tool, which no course permission grants.
 - `course_join_link_create`: a link that seats whoever opens it as a
@@ -445,6 +450,10 @@ by `Run`; each entry has its reason beside it in the code:
 - `service_*`: the site's service credentials, issued, listed and revoked by
   its administrators alone; a token issued is a credential in the model's
   text.
+- `sso_*`: the site's identity providers for single sign-on, set up,
+  changed, switched, removed and tested by the platform's administrators
+  alone: a provider's client secret is a credential, and a change decides
+  who signs in.
 
 `deny` entries ending in `*` cover every tool they begin. The model sees
 each tool through `toolschema`: bound arguments removed (`course_id`,
@@ -490,7 +499,10 @@ in `file_text`, or `not_given`), `extracted_from` when the text is the
 runtime's reading of the file (`ocr` when its OCR recognized it),
 `converted_to` when what is given is of what LibreOffice made of it
 (Office files, below), and a `note` saying why it was not given or what
-the text holds and leaves out.
+the text holds and leaves out. Where Core lists the version's files (A
+version's files, below), the record names the file by its `file_id` and
+`position` too, and `name` is the file's name; before, the document's
+title.
 
 - Text (`text/*`, JSON, Markdown) is its text, to any model.
 - An image is a file part where the adapter takes files, and otherwise
@@ -555,9 +567,48 @@ the text holds and leaves out.
   stream its container names, an OpenDocument one by its `mimetype`, RTF by
   its first bytes; anything else is not given, with its type named.
 
+**A version's files** (`toolset.renderVersion`; AIShie-Core #49). A
+version of a document is text, files, or both, its files in order, each
+named: a lecture's slides, its handout and a sample program. Core lists
+them in `version.files` of `document_get`'s result, each with its id,
+place, name, type, size, checksum, a URL and its own text version, and
+keeps the version's `download_url`, `content_type`, `byte_size`,
+`checksum` and `text` as the first file's for the runtimes of before. The
+runtime reads every file, not the first alone, and gives the model each
+as a version's one file is given (this section and those below), under
+its name, in its order: the file's text version first where it is done,
+and otherwise the file, fetched, as text, a file part (named as the file,
+so that the model tells them apart), or why not. The result keeps Core's
+envelope, without its URLs and without the text versions' bodies, which
+the runtime gives itself (a body in the envelope would take the room the
+text is given in, twice), and gives the files in `files`, each its
+record and `file_text`, with `files_note` saying how they are given and
+read. What one call gives is bounded as the first turn bounds a
+question's files (§5.3, Attachments): each file at most what a result
+gives of it, the first part of a long text or of a PDF of more pages than
+a part holds, with `next_part` naming the file; all of them at most two
+results' worth of text (`versionResults`, 64 KB at the defaults) and one
+PDF part's pages of file parts (`PDF_PART_PAGES`, an image counting as
+one). A file past that, or one the answer's time ran out for, is named
+with the call that reads it (`next_part`), unfetched where it would be a
+file part and the pages are spent. `file_id`, a third argument the
+runtime adds to `document_get`'s schema and takes out again, as it does
+`file_part` and `file_pages`, reads one file of the version alone: its
+parts and its pages, each call naming the file again, exactly as a
+version of one file is read; an id of no file of the version is said so,
+and `file_part` or `file_pages` naming no file of several give the
+version's files and say to name one. A version of one file is read as it
+always was, whichever Core lists it, and its calls name no file. A URL
+Core gave that has lapsed (the file server refuses it) is asked for
+again of `document_file`, with the caller's own token, and the file
+fetched once more; neither reaches the model, and `document_file` is not
+offered to it (§4's list above). A Core before #49 lists no files: the
+version's one file is read from its `download_url`, as before.
+
 **Text versions** (`toolset.giveTextVersion`; Core #43). A version of a
 course's document with a file may have a text version in Core, beside the
-file (`version.text` of `document_get`'s result): the file transcribed into
+file (`version.text` of `document_get`'s result; since AIShie-Core #49 each
+file has its own, `version.files[].text`): the file transcribed into
 Markdown by a model, a page under `## 第 N 頁` (a slide under `## 投影片
 N`) and its pictures described in brackets, by this runtime's transcriber
 (§12) or another's, or what the course's staff wrote or corrected. Where it
@@ -567,13 +618,16 @@ reading of the file, which is then not fetched: `file_text` is the text,
 (<the offer's label>)` or `edited by staff`; the note says a transcription
 may hold mistakes. A text too long for one result is given in parts as
 any text is (below), cut where its pages begin. Core gives the text whole
-beside the version up to 64 KiB; a longer one is read a part at a time
+beside the version up to 64 KiB, the bodies of a version's files together
+(the rest are left out); a longer one is read a part at a time
 (`document_text`, with the caller's own token, which reads the text exactly
-where it reads the version), all at one revision, read again once should
-it change meanwhile; what was read is kept (`Runner.Texts`) under the
-version and its revision, and each worker drops it as Core's text events
-say the version's text changed (`document.text_updated`, `…rubric_…`,
-`…draft_…`, and their `_unreleased` forms). A model that takes files may
+where it reads the version, naming the file by its `file_id`), all at one
+revision, read again once should it change meanwhile; what was read is
+kept (`Runner.Texts`) under the file, which never changes (from a Core
+before #49, the version), and its revision, and each worker drops it as
+Core's text events say the file's text changed (`document.text_updated`,
+`…rubric_…`, `…draft_…`, and their `_unreleased` forms, whose payload
+names the `file_id` and the `version_id`: both are dropped). A model that takes files may
 ask for pages of the file itself to check one against the text:
 `file_pages`, the runtime's other argument of `document_get` (`"3"`,
 `"3-5"`; at most 10 at a time, and never more than its provider takes in a
@@ -605,7 +659,8 @@ their edges and nothing given twice. The file's record says which part
 (`part_holds`: `slides 1–16`, `the end of slide 17 to slide 20`), and,
 but for the last, the call that reads the next (`next_part`: `{"tool":
 "document_get", "arguments": {"document_id", "version_id", "file_part":
-2}}`), which its `note` says in words; the first part says how many there
+2}}`, and `file_id` for a file of a version of several), which its `note`
+says in words; the first part says how many there
 are, and, when there are at most twenty, what each of the others holds,
 so that a model looking for one slide asks for its part at once.
 
@@ -652,7 +707,8 @@ given whole, as before.
 
 What was read of a file is kept per worker (`toolset.TextCache`), so that
 the file is fetched and read once, not once a part: keyed by the version
-Core named, its checksum, and the limits it was read within, and kept
+Core named and the file of it (by its id, where Core lists files), its
+checksum, and the limits it was read within, and kept
 only for a model given the text (a file part needs its bytes, which are
 never kept). A version's file never changes, and the cache is reached
 only after Core has given the caller that version, so every agent of the
@@ -1638,7 +1694,7 @@ The prompt's hash is kept per answer.
 | `site_price_rev` | one row: when the site's prices last changed, to the second and always a second past the last, by trigger, which names their version (`site-<UTC second>`) |
 | `site_tenant_quota` | a tenant's daily quota on the school's key as the site sets it (§11.5), in place of `runtime.tenants`': answers and pUSD, each null for none, who set it, when; every write moves `registry_rev` on |
 | `transcription_credential` | one row: the transcriber's service credential (§12), a `core_token` secret of the tenant `site` with its hint, Core's id of it, whether Core took it when it was given, who gave it and when, when Core last took it and last refused it, and why; giving or forgetting it moves `registry_rev` on |
-| `transcription_job` | what the transcriber did with each claim of a version (§12): id `trj_…` and a sequence it is listed by, the version, document and course, the claim, its status (`working`, `done`, `failed`, `skipped`, `dropped`) and why, whether it was the backfill's, the attempt, the file's type and size, its pages and those sent to the model, the offer and model, the calls, their tokens and cost, the worker, and when it started, was last held and ended; kept 90 days |
+| `transcription_job` | what the transcriber did with each claim of a file (§12): id `trj_…` and a sequence it is listed by, the version, the file (`file_id` and `position`, '' and 0 from a Core before AIShie-Core #49; 0012), document and course, the claim, its status (`working`, `done`, `failed`, `skipped`, `dropped`) and why, whether it was the backfill's, the attempt, the file's type and size, its pages and those sent to the model, the offer and model, the calls, their tokens and cost, the worker, and when it started, was last held and ended; kept 90 days |
 
 Beside the sums quotas are checked against (`Spend`), two reports read the
 ledger for people, ids and numbers only: `Usage(agent, since, until)`, a
@@ -1744,14 +1800,40 @@ Chinese with a table, overran, and was cut off.
   uploads an essay and a deck with a question as the front end does, and
   sees each model given what it takes, LibreOffice's PDF of the deck to the
   one that takes files, and the answers posted.
+- A version's files (§4, A version's files; AIShie-Core #49): a version of
+  a PDF, a Word file and notes given file by file, in order, under their
+  names, to a model that takes files and to one that takes none, no URL in
+  the result; each file's text version first, from its body or read in
+  parts by its `file_id`, kept by the file and dropped by it alone; the
+  bounds, a long file's first part with `next_part` naming the file, a
+  file past the room named and a PDF past the pages not fetched; `file_id`
+  reading one file in parts, an id of no file, a part naming no file of
+  several, an id that is none refused; a version of one file given as it
+  always was, whichever Core lists it; a lapsed URL fetched again from
+  `document_file`. The fake Core holds a version's files as #49 does (listed
+  in order, each served under its name, `document_file`, a text version
+  and a claim of each, a text event naming its file), and, with
+  `WithoutFiles`, answers as a Core before it; the worker is given the
+  files' texts and drops one file's on its event, against either. The end
+  to end (`files-of-a-version`) has Sato put up a lecture of a PDF, a Word
+  file and a program in one version, as the front end does, and sees the
+  tutor's model, which takes files, given the PDF and LibreOffice's PDF of
+  the Word file as files and the program as text, and a text-only model
+  the text of each.
 - The transcriber (`internal/transcribe`) against `fakecore`, whose text
   versions, service credential and queue answer as Core #43's do (a
   claim's lease lost, the text edited by staff meanwhile, a credential
   revoked): a PDF in ranges of pages, a deck converted with its notes, a
   model of pictures, the skips and failures, one claiming worker of two,
-  the blocks, the page quota and the plan's dollars; the API's routes,
-  their refusals and audit, on `memstore`; the store's tables on both
-  stores; and the end to end (`transcription`) against the pinned Core.
+  the blocks, the page quota and the plan's dollars; a version of three
+  files transcribed file by file, every call naming its file and each
+  completion keyed by it, one file's claim lost and another's text
+  written by staff while the third is done, and nothing naming a file
+  against a Core of one file a version; the API's routes, their refusals
+  and audit, on `memstore`; the store's tables on both stores; and the end
+  to end (`transcription`) against the pinned Core, where a lecture of
+  three files in one version is transcribed file by file too, each job
+  naming its file, and read back file by file.
 - Adapters: golden translations both ways in `testdata/`, every stop reason
   and usage field; `LIVE=1` runs them against the real providers whose keys
   are set, with one request declaring every tool at 16 output tokens, and
@@ -2623,7 +2705,8 @@ time: not money) stay `runtime.yaml`'s.
     `standby`, `blocked`, with `blocked_reason`: `no_credential`,
     `credential_rejected`, `no_offer`, `offer_unavailable`,
     `quota_exhausted`), and the UTC day's pages, documents done, failed and
-    skipped, and cost. It is not turned on where it cannot run (422
+    skipped (a job each, a file of a version since AIShie-Core #49), and
+    cost. It is not turned on where it cannot run (422
     `transcription_unavailable`); an offer the plan has not (runtime.yaml's
     or the site's, on or off) is `invalid_field`, one whose model takes no
     files 422 `offer_no_file_input`; `max_pages` is 1 to 5,000,
@@ -2650,17 +2733,23 @@ time: not money) stay `runtime.yaml`'s.
   - `GET /admin/transcription/jobs?after=&limit=&status=`: the
     transcriber's record of its jobs (§12), newest first, a page of at most
     200 (50 unless `limit`), of one status or all, and the next page's
-    cursor (`next`, the last job's sequence); ids, counts, the offer and
-    model, cost and tokens, never a title or any text.
+    cursor (`next`, the last job's sequence); ids (a job's `file_id` and
+    `position`, the file of its version it was, null from a Core before
+    AIShie-Core #49), counts, the offer and model, cost and tokens, never a
+    title, a file's name or any text.
   - `GET /info`'s `features.transcription`: this worker's transcriber runs,
     or stands by, as the site's setting in force turns it on, with nothing
     blocking it; what the front end shows the text versions' queue for.
 
 ## 12. The transcriber
 
-`internal/transcribe` gives every version of a course's documents with a
-file its text version in Core (AIShie-Core #43; §4, Text versions): the
-file transcribed into Markdown by a model of the school's plan. It is a
+`internal/transcribe` gives every file of a course's documents its text
+version in Core (AIShie-Core #43; §4, Text versions): the file transcribed
+into Markdown by a model of the school's plan. A version holds several
+files since AIShie-Core #49, and each has a text version of its own: Core's
+queue hands out files, not versions, and the transcriber works file by
+file (The loop, below); a Core before it hands out versions of one file,
+which are worked on as they always were. It is a
 module of its own, off unless the site's administrators turn it on
 (§11.5); off, the runtime claims nothing from Core's queue, and nothing
 else in it behaves differently. It is the one place the runtime writes to
@@ -2697,9 +2786,18 @@ the runtime through the API.
   Responses, Bedrock's Converse), and to one that takes pictures and no
   PDFs, each page drawn by pdftocairo at 150 dpi.
 - **The loop.** While it holds the lease and nothing blocks it, it asks
-  the queue for as many versions as it has free slots (`concurrency`),
+  the queue for as many files as it has free slots (`concurrency`),
   each claim 10 minutes (`lease_s: 600`), the call waiting up to 25 s for
-  one (`wait_s`), and works on each claimed version in the background: it
+  one (`wait_s`); Core hands a version's files out in their order, each
+  a claim of its own (its `file_id`, `position` and `filename`, and the
+  file's type, size and URL), and each file is its own job, whatever
+  becomes of its version's others. Every call the transcriber makes of a
+  claim names its version and its file (`document_text.file`, `.renew`
+  and `.complete` with `file_id`), and its completion's key is the
+  file's, `complete:{file_id}:{lease_id}`; a claim of a Core before #49
+  names no file, and none is sent, the key then
+  `complete:{version_id}:{lease_id}` as before. It works on each claimed
+  file in the background: it
   fetches the file from its signed URL, with no credential (a fresh URL
   from `document_text.file` where it has expired or is refused); knows it
   by its type or, of no telling type, by what it holds; a text file
@@ -2713,11 +2811,11 @@ the runtime through the API.
   pager (the whole PDF where none cuts, within the provider's pages),
   halving a range whose text the output bound cut off, and joins the
   ranges' texts. It renews the claim every third of it meanwhile, and
-  completes the version, under the key Core names by the claim, done with
+  completes the file, under the key of its claim, done with
   the text, its pages and the offer's label as the model, or failed or
   skipped with why; a completion Core cannot be reached for is sent again
   under its key. Failures that may pass (rate limits, overload, the
-  network) are tried three times a range, with backoff; then the version
+  network) are tried three times a range, with backoff; then the file
   fails (`model_error`).
 - **The prompt** is a constant (`transcribe.Prompt`), the same for every
   document and range: transcribe faithfully, in the document's own
@@ -2752,7 +2850,9 @@ the runtime through the API.
   staff wrote the text meanwhile (`edited_by_staff`), the course or the
   document was archived, or the version is gone, stops the work, and
   nothing is written; so does the worker stopping (its claims lapse, and
-  the versions are claimed again). A job a worker left `working` for
+  the files are claimed again). Core says each of the file the call
+  named: one file's claim lost, or its text written by staff, drops that
+  file's work alone, and its version's other files go on. A job a worker left `working` for
   longer than a claim is ended as `dropped` (`interrupted`) by the next
   claimer.
 - **Without a restart.** The site's setting and the credential are kept in
@@ -2760,7 +2860,8 @@ the runtime through the API.
   puts them in force (`transcribe.Service.Set`), from the next claim: work
   under way goes on as it began.
 - **What it keeps** (§8): the credential, sealed, and a record of each job
-  for 90 days, pruned by the claimer. **What it counts:**
+  (a claim: a file, by its `file_id` and `position`, none from a Core
+  before #49) for 90 days, pruned by the claimer. **What it counts:**
   `transcribe_jobs_total{outcome}` (done, failed, skipped, dropped),
   `transcribe_pages_total` (pages sent to the model),
   `transcribe_inflight`, `transcribe_claim_errors_total{reason}`

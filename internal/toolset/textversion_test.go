@@ -115,7 +115,7 @@ func TestRunTextVersion(t *testing.T) {
 			text, _ := contentOf(t, p)["file_text"].(string)
 			note, _ := rec["note"].(string)
 			if rec["given_as"] != givenText || rec["text_source"] != c.source || text != body || rec["extracted_from"] != nil ||
-				!strings.Contains(note, "file_text is the document's text version") || strings.Contains(note, FilePagesArg) != c.fileInput {
+				!strings.Contains(note, "file_text is the file's text version") || strings.Contains(note, FilePagesArg) != c.fileInput {
 				t.Errorf("the text version: %s", p.Content)
 			}
 			if fs.count("/reading.pdf") != before {

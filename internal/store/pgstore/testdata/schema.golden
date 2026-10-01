@@ -240,6 +240,8 @@ transcription_job.worker text not null
 transcription_job.started_at timestamp with time zone not null
 transcription_job.heartbeat_at timestamp with time zone not null
 transcription_job.finished_at timestamp with time zone
+transcription_job.file_id text not null default ''::text
+transcription_job.position integer not null default 0
 -- constraints
 agent_state agent_state_pkey PRIMARY KEY (agent_id)
 answer answer_pkey PRIMARY KEY (agent_id, id)

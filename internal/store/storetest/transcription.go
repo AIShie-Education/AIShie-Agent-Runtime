@@ -199,6 +199,8 @@ func testTranscription(t *testing.T, open Opener) {
 			t.Fatalf("places: %d, %d, %d", a.Seq, b.Seq, c.Seq)
 		}
 		done := *a
+		// A file of a version of several, by its id and place.
+		done.FileID, done.Position = "file-2", 2
 		finished := at(10 * time.Minute)
 		done.Status, done.Pages, done.PagesSent, done.Offer, done.Model = store.JobDone, ptr(12), 12, "flash", "gemini-flash-lite"
 		done.ModelCalls, done.CostPUSD, done.InputTokens, done.OutputTokens = 2, ptr(int64(4_000_000)), 3100, 5200
@@ -219,7 +221,8 @@ func testTranscription(t *testing.T, open Opener) {
 		putJob(t, s, skipped)
 
 		if all := jobs(t, s, store.JobQuery{}); !slices.Equal(jobIDs(all), []string{"trj_c", "trj_b", "trj_a"}) ||
-			all[2].Seq != a.Seq || all[2].Status != store.JobDone || *all[1].Pages != 400 {
+			all[2].Seq != a.Seq || all[2].Status != store.JobDone || *all[1].Pages != 400 || all[2].FileID != "file-2" ||
+			all[2].Position != 2 || all[1].FileID != "" || all[1].Position != 0 {
 			t.Errorf("every job: %+v", all)
 		}
 		if got := jobs(t, s, store.JobQuery{Status: store.JobDone}); !slices.Equal(jobIDs(got), []string{"trj_a"}) {
@@ -241,6 +244,7 @@ func testTranscription(t *testing.T, open Opener) {
 			func() store.TranscriptionJob { j := job("trj_x", "v9", at(0)); j.Status = "pending"; return j }(),
 			func() store.TranscriptionJob { j := job("trj_x", "v9", at(0)); j.PagesSent = -1; return j }(),
 			func() store.TranscriptionJob { j := job("trj_x", "v9", at(0)); j.CostPUSD = ptr(int64(-1)); return j }(),
+			func() store.TranscriptionJob { j := job("trj_x", "v9", at(0)); j.Position = -1; return j }(),
 			func() store.TranscriptionJob {
 				j := job("trj_x", "v9", at(0))
 				j.Reason = string(make([]rune, 501))

@@ -23,12 +23,13 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
-// Bounds of one version's work.
+// Bounds of one claim's work: a file of a version (a version of one file,
+// from a Core before AIShie-Core #49).
 const (
 	// MaxFileBytes is the largest file transcribed: a longer one is
 	// skipped (too_large).
 	MaxFileBytes = 64 << 20
-	// jobTimeout bounds one version's work, its claim renewed meanwhile.
+	// jobTimeout bounds one file's work, its claim renewed meanwhile.
 	jobTimeout = 2 * time.Hour
 	// imagePages is the most pages one call is given as pictures.
 	imagePages = 5
@@ -40,7 +41,9 @@ const (
 	completeTries = 5
 )
 
-// job is the work on one claimed version.
+// job is the work on one claimed file: every call it makes of Core names
+// the claim's version and file (core.ClaimOf), and Core answers it of that
+// file alone.
 type job struct {
 	s   *Service
 	svc *core.Service
@@ -58,7 +61,7 @@ type job struct {
 	heldOn time.Time
 }
 
-// result is what became of a version: done, failed or skipped, which Core
+// result is what became of a file: done, failed or skipped, which Core
 // is told, or dropped, which it is not (the claim lost, staff wrote the
 // text, the version gone), with why; and a text done's body, pages and
 // model.
@@ -82,7 +85,7 @@ type dropCause struct{ reason string }
 
 func (d dropCause) Error() string { return "transcribe: dropped: " + d.reason }
 
-// start works on the claimed version c in the background, as one of the
+// start works on the claimed file c in the background, as one of the
 // jobs in progress.
 func (s *Service) start(ctx context.Context, svc *core.Service, m *model, st Setting, c core.ClaimedText) {
 	s.mu.Lock()
@@ -114,7 +117,8 @@ func (s *Service) start(ctx context.Context, svc *core.Service, m *model, st Set
 func (j *job) run(ctx context.Context) {
 	s := j.s
 	start := s.now()
-	j.rec = store.TranscriptionJob{ID: "trj_" + uuid.NewString(), VersionID: j.c.VersionID, DocumentID: j.c.DocumentID, CourseID: j.c.CourseID,
+	j.rec = store.TranscriptionJob{ID: "trj_" + uuid.NewString(), VersionID: j.c.VersionID, FileID: j.c.FileID, Position: j.c.Position,
+		DocumentID: j.c.DocumentID, CourseID: j.c.CourseID,
 		LeaseID: j.c.LeaseID, Status: store.JobWorking, Backfill: j.c.Backfill, Attempt: j.c.Attempt, ContentType: j.c.ContentType,
 		ByteSize: j.c.ByteSize, Offer: j.m.offer.ID, Model: j.m.offer.Model, Worker: s.o.Holder, StartedAt: start, HeartbeatAt: start}
 	j.save(ctx)
@@ -167,7 +171,7 @@ func (j *job) hold(ctx context.Context, drop context.CancelCauseFunc) {
 			return
 		case <-t.C:
 		}
-		_, err := j.svc.Renew(ctx, j.c.VersionID, j.c.LeaseID, s.t.Lease)
+		_, err := j.svc.Renew(ctx, core.ClaimOf(j.c), s.t.Lease)
 		if ctx.Err() != nil {
 			return
 		}
@@ -176,7 +180,8 @@ func (j *job) hold(ctx context.Context, drop context.CancelCauseFunc) {
 			return
 		}
 		if err != nil {
-			s.log.Warn("a transcription's claim could not be renewed; it is tried again", "version", j.c.VersionID, "err", errText(err))
+			s.log.Warn("a transcription's claim could not be renewed; it is tried again", "version", j.c.VersionID, "file", j.c.FileID,
+				"err", errText(err))
 			continue
 		}
 		j.mu.Lock()
@@ -186,10 +191,11 @@ func (j *job) hold(ctx context.Context, drop context.CancelCauseFunc) {
 	}
 }
 
-// stopReason says whether Core's answer err means the work on a version
-// is to stop, and why: the claim lost, staff wrote the text, the course
-// or the document archived, the version gone, or the credential refused
-// (which is then not tried again).
+// stopReason says whether Core's answer err means the work on a file is
+// to stop, and why: the claim lost, staff wrote the file's text, the
+// course or the document archived, the version or the file gone, or the
+// credential refused (which is then not tried again). Core says each of
+// the file the call named, whatever becomes of the version's others.
 func stopReason(ctx context.Context, s *Service, err error) (string, bool) {
 	switch {
 	case err == nil:
@@ -208,7 +214,7 @@ func stopReason(ctx context.Context, s *Service, err error) (string, bool) {
 	return "", false
 }
 
-// tell completes the version in Core as res says, under the claim's key,
+// tell completes the file in Core as res says, under the claim's key,
 // again while Core cannot be reached; Core refusing it drops it.
 func (j *job) tell(ctx context.Context, res result) result {
 	s := j.s
@@ -224,7 +230,7 @@ func (j *job) tell(ctx context.Context, res result) result {
 			}
 			backoff = min(backoff*2, s.t.BackoffMax)
 		}
-		if _, err = j.svc.Complete(ctx, j.c.VersionID, j.c.LeaseID, c); err == nil {
+		if _, err = j.svc.Complete(ctx, core.ClaimOf(j.c), c); err == nil {
 			return res
 		}
 		if reason, stop := stopReason(ctx, s, err); stop {
@@ -237,7 +243,7 @@ func (j *job) tell(ctx context.Context, res result) result {
 		}
 	}
 	s.log.Warn("Core was not told what became of a transcription; its claim lapses, and it is claimed again", "version", j.c.VersionID,
-		"err", errText(err))
+		"file", j.c.FileID, "err", errText(err))
 	return dropped("core_refused")
 }
 
@@ -269,7 +275,8 @@ func (j *job) finish(res result, start time.Time) {
 	if rec.Pages != nil {
 		pages = *rec.Pages
 	}
-	s.log.Info("a version transcribed", "job", rec.ID, "version", rec.VersionID, "course", rec.CourseID, "status", res.status,
+	s.log.Info("a file transcribed", "job", rec.ID, "version", rec.VersionID, "file", rec.FileID, "position", rec.Position,
+		"course", rec.CourseID, "status", res.status,
 		"reason", rec.Reason, "pages", pages, "pages_sent", j.upTo, "calls", j.cost.calls, "ms", now.Sub(start).Milliseconds())
 }
 
@@ -337,7 +344,7 @@ func sniff(data []byte) (string, error) {
 
 var errEncrypted = errors.New("transcribe: the file is password-protected")
 
-// transcribe is what becomes of the version: its file fetched and known by
+// transcribe is what becomes of the file: fetched and known by
 // what it is; a text file's own text; an image, one page; a PDF, or an
 // Office file's PDF, held to the pages a document may have and the day's
 // quota, then transcribed a range of pages at a time.
@@ -349,7 +356,7 @@ func (j *job) transcribe(ctx context.Context) result {
 	case errors.Is(err, errTooLarge):
 		return skipped(ReasonTooLarge)
 	case err != nil:
-		j.s.log.Warn("a transcription's file could not be fetched", "version", j.c.VersionID, "err", errText(err))
+		j.s.log.Warn("a transcription's file could not be fetched", "version", j.c.VersionID, "file", j.c.FileID, "err", errText(err))
 		return failed("the file could not be fetched")
 	}
 	mt := mediaType(j.c.ContentType)
@@ -374,7 +381,7 @@ func (j *job) transcribe(ctx context.Context) result {
 // errTooLarge is a file past MaxFileBytes.
 var errTooLarge = errors.New("transcribe: the file is larger than the transcriber reads")
 
-// fetch reads the claimed version's file from its signed URL, with no
+// fetch reads the claimed file from its signed URL, with no
 // credential; from a fresh one (document_text.file) where it has expired,
 // or the file server refuses it.
 func (j *job) fetch(ctx context.Context) ([]byte, error) {
@@ -383,7 +390,7 @@ func (j *job) fetch(ctx context.Context) ([]byte, error) {
 	}
 	url := j.c.DownloadURL
 	fresh := func() error {
-		f, err := j.svc.File(ctx, j.c.VersionID, j.c.LeaseID)
+		f, err := j.svc.File(ctx, core.ClaimOf(j.c))
 		if err != nil {
 			return err
 		}
@@ -507,7 +514,7 @@ func (j *job) office(ctx context.Context, data []byte, mt string) result {
 		case office.StatusDone:
 			out = st.Out
 		case office.StatusFailed:
-			j.s.log.Warn("a transcription's file could not be converted", "version", j.c.VersionID, "why", st.Why)
+			j.s.log.Warn("a transcription's file could not be converted", "version", j.c.VersionID, "file", j.c.FileID, "why", st.Why)
 			return failed(ReasonConversionFailed)
 		case office.StatusOff:
 			return skipped(ReasonUnsupportedFormat)
@@ -720,7 +727,8 @@ func (j *job) modelFailed(ctx context.Context, err error) result {
 	if ctx.Err() != nil {
 		return dropped(store.ReasonInterrupted)
 	}
-	j.s.log.Warn("a transcription's model call failed", "version", j.c.VersionID, "offer", j.m.offer.ID, "err", errText(err))
+	j.s.log.Warn("a transcription's model call failed", "version", j.c.VersionID, "file", j.c.FileID, "offer", j.m.offer.ID,
+		"err", errText(err))
 	if strings.HasPrefix(err.Error(), "transcribe: cutting") || strings.HasPrefix(err.Error(), "transcribe: drawing") {
 		return failed(ReasonConversionFailed)
 	}

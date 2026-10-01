@@ -113,7 +113,12 @@ type TranscriptionJob struct {
 	ID  string `json:"id"`
 	Seq int64  `json:"seq"`
 	// VersionID, DocumentID and CourseID are Core's; LeaseID the claim's.
+	// FileID and Position are the file of the version claimed, by Core's
+	// id and its place among the version's files (AIShie-Core #49): "" and
+	// 0 for a claim of a Core before it, whose versions had one file.
 	VersionID  string `json:"version_id"`
+	FileID     string `json:"file_id"`
+	Position   int    `json:"position"`
 	DocumentID string `json:"document_id"`
 	CourseID   string `json:"course_id"`
 	LeaseID    string `json:"lease_id"`
@@ -173,7 +178,7 @@ func CheckTranscriptionJob(j TranscriptionJob) error {
 	if !JobStatusKnown(j.Status) {
 		bad = append(bad, "a status of working, done, failed, skipped or dropped")
 	}
-	if j.ByteSize < 0 || j.PagesSent < 0 || j.ModelCalls < 0 || j.InputTokens < 0 || j.OutputTokens < 0 ||
+	if j.ByteSize < 0 || j.PagesSent < 0 || j.ModelCalls < 0 || j.InputTokens < 0 || j.OutputTokens < 0 || j.Position < 0 ||
 		j.Pages != nil && *j.Pages < 0 || j.CostPUSD != nil && *j.CostPUSD < 0 {
 		bad = append(bad, "counts of zero or more")
 	}

@@ -128,7 +128,7 @@ func (r Runner) givePDFFile(ctx context.Context, g given, d *docFile, p pdfFile,
 		return g, true
 	}
 	rec.GivenAs = givenFile
-	g.file, g.filePages = &llm.File{Name: fileName(d.title+" ("+rec.PartHolds+")", pdfMIME), MIME: pdfMIME, Data: b}, last-first+1
+	g.file, g.filePages = &llm.File{Name: fileName(partName(d.title, rec.PartHolds), pdfMIME), MIME: pdfMIME, Data: b}, last-first+1
 	notesBeside(&g, p, first, last)
 	return g, true
 }
@@ -180,7 +180,7 @@ func (r Runner) givePDFPages(ctx context.Context, g given, d *docFile, p pdfFile
 		return g, true
 	}
 	rec.GivenAs = givenFile
-	g.file, g.filePages = &llm.File{Name: fileName(d.title+" ("+rec.PartHolds+")", pdfMIME), MIME: pdfMIME, Data: data}, last-first+1
+	g.file, g.filePages = &llm.File{Name: fileName(partName(d.title, rec.PartHolds), pdfMIME), MIME: pdfMIME, Data: data}, last-first+1
 	notesBeside(&g, p, first, last)
 	return g, true
 }
@@ -231,4 +231,16 @@ func notesBeside(g *given, p pdfFile, first, last int) {
 	}
 	g.text, g.sections, g.aside = b.String(), sections, true
 	rec.Note += "; file_text holds the speaker notes of these slides, which the PDF does not show"
+}
+
+// partName names pages of a file given as a PDF of their own: the file's
+// name, without ".pdf" where it has it, and the pages.
+func partName(title, holds string) string {
+	if strings.HasSuffix(strings.ToLower(title), ".pdf") {
+		title = title[:len(title)-len(".pdf")]
+	}
+	if title == "" {
+		title = "document"
+	}
+	return title + " (" + holds + ")"
 }
