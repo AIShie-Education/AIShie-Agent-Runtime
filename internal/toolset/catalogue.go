@@ -80,6 +80,13 @@ func (c *Catalogue) Check() error {
 			errs = append(errs, fmt.Errorf("toolset: %s is allowed by default but has no gate", name))
 		}
 	}
+	// The runtime's own tools are offered by their names, which Core's
+	// must leave to them.
+	for _, name := range []string{AttachmentTool, SearchTool} {
+		if _, ok := c.Tools[name]; ok {
+			errs = append(errs, fmt.Errorf("toolset: Core's catalogue now offers %s itself, the name of the runtime's own tool", name))
+		}
+	}
 	return errors.Join(errs...)
 }
 

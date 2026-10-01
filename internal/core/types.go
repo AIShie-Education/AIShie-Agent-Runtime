@@ -174,6 +174,13 @@ const (
 	EventConversationMessagePosted    = "conversation.message_posted"
 	EventConversationClosed           = "conversation.closed"
 	EventConversationMessageRetracted = "conversation.message_retracted"
+	// EventDocumentPurged and EventDocumentPurgedUnreleased say a
+	// document (its subject), or one version of it (its payload's
+	// version_id), was purged: its text and files are gone for good. A
+	// seat that reads drafts sees the first, one that writes assignments
+	// the second, of instructions or a rubric not yet released.
+	EventDocumentPurged           = "document.purged"
+	EventDocumentPurgedUnreleased = "document.purged_unreleased"
 )
 
 // Events is event_list's result. NextSeq moves on over events the caller

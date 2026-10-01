@@ -69,6 +69,9 @@ type Seat struct {
 	// reads them, "" where the model is offered none.
 	Files    bool
 	FileTool string
+	// SearchTool is the runtime's tool that searches the course's
+	// materials, "" where the model is offered none.
+	SearchTool string
 }
 
 // CourseName names a course from its membership.
@@ -129,6 +132,11 @@ func System(in Input) (text, hash string) {
 		line("You have no tools that read the course here: answer from the conversation and the files attached to it alone, and say when you would need to see something you cannot.")
 	case len(in.Seat.Writes) == 0:
 		line("You have no tools here: answer from the conversation alone, and say when you would need to see something you cannot.")
+	}
+	if in.Seat.SearchTool != "" {
+		line(in.Seat.SearchTool + " finds the passages of the course's documents that match a few words, and where each is: use it to find where " +
+			"something is said, then read the passage with the call its hit names (read) before you rely on it. A search that finds nothing " +
+			"does not show the course never says it: its result says what it could not search.")
 	}
 	if in.Seat.Files {
 		line("Some messages here carry files " + asker + " attached, announced in brackets where they were attached, by name, type, size and attachment_id. " +

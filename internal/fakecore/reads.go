@@ -117,6 +117,7 @@ var visibility = map[string][]string{
 	"course.activated": {permDocumentRead}, "course.archived": {permDocumentRead},
 	"document.text_updated": {permDocumentRead}, "document.rubric_text_updated": {permRubricRead},
 	"document.draft_text_updated": {permDocumentReadDraft},
+	"document.purged":             {permDocumentReadDraft},
 }
 
 func (c *Core) visible(e *event, m *member) bool {
@@ -454,6 +455,16 @@ type versionView struct {
 	CreatedAt      time.Time   `json:"created_at"`
 	Published      bool        `json:"published"`
 	Text           *textView   `json:"text,omitempty"`
+	// Purged is a purged version's tombstone, whose text and files are
+	// gone.
+	Purged *purgedView `json:"purged,omitempty"`
+}
+
+// purgedView is a purged version's tombstone, as document_get gives it.
+type purgedView struct {
+	At        time.Time `json:"at"`
+	ByActorID string    `json:"by_actor_id"`
+	Reason    string    `json:"reason"`
 }
 
 func (c *Core) findDocument(co *course, id uuid.UUID) *document {
@@ -507,6 +518,9 @@ func documentGet() *impl {
 			if doc.versionID != "" {
 				v = &versionView{ID: doc.versionID, Seq: 1, BodyMD: doc.bodyMD, AuthorMemberID: doc.authorMemberID,
 					CreatedAt: doc.versionCreatedAt, Published: !doc.draft}
+				if doc.purgedAt != nil {
+					v.BodyMD, v.Purged = nil, &purgedView{At: *doc.purgedAt, ByActorID: newID(), Reason: "uploaded by mistake"}
+				}
 				files := filesOf(doc, rc.base, true, rc.now)
 				if !c.opts.WithoutFiles {
 					v.Files = &files

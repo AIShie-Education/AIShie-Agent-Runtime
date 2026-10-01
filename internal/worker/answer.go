@@ -397,7 +397,7 @@ func (c *claim) system(ctx context.Context, read *core.Messages, shorter bool, s
 		Seat: prompt.Seat{
 			AgentName: c.a.name(), Course: prompt.CourseName(m), AnswersCourse: m.AnswersCourse,
 			AskerName: read.Conversation.Opener.DisplayName, AnswerLevel: read.Conversation.Respondent.AnswerLevel,
-			Tools: set.Reads(), Writes: set.Writes(), Files: files, FileTool: fileTool(set),
+			Tools: set.Reads(), Writes: set.Writes(), Files: files, FileTool: fileTool(set), SearchTool: searchTool(set),
 		},
 		AnswerLanguage: c.eff.Prompt.AnswerLanguage, Notes: notes, Now: c.a.now(),
 	})
@@ -413,6 +413,15 @@ func (c *claim) system(ctx context.Context, read *core.Messages, shorter bool, s
 func fileTool(set *toolset.Set) string {
 	if set.Has(toolset.AttachmentTool) {
 		return toolset.AttachmentTool
+	}
+	return ""
+}
+
+// searchTool is the runtime's tool that searches the course's materials,
+// where set offers it; "" otherwise.
+func searchTool(set *toolset.Set) string {
+	if set.Has(toolset.SearchTool) {
+		return toolset.SearchTool
 	}
 	return ""
 }

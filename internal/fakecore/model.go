@@ -212,6 +212,9 @@ type document struct {
 	versionCreatedAt time.Time
 	// files are the version's files, in order (documents.go).
 	files []*versionFile
+	// purgedAt is when its version was purged (PurgeVersion): its text
+	// and files are gone, and document_get gives its tombstone.
+	purgedAt *time.Time
 }
 
 // versionFile is one file of a document's version: its id, its place

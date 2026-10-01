@@ -233,8 +233,9 @@ type toolsKey struct {
 }
 
 // toolsFor is the seat's toolset declared in dialect d, with its writes
-// when access is ReadWrite, built once per dialect and access while the
-// seat's perms stay the same.
+// when access is ReadWrite, and the runtime's search of the course's
+// materials where it reads them (toolset.SearchTool), built once per
+// dialect and access while the seat's perms stay the same.
 func (s *Seat) toolsFor(d toolschema.Dialect, access toolset.Access) (*toolset.Set, error) {
 	k := toolsKey{d, access}
 	s.mu.Lock()
@@ -245,6 +246,9 @@ func (s *Seat) toolsFor(d toolschema.Dialect, access toolset.Access) (*toolset.S
 		return set, nil
 	}
 	set, err := toolset.Build(s.a.cat, perms, tools, access, d, s.a.s.schemas)
+	if err == nil {
+		set, err = set.WithSearch(tools, d, s.a.s.schemas)
+	}
 	if err != nil {
 		return nil, err
 	}
