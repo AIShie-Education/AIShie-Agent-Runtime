@@ -20,12 +20,13 @@ import (
 
 // TestLoad is §8.2's load test, short: 50 agents in 5 courses each, idle,
 // against the fake Core's per-actor limiter. Their polling stays within
-// max_rate_share of Core's allowance, every course has its turn, none
-// more than four times another of its agent's (and one), and Core
-// never answers 429: on the schedule, as against a Core from before
-// wait_s, and long-polling their inboxes, every call one call to the share
-// however long it waits, with none sent back to the schedule (5 seats an
-// agent, 250 in all, are within Core's bounds on calls waiting).
+// max_rate_share of Core's allowance, every course has its turn, no agent
+// polls one course's inbox more than 4 × (n+1) times, n its fewest polls
+// of another's, and Core never answers 429: on the schedule, as against a
+// Core from before wait_s, and long-polling their inboxes, every call one
+// call to the share however long it waits, with none sent back to the
+// schedule (5 seats an agent, 250 in all, are within Core's bounds on
+// calls waiting).
 //
 // Time is scaled down 30 times: a minute of Core's is two seconds here.
 // Every interval is divided by 30 (inbox 2 s hot, 10 s idle to 30 s at
@@ -52,7 +53,7 @@ func load(t *testing.T, waitS float64) {
 		courses = 5
 		share   = 0.03
 		rate    = 600 * scale // calls a minute, scaled
-		fair    = 4           // the most an agent polls one course's inbox to another's (and one)
+		fair    = 4           // no agent polls one course's inbox more than fair × (n+1) times, n its fewest polls of another's
 	)
 	w := newWorldWith(t, fakecore.Options{RatePerMinute: int(rate), RateBurst: 100})
 	var cos []fakecore.Course
@@ -186,7 +187,7 @@ func load(t *testing.T, waitS float64) {
 	if float64(total) > allowed*agents*1.1 {
 		t.Errorf("the agents polled %d times in %s; their share is %.0f", total, window, allowed*agents)
 	}
-	t.Logf("%d agents in %d courses: %d polling calls in %s, %.0f%% of their share; no 429; an agent's turns at its courses' inboxes at worst %.1f to one (and one)",
+	t.Logf("%d agents in %d courses: %d polling calls in %s, %.0f%% of their share; no 429; an agent's most polls of one course's inbox at worst %.1f × (its fewest of another's + 1)",
 		agents, courses, total, window, 100*float64(total)/(allowed*agents), worst)
 }
 
