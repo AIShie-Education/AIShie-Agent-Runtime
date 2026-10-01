@@ -3,7 +3,9 @@ package ocr
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -112,42 +114,85 @@ func TestServiceRecognizesOnceInTheBackground(t *testing.T) {
 
 // TestServiceWaits: a file recognized within Config.Wait is answered at
 // once; the wait never passes half of what the question's context has
-// left.
+// left, and a question asked again while the file is recognized waits as
+// long again. How long each question waits is read off the timer it sets,
+// which the test holds, on a clock that stands still: what the test
+// checks is what the service decided, never how long the machine took.
 func TestServiceWaits(t *testing.T) {
 	quick := &fakeRecognizer{fn: func(context.Context, []byte, func(int, int)) (*Result, error) {
 		return &Result{Text: "看板", Pages: 1, Of: 1}, nil
 	}}
 	s, _ := newTestService(t, t.Context(), quick, Config{Wait: 5 * time.Second}, nil)
+	// Its timer fires only long after the job's end, which is to answer.
+	waits := heldTimers(s, func() <-chan time.Time { return time.After(30 * time.Second) })
 	var fetched atomic.Int32
 	if st := s.Text(t.Context(), sumOf("b"), Image, 0, bytesOf("img", &fetched)); st.Status != StatusDone || st.Text.Text != "看板" {
 		t.Errorf("a quick file: %+v", st)
 	}
+	if w := waits(); !slices.Equal(w, []time.Duration{5 * time.Second}) {
+		t.Errorf("a quick file set its wait for %v, want Config.Wait, ended by the job's end", w)
+	}
 
-	rec, release := gate()
+	// A file recognized until the test is done with it, which says when
+	// it has told its progress.
+	started, release := make(chan struct{}), make(chan struct{})
 	defer close(release)
-	s, _ = newTestService(t, t.Context(), rec, Config{Wait: 5 * time.Second}, nil)
-	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	slow := &fakeRecognizer{fn: func(ctx context.Context, data []byte, progress func(done, of int)) (*Result, error) {
+		progress(1, 3)
+		close(started)
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		return &Result{Text: string(data), Pages: 1, Of: 1}, nil
+	}}
+	s, _ = newTestService(t, t.Context(), slow, Config{Wait: 5 * time.Second}, nil)
+	now := time.Now()
+	s.now = func() time.Time { return now }
+	// Its timers fire at once: the job is not done by then.
+	waits = heldTimers(s, func() <-chan time.Time {
+		fired := make(chan time.Time, 1)
+		fired <- now
+		return fired
+	})
+	ctx, cancel := context.WithDeadline(t.Context(), now.Add(200*time.Millisecond))
 	defer cancel()
-	start := time.Now()
 	if st := s.Text(ctx, sumOf("c"), PDF, 3, bytesOf("slow", &fetched)); st.Status != StatusPending {
 		t.Errorf("a slow file: %+v", st)
 	}
-	if took := time.Since(start); took > 150*time.Millisecond {
-		t.Errorf("waited %s of a question that had 200 ms", took)
-	}
+	<-started
 	// Asked again while it is recognized here, the question waits as the
 	// first did, not answered at once.
-	ctx, cancel = context.WithTimeout(t.Context(), 200*time.Millisecond)
+	ctx, cancel = context.WithDeadline(t.Context(), now.Add(200*time.Millisecond))
 	defer cancel()
-	start = time.Now()
 	if st := s.Text(ctx, sumOf("c"), PDF, 3, bytesOf("slow", &fetched)); st.Status != StatusPending || st.Done != 1 {
 		t.Errorf("the slow file asked again: %+v", st)
 	}
-	if took := time.Since(start); took < 80*time.Millisecond || took > 150*time.Millisecond {
-		t.Errorf("asked again, waited %s of a question that had 200 ms, want about half", took)
+	if w := waits(); !slices.Equal(w, []time.Duration{100 * time.Millisecond, 100 * time.Millisecond}) {
+		t.Errorf("questions with 200 ms left set their waits for %v, want half of it each, the second as the first", w)
 	}
 	if fetched.Load() != 2 {
 		t.Errorf("fetched %d times, want once a file", fetched.Load())
+	}
+}
+
+// heldTimers has s's questions wait on timers the test holds: each fires
+// on what fire gives it, and the waits they were set for are recorded,
+// which the func returned reads.
+func heldTimers(s *Service, fire func() <-chan time.Time) func() []time.Duration {
+	var mu sync.Mutex
+	var waits []time.Duration
+	s.after = func(d time.Duration) (<-chan time.Time, func() bool) {
+		mu.Lock()
+		waits = append(waits, d)
+		mu.Unlock()
+		return fire(), func() bool { return true }
+	}
+	return func() []time.Duration {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(waits)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -224,6 +225,54 @@ func TestRowsWaitingForASlotAreWork(t *testing.T) {
 	s.pollInboxOnce(context.Background())
 	if n := empties(); n != 2 {
 		t.Errorf("rows held back: %d empty polls, want 2", n)
+	}
+}
+
+// TestEventsAskedForDuringARead: events asked for at once while a read of
+// them is under way, as when an answer begins to be written (eventsAtOnce),
+// are read again at once once it is over: that read began before they were
+// asked for, and cannot have the news they are read for. Taken as read by
+// it, they would wait for events_s, while the answer, unwatched, went on
+// with its question withdrawn.
+func TestEventsAskedForDuringARead(t *testing.T) {
+	var mu sync.Mutex
+	now := time.Date(2026, 9, 30, 9, 0, 0, 0, time.UTC)
+	clock := func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return now
+	}
+	advance := func(d time.Duration) {
+		mu.Lock()
+		now = now.Add(d)
+		mu.Unlock()
+	}
+	sup, err := NewSupervisor(Options{Config: &config.Config{}, Store: memstore.New(), WorkerID: "w", Now: clock})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := newAgent(sup, &config.Agent{ID: "a"})
+	s := &Seat{a: a, id: "m", course: "c", log: discardLog(), wakeEvents: make(chan struct{}, 1),
+		eff: &config.Effective{Agent: config.Agent{Polling: config.Polling{EventsS: 30}}}}
+	a.client = core.NewClient(callerFunc(func(_ context.Context, tool string, _ json.RawMessage) (*core.Envelope, error) {
+		if tool == "event_list" {
+			advance(time.Second)
+			s.eventsAtOnce()
+			advance(time.Second)
+		}
+		return &core.Envelope{Status: core.StatusExecuted, Result: json.RawMessage(`{"events":[],"next_seq":0}`)}, nil
+	}))
+	s.pollEventsOnce(context.Background())
+	if next := s.nextEvents(0.5, false); next.After(clock()) {
+		t.Errorf("events asked for during a read are read %s after it", next.Sub(clock()))
+	}
+	// Read again, they are not asked for any more: events_s from then.
+	a.client = core.NewClient(callerFunc(func(context.Context, string, json.RawMessage) (*core.Envelope, error) {
+		return &core.Envelope{Status: core.StatusExecuted, Result: json.RawMessage(`{"events":[],"next_seq":0}`)}, nil
+	}))
+	s.pollEventsOnce(context.Background())
+	if next := s.nextEvents(0.5, false); next.Sub(clock()) != 30*time.Second {
+		t.Errorf("events read again %s after a read that had them", next.Sub(clock()))
 	}
 }
 
