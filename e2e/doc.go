@@ -10,7 +10,10 @@
 // queue is the whole site's), the runtime's binary makes the PDF renditions
 // of the Office files Core keeps, of a version or a message, which their
 // readers open from Core (alone too, where Core has renditions and
-// LibreOffice is installed), and no token reaches a log.
+// LibreOffice is installed), a student's agent and an instructor's search
+// the course's materials, sharing one index, each finding only what Core
+// lets its seat read, and a version purged in Core leaves the index, and
+// no token reaches a log.
 //
 // Each test seats its own people and agents through Core's REST API, as
 // root and then as those people, each signed in with a password of their
