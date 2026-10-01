@@ -20,7 +20,8 @@ import (
 // stubOffice converts and cuts as a test says, and records what it is
 // asked: a conversion gives out[to] unless convert says otherwise; a range
 // is a PDF of those pages, each saying its number; picked pages are a PDF
-// of their own.
+// of their own. It takes the PDF Core made of a file as it is fetched, its
+// pages counted, and keeps it by the file's checksum.
 type stubOffice struct {
 	off     string
 	noCuts  bool
@@ -32,11 +33,18 @@ type stubOffice struct {
 	ranges    [][2]int
 	picks     [][]int
 	badSum    bool
+	taken     map[string]*office.Output
+	// fetchErrs are what each fetch of Core's PDF said, nil for one that
+	// fetched it.
+	fetchErrs []error
 }
 
 func (s *stubOffice) Available() (bool, string) { return s.off == "", s.off }
 
 func (s *stubOffice) Convert(_ context.Context, sum string, f office.Format, to office.Target, data []byte) office.State {
+	if s.off != "" {
+		return office.State{Status: office.StatusOff, Why: s.off}
+	}
 	s.mu.Lock()
 	s.converted = append(s.converted, f.Ext+">"+string(to))
 	s.badSum = s.badSum || sum != checksum(data)
@@ -45,6 +53,39 @@ func (s *stubOffice) Convert(_ context.Context, sum string, f office.Format, to 
 		return s.convert(f, to)
 	}
 	return office.State{Status: office.StatusDone, Out: s.out[to]}
+}
+
+func (s *stubOffice) TakeRendition(ctx context.Context, sum string, fetch func(context.Context) ([]byte, error)) (*office.Output, error) {
+	s.mu.Lock()
+	if out := s.taken[sum]; out != nil {
+		s.mu.Unlock()
+		return out, nil
+	}
+	s.mu.Unlock()
+	data, err := fetch(ctx)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.fetchErrs = append(s.fetchErrs, err)
+	if err != nil {
+		return nil, office.ErrRendition
+	}
+	n, err := doctext.PDFPages(ctx, data, doctext.Limits{})
+	if err != nil {
+		return nil, office.ErrRendition
+	}
+	if s.taken == nil {
+		s.taken = map[string]*office.Output{}
+	}
+	s.taken[sum] = &office.Output{Data: data, Pages: n, Rendition: true}
+	return s.taken[sum], nil
+}
+
+// fetches are what each fetch of Core's PDF said, nil for one that fetched
+// it.
+func (s *stubOffice) fetches() []error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]error(nil), s.fetchErrs...)
 }
 
 func (s *stubOffice) Cuts() bool { return !s.noCuts }

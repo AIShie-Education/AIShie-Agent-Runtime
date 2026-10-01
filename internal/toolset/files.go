@@ -189,6 +189,10 @@ type docFile struct {
 	// in, which its parts are read in.
 	text     *core.TextView
 	courseID string
+	// rendition is the file's PDF rendition as Core showed it, nil where
+	// it has none (rendition.go): done, its URL is a credential for the
+	// PDF, as url is for the file.
+	rendition *core.RenditionView
 	// first and last are the pages of the file the model asked for
 	// (FilePagesArg), 0 for none.
 	first, last int
@@ -276,7 +280,7 @@ type docVersion struct {
 
 // documentVersion finds the files of a document_get result: its version's
 // files (version.files, each with its id, place, name, type, size,
-// checksum, download_url and text version) where Core lists them
+// checksum, download_url, text version and rendition) where Core lists them
 // (AIShie-Core #49); where it does not (a Core before it), the version's
 // one file, its download_url, with the document's title and the version's
 // content type, size, checksum and text version. nil when Core gave no
@@ -326,7 +330,8 @@ func documentVersion(result any) *docVersion {
 }
 
 // file is the file of v at url that f describes, as a version or one of
-// its files describes it: its type, size, checksum and text version.
+// its files describes it: its type, size, checksum, text version and
+// rendition.
 func (v *docVersion) file(url string, f map[string]any) *docFile {
 	d := &docFile{url: url, documentID: v.documentID, versionID: v.versionID}
 	d.checksum, _ = f["checksum"].(string)
@@ -338,6 +343,12 @@ func (v *docVersion) file(url string, f map[string]any) *docFile {
 		var tv core.TextView
 		if json.Unmarshal([]byte(encodeJSON(t)), &tv) == nil && tv.Status != "" {
 			d.text = &tv
+		}
+	}
+	if rn, ok := f["rendition"].(map[string]any); ok {
+		var rv core.RenditionView
+		if json.Unmarshal([]byte(encodeJSON(rn)), &rv) == nil && rv.State != "" {
+			d.rendition = &rv
 		}
 	}
 	return d
@@ -376,9 +387,12 @@ const (
 	// octet stream, a zip archive): fetched, and known by what it holds.
 	kindUnknown
 	// kindConvert is an Office file the runtime has LibreOffice convert
-	// (Runner.Office): a presentation or a document, whose PDF is what a
-	// model that takes files sees, and a workbook the runtime reads only
-	// as LibreOffice converts it (.xls, .ods).
+	// (Runner.Office): a presentation or a document, whose PDF (Core's,
+	// where Core made one) is what a model that takes files sees, and a
+	// workbook the runtime reads only as LibreOffice converts it (.xls,
+	// .ods); and, where LibreOffice does not convert here, a presentation
+	// or a document whose PDF Core made, to a model that takes files
+	// (Runner.rendered).
 	kindConvert
 )
 
@@ -476,17 +490,17 @@ type given struct {
 
 // giveFile fetches a document's file and says how the model gets it (rule
 // 6): text as text; an image as a file part, to a model that takes files;
-// a presentation or a document converted to PDF by LibreOffice where the
-// runtime converts them (giveConverted), and otherwise a PowerPoint, Word
-// or Excel file as the text the runtime reads from it; a PDF as a file
-// part to a model that takes files and whose provider takes one of its
-// size, in parts of its pages when it has more than a part holds, and
-// otherwise as its text, when that reads as text. A file of no type, or of
-// one that says nothing, is known by what it holds. Anything else is not
-// given, with a note saying why. part is the part the model asked for, 0
-// for none. What was read for a model given the text is kept
-// (Runner.Texts), and a later call for the same version, a later part of
-// it, reads it there without fetching the file again.
+// a presentation or a document as its PDF, Core's or LibreOffice's, where
+// the runtime converts them or Core made its PDF (giveConverted), and
+// otherwise a PowerPoint, Word or Excel file as the text the runtime reads
+// from it; a PDF as a file part to a model that takes files and whose
+// provider takes one of its size, in parts of its pages when it has more
+// than a part holds, and otherwise as its text, when that reads as text. A
+// file of no type, or of one that says nothing, is known by what it holds.
+// Anything else is not given, with a note saying why. part is the part the
+// model asked for, 0 for none. What was read for a model given the text is
+// kept (Runner.Texts), and a later call for the same version, a later part
+// of it, reads it there without fetching the file again.
 func (r Runner) giveFile(ctx context.Context, d *docFile, part int) given {
 	rec := &fileRecord{FileID: d.fileID, Position: d.position, Name: d.title, ContentType: d.contentType, ByteSize: d.byteSize, GivenAs: givenNot}
 	g := given{rec: rec}
@@ -500,7 +514,7 @@ func (r Runner) giveFile(ctx context.Context, d *docFile, part int) given {
 		}
 	}
 	mt := mediaType(d.contentType)
-	kind := r.kindOf(mt)
+	kind := r.kindFor(d, mt)
 	if why := r.refusal(mt, kind); why != "" {
 		rec.Note = why
 		return g
@@ -514,7 +528,7 @@ func (r Runner) giveFile(ctx context.Context, d *docFile, part int) given {
 		return g
 	}
 	key := r.textKey(d)
-	if kept := r.kept(key); kept != nil && !r.givesFile(kept.mt) {
+	if kept := r.kept(key); kept != nil && !r.givesFile(d, kept.mt) {
 		if kind == kindUnknown {
 			rec.ContentType = kept.mt
 		}
@@ -532,7 +546,7 @@ func (r Runner) giveFile(ctx context.Context, d *docFile, part int) given {
 	rec.ByteSize = int64(len(f.Data))
 	if kind == kindUnknown {
 		var why string
-		mt, kind, why = r.sniff(f)
+		mt, kind, why = r.sniff(d, f)
 		rec.ContentType = mt
 		if why == "" {
 			why = r.refusal(mt, kind)
@@ -621,12 +635,12 @@ func (r Runner) noPages(rec *fileRecord) string {
 	return "the file's pages cannot be given here"
 }
 
-// givesFile reports whether a file of media type mt may be given to this
-// model as a file part, which takes its bytes, not its text: an image or a
-// PDF, or a presentation or document the runtime converts to one, to a
-// model that takes files.
-func (r Runner) givesFile(mt string) bool {
-	switch r.kindOf(mt) {
+// givesFile reports whether d, a file of media type mt, may be given to
+// this model as a file part, which takes its bytes, not its text: an image
+// or a PDF, or a presentation or document the runtime converts to one, or
+// whose PDF Core made, to a model that takes files.
+func (r Runner) givesFile(d *docFile, mt string) bool {
+	switch r.kindFor(d, mt) {
 	case kindImage, kindPDF:
 		return r.FileInput
 	case kindConvert:
@@ -728,26 +742,27 @@ func (r Runner) givePDFText(ctx context.Context, g given, d *docFile, rd *fileRe
 	return g
 }
 
-// sniff is what a fetched file of no telling type is: by its first bytes
-// and the package it holds (PDF, Office Open XML, an older Office file,
-// and, where the runtime converts them, which older Office file, an
-// OpenDocument file or RTF); then by what the file server said; then by
-// Go's sniffing. why is set when that alone says it is not given.
-func (r Runner) sniff(f *FetchedFile) (mt string, kind fileKind, why string) {
+// sniff is what d, a fetched file f of no telling type, is: by its first
+// bytes and the package it holds (PDF, Office Open XML, an older Office
+// file, and, where the runtime converts them or Core made its PDF, which
+// older Office file, an OpenDocument file or RTF); then by what the file
+// server said; then by Go's sniffing. why is set when that alone says it is
+// not given.
+func (r Runner) sniff(d *docFile, f *FetchedFile) (mt string, kind fileKind, why string) {
 	format, err := doctext.Sniff(f.Data)
 	switch {
 	case errors.Is(err, doctext.ErrEncrypted):
 		return "application/x-ole-storage", kindOldOffice, notePassword
 	case errors.Is(err, doctext.ErrOldFormat):
-		if mt := office.Sniff(f.Data); mt != "" && r.kindOf(mt) == kindConvert {
+		if mt := office.Sniff(f.Data); mt != "" && r.kindFor(d, mt) == kindConvert {
 			return mt, kindConvert, ""
 		}
 		return "application/x-ole-storage", kindOldOffice, noteOldOffice
 	case format != "":
 		mt = format.MediaType()
-		return mt, r.kindOf(mt), ""
+		return mt, r.kindFor(d, mt), ""
 	}
-	if mt := office.Sniff(f.Data); mt != "" && r.converts() {
+	if mt := office.Sniff(f.Data); mt != "" && r.kindFor(d, mt) == kindConvert {
 		return mt, kindConvert, ""
 	}
 	if mt = mediaType(f.ContentType); r.kindOf(mt) != kindUnknown {

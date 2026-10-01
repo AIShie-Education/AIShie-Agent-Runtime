@@ -278,8 +278,9 @@ func (s *RuntimeService) CompleteRendition(ctx context.Context, cl RenditionClai
 // (document_get's and document_file's files, conversation_attachment):
 // where it stands; done, its pages, its size and, where the read gives
 // URLs, a short-lived URL that shows the PDF (a credential for it, never
-// a model's); failed or skipped, why. A file that is not converted has
-// none.
+// a model's: the runtime fetches it to give a model reading the file that
+// PDF, package toolset); failed or skipped, why. A file that is not
+// converted has none.
 type RenditionView struct {
 	State             string     `json:"state"`
 	PageCount         int        `json:"page_count,omitempty"`

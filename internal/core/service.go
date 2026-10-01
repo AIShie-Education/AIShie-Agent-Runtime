@@ -366,8 +366,10 @@ func (c *Client) TextPart(ctx context.Context, courseID, documentID, versionID, 
 const ToolDocumentFile = "document_file"
 
 // DocumentFile is document_file's result: a file of a version, its text
-// version without its body, and a short-lived URL that serves it (a
-// credential for the file: never a model's).
+// version without its body, a short-lived URL that serves it (a credential
+// for the file: never a model's), and, for an Office or OpenDocument file
+// of a Core that converts them, its PDF rendition, with a URL of its own
+// once it is done.
 type DocumentFile struct {
 	ID          string    `json:"id"`
 	Position    int       `json:"position"`
@@ -382,6 +384,9 @@ type DocumentFile struct {
 	Published   bool      `json:"published"`
 	DownloadURL string    `json:"download_url"`
 	ExpiresAt   time.Time `json:"expires_at"`
+	// Rendition is nil for a file Core does not convert, and from a Core
+	// before renditions.
+	Rendition *RenditionView `json:"rendition,omitempty"`
 }
 
 // DocumentFile reads the file fileID of the document, with a fresh URL,

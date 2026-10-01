@@ -18,9 +18,9 @@ import (
 // Office converts Office files for the models (design §4, Files):
 // presentations and documents to PDF, whose pages a model that takes files
 // sees as they look, older and OpenDocument decks to PowerPoint's format,
-// and older and OpenDocument workbooks to Excel's; and it cuts ranges of
-// pages from PDFs, which a long one is given in. *office.Service is the
-// worker's.
+// and older and OpenDocument workbooks to Excel's; it keeps the PDFs Core
+// made of them (rendition.go) as its own; and it cuts ranges of pages from
+// PDFs, which a long one is given in. *office.Service is the worker's.
 type Office interface {
 	// Available reports whether it converts files here, and if not, why.
 	Available() (bool, string)
@@ -28,6 +28,10 @@ type Office interface {
 	// converted to target, or where its conversion stands, as
 	// office.Service.Convert says.
 	Convert(ctx context.Context, sum string, f office.Format, to office.Target, data []byte) office.State
+	// TakeRendition is the PDF Core made of the file whose checksum is
+	// sum, which fetch fetches, kept as a conversion is, or why it is not
+	// taken (office.ErrRendition), as office.Service.TakeRendition says.
+	TakeRendition(ctx context.Context, sum string, fetch func(context.Context) ([]byte, error)) (*office.Output, error)
 	// Cuts reports whether it cuts PDFs here.
 	Cuts() bool
 	// Range is pages first to last of pdf, named sum, as a PDF of their own.
@@ -59,10 +63,10 @@ var targetWords = map[office.Target]string{office.ToPDF: "PDF", office.ToPPTX: "
 // data, of media type mt, as the runtime converts it:
 //
 //   - a workbook as the runtime's text of LibreOffice's Excel form of it;
-//   - a presentation or a document, to a model that takes files, as
-//     LibreOffice's PDF of it (givePDFFile), in parts of its pages where it
-//     has more than a part holds, and a deck's speaker notes beside it as
-//     text;
+//   - a presentation or a document, to a model that takes files, as its
+//     PDF (givePDFFile): Core's where Core made one, LibreOffice's
+//     otherwise (pdfOf), in parts of its pages where it has more than a
+//     part holds, and a deck's speaker notes beside it as text;
 //   - otherwise, or where its PDF is past what the model's provider takes,
 //     or is not made (yet), as text (giveConvertedText).
 func (r Runner) giveConverted(ctx context.Context, g given, d *docFile, mt string, data []byte, part int) given {
@@ -77,7 +81,7 @@ func (r Runner) giveConverted(ctx context.Context, g given, d *docFile, mt strin
 	if f.Family == office.Workbook || !r.FileInput {
 		return r.giveConvertedText(ctx, g, d, mt, sum, data, nil, "")
 	}
-	st := r.Office.Convert(ctx, sum, f, office.ToPDF, data)
+	st := r.pdfOf(ctx, d, sum, f, data)
 	if st.Status != office.StatusDone {
 		// Its text meanwhile, where the runtime reads it without the PDF;
 		// the PDF on asking again, where it is being made.
@@ -88,7 +92,7 @@ func (r Runner) giveConverted(ctx context.Context, g given, d *docFile, mt strin
 	if past := r.bytesPast(int64(len(pdf.Data)), "its PDF is"); past != "" && d.first == 0 {
 		return r.giveConvertedText(ctx, g, d, mt, sum, data, pdf.Data, past)
 	}
-	p := pdfFile{data: pdf.Data, sum: sum + "/pdf", pages: pdf.Pages, unit: doctext.SectionPage, converted: true, capped: pdf.Capped}
+	p := pdfFile{data: pdf.Data, sum: pdfSum(sum, pdf), pages: pdf.Pages, unit: doctext.SectionPage, converted: true, capped: pdf.Capped}
 	if f.Family == office.Slides {
 		p.unit = doctext.SectionSlide
 		rd, st := r.deckReading(ctx, d, mt, sum, data)
@@ -161,11 +165,11 @@ func readTarget(f office.Format) office.Target {
 // readConverted reads the text of an Office file the runtime converts,
 // data, whose checksum is sum: a PowerPoint or Word file's own, and
 // another's in what LibreOffice makes of it (readTarget), converting it
-// now; a Word file of little but pictures in its PDF, as another
-// document's. pdf is LibreOffice's PDF of it, when made. It is nil, with
-// where the conversion stands, when what it needs is not made (yet). What
-// was read is kept under the version (Runner.Texts), unless the reading ran
-// out of time.
+// now, or, for its PDF, in Core's PDF of it where Core made one (pdfOf); a
+// Word file of little but pictures in its PDF, as another document's. pdf
+// is its PDF, when made. It is nil, with where the conversion stands, when
+// what it needs is not made (yet). What was read is kept under the version
+// (Runner.Texts), unless the reading ran out of time.
 func (r Runner) readConverted(ctx context.Context, d *docFile, mt, sum string, data, pdf []byte) (*fileReading, office.State) {
 	f, _ := office.FormatOf(mt)
 	rd := &fileReading{mt: mt, size: int64(len(data)), sum: sum, fam: f.Family}
@@ -181,7 +185,12 @@ func (r Runner) readConverted(ctx context.Context, d *docFile, mt, sum string, d
 		case to == office.ToPDF && pdf != nil:
 			src, format = pdf, doctext.PDF
 		default:
-			st := r.Office.Convert(ctx, sum, f, to, data)
+			var st office.State
+			if to == office.ToPDF {
+				st = r.pdfOf(ctx, d, sum, f, data)
+			} else {
+				st = r.Office.Convert(ctx, sum, f, to, data)
+			}
 			if st.Status != office.StatusDone {
 				return nil, st
 			}
@@ -356,25 +365,41 @@ func (r Runner) giveSlides(ctx context.Context, g given, d *docFile, rd *fileRea
 	return g
 }
 
-// convertedPDF gives OCR the bytes of LibreOffice's PDF of rd's file, or of
-// the pages given of it: the file's bytes (data, or the file fetched again,
-// which must be the file rd read) converted, which the conversion keeps.
+// convertedPDF gives OCR the bytes of the PDF of rd's file, or of the
+// pages given of it: Core's PDF of it where Core made one, which needs
+// nothing of the file; else the file's bytes (data, or the file fetched
+// again, which must be the file rd read) converted, which the conversion
+// keeps.
 func (r Runner) convertedPDF(d *docFile, rd *fileReading, data []byte, pages []int) func(context.Context) ([]byte, error) {
 	return func(ctx context.Context) ([]byte, error) {
-		src, err := r.refetch(d, rd, data)(ctx)
-		if err != nil {
-			return nil, err
-		}
-		f, _ := office.FormatOf(rd.mt)
-		st := r.Office.Convert(ctx, rd.sum, f, office.ToPDF, src)
-		if st.Status != office.StatusDone {
-			return nil, errors.New("toolset: the file's PDF is not made: " + string(st.Status))
+		out := r.renditionPDF(ctx, d, rd.sum)
+		if out == nil {
+			src, err := r.refetch(d, rd, data)(ctx)
+			if err != nil {
+				return nil, err
+			}
+			f, _ := office.FormatOf(rd.mt)
+			st := r.Office.Convert(ctx, rd.sum, f, office.ToPDF, src)
+			if st.Status != office.StatusDone {
+				return nil, errors.New("toolset: the file's PDF is not made: " + string(st.Status))
+			}
+			out = st.Out
 		}
 		if pages == nil {
-			return st.Out.Data, nil
+			return out.Data, nil
 		}
-		return r.Office.Pick(ctx, st.Out.Data, pages)
+		return r.Office.Pick(ctx, out.Data, pages)
 	}
+}
+
+// pdfSum names the PDF made of the file whose checksum is sum, for the
+// ranges of its pages kept (Office.Range): Core's and LibreOffice's apart,
+// as their pages may break apart differently.
+func pdfSum(sum string, pdf *office.Output) string {
+	if pdf.Rendition {
+		return sum + "/rendition"
+	}
+	return sum + "/pdf"
 }
 
 // mergeSlides is a deck's text (res) with what OCR read of the slides
