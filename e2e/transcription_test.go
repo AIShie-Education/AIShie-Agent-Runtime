@@ -238,11 +238,23 @@ func transcription(t *testing.T, w *world) {
 			t.Fatalf("%v: %s", err, an.body)
 		}
 	}
+	// textOf is the text version of the one file of doc, as Sato reads it,
+	// by the file's id.
 	textOf := func(doc string) core.TextView {
 		t.Helper()
+		files := result[struct {
+			Version struct {
+				Files []struct {
+					ID string `json:"id"`
+				} `json:"files"`
+			} `json:"version"`
+		}](t, w.api, w.sato.token, "GET", w.path("/documents/"+doc), nil).Version.Files
+		if len(files) != 1 {
+			t.Fatalf("%s's files: %+v", doc, files)
+		}
 		return result[struct {
 			Text core.TextView `json:"text"`
-		}](t, w.api, w.sato.token, "GET", w.path("/documents/"+doc+"/text"), nil).Text
+		}](t, w.api, w.sato.token, "GET", w.path("/documents/"+doc+"/text?file_id="+files[0].ID), nil).Text
 	}
 	transcriptions := func() int {
 		n := 0
@@ -309,9 +321,7 @@ func transcription(t *testing.T, w *world) {
 	if done.Source != core.SourceAI || done.Model != transcriberLabel || done.Pages != 2 {
 		t.Errorf("the handout's text version: %+v", done)
 	}
-	full := result[struct {
-		Text core.TextView `json:"text"`
-	}](t, w.api, w.sato.token, "GET", w.path("/documents/"+pdfDoc+"/text"), nil).Text
+	full := textOf(pdfDoc)
 	if full.Body == nil || *full.Body != "## 第 1 頁\n\nE2E transcription of page 1.\n\n[圖：a diagram on page 1]\n\n"+
 		"## 第 2 頁\n\nE2E transcription of page 2.\n\n[圖：a diagram on page 2]" {
 		t.Errorf("the handout's text: %v", full.Body)
