@@ -1,6 +1,7 @@
 package toolset
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -175,6 +176,7 @@ func (c *searchCore) respond(_ context.Context, tool string, args json.RawMessag
 	var a struct {
 		DocumentID string `json:"document_id"`
 		VersionID  string `json:"version_id"`
+		Limit      int    `json:"limit"`
 	}
 	_ = json.Unmarshal(args, &a)
 	c.mu.Lock()
@@ -185,10 +187,16 @@ func (c *searchCore) respond(_ context.Context, tool string, args json.RawMessag
 		if c.refuseList != "" {
 			return &core.Envelope{Status: core.StatusDenied, Error: &core.Error{Code: c.refuseList, Message: "no"}}, nil
 		}
+		// A page of at most limit (50 if not given), the next named
+		// whenever it is full, as Core does.
+		limit, next := cmp.Or(a.Limit, 50), ""
 		var docs []string
 		for _, d := range c.docs {
 			if c.readable(d) == nil && !d.purged {
 				continue
+			}
+			if len(docs) == limit {
+				break
 			}
 			purged := "null"
 			if d.purged {
@@ -196,8 +204,12 @@ func (c *searchCore) respond(_ context.Context, tool string, args json.RawMessag
 			}
 			docs = append(docs, fmt.Sprintf(`{"id":%q,"kind":%q,"title":%q,"sort_order":%d,"status":"active","created_at":"2026-09-01T00:00:00Z","purged_at":%s}`,
 				d.id, d.kind, d.title, d.sortOrder, purged))
+			next = fmt.Sprintf(`,"next":%q`, d.id)
 		}
-		return executed(`{"documents":[` + strings.Join(docs, ",") + `]}`), nil
+		if len(docs) < limit {
+			next = ""
+		}
+		return executed(`{"documents":[` + strings.Join(docs, ",") + `]` + next + `}`), nil
 	case "document_get":
 		if c.failGet[a.DocumentID] {
 			return &core.Envelope{Status: core.StatusError, Error: &core.Error{Code: core.CodeInternal, Message: "try again"}}, nil
@@ -705,6 +717,25 @@ func TestSearchSaysWhatIsGoneAndWhatIsNotReadYet(t *testing.T) {
 	res, part = searchFor(t, searchRunner(c.as(false), index, nil, false), `{"query":"final exam"}`)
 	if len(res.Result.Hits) != 1 || res.Result.Hits[0].DocumentID != docSyllabus || strings.Contains(res.Note, "could not be read just now") {
 		t.Errorf("the next search, Core answering: %s", part.Content)
+	}
+}
+
+// TestSearchSaysWhenTheCourseHasMore: a course of exactly as many
+// documents as a search reads has none more, and its search says none;
+// one of one more is said to have more, and its first are searched.
+func TestSearchSaysWhenTheCourseHasMore(t *testing.T) {
+	for _, n := range []int{MaxSearchDocuments - 1, MaxSearchDocuments, MaxSearchDocuments + 1} {
+		var docs []*sdoc
+		for i := range n {
+			docs = append(docs, &sdoc{id: fmt.Sprintf("0192f3c1-%04x-7b4a-9c3d-2e1f0a9b8c7d", 0xe000+i), title: fmt.Sprintf("Week %d", i+1),
+				kind: "material", published: &sversion{id: fmt.Sprintf("0192f3c1-%04x-7b4a-9c3d-2e1f0a9b8c7d", 0xf000+i),
+					body: fmt.Sprintf("Week %d: merge sort, part %d.", i+1, i+1)}})
+		}
+		res, part := searchFor(t, searchRunner(newSearchCore(t, docs...), memstore.New(), nil, false), `{"query":"merge sort"}`)
+		more := strings.Contains(res.Note, "the course lists more documents than a search reads")
+		if more != (n > MaxSearchDocuments) || res.Result.Searched.Documents != min(n, MaxSearchDocuments) {
+			t.Errorf("%d documents: more %v, %d searched\n%s", n, more, res.Result.Searched.Documents, part.Content)
+		}
 	}
 }
 

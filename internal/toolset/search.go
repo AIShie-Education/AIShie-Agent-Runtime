@@ -61,8 +61,8 @@ const (
 	DefaultSearchHits = 5
 	MaxSearchHits     = 10
 	// MaxSearchDocuments bounds the documents a search reads: the first
-	// page of document_list, which lists them as Core made them, the
-	// oldest first.
+	// that document_list lists, as Core made them, the oldest first. It is
+	// asked for one more, which says whether the course has more.
 	MaxSearchDocuments = 100
 	// searchCandidates bounds the passages the store gives one search to
 	// score: those that hold the most of its terms.
@@ -422,7 +422,8 @@ type listedDoc struct {
 
 // readScope reads, with the seat's own token, the documents of the course
 // it may read (document_list, the first MaxSearchDocuments it lists, the
-// oldest first, archived ones aside), and each one's version as it
+// oldest first, archived ones aside, asked for one more to know whether
+// there are more), and each one's version as it
 // reads it, with its files (document_get, of no version: the published
 // one, or the latest for a seat that reads drafts), at most searchParallel
 // at once. A document Core does not give it now is left out; a version
@@ -433,7 +434,7 @@ type listedDoc struct {
 // SearchRetention. Only an error reaching Core, or Core refusing the list,
 // is returned.
 func (r Runner) readScope(ctx context.Context, courseID string) (*scopeView, error) {
-	args, _ := json.Marshal(map[string]any{"course_id": courseID, "limit": MaxSearchDocuments})
+	args, _ := json.Marshal(map[string]any{"course_id": courseID, "limit": MaxSearchDocuments + 1})
 	env, err := r.Client.Call(ctx, "document_list", args)
 	switch {
 	case err != nil:
@@ -445,12 +446,15 @@ func (r Runner) readScope(ctx context.Context, courseID string) (*scopeView, err
 	}
 	var list struct {
 		Documents []listedDoc `json:"documents"`
-		Next      *string     `json:"next"`
 	}
 	if err := env.Decode(&list); err != nil {
 		return nil, &core.ProtocolError{Message: "document_list: the result does not decode: " + err.Error()}
 	}
-	view := &scopeView{more: list.Next != nil && *list.Next != ""}
+	// Core names a next page whenever a page is full, so a course of
+	// exactly MaxSearchDocuments would seem to have more: the one more
+	// asked for says whether it has.
+	view := &scopeView{more: len(list.Documents) > MaxSearchDocuments}
+	list.Documents = list.Documents[:min(len(list.Documents), MaxSearchDocuments)]
 	var purged []string
 	for _, d := range list.Documents {
 		if d.PurgedAt != nil {

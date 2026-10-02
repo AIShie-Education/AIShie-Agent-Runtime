@@ -1100,7 +1100,9 @@ course never says it".
   asks Core, with the asking seat's own token, what it may read, by the
   very calls a model reads with: `document_list` (the first 100 documents
   it lists, by their ids, which are made in time order, so the oldest
-  first; archived ones aside: what Core lists the seat,
+  first, asked for 101, since Core names a next page whenever a page is
+  full, and a course of exactly 100 has none more; archived ones aside:
+  what Core lists the seat,
   its drafts only to a seat that reads drafts, instructions and rubrics
   only as their assignments are released to it, no submission or feedback
   file), and `document_get` of each, of no version, which gives the
@@ -2143,7 +2145,9 @@ Chinese with a table, overran, and was cut off.
   purged leaves the index (and a document listed as purged, which today's
   Core does not list); a purged version and a document refused the seat
   said to have no version it may read now, and one Core could not answer
-  for said not read just now and found by the next search; hits a
+  for said not read just now and found by the next search; a course of
+  99 or exactly 100 documents said to have none more, and one of 101 to
+  have more, its first 100 searched; hits a
   page at a time to the last, a long text version's hit naming the part
   that `document_get`, called as it is, gives it in; in a long text of no
   pages, a text file's and a text version's, every one of 200 words found
