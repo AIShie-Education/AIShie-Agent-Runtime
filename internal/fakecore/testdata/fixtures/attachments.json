@@ -129,7 +129,6 @@
     "respondent_member_id": "<id:2>"
    },
    "envelope": {
-    "action_id": "<id:3>",
     "error": {
      "code": "invalid_argument",
      "details": {
@@ -137,8 +136,7 @@
      },
      "message": "files come with a message: give body as well as attachments"
     },
-    "review_state": "none",
-    "status": "failed"
+    "status": "error"
    },
    "http_status": 200,
    "is_error": true,
@@ -160,7 +158,7 @@
     "respondent_member_id": "<id:2>"
    },
    "envelope": {
-    "action_id": "<id:4>",
+    "action_id": "<id:3>",
     "error": {
      "code": "invalid_argument",
      "details": {
@@ -191,7 +189,6 @@
     "respondent_member_id": "<id:2>"
    },
    "envelope": {
-    "action_id": "<id:5>",
     "error": {
      "code": "invalid_argument",
      "details": {
@@ -199,8 +196,7 @@
      },
      "message": "a file's name is 1 to 255 characters on one line, a name and not a path"
     },
-    "review_state": "none",
-    "status": "failed"
+    "status": "error"
    },
    "http_status": 200,
    "is_error": true,
@@ -226,7 +222,6 @@
     "respondent_member_id": "<id:2>"
    },
    "envelope": {
-    "action_id": "<id:6>",
     "error": {
      "code": "invalid_argument",
      "details": {
@@ -234,8 +229,7 @@
      },
      "message": "the same upload is named twice"
     },
-    "review_state": "none",
-    "status": "failed"
+    "status": "error"
    },
    "http_status": 200,
    "is_error": true,
@@ -257,7 +251,7 @@
     "respondent_member_id": "<id:2>"
    },
    "envelope": {
-    "action_id": "<id:7>",
+    "action_id": "<id:4>",
     "error": {
      "code": "failed_precondition",
      "details": {
@@ -288,7 +282,7 @@
     "respondent_member_id": "<id:2>"
    },
    "envelope": {
-    "action_id": "<id:8>",
+    "action_id": "<id:5>",
     "error": {
      "code": "forbidden",
      "details": {
@@ -323,10 +317,10 @@
     "respondent_member_id": "<id:2>"
    },
    "envelope": {
-    "action_id": "<id:9>",
+    "action_id": "<id:6>",
     "result": {
-     "conversation_id": "<id:10>",
-     "message_id": "<id:11>"
+     "conversation_id": "<id:7>",
+     "message_id": "<id:8>"
     },
     "review_state": "none",
     "status": "executed"
@@ -351,7 +345,7 @@
     "respondent_member_id": "<id:2>"
    },
    "envelope": {
-    "action_id": "<id:12>",
+    "action_id": "<id:9>",
     "error": {
      "code": "conflict",
      "details": {
@@ -411,14 +405,14 @@
      }
     ],
     "body": "And my graph.",
-    "conversation_id": "<id:10>",
+    "conversation_id": "<id:7>",
     "course_id": "<id:1>",
     "idempotency_key": "files:ask:<id:1>"
    },
    "envelope": {
-    "action_id": "<id:13>",
+    "action_id": "<id:10>",
     "result": {
-     "message_id": "<id:14>"
+     "message_id": "<id:11>"
     },
     "review_state": "none",
     "status": "executed"
@@ -431,21 +425,21 @@
   },
   {
    "args": {
-    "conversation_id": "<id:10>",
+    "conversation_id": "<id:7>",
     "course_id": "<id:1>"
    },
    "envelope": {
     "result": {
      "conversation": {
       "created_at": "<time>",
-      "id": "<id:10>",
-      "last_author_member_id": "<id:15>",
+      "id": "<id:7>",
+      "last_author_member_id": "<id:12>",
       "last_message_at": "<time>",
-      "latest_opener_message_id": "<id:14>",
+      "latest_opener_message_id": "<id:11>",
       "opener": {
        "display_name": "Yuki",
        "kind": "human",
-       "member_id": "<id:15>"
+       "member_id": "<id:12>"
       },
       "respondent": {
        "answer_level": "autonomous",
@@ -471,7 +465,7 @@
          "content_type": "text/plain; charset=utf-8",
          "created_at": "<time>",
          "filename": "筆記 1.txt",
-         "id": "<id:16>"
+         "id": "<id:13>"
         },
         {
          "byte_size": 20,
@@ -479,13 +473,13 @@
          "content_type": "application/pdf",
          "created_at": "<time>",
          "filename": "essay.pdf",
-         "id": "<id:17>"
+         "id": "<id:14>"
         }
        ],
-       "author_member_id": "<id:15>",
+       "author_member_id": "<id:12>",
        "body": "Please read my notes and my essay.",
        "created_at": "<time>",
-       "id": "<id:11>",
+       "id": "<id:8>",
        "seq": 1
       },
       {
@@ -496,13 +490,13 @@
          "content_type": "image/png",
          "created_at": "<time>",
          "filename": "graph.png",
-         "id": "<id:18>"
+         "id": "<id:15>"
         }
        ],
-       "author_member_id": "<id:15>",
+       "author_member_id": "<id:12>",
        "body": "And my graph.",
        "created_at": "<time>",
-       "id": "<id:14>",
+       "id": "<id:11>",
        "seq": 2
       }
      ],
@@ -518,22 +512,22 @@
   },
   {
    "args": {
-    "attachment_id": "<id:16>",
+    "attachment_id": "<id:13>",
     "course_id": "<id:1>"
    },
    "envelope": {
     "result": {
-     "author_member_id": "<id:15>",
+     "author_member_id": "<id:12>",
      "byte_size": 33,
      "checksum": "sha256:ba9b08e08417725fbf678940488197b8d94a530edca2c483edf7a8996187f162",
      "content_type": "text/plain; charset=utf-8",
-     "conversation_id": "<id:10>",
+     "conversation_id": "<id:7>",
      "created_at": "<time>",
      "download_url": "<download_url>",
      "expires_at": "<time>",
      "filename": "筆記 1.txt",
-     "id": "<id:16>",
-     "message_id": "<id:11>",
+     "id": "<id:13>",
+     "message_id": "<id:8>",
      "message_seq": 1
     },
     "status": "executed"
@@ -558,22 +552,22 @@
   },
   {
    "args": {
-    "attachment_id": "<id:17>",
+    "attachment_id": "<id:14>",
     "course_id": "<id:1>"
    },
    "envelope": {
     "result": {
-     "author_member_id": "<id:15>",
+     "author_member_id": "<id:12>",
      "byte_size": 20,
      "checksum": "sha256:9df8c99012f9ebf3c8f1db533b766c500576e541cd4c332090f681c360cc0f44",
      "content_type": "application/pdf",
-     "conversation_id": "<id:10>",
+     "conversation_id": "<id:7>",
      "created_at": "<time>",
      "download_url": "<download_url>",
      "expires_at": "<time>",
      "filename": "essay.pdf",
-     "id": "<id:17>",
-     "message_id": "<id:11>",
+     "id": "<id:14>",
+     "message_id": "<id:8>",
      "message_seq": 1
     },
     "status": "executed"
@@ -586,22 +580,22 @@
   },
   {
    "args": {
-    "attachment_id": "<id:18>",
+    "attachment_id": "<id:15>",
     "course_id": "<id:1>"
    },
    "envelope": {
     "result": {
-     "author_member_id": "<id:15>",
+     "author_member_id": "<id:12>",
      "byte_size": 28,
      "checksum": "sha256:a010b05bd441d6c7d4c3ce317e81256e100141aaeef4b648f47b4986a51594af",
      "content_type": "image/png",
-     "conversation_id": "<id:10>",
+     "conversation_id": "<id:7>",
      "created_at": "<time>",
      "download_url": "<download_url>",
      "expires_at": "<time>",
      "filename": "graph.png",
-     "id": "<id:18>",
-     "message_id": "<id:14>",
+     "id": "<id:15>",
+     "message_id": "<id:11>",
      "message_seq": 2
     },
     "status": "executed"
@@ -614,7 +608,7 @@
   },
   {
    "args": {
-    "attachment_id": "<id:19>",
+    "attachment_id": "<id:16>",
     "course_id": "<id:1>"
    },
    "envelope": {
@@ -678,10 +672,10 @@
     "respondent_member_id": "<id:2>"
    },
    "envelope": {
-    "action_id": "<id:20>",
+    "action_id": "<id:17>",
     "result": {
-     "conversation_id": "<id:21>",
-     "message_id": "<id:22>"
+     "conversation_id": "<id:18>",
+     "message_id": "<id:19>"
     },
     "review_state": "none",
     "status": "executed"
@@ -694,21 +688,21 @@
   },
   {
    "args": {
-    "conversation_id": "<id:21>",
+    "conversation_id": "<id:18>",
     "course_id": "<id:1>"
    },
    "envelope": {
     "result": {
      "conversation": {
       "created_at": "<time>",
-      "id": "<id:21>",
-      "last_author_member_id": "<id:23>",
+      "id": "<id:18>",
+      "last_author_member_id": "<id:20>",
       "last_message_at": "<time>",
-      "latest_opener_message_id": "<id:22>",
+      "latest_opener_message_id": "<id:19>",
       "opener": {
        "display_name": "Ken",
        "kind": "human",
-       "member_id": "<id:23>"
+       "member_id": "<id:20>"
       },
       "respondent": {
        "answer_level": "autonomous",
@@ -734,13 +728,13 @@
          "content_type": "text/plain",
          "created_at": "<time>",
          "filename": "work.txt",
-         "id": "<id:24>"
+         "id": "<id:21>"
         }
        ],
-       "author_member_id": "<id:23>",
+       "author_member_id": "<id:20>",
        "body": "Is this right?",
        "created_at": "<time>",
-       "id": "<id:22>",
+       "id": "<id:19>",
        "seq": 1
       }
      ],
@@ -756,22 +750,22 @@
   },
   {
    "args": {
-    "attachment_id": "<id:24>",
+    "attachment_id": "<id:21>",
     "course_id": "<id:1>"
    },
    "envelope": {
     "result": {
-     "author_member_id": "<id:23>",
+     "author_member_id": "<id:20>",
      "byte_size": 12,
      "checksum": "sha256:a13beda25455a2c102845e0816167dcbf4cb85fc6d4fc9f460a16055b5a654b2",
      "content_type": "text/plain",
-     "conversation_id": "<id:21>",
+     "conversation_id": "<id:18>",
      "created_at": "<time>",
      "download_url": "<download_url>",
      "expires_at": "<time>",
      "filename": "work.txt",
-     "id": "<id:24>",
-     "message_id": "<id:22>",
+     "id": "<id:21>",
+     "message_id": "<id:19>",
      "message_seq": 1
     },
     "status": "executed"
@@ -784,7 +778,7 @@
   },
   {
    "args": {
-    "attachment_id": "<id:24>",
+    "attachment_id": "<id:21>",
     "course_id": "<id:1>"
    },
    "envelope": {
@@ -804,10 +798,10 @@
    "args": {
     "course_id": "<id:1>",
     "idempotency_key": "files:retract:<id:1>",
-    "message_id": "<id:14>"
+    "message_id": "<id:11>"
    },
    "envelope": {
-    "action_id": "<id:25>",
+    "action_id": "<id:22>",
     "result": {
      "ok": true
     },
@@ -822,7 +816,7 @@
   },
   {
    "args": {
-    "attachment_id": "<id:18>",
+    "attachment_id": "<id:15>",
     "course_id": "<id:1>"
    },
    "envelope": {
@@ -843,22 +837,22 @@
   },
   {
    "args": {
-    "conversation_id": "<id:10>",
+    "conversation_id": "<id:7>",
     "course_id": "<id:1>"
    },
    "envelope": {
     "result": {
      "conversation": {
       "created_at": "<time>",
-      "id": "<id:10>",
-      "last_author_member_id": "<id:15>",
+      "id": "<id:7>",
+      "last_author_member_id": "<id:12>",
       "last_message_at": "<time>",
       "last_retracted_at": "<time>",
-      "latest_opener_message_id": "<id:14>",
+      "latest_opener_message_id": "<id:11>",
       "opener": {
        "display_name": "Yuki",
        "kind": "human",
-       "member_id": "<id:15>"
+       "member_id": "<id:12>"
       },
       "respondent": {
        "answer_level": "autonomous",
@@ -884,7 +878,7 @@
          "content_type": "text/plain; charset=utf-8",
          "created_at": "<time>",
          "filename": "筆記 1.txt",
-         "id": "<id:16>"
+         "id": "<id:13>"
         },
         {
          "byte_size": 20,
@@ -892,22 +886,22 @@
          "content_type": "application/pdf",
          "created_at": "<time>",
          "filename": "essay.pdf",
-         "id": "<id:17>"
+         "id": "<id:14>"
         }
        ],
-       "author_member_id": "<id:15>",
+       "author_member_id": "<id:12>",
        "body": "Please read my notes and my essay.",
        "created_at": "<time>",
-       "id": "<id:11>",
+       "id": "<id:8>",
        "seq": 1
       },
       {
-       "author_member_id": "<id:15>",
+       "author_member_id": "<id:12>",
        "created_at": "<time>",
-       "id": "<id:14>",
+       "id": "<id:11>",
        "retracted": {
         "at": "<time>",
-        "by_member_id": "<id:15>"
+        "by_member_id": "<id:12>"
        },
        "seq": 2
       }
@@ -930,20 +924,20 @@
    "envelope": {
     "conversation_events": [
      {
-      "action_id": "<id:9>",
+      "action_id": "<id:6>",
       "occurred_at": "<time>",
       "payload": {
-       "conversation_id": "<id:10>",
-       "opener_member_id": "<id:15>",
+       "conversation_id": "<id:7>",
+       "opener_member_id": "<id:12>",
        "respondent_member_id": "<id:2>"
       },
       "seq": "<seq:1>",
-      "subject_id": "<id:10>",
+      "subject_id": "<id:7>",
       "subject_type": "conversation",
       "type": "conversation.opened"
      },
      {
-      "action_id": "<id:9>",
+      "action_id": "<id:6>",
       "occurred_at": "<time>",
       "payload": {
        "attachments": [
@@ -951,28 +945,28 @@
          "byte_size": 33,
          "content_type": "text/plain; charset=utf-8",
          "filename": "筆記 1.txt",
-         "id": "<id:16>"
+         "id": "<id:13>"
         },
         {
          "byte_size": 20,
          "content_type": "application/pdf",
          "filename": "essay.pdf",
-         "id": "<id:17>"
+         "id": "<id:14>"
         }
        ],
-       "author_member_id": "<id:15>",
-       "conversation_id": "<id:10>",
-       "message_id": "<id:11>",
-       "opener_member_id": "<id:15>",
+       "author_member_id": "<id:12>",
+       "conversation_id": "<id:7>",
+       "message_id": "<id:8>",
+       "opener_member_id": "<id:12>",
        "respondent_member_id": "<id:2>"
       },
       "seq": "<seq:2>",
-      "subject_id": "<id:10>",
+      "subject_id": "<id:7>",
       "subject_type": "conversation",
       "type": "conversation.message_posted"
      },
      {
-      "action_id": "<id:13>",
+      "action_id": "<id:10>",
       "occurred_at": "<time>",
       "payload": {
        "attachments": [
@@ -980,35 +974,35 @@
          "byte_size": 28,
          "content_type": "image/png",
          "filename": "graph.png",
-         "id": "<id:18>"
+         "id": "<id:15>"
         }
        ],
-       "author_member_id": "<id:15>",
-       "conversation_id": "<id:10>",
-       "message_id": "<id:14>",
-       "opener_member_id": "<id:15>",
+       "author_member_id": "<id:12>",
+       "conversation_id": "<id:7>",
+       "message_id": "<id:11>",
+       "opener_member_id": "<id:12>",
        "respondent_member_id": "<id:2>"
       },
       "seq": "<seq:3>",
-      "subject_id": "<id:10>",
+      "subject_id": "<id:7>",
       "subject_type": "conversation",
       "type": "conversation.message_posted"
      },
      {
-      "action_id": "<id:20>",
+      "action_id": "<id:17>",
       "occurred_at": "<time>",
       "payload": {
-       "conversation_id": "<id:21>",
-       "opener_member_id": "<id:23>",
+       "conversation_id": "<id:18>",
+       "opener_member_id": "<id:20>",
        "respondent_member_id": "<id:2>"
       },
       "seq": "<seq:4>",
-      "subject_id": "<id:21>",
+      "subject_id": "<id:18>",
       "subject_type": "conversation",
       "type": "conversation.opened"
      },
      {
-      "action_id": "<id:20>",
+      "action_id": "<id:17>",
       "occurred_at": "<time>",
       "payload": {
        "attachments": [
@@ -1016,30 +1010,30 @@
          "byte_size": 12,
          "content_type": "text/plain",
          "filename": "work.txt",
-         "id": "<id:24>"
+         "id": "<id:21>"
         }
        ],
-       "author_member_id": "<id:23>",
-       "conversation_id": "<id:21>",
-       "message_id": "<id:22>",
-       "opener_member_id": "<id:23>",
+       "author_member_id": "<id:20>",
+       "conversation_id": "<id:18>",
+       "message_id": "<id:19>",
+       "opener_member_id": "<id:20>",
        "respondent_member_id": "<id:2>"
       },
       "seq": "<seq:5>",
-      "subject_id": "<id:21>",
+      "subject_id": "<id:18>",
       "subject_type": "conversation",
       "type": "conversation.message_posted"
      },
      {
-      "action_id": "<id:25>",
+      "action_id": "<id:22>",
       "occurred_at": "<time>",
       "payload": {
-       "by_member_id": "<id:15>",
-       "conversation_id": "<id:10>",
-       "message_id": "<id:14>"
+       "by_member_id": "<id:12>",
+       "conversation_id": "<id:7>",
+       "message_id": "<id:11>"
       },
       "seq": "<seq:6>",
-      "subject_id": "<id:10>",
+      "subject_id": "<id:7>",
       "subject_type": "conversation",
       "type": "conversation.message_retracted"
      }

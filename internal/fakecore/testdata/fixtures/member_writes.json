@@ -325,13 +325,11 @@
     "idempotency_key": "tool:x:m:2:7"
    },
    "envelope": {
-    "action_id": "<id:18>",
     "error": {
      "code": "invalid_argument",
      "message": "give exactly one of preset and preset_id"
     },
-    "review_state": "none",
-    "status": "failed"
+    "status": "error"
    },
    "http_status": 200,
    "is_error": true,
@@ -348,13 +346,11 @@
     "role": "dean"
    },
    "envelope": {
-    "action_id": "<id:19>",
     "error": {
      "code": "invalid_argument",
      "message": "role or scope is not one of the allowed values"
     },
-    "review_state": "none",
-    "status": "failed"
+    "status": "error"
    },
    "http_status": 200,
    "is_error": true,
@@ -374,13 +370,11 @@
     "preset": "student"
    },
    "envelope": {
-    "action_id": "<id:20>",
     "error": {
      "code": "invalid_argument",
      "message": "there is no permission named \"grade_all\""
     },
-    "review_state": "none",
-    "status": "failed"
+    "status": "error"
    },
    "http_status": 200,
    "is_error": true,
@@ -399,13 +393,11 @@
     "preset": "student"
    },
    "envelope": {
-    "action_id": "<id:21>",
     "error": {
      "code": "invalid_argument",
      "message": "\"sometimes\" is not a level; use denied, confirm_required, pending_review or autonomous"
     },
-    "review_state": "none",
-    "status": "failed"
+    "status": "error"
    },
    "http_status": 200,
    "is_error": true,
@@ -421,7 +413,7 @@
     "preset": "student"
    },
    "envelope": {
-    "action_id": "<id:22>",
+    "action_id": "<id:18>",
     "error": {
      "code": "not_found",
      "message": "no such actor"
@@ -447,7 +439,7 @@
     "student_scope": "listed"
    },
    "envelope": {
-    "action_id": "<id:23>",
+    "action_id": "<id:19>",
     "error": {
      "code": "failed_precondition",
      "message": "listed_students must all be current students of this course"
@@ -472,7 +464,7 @@
     "preset": "observer"
    },
    "envelope": {
-    "action_id": "<id:24>",
+    "action_id": "<id:20>",
     "error": {
      "code": "invalid_argument",
      "message": "listed_students only makes sense with student_scope = listed"
@@ -544,7 +536,7 @@
       "submission_read": "autonomous",
       "submission_write": "autonomous"
      },
-     "preset_id": "<id:25>",
+     "preset_id": "<id:21>",
      "role": "student",
      "status": "active",
      "student_scope": "listed"
@@ -560,17 +552,17 @@
   {
    "args": {
     "course_id": "<id:2>",
-    "member_id": "<id:26>"
+    "member_id": "<id:22>"
    },
    "envelope": {
     "result": {
-     "actor_id": "<id:27>",
+     "actor_id": "<id:23>",
      "answers_course": false,
      "assignment_scope": "all",
      "created_at": "<time>",
      "display_name": "CS101 Registrar",
      "hosting": "runtime",
-     "id": "<id:26>",
+     "id": "<id:22>",
      "kind": "agent",
      "perm_ceiling_reasons": {
       "action_decide": "agent_decides_by_proposal"
@@ -613,7 +605,7 @@
       "submission_read": "autonomous",
       "submission_write": "autonomous"
      },
-     "preset_id": "<id:28>",
+     "preset_id": "<id:24>",
      "role": "ta",
      "site_chat": true,
      "status": "active",
@@ -686,8 +678,8 @@
       "submission_read": "denied",
       "submission_write": "denied"
      },
-     "preset_id": "<id:29>",
-     "principal_member_id": "<id:30>",
+     "preset_id": "<id:25>",
+     "principal_member_id": "<id:26>",
      "role": "assistant",
      "site_chat": true,
      "status": "active",
@@ -776,18 +768,18 @@
         "submission_read": "autonomous",
         "submission_write": "autonomous"
        },
-       "preset_id": "<id:25>",
+       "preset_id": "<id:21>",
        "role": "student",
        "status": "active",
        "student_scope": "listed"
       },
       {
-       "actor_id": "<id:31>",
+       "actor_id": "<id:27>",
        "answers_course": false,
        "assignment_scope": "all",
        "created_at": "<time>",
        "display_name": "Ken",
-       "id": "<id:32>",
+       "id": "<id:28>",
        "kind": "human",
        "perm_ceiling_reasons": {
         "conversation_answer": "conversations_are_with_agents"
@@ -830,7 +822,7 @@
         "submission_read": "autonomous",
         "submission_write": "autonomous"
        },
-       "preset_id": "<id:25>",
+       "preset_id": "<id:21>",
        "role": "student",
        "status": "active",
        "student_scope": "listed"
@@ -884,7 +876,7 @@
         "submission_read": "autonomous",
         "submission_write": "autonomous"
        },
-       "preset_id": "<id:25>",
+       "preset_id": "<id:21>",
        "role": "student",
        "status": "active",
        "student_scope": "listed"
@@ -913,7 +905,7 @@
        "assignment_scope": "all",
        "created_at": "<time>",
        "display_name": "Sato",
-       "id": "<id:30>",
+       "id": "<id:26>",
        "kind": "human",
        "perm_ceiling_reasons": {
         "conversation_answer": "conversations_are_with_agents"
@@ -956,18 +948,18 @@
         "submission_read": "autonomous",
         "submission_write": "autonomous"
        },
-       "preset_id": "<id:33>",
+       "preset_id": "<id:29>",
        "role": "instructor",
        "status": "active",
        "student_scope": "all"
       },
       {
-       "actor_id": "<id:34>",
+       "actor_id": "<id:30>",
        "answers_course": false,
        "assignment_scope": "all",
        "created_at": "<time>",
        "display_name": "Mori",
-       "id": "<id:35>",
+       "id": "<id:31>",
        "kind": "human",
        "perm_ceiling_reasons": {
         "conversation_answer": "conversations_are_with_agents"
@@ -1010,13 +1002,13 @@
         "submission_read": "autonomous",
         "submission_write": "autonomous"
        },
-       "preset_id": "<id:33>",
+       "preset_id": "<id:29>",
        "role": "instructor",
        "status": "active",
        "student_scope": "all"
       }
      ],
-     "next": "<id:35>"
+     "next": "<id:31>"
     },
     "status": "executed"
    },
@@ -1056,7 +1048,7 @@
      "actor_id": "<id:1>",
      "display_name": "Aoi",
      "kind": "human",
-     "member_id": "<id:36>",
+     "member_id": "<id:32>",
      "status": "active"
     },
     "status": "executed"

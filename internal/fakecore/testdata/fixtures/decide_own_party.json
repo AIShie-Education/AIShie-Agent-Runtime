@@ -54,13 +54,11 @@
     "idempotency_key": "decide:<id:4>:0"
    },
    "envelope": {
-    "action_id": "<id:6>",
     "error": {
      "code": "invalid_argument",
      "message": "decision must be \"approve\" or \"reject\""
     },
-    "review_state": "none",
-    "status": "failed"
+    "status": "error"
    },
    "http_status": 200,
    "is_error": true,
@@ -76,13 +74,13 @@
     "idempotency_key": "decide:<id:4>"
    },
    "envelope": {
-    "action_id": "<id:7>",
+    "action_id": "<id:6>",
     "result": {
      "action_id": "<id:4>",
      "by_owner": true,
      "outcome": "executed",
      "result": {
-      "message_id": "<id:8>"
+      "message_id": "<id:7>"
      }
     },
     "review_state": "none",
@@ -103,7 +101,7 @@
     "reason": "Say when the deadline is."
    },
    "envelope": {
-    "action_id": "<id:9>",
+    "action_id": "<id:8>",
     "error": {
      "code": "conflict",
      "message": "the action is executed, not awaiting a decision"
@@ -119,7 +117,7 @@
   },
   {
    "args": {
-    "action_id": "<id:10>",
+    "action_id": "<id:9>",
     "course_id": "<id:2>",
     "decision": "approve",
     "idempotency_key": "decide:<id:4>:3"
@@ -149,7 +147,7 @@
     "action_id": "<id:4>",
     "replayed": true,
     "result": {
-     "message_id": "<id:8>"
+     "message_id": "<id:7>"
     },
     "review_state": "none",
     "status": "executed"
@@ -169,7 +167,7 @@
     "result": {
      "events": [
       {
-       "action_id": "<id:11>",
+       "action_id": "<id:10>",
        "occurred_at": "<time>",
        "payload": {},
        "seq": "<seq:1>",
@@ -178,7 +176,7 @@
        "type": "course.created"
       },
       {
-       "action_id": "<id:12>",
+       "action_id": "<id:11>",
        "occurred_at": "<time>",
        "payload": {},
        "seq": "<seq:2>",
@@ -187,12 +185,12 @@
        "type": "course.activated"
       },
       {
-       "action_id": "<id:13>",
+       "action_id": "<id:12>",
        "occurred_at": "<time>",
        "payload": {
         "conversation_id": "<id:1>",
-        "opener_member_id": "<id:14>",
-        "respondent_member_id": "<id:15>"
+        "opener_member_id": "<id:13>",
+        "respondent_member_id": "<id:14>"
        },
        "seq": "<seq:3>",
        "subject_id": "<id:1>",
@@ -200,14 +198,14 @@
        "type": "conversation.opened"
       },
       {
-       "action_id": "<id:13>",
+       "action_id": "<id:12>",
        "occurred_at": "<time>",
        "payload": {
-        "author_member_id": "<id:14>",
+        "author_member_id": "<id:13>",
         "conversation_id": "<id:1>",
         "message_id": "<id:3>",
-        "opener_member_id": "<id:14>",
-        "respondent_member_id": "<id:15>"
+        "opener_member_id": "<id:13>",
+        "respondent_member_id": "<id:14>"
        },
        "seq": "<seq:4>",
        "subject_id": "<id:1>",
@@ -232,7 +230,7 @@
        "occurred_at": "<time>",
        "payload": {
         "action_type": "conversation.answer",
-        "by_action_id": "<id:7>",
+        "by_action_id": "<id:6>",
         "by_owner": true,
         "outcome": "executed"
        },
@@ -245,11 +243,11 @@
        "action_id": "<id:4>",
        "occurred_at": "<time>",
        "payload": {
-        "author_member_id": "<id:15>",
+        "author_member_id": "<id:14>",
         "conversation_id": "<id:1>",
-        "message_id": "<id:8>",
-        "opener_member_id": "<id:14>",
-        "respondent_member_id": "<id:15>"
+        "message_id": "<id:7>",
+        "opener_member_id": "<id:13>",
+        "respondent_member_id": "<id:14>"
        },
        "seq": "<seq:7>",
        "subject_id": "<id:1>",

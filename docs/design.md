@@ -621,9 +621,11 @@ title.
 version of a document is text, files, or both, its files in order, each
 named: a lecture's slides, its handout and a sample program. Core lists
 them in `version.files` of `document_get`'s result, each with its id,
-place, name, type, size, checksum, a URL and its own text version, and
-keeps the version's `download_url`, `content_type`, `byte_size`,
-`checksum` and `text` as the first file's for the runtimes of before. The
+place, name, type, size, checksum, a URL and its own text version. It
+kept the version's `download_url`, `content_type`, `byte_size`,
+`checksum` and `text` as the first file's for the runtimes of before,
+until AIShie-Core #61 took them out, with `document_versions`' `has_file`
+and the rest, and made every text call name its file (`file_id`). The
 runtime reads every file, not the first alone, and gives the model each
 as a version's one file is given (this section and those below), under
 its name, in its order: the file's text version first where it is done,
@@ -1343,7 +1345,8 @@ An agent (`worker.Agent`) then starts with `me_get` (the token works), the
 catalogue, and `me_memberships`. People in the site may ask an agent Core
 hosts `runtime` while the token the runtime was issued for it is live, it
 and its owner active: nothing is declared (the runtime no longer calls
-`me_site_chat`), and the token's revocation stops the asking.
+`me_site_chat`, which Core no longer has), and the token's revocation
+stops the asking.
 
 It reads memberships again every
 `memberships_s`, and at once after a `forbidden`, `not_found` or `denied`,
@@ -1571,7 +1574,7 @@ For an inbox row (conversation X, question M, opener P):
 | `failed conflict already_answered`, `answer_pending` | leave it |
 | `failed conflict closed` | drop it |
 | `failed forbidden not_addressable` | drop it; read memberships again |
-| `failed invalid_argument` | if safety had cut or stripped the body, written again once, shorter and without links, under the next attempt; else failed |
+| `error invalid_argument` (a body Core refuses as it reads the arguments, since AIShie-Core #60), `failed invalid_argument` | if safety had cut or stripped the body, written again once, shorter and without links, under the next attempt; else failed |
 | `error idempotency_conflict` | never resend under that key; next attempt if X still waits on M and M is not retracted (its newest messages, `conversation_messages`), the newer message if the opener wrote again, else nothing |
 | `error not_found` | drop it |
 | replayed | treated as its stored status |
@@ -2066,7 +2069,13 @@ Chinese with a table, overran, and was cut off.
   as AIShie-Core #42 has it, and a Core before it, whose withdrawn question
   still waits and takes an answer (`WithdrawnWaits`); each seat's
   ceilings, as Core works them out; an agent's owner
-  deciding and reviewing what it did where they could do it themselves;
+  deciding and reviewing what it did where they could do it themselves,
+  and not a proposal of its that approving now would refuse
+  (`owner_would_be_refused`, the refusal inside); a call's rules where
+  AIShie-Core #60 runs them: what the arguments say alone refused as they
+  are read (`error`, no `action_id`, at any level), what the course says
+  failed before anything is carried out or proposed (a party agent's
+  decision among them), and both asked again when a proposal is approved;
   and no question to a runtime agent the site's runtime holds no live
   token for, nor ever to an `mcp` agent (the worker's tests wait for the
   runtime to be issued the agent's token, or, asking before a worker
@@ -2555,7 +2564,7 @@ Chinese with a table, overran, and was cut off.
     Gemini every tool of the pinned catalogue declared at 16 output
     tokens, Core's own schemas, in requests of at most 128 tools
     (`livetest.MaxTools`: OpenAI takes no more, and the catalogue has
-    168), so that the provider itself checks every schema. `live.yml` runs
+    167), so that the provider itself checks every schema. `live.yml` runs
     it nightly with the repository's keys, and its log names each provider
     tried or skipped; run it by hand when an adapter changes, or a
     provider's API or the default models do.

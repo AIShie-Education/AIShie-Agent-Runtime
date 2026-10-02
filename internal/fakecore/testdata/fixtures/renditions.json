@@ -16,11 +16,7 @@
      "title": "Week 4",
      "version": {
       "author_member_id": "<id:4>",
-      "byte_size": 41,
-      "checksum": "sha256:bc47eec07cbe4e86447e8e0eb15bd79f9d3ca1fa76c285b0a11f8ec0fa47784f",
-      "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       "created_at": "<time>",
-      "download_url": "<download_url>",
       "files": [
        {
         "byte_size": 41,
@@ -58,13 +54,7 @@
       ],
       "id": "<id:3>",
       "published": true,
-      "seq": 1,
-      "text": {
-       "bytes": 0,
-       "revision": 1,
-       "status": "pending",
-       "updated_at": "<time>"
-      }
+      "seq": 1
      }
     },
     "status": "executed"
@@ -85,8 +75,6 @@
      "versions": [
       {
        "author_member_id": "<id:4>",
-       "byte_size": 41,
-       "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
        "created_at": "<time>",
        "files": [
         {
@@ -121,16 +109,9 @@
          }
         }
        ],
-       "has_file": true,
        "id": "<id:3>",
        "published": true,
-       "seq": 1,
-       "text": {
-        "bytes": 0,
-        "revision": 1,
-        "status": "pending",
-        "updated_at": "<time>"
-       }
+       "seq": 1
       }
      ]
     },
@@ -385,13 +366,10 @@
   },
   {
    "body": {
-    "action_id": "<id:12>",
     "error": {
      "code": "invalid_argument",
      "message": "done needs upload_token"
-    },
-    "review_state": "none",
-    "status": "failed"
+    }
    },
    "content_type": "application/json",
    "http_status": 400,
@@ -406,16 +384,13 @@
   },
   {
    "body": {
-    "action_id": "<id:13>",
     "error": {
      "code": "invalid_argument",
      "details": {
       "field": "reason"
      },
      "message": "failed needs a reason: password_protected, timeout, conversion_failed, too_large, unsupported"
-    },
-    "review_state": "none",
-    "status": "failed"
+    }
    },
    "content_type": "application/json",
    "http_status": 400,
@@ -429,16 +404,13 @@
   },
   {
    "body": {
-    "action_id": "<id:14>",
     "error": {
      "code": "invalid_argument",
      "details": {
       "field": "reason"
      },
      "message": "skipped needs a reason: password_protected, timeout, conversion_failed, too_large, unsupported"
-    },
-    "review_state": "none",
-    "status": "failed"
+    }
    },
    "content_type": "application/json",
    "http_status": 400,
@@ -453,13 +425,10 @@
   },
   {
    "body": {
-    "action_id": "<id:15>",
     "error": {
      "code": "invalid_argument",
      "message": "done gives no reason"
-    },
-    "review_state": "none",
-    "status": "failed"
+    }
    },
    "content_type": "application/json",
    "http_status": 400,
@@ -476,7 +445,7 @@
   },
   {
    "body": {
-    "action_id": "<id:16>",
+    "action_id": "<id:12>",
     "error": {
      "code": "invalid_argument",
      "details": {
@@ -554,7 +523,7 @@
   },
   {
    "body": {
-    "action_id": "<id:17>",
+    "action_id": "<id:13>",
     "error": {
      "code": "failed_precondition",
      "details": {
@@ -610,7 +579,7 @@
   },
   {
    "body": {
-    "action_id": "<id:18>",
+    "action_id": "<id:14>",
     "error": {
      "code": "failed_precondition",
      "details": {
@@ -635,7 +604,7 @@
   },
   {
    "body": {
-    "action_id": "<id:19>",
+    "action_id": "<id:15>",
     "error": {
      "code": "failed_precondition",
      "details": {
@@ -688,13 +657,10 @@
   },
   {
    "body": {
-    "action_id": "<id:20>",
     "error": {
      "code": "invalid_argument",
      "message": "done needs page_count, 1 to 100000"
-    },
-    "review_state": "none",
-    "status": "failed"
+    }
    },
    "content_type": "application/json",
    "http_status": 400,
@@ -710,7 +676,7 @@
   },
   {
    "body": {
-    "action_id": "<id:21>",
+    "action_id": "<id:16>",
     "result": {
      "byte_size": 35,
      "checksum": "sha256:ee09f4b2de546bdce5e5463b583ea44e06ff90371581113f6a509b25c4e4d706",
@@ -734,7 +700,7 @@
   },
   {
    "body": {
-    "action_id": "<id:21>",
+    "action_id": "<id:16>",
     "replayed": true,
     "result": {
      "byte_size": 35,
@@ -760,7 +726,7 @@
   },
   {
    "body": {
-    "action_id": "<id:22>",
+    "action_id": "<id:17>",
     "error": {
      "code": "conflict",
      "details": {
@@ -832,11 +798,7 @@
      "title": "Week 4",
      "version": {
       "author_member_id": "<id:4>",
-      "byte_size": 41,
-      "checksum": "sha256:bc47eec07cbe4e86447e8e0eb15bd79f9d3ca1fa76c285b0a11f8ec0fa47784f",
-      "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       "created_at": "<time>",
-      "download_url": "<download_url>",
       "files": [
        {
         "byte_size": 41,
@@ -878,13 +840,7 @@
       ],
       "id": "<id:3>",
       "published": true,
-      "seq": 1,
-      "text": {
-       "bytes": 0,
-       "revision": 1,
-       "status": "pending",
-       "updated_at": "<time>"
-      }
+      "seq": 1
      }
     },
     "status": "executed"
@@ -905,8 +861,6 @@
      "versions": [
       {
        "author_member_id": "<id:4>",
-       "byte_size": 41,
-       "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
        "created_at": "<time>",
        "files": [
         {
@@ -941,16 +895,9 @@
          }
         }
        ],
-       "has_file": true,
        "id": "<id:3>",
        "published": true,
-       "seq": 1,
-       "text": {
-        "bytes": 0,
-        "revision": 1,
-        "status": "pending",
-        "updated_at": "<time>"
-       }
+       "seq": 1
       }
      ]
     },
@@ -1099,13 +1046,13 @@
     "body": "Can you look at my slides?",
     "course_id": "<id:1>",
     "idempotency_key": "renditions:open:<id:1>",
-    "respondent_member_id": "<id:23>"
+    "respondent_member_id": "<id:18>"
    },
    "envelope": {
-    "action_id": "<id:24>",
+    "action_id": "<id:19>",
     "result": {
-     "conversation_id": "<id:25>",
-     "message_id": "<id:26>"
+     "conversation_id": "<id:20>",
+     "message_id": "<id:21>"
     },
     "review_state": "none",
     "status": "executed"
@@ -1118,21 +1065,21 @@
   },
   {
    "args": {
-    "conversation_id": "<id:25>",
+    "conversation_id": "<id:20>",
     "course_id": "<id:1>"
    },
    "envelope": {
     "result": {
      "conversation": {
       "created_at": "<time>",
-      "id": "<id:25>",
-      "last_author_member_id": "<id:27>",
+      "id": "<id:20>",
+      "last_author_member_id": "<id:22>",
       "last_message_at": "<time>",
-      "latest_opener_message_id": "<id:26>",
+      "latest_opener_message_id": "<id:21>",
       "opener": {
        "display_name": "Yuki",
        "kind": "human",
-       "member_id": "<id:27>"
+       "member_id": "<id:22>"
       },
       "respondent": {
        "answer_level": "autonomous",
@@ -1140,7 +1087,7 @@
        "is_delegate_of_opener": false,
        "kind": "agent",
        "last_seen_at": "<time>",
-       "member_id": "<id:23>",
+       "member_id": "<id:18>",
        "owner_name": "Sato",
        "role": "assistant",
        "seat_status": "active"
@@ -1158,7 +1105,7 @@
          "content_type": "application/octet-stream",
          "created_at": "<time>",
          "filename": "第四週 slides.pptx",
-         "id": "<id:28>",
+         "id": "<id:23>",
          "rendition": {
           "state": "queued"
          }
@@ -1169,13 +1116,13 @@
          "content_type": "text/plain",
          "created_at": "<time>",
          "filename": "notes.txt",
-         "id": "<id:29>"
+         "id": "<id:24>"
         }
        ],
-       "author_member_id": "<id:27>",
+       "author_member_id": "<id:22>",
        "body": "Can you look at my slides?",
        "created_at": "<time>",
-       "id": "<id:26>",
+       "id": "<id:21>",
        "seq": 1
       }
      ],
@@ -1191,22 +1138,22 @@
   },
   {
    "args": {
-    "attachment_id": "<id:28>",
+    "attachment_id": "<id:23>",
     "course_id": "<id:1>"
    },
    "envelope": {
     "result": {
-     "author_member_id": "<id:27>",
+     "author_member_id": "<id:22>",
      "byte_size": 18,
      "checksum": "sha256:6dee5fc335e43b6faa3ac98173c4b578eda987b9874636cb090d402d0283b9e9",
      "content_type": "application/octet-stream",
-     "conversation_id": "<id:25>",
+     "conversation_id": "<id:20>",
      "created_at": "<time>",
      "download_url": "<download_url>",
      "expires_at": "<time>",
      "filename": "第四週 slides.pptx",
-     "id": "<id:28>",
-     "message_id": "<id:26>",
+     "id": "<id:23>",
+     "message_id": "<id:21>",
      "message_seq": 1,
      "rendition": {
       "state": "queued"
@@ -1222,22 +1169,22 @@
   },
   {
    "args": {
-    "attachment_id": "<id:29>",
+    "attachment_id": "<id:24>",
     "course_id": "<id:1>"
    },
    "envelope": {
     "result": {
-     "author_member_id": "<id:27>",
+     "author_member_id": "<id:22>",
      "byte_size": 10,
      "checksum": "sha256:79f37762e128c780030b02e62752aa2e8ff795a80f08efe38a7cabf94a9ca63a",
      "content_type": "text/plain",
-     "conversation_id": "<id:25>",
+     "conversation_id": "<id:20>",
      "created_at": "<time>",
      "download_url": "<download_url>",
      "expires_at": "<time>",
      "filename": "notes.txt",
-     "id": "<id:29>",
-     "message_id": "<id:26>",
+     "id": "<id:24>",
+     "message_id": "<id:21>",
      "message_seq": 1
     },
     "status": "executed"
@@ -1253,7 +1200,7 @@
     "result": {
      "claimed": [
       {
-       "attachment_id": "<id:28>",
+       "attachment_id": "<id:23>",
        "attempt": 1,
        "backfill": false,
        "byte_size": 18,
@@ -1264,9 +1211,9 @@
        "download_url": "<download_url>",
        "filename": "第四週 slides.pptx",
        "lease_expires_at": "<time>",
-       "lease_id": "<id:30>",
+       "lease_id": "<id:25>",
        "max_bytes": 104857600,
-       "rendition_id": "<id:31>",
+       "rendition_id": "<id:26>",
        "source": "attachment"
       }
      ]
@@ -1284,22 +1231,22 @@
   },
   {
    "args": {
-    "attachment_id": "<id:28>",
+    "attachment_id": "<id:23>",
     "course_id": "<id:1>"
    },
    "envelope": {
     "result": {
-     "author_member_id": "<id:27>",
+     "author_member_id": "<id:22>",
      "byte_size": 18,
      "checksum": "sha256:6dee5fc335e43b6faa3ac98173c4b578eda987b9874636cb090d402d0283b9e9",
      "content_type": "application/octet-stream",
-     "conversation_id": "<id:25>",
+     "conversation_id": "<id:20>",
      "created_at": "<time>",
      "download_url": "<download_url>",
      "expires_at": "<time>",
      "filename": "第四週 slides.pptx",
-     "id": "<id:28>",
-     "message_id": "<id:26>",
+     "id": "<id:23>",
+     "message_id": "<id:21>",
      "message_seq": 1,
      "rendition": {
       "state": "claimed"
@@ -1315,9 +1262,9 @@
   },
   {
    "body": {
-    "action_id": "<id:32>",
+    "action_id": "<id:27>",
     "result": {
-     "rendition_id": "<id:31>",
+     "rendition_id": "<id:26>",
      "state": "skipped"
     },
     "review_state": "none",
@@ -1326,9 +1273,9 @@
    "content_type": "application/json",
    "http_status": 200,
    "method": "POST",
-   "path": "/v1/services/agent_runtime/renditions/<id:31>/complete",
+   "path": "/v1/services/agent_runtime/renditions/<id:26>/complete",
    "request": {
-    "lease_id": "<id:30>",
+    "lease_id": "<id:25>",
     "reason": "password_protected",
     "status": "skipped"
    },
@@ -1336,22 +1283,22 @@
   },
   {
    "args": {
-    "attachment_id": "<id:28>",
+    "attachment_id": "<id:23>",
     "course_id": "<id:1>"
    },
    "envelope": {
     "result": {
-     "author_member_id": "<id:27>",
+     "author_member_id": "<id:22>",
      "byte_size": 18,
      "checksum": "sha256:6dee5fc335e43b6faa3ac98173c4b578eda987b9874636cb090d402d0283b9e9",
      "content_type": "application/octet-stream",
-     "conversation_id": "<id:25>",
+     "conversation_id": "<id:20>",
      "created_at": "<time>",
      "download_url": "<download_url>",
      "expires_at": "<time>",
      "filename": "第四週 slides.pptx",
-     "id": "<id:28>",
-     "message_id": "<id:26>",
+     "id": "<id:23>",
+     "message_id": "<id:21>",
      "message_seq": 1,
      "rendition": {
       "reason": "password_protected",
@@ -1368,21 +1315,21 @@
   },
   {
    "args": {
-    "conversation_id": "<id:25>",
+    "conversation_id": "<id:20>",
     "course_id": "<id:1>"
    },
    "envelope": {
     "result": {
      "conversation": {
       "created_at": "<time>",
-      "id": "<id:25>",
-      "last_author_member_id": "<id:27>",
+      "id": "<id:20>",
+      "last_author_member_id": "<id:22>",
       "last_message_at": "<time>",
-      "latest_opener_message_id": "<id:26>",
+      "latest_opener_message_id": "<id:21>",
       "opener": {
        "display_name": "Yuki",
        "kind": "human",
-       "member_id": "<id:27>"
+       "member_id": "<id:22>"
       },
       "respondent": {
        "answer_level": "autonomous",
@@ -1390,7 +1337,7 @@
        "is_delegate_of_opener": false,
        "kind": "agent",
        "last_seen_at": "<time>",
-       "member_id": "<id:23>",
+       "member_id": "<id:18>",
        "owner_name": "Sato",
        "role": "assistant",
        "seat_status": "active"
@@ -1408,7 +1355,7 @@
          "content_type": "application/octet-stream",
          "created_at": "<time>",
          "filename": "第四週 slides.pptx",
-         "id": "<id:28>",
+         "id": "<id:23>",
          "rendition": {
           "reason": "password_protected",
           "state": "skipped"
@@ -1420,13 +1367,13 @@
          "content_type": "text/plain",
          "created_at": "<time>",
          "filename": "notes.txt",
-         "id": "<id:29>"
+         "id": "<id:24>"
         }
        ],
-       "author_member_id": "<id:27>",
+       "author_member_id": "<id:22>",
        "body": "Can you look at my slides?",
        "created_at": "<time>",
-       "id": "<id:26>",
+       "id": "<id:21>",
        "seq": 1
       }
      ],

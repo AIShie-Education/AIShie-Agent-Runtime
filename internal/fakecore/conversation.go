@@ -18,8 +18,11 @@ import (
 const (
 	maxMessageChars = 20000
 	maxReasonChars  = 500
-	// seatRemoved is what closing a removed seat's conversations says.
-	seatRemoved = "seat_removed"
+	// seatRemoved is what closing a removed seat's conversations says,
+	// and closedWithAPerson what closing the conversations people were
+	// asked in did (Core's ClosedWithAPerson).
+	seatRemoved       = "seat_removed"
+	closedWithAPerson = ceilingConversationsAreWithAgents
 )
 
 // The states a conversation is in, as the views say.
@@ -171,18 +174,28 @@ type answerIn struct {
 	Attachments        []attachmentIn `json:"attachments,omitempty"`
 }
 
-// checkAnswer is conversation_answer's rule, all but newerQuestion: the
-// caller is the respondent, the conversation is open, the body fits, the
-// opener may still address the caller, and in_reply_to is the opener's.
+// checkMessage is what a message's arguments say alone (Core's
+// checkMessageArgs), conversation_ask's and conversation_answer's check:
+// some text, within its length, and files a message may carry, each named
+// as a file may be.
+func checkMessage(body string, files []attachmentIn) error {
+	if err := checkBody(body); err != nil {
+		return err
+	}
+	_, err := shapeFiles(files)
+	return err
+}
+
+// checkAnswer is conversation_answer's rule, all but newerQuestion and
+// what its arguments say alone: the caller is the respondent, the
+// conversation is open, the opener may still address the caller, and
+// in_reply_to is the opener's.
 func (c *Core) checkAnswer(m *member, cv *conversation, in answerIn) error {
 	if cv.respondent != m {
 		return errNotRespondent
 	}
 	if cv.status != "open" {
 		return errClosed
-	}
-	if err := checkBody(in.Body); err != nil {
-		return err
 	}
 	if why := refusal(cv.opener, m, c.now()); why != "" {
 		return notAddressable("you may no longer answer in this conversation", why)
@@ -200,13 +213,17 @@ func conversationAnswer() *impl {
 	// answer as far as they decide actions.
 	answers.ownerJudgedBy = []string{permActionDecide}
 	return define(spec[answerIn]{
-		gate: answers,
+		gate:  answers,
+		check: func(in answerIn) error { return checkMessage(in.Body, in.Attachments) },
 		resolve: func(c *Core, co *course, in answerIn) (target, error) {
 			return conversationTarget(c, co, in.ConversationID)
 		},
-		// A proposal is checked when it is queued, so that nobody is asked
-		// to approve what could never run, and again when it is approved.
-		pin: func(c *Core, m *member, in answerIn) error {
+		// Checked before it is carried out or proposed, so that nobody is
+		// asked to approve what could never run, and again when it is
+		// approved; and whether the question it answers is still the one
+		// waiting, so that its owner is not asked to approve it once the
+		// opener has written again, or withdrawn it.
+		validate: func(c *Core, m *member, in answerIn) error {
 			cv, err := c.findConversation(m.course, in.ConversationID)
 			if err != nil {
 				return err
@@ -217,10 +234,17 @@ func conversationAnswer() *impl {
 			if err := c.newerQuestion(cv, in.InReplyToMessageID.String()); err != nil {
 				return err
 			}
+			return c.checkMessageFiles(m, cv, in.Attachments, false)
+		},
+		pin: func(c *Core, m *member, in answerIn) error {
+			cv, err := c.findConversation(m.course, in.ConversationID)
+			if err != nil {
+				return err
+			}
 			if c.pendingAnswer(cv, m, in.InReplyToMessageID.String()) != nil {
 				return conflicts("an answer of yours to that message already waits for a decision").with("reason", "answer_pending")
 			}
-			if err := c.checkProposedFiles(m, cv, in.Attachments); err != nil {
+			if err := c.checkMessageFiles(m, cv, in.Attachments, true); err != nil {
 				return err
 			}
 			// Proposed, the answer takes its draft's place.
@@ -293,11 +317,42 @@ type closeIn struct {
 	Reason         *string   `json:"reason,omitempty"`
 }
 
+// checkClose is conversation_close's check: a reason that fits, and none
+// of the two the system writes, which would read as its doing.
+func checkClose(in closeIn) error {
+	reason, err := optionalText("reason", in.Reason, maxReasonChars)
+	if err != nil {
+		return err
+	}
+	if reason != nil && strings.EqualFold(*reason, seatRemoved) {
+		return invalid("%q is what closing a removed seat's conversations says; give another reason", *reason)
+	}
+	if reason != nil && strings.EqualFold(*reason, closedWithAPerson) {
+		return invalid("%q is what closing the conversations people were asked in says; give another reason", *reason)
+	}
+	return nil
+}
+
+var errClosedAlready = conflicts("the conversation is closed already")
+
 func conversationClose() *impl {
 	return define(spec[closeIn]{
-		gate: gateConverses,
+		gate:  gateConverses,
+		check: checkClose,
 		resolve: func(c *Core, co *course, in closeIn) (target, error) {
 			return conversationTarget(c, co, in.ConversationID)
+		},
+		validate: func(c *Core, m *member, in closeIn) error {
+			cv, err := c.findConversation(m.course, in.ConversationID)
+			switch {
+			case err != nil:
+				return err
+			case m != cv.opener && m != cv.respondent:
+				return errNotParticipant
+			case cv.status != "open":
+				return errClosedAlready
+			}
+			return nil
 		},
 		execute: func(c *Core, ec *execCtx, in closeIn) (any, error) {
 			cv, err := c.findConversation(ec.course, in.ConversationID)
@@ -309,21 +364,17 @@ func conversationClose() *impl {
 	})
 }
 
-// closeConversation is conversation_close's execution, for the tool and for
-// a participant closing through the test controls.
+var errNotParticipant = forbid("only the two who take part in a conversation close it")
+
+// closeConversation is conversation_close's execution, on a reason
+// checkClose has taken.
 func (c *Core) closeConversation(ec *execCtx, cv *conversation, why *string) (any, error) {
 	if ec.member != cv.opener && ec.member != cv.respondent {
-		return nil, forbid("only the two who take part in a conversation close it")
+		return nil, errNotParticipant
 	}
-	reason, err := optionalText("reason", why, maxReasonChars)
-	if err != nil {
-		return nil, err
-	}
-	if reason != nil && strings.EqualFold(*reason, seatRemoved) {
-		return nil, invalid("%q is what closing a removed seat's conversations says; give another reason", *reason)
-	}
+	reason, _ := optionalText("reason", why, maxReasonChars)
 	if cv.status != "open" {
-		return nil, conflicts("the conversation is closed already")
+		return nil, errClosedAlready
 	}
 	cv.status, cv.closedReason = "closed", reason
 	cv.clearDraft()
@@ -341,6 +392,10 @@ type retractIn struct {
 func conversationRetract() *impl {
 	return define(spec[retractIn]{
 		gate: gateConverses,
+		check: func(in retractIn) error {
+			_, err := optionalText("reason", in.Reason, maxReasonChars)
+			return err
+		},
 		resolve: func(c *Core, co *course, in retractIn) (target, error) {
 			msg := c.messages[in.MessageID.String()]
 			if msg == nil || msg.conv.course != co {
@@ -349,11 +404,30 @@ func conversationRetract() *impl {
 			id := msg.id
 			return target{typ: "conversation_message", id: &id}, nil
 		},
+		validate: func(c *Core, m *member, in retractIn) error {
+			msg := c.messages[in.MessageID.String()]
+			switch {
+			case msg == nil || msg.conv.course != m.course:
+				return missing("no such message in this course")
+			case msg.author != m && !oversees(m, msg.conv.opener):
+				return errNotYoursToRetract
+			case msg.retraction != nil:
+				return errRetractedAlready
+			}
+			return nil
+		},
 		execute: func(c *Core, ec *execCtx, in retractIn) (any, error) {
 			return c.retractMessage(ec, c.messages[in.MessageID.String()], in.Reason)
 		},
 	})
 }
+
+// conversation_retract's refusals of a message that is not the caller's
+// to retract, or is retracted already.
+var (
+	errNotYoursToRetract = forbid("only its author, or someone who decides actions for the conversation's opener, retracts a message")
+	errRetractedAlready  = conflicts("the message is retracted already")
+)
 
 // retractMessage is conversation_retract's execution: its author may, and so
 // may whoever oversees the conversation's opener. Retracting the opener's
@@ -362,14 +436,11 @@ func conversationRetract() *impl {
 // message retracted leaves the draft as it is.
 func (c *Core) retractMessage(ec *execCtx, msg *message, why *string) (any, error) {
 	if msg.author != ec.member && !oversees(ec.member, msg.conv.opener) {
-		return nil, forbid("only its author, or someone who decides actions for the conversation's opener, retracts a message")
+		return nil, errNotYoursToRetract
 	}
-	reason, err := optionalText("reason", why, maxReasonChars)
-	if err != nil {
-		return nil, err
-	}
+	reason, _ := optionalText("reason", why, maxReasonChars)
 	if msg.retraction != nil {
-		return nil, conflicts("the message is retracted already")
+		return nil, errRetractedAlready
 	}
 	msg.retraction = &retraction{at: ec.now, by: ec.member, reason: reason}
 	cv := msg.conv

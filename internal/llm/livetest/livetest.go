@@ -17,7 +17,7 @@ import (
 
 // MaxTools is the most tools one live request declares. OpenAI's APIs take
 // at most 128 functions in a request, and the pinned catalogue has more
-// (168 at AIShie-Core 40e68f0, its site services' own among them), so
+// (167 at AIShie-Core 4042026, its site services' own among them), so
 // every tool is declared across requests of at most this many, to every
 // provider alike (slices.Chunk). No seat is ever offered nearly as many:
 // the runtime offers a model the tools its gates allow (internal/toolset).

@@ -632,7 +632,7 @@ var scenarios = []scenario{
 		}
 		s.http("revoked_token", a)
 	}},
-	{name: "hosting", about: "the site's agent runtime (agent_runtime, a site service): check_owner and agent of a runtime agent, an mcp agent, a suspended one and ids that are no agent's; issue_token replacing the runtime's token, a replay without it, refused for an mcp agent, a suspended one and nobody; revoke_token, and again with none; a question to a runtime agent not hosted and to an mcp agent; me_site_chat, deprecated; the service's credential anywhere else, and an agent's at the service's routes",
+	{name: "hosting", about: "the site's agent runtime (agent_runtime, a site service): check_owner and agent of a runtime agent, an mcp agent, a suspended one and ids that are no agent's; issue_token replacing the runtime's token, a replay without it, refused for an mcp agent, a suspended one and nobody; revoke_token, and again with none; a question to a runtime agent not hosted and to an mcp agent; me_site_chat, which is no tool any more; the service's credential anywhere else, and an agent's at the service's routes",
 		run: func(t *testing.T, w world, s *steps) {
 			ctx := context.Background()
 			svc := w.runtimeService()
@@ -657,8 +657,7 @@ var scenarios = []scenario{
 			do("agent_no_agent", svc, "GET", base+"/agents/"+nobody, nil, "")
 			do("agent_a_person", svc, "GET", base+"/agents/"+yuki, nil, "")
 			call(t, w, s, "me_runtime", "me_get", map[string]any{})
-			call(t, w, s, "site_chat_on", "me_site_chat", map[string]any{"on": true, "idempotency_key": "site-chat:on"})
-			call(t, w, s, "site_chat_off", "me_site_chat", map[string]any{"on": false, "idempotency_key": "site-chat:off"})
+			call(t, w, s, "site_chat_gone", "me_site_chat", map[string]any{"on": true, "idempotency_key": "site-chat:on"})
 			do("agent_as_an_agent", w.rest(), "GET", base+"/agents/"+tutor, nil, "")
 			do("me_as_the_service", svc, "GET", "/v1/me", nil, "")
 			a, err := newMCPClient(w.base(), svc.token, nil).post(ctx, ping)
@@ -673,7 +672,6 @@ var scenarios = []scenario{
 			do("issue_mcp", svc, "POST", base+"/agents/"+mcpID+"/token", map[string]any{}, "issue:mcp")
 			do("revoke_mcp", svc, "POST", base+"/agents/"+mcpID+"/token/revoke", map[string]any{}, "revoke:mcp")
 			callAs(t, mcp, s, "me_mcp", "me_get", map[string]any{})
-			callAs(t, mcp, s, "site_chat_mcp", "me_site_chat", map[string]any{"on": true, "idempotency_key": "site-chat:mcp"})
 			callAs(t, w.as("ken"), s, "open_mcp", "conversation_open", inCourseArgs(w, "respondent_member_id", mcpSeat,
 				"body", "Can you help me?", "idempotency_key", "open:ken:mcp"))
 
@@ -1002,6 +1000,22 @@ var scenarios = []scenario{
 			"idempotency_key", "decide:"+id+":3"))
 		call(t, w, s, "replay", "conversation_answer", args)
 		call(t, w, s, "events", "event_list", inCourseArgs(w, "since_seq", 0))
+	}},
+	{name: "owner_would_be_refused", about: "an agent's proposal that approving now would refuse is not its owner's to decide (AIShie-Core #60): the opener asks again while its answer waits, its owner is refused owner_would_be_refused with the refusal inside, and someone else may still reject it", run: func(t *testing.T, w world, s *steps) {
+		w.setTutorLevel("confirm_required")
+		conv, m1 := w.ask(0, "When is the midterm?")
+		p := call(t, w, s, "propose", "conversation_answer", answer(w, conv, m1, "In week 8.", 1))
+		wantStatus(t, p, "proposed")
+		id := p.str("action_id")
+		w.followUp(conv, "And where is it held?")
+		decide := func(decision, key string, more ...any) map[string]any {
+			return inCourseArgs(w, append([]any{"action_id", id, "decision", decision, "idempotency_key", key}, more...)...)
+		}
+		callAs(t, w.as("sato"), s, "its_owner_approves", "action_decide", decide("approve", "decide:"+id))
+		callAs(t, w.as("sato"), s, "its_owner_rejects", "action_decide", decide("reject", "decide:"+id+":1", "reason", "Answer both."))
+		wantStatus(t, callAs(t, w.as("mori"), s, "someone_else_rejects", "action_decide",
+			decide("reject", "decide:"+id+":2", "reason", "Answer both questions.")), "executed")
+		call(t, w, s, "mine", "action_list_mine", inCourseArgs(w))
 	}},
 	{name: "reviewed", about: "answers at pending_review reviewed after: escalated, reviewed by the agent's owner, the refusals, and what the agent sees of it", run: func(t *testing.T, w world, s *steps) {
 		w.setTutorLevel("pending_review")

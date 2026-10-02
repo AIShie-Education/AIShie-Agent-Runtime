@@ -230,6 +230,22 @@ func (c *Core) invokeService(caller *actor, cred *credential, t *toolDef, raw []
 	if _, err := t.decodeArgs(raw); err != nil {
 		return c.failure(err)
 	}
+	// The two completions' checks of what they say alone, which refuse a
+	// call before anything is attempted or recorded (AIShie-Core #60).
+	switch t.Name {
+	case "document_text.complete":
+		var in completion
+		_ = json.Unmarshal(raw, &in)
+		if e := checkCompletion(in); e != nil {
+			return errorOutcome(e)
+		}
+	case "agent_runtime.rendition_complete":
+		var in renditionIn
+		_ = json.Unmarshal(raw, &in)
+		if e := checkRenditionCompletion(in); e != nil {
+			return errorOutcome(e)
+		}
+	}
 	now := c.now()
 	if strings.HasPrefix(t.Name, scopeAgentRuntime+".rendition_") {
 		return c.invokeRendition(caller, cred, t, raw, key, base, now)
@@ -471,9 +487,6 @@ func (c *Core) completeText(in completion, now time.Time) (*versionFile, *apiErr
 	case f == nil:
 		return nil, missing("no such text version")
 	}
-	if e := checkCompletion(in); e != nil {
-		return f, e
-	}
 	tv := f.text
 	switch {
 	case tv.source == sourceStaff && tv.claim != nil && tv.claim.leaseID == in.LeaseID:
@@ -495,7 +508,7 @@ func (c *Core) completeText(in completion, now time.Time) (*versionFile, *apiErr
 	return f, nil
 }
 
-// checkCompletion holds a completion to its shape, as Core does.
+// checkCompletion holds a completion to its shape, as Core's check does.
 func checkCompletion(in completion) *apiError {
 	switch in.Status {
 	case textDone:
@@ -820,8 +833,9 @@ func textParts(s string) []string {
 }
 
 // documentText is Core's document.text: the text of a file of a version
-// (file_id; its first for none), a part at a time, to whoever may read the
-// version.
+// (file_id, which AIShie-Core #61 requires; the version's one file from a
+// Core before several files to a version, which takes none), a part at a
+// time, to whoever may read the version.
 func documentText() *impl {
 	return define(spec[documentTextIn]{
 		gate: gate{any: true, perms: []string{permDocumentRead, permRubricRead}},

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -30,12 +31,15 @@ type documentCreateIn struct {
 	GradeID      *uuid.UUID `json:"grade_id,omitempty"`
 	SortOrder    int32      `json:"sort_order,omitempty"`
 	BodyMD       *string    `json:"body_md,omitempty"`
-	UploadToken  *string    `json:"upload_token,omitempty"`
 	Files        []struct {
 		UploadToken string  `json:"upload_token"`
 		Filename    *string `json:"filename,omitempty"`
 	} `json:"files,omitempty"`
 }
+
+// errNoDocumentUploads refuses a version's files: the fake hands out no
+// uploads for documents, so any upload a call names is none of its.
+var errNoDocumentUploads = invalid("no such upload: this fake Core takes no files for documents")
 
 type documentCreateOut struct {
 	DocumentID string  `json:"document_id"`
@@ -57,11 +61,19 @@ func writePerm(kind string) string {
 
 // documentCreate is Core's document.create for a course's own documents:
 // gated on any of the three writes, the kind then naming the one that
-// governs; made as a draft, with a first version when it is given text; a
-// title that is only spaces fails when it is carried out.
+// governs; made as a draft, with a first version when it is given text. A
+// title that is only spaces is refused as the arguments are read, and a
+// version's files, which only files gives since AIShie-Core #61 (the
+// schema refuses upload_token), before it is carried out or proposed.
 func documentCreate() *impl {
 	return define(spec[documentCreateIn]{
 		gate: gate{any: true, perms: []string{permDocumentWrite, permSubmissionWrite, permGradeSubmit}},
+		check: func(in documentCreateIn) error {
+			if strings.TrimSpace(in.Title) == "" {
+				return invalid("title is required")
+			}
+			return nil
+		},
 		resolve: func(_ *Core, _ *course, in documentCreateIn) (target, error) {
 			t := target{typ: "document", perms: []string{writePerm(in.Kind)}}
 			switch {
@@ -80,12 +92,15 @@ func documentCreate() *impl {
 			}
 			return t, nil
 		},
-		execute: func(_ *Core, ec *execCtx, in documentCreateIn) (any, error) {
-			if strings.TrimSpace(in.Title) == "" {
-				return nil, invalid("title is required")
+		validate: func(_ *Core, _ *member, in documentCreateIn) error {
+			if len(in.Files) > 0 {
+				return errNoDocumentUploads
 			}
-			if in.UploadToken != nil || len(in.Files) > 0 {
-				return nil, invalid("no such upload: this fake Core takes no files for documents")
+			return nil
+		},
+		execute: func(_ *Core, ec *execCtx, in documentCreateIn) (any, error) {
+			if len(in.Files) > 0 {
+				return nil, errNoDocumentUploads
 			}
 			doc := &document{id: newID(), kind: in.Kind, title: in.Title, course: ec.course, sortOrder: int(in.SortOrder),
 				createdAt: ec.now, draft: true, authorMemberID: ec.member.id}
@@ -102,7 +117,8 @@ func documentCreate() *impl {
 
 // withoutFiles is the catalogue raw as a Core from before several files to
 // a version served it (Options.WithoutFiles): no document.file, and no
-// file_id taken by document.text or the service's calls.
+// file_id taken, let alone required, by document.text or the service's
+// calls.
 func withoutFiles(raw []byte) ([]byte, error) {
 	var doc map[string]any
 	if err := json.Unmarshal(raw, &doc); err != nil {
@@ -123,6 +139,10 @@ func withoutFiles(raw []byte) ([]byte, error) {
 			if _, ok := props["file_id"]; ok {
 				delete(props, "file_id")
 				found++
+			}
+			// Required since AIShie-Core #61; before #49 there was none.
+			if required, ok := in["required"].([]any); ok {
+				in["required"] = slices.DeleteFunc(required, func(r any) bool { return r == "file_id" })
 			}
 		}
 		kept = append(kept, t)

@@ -337,60 +337,128 @@ func grantable(g *member, p string) level {
 	return g.perm(p)
 }
 
+// checkMemberAdd is member.add's check (Core's): one of preset and
+// preset_id, a role and scopes given among the allowed, lists only with a
+// listed scope given, and levels by permissions and levels that exist.
+func checkMemberAdd(in memberAddIn) error {
+	if (in.Preset == nil) == (in.PresetID == nil) {
+		return invalid("give exactly one of preset and preset_id")
+	}
+	if (in.Role != nil && !validRoles[*in.Role]) || (in.StudentScope != nil && !validScope(*in.StudentScope)) ||
+		(in.AssignmentScope != nil && !validScope(*in.AssignmentScope)) {
+		return invalid("role or scope is not one of the allowed values")
+	}
+	if in.StudentScope != nil && *in.StudentScope != scopeListed && len(in.ListedStudents) > 0 {
+		return errStudentList
+	}
+	if in.AssignmentScope != nil && *in.AssignmentScope != scopeListed && len(in.ListedAssignments) > 0 {
+		return errAssignmentList
+	}
+	return applyPerms(map[string]level{}, in.Perms)
+}
+
+var (
+	errStudentList    = invalid("listed_students only makes sense with student_scope = listed")
+	errAssignmentList = invalid("listed_assignments only makes sense with assignment_scope = listed")
+)
+
+// seating is the seat member.add would give, worked out from the call and
+// checked against the course, the granter g and the moment, changing
+// nothing: what its validate asks, and its execution carries out.
+type seating struct {
+	actor                         *actor
+	preset, role                  string
+	studentScope, assignmentScope string
+	perms                         map[string]level
+	students, assignments         []string
+	listsItself                   bool
+	expiresAt                     *time.Time
+	// expired is the actor's live seat here whose expiry has passed,
+	// which is removed first.
+	expired *member
+}
+
+// seatingFor is the seat a member.add of g's would give at now, or what
+// refuses it: the preset, the levels within the granter's and the seat's
+// ceilings, the scope and its lists, the expiry, and the actor (seatable).
+func (c *Core) seatingFor(g *member, in memberAddIn, now time.Time) (*seating, error) {
+	name, pr, err := c.findPreset(in.Preset, in.PresetID)
+	if err != nil {
+		return nil, err
+	}
+	s := &seating{preset: name, role: pr.role, studentScope: pr.studentScope, assignmentScope: pr.assignmentScope}
+	if in.Role != nil {
+		s.role = *in.Role
+	}
+	if in.StudentScope != nil {
+		s.studentScope = *in.StudentScope
+	}
+	if in.AssignmentScope != nil {
+		s.assignmentScope = *in.AssignmentScope
+	}
+	if !validRoles[s.role] || !validScope(s.studentScope) || !validScope(s.assignmentScope) {
+		return nil, invalid("role or scope is not one of the allowed values")
+	}
+	s.perms = make(map[string]level, len(allPerms))
+	for i, p := range allPerms {
+		s.perms[p] = pr.levels[i]
+	}
+	if err := applyPerms(s.perms, in.Perms); err != nil {
+		return nil, err
+	}
+	s.students, s.assignments = uuidStrings(in.ListedStudents), uuidStrings(in.ListedAssignments)
+	s.listsItself = s.role == "student" && s.studentScope == scopeListed && len(in.ListedStudents) == 0
+	if err := withinGranter(g, s.perms, s.listsItself, s.studentScope, s.students, s.assignmentScope, s.assignments); err != nil {
+		return nil, err
+	}
+	if in.ExpiresAt != nil {
+		t := in.ExpiresAt.UTC().Truncate(time.Microsecond)
+		s.expiresAt = &t
+	}
+	if exp := g.expiresAt; exp != nil && (s.expiresAt == nil || s.expiresAt.After(*exp)) {
+		return nil, forbid("your own membership ends at %s; you cannot give one that lasts longer", exp.UTC().Format(time.RFC3339))
+	}
+	if s.actor, s.expired, err = c.seatable(in.ActorID.String(), g.course, now); err != nil {
+		return nil, err
+	}
+	if s.expiresAt != nil && !s.expiresAt.After(now) {
+		return nil, invalid("expires_at is in the past")
+	}
+	if err := toCeilings(s.actor.kind == "agent", nil, s.perms, in.Perms); err != nil {
+		return nil, err
+	}
+	if err := c.checkScope(g.course, s); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
 // memberAdd seats an actor with a preset's role, levels and scope, any of
 // them overridden, within what the caller holds, as Core's member.add does.
 func memberAdd() *impl {
 	return define(spec[memberAddIn]{
 		gate:    gateManageMembers,
+		check:   checkMemberAdd,
 		resolve: func(*Core, *course, memberAddIn) (target, error) { return target{typ: "course_member"}, nil },
+		// Everything the seat is held to that the course can tell before
+		// it is made, so that nobody is asked to approve a seat that could
+		// never be given.
+		validate: func(c *Core, m *member, in memberAddIn) error {
+			_, err := c.seatingFor(m, in, c.now())
+			return err
+		},
 		execute: func(c *Core, ec *execCtx, in memberAddIn) (any, error) {
-			name, pr, err := c.findPreset(in.Preset, in.PresetID)
+			s, err := c.seatingFor(ec.member, in, ec.now)
 			if err != nil {
 				return nil, err
 			}
-			role, studentScope, assignmentScope := pr.role, pr.studentScope, pr.assignmentScope
-			if in.Role != nil {
-				role = *in.Role
+			if live := s.expired; live != nil {
+				live.status = statusRemoved
+				ec.emit(memberEvent("member.removed", live, map[string]any{"reason": "expired"}))
 			}
-			if in.StudentScope != nil {
-				studentScope = *in.StudentScope
-			}
-			if in.AssignmentScope != nil {
-				assignmentScope = *in.AssignmentScope
-			}
-			if !validRoles[role] || !validScope(studentScope) || !validScope(assignmentScope) {
-				return nil, invalid("role or scope is not one of the allowed values")
-			}
-			perms := make(map[string]level, len(allPerms))
-			for i, p := range allPerms {
-				perms[p] = pr.levels[i]
-			}
-			if err := applyPerms(perms, in.Perms); err != nil {
-				return nil, err
-			}
-			students, assignments := uuidStrings(in.ListedStudents), uuidStrings(in.ListedAssignments)
-			listsItself := role == "student" && studentScope == scopeListed && len(in.ListedStudents) == 0
-			if err := withinGranter(ec.member, perms, listsItself, studentScope, students, assignmentScope, assignments); err != nil {
-				return nil, err
-			}
-			expiresAt := in.ExpiresAt
-			if expiresAt != nil {
-				t := expiresAt.UTC().Truncate(time.Microsecond)
-				expiresAt = &t
-			}
-			if g := ec.member.expiresAt; g != nil && (expiresAt == nil || expiresAt.After(*g)) {
-				return nil, forbid("your own membership ends at %s; you cannot give one that lasts longer", g.UTC().Format(time.RFC3339))
-			}
-			m, err := c.seatNew(ec, in.ActorID.String(), role, name, perms, expiresAt)
-			if err != nil {
-				return nil, err
-			}
-			if err := toCeilings(m.actor.kind == "agent", nil, m.perms, in.Perms); err != nil {
-				return nil, err
-			}
-			if err := c.writeScope(m, studentScope, students, listsItself, assignmentScope, assignments); err != nil {
-				return nil, err
-			}
+			m := &member{id: newID(), course: ec.course, actor: s.actor, status: statusActive, expiresAt: s.expiresAt, role: s.role,
+				perms: s.perms, presetID: c.presetID(s.preset), createdAt: ec.now}
+			c.writeScope(m, s)
 			c.members[m.id] = m
 			c.memberList = append(c.memberList, m)
 			ec.emit(memberEvent("member.added", m, map[string]any{"actor_id": m.actor.id, "role": m.role}))
@@ -404,66 +472,65 @@ func memberAdd() *impl {
 // errSeated refuses a second live seat.
 var errSeated = conflicts("the actor already has a seat in this course; change it, or remove it and add again for a fresh start")
 
-// seatNew is the seat Core's seat() would make for the actor, not yet in
-// the course: the actor must be someone active, not the system, and not an
-// agent someone owns, with no live seat here; a seat whose expiry has passed
-// is removed first.
-func (c *Core) seatNew(ec *execCtx, actorID, role, presetName string, perms map[string]level, expiresAt *time.Time) (*member, error) {
+// seatable is the actor of actorID, if Core's seat() would seat it in co
+// at now: someone active, not the system, and not an agent someone owns,
+// with no live seat there; and its seat there whose expiry has passed,
+// which is to be removed first.
+func (c *Core) seatable(actorID string, co *course, now time.Time) (*actor, *member, error) {
 	a := c.actors[actorID]
 	switch {
 	case a == nil:
-		return nil, missing("no such actor")
+		return nil, nil, missing("no such actor")
 	case !a.active():
-		return nil, precondition("the actor is suspended")
+		return nil, nil, precondition("the actor is suspended")
 	case a.kind == "system":
-		return nil, precondition("the system actor is not seated in courses")
+		return nil, nil, precondition("the system actor is not seated in courses")
 	case a.owner != nil:
-		return nil, precondition("the agent belongs to someone: its owner brings it in, with member.add_delegate")
+		return nil, nil, precondition("the agent belongs to someone: its owner brings it in, with member.add_delegate")
 	}
-	if live := c.seatOf(a, ec.course); live != nil {
-		if live.expiresAt == nil || live.expiresAt.After(ec.now) {
-			return nil, errSeated
-		}
-		live.status = statusRemoved
-		ec.emit(memberEvent("member.removed", live, map[string]any{"reason": "expired"}))
+	live := c.seatOf(a, co)
+	if live != nil && (live.expiresAt == nil || live.expiresAt.After(now)) {
+		return nil, nil, errSeated
 	}
-	if expiresAt != nil && !expiresAt.After(ec.now) {
-		return nil, invalid("expires_at is in the past")
-	}
-	return &member{id: newID(), course: ec.course, actor: a, status: statusActive, expiresAt: expiresAt, role: role,
-		perms: perms, presetID: c.presetID(presetName), createdAt: ec.now}, nil
+	return a, live, nil
 }
 
-// writeScope gives a new seat its lists: whom and what a listed scope
-// reaches, each of them the course's; a student listed with nobody lists
-// itself.
-func (c *Core) writeScope(m *member, studentScope string, students []string, listsItself bool, assignmentScope string, assignments []string) error {
-	if listsItself {
-		students = []string{m.id}
-	}
+// checkScope holds a new seat's lists to its scope and to the course:
+// lists only with a listed scope, every student listed a current student
+// of the course, and every assignment the course's.
+func (c *Core) checkScope(co *course, s *seating) error {
 	switch {
-	case studentScope != scopeListed && len(students) > 0:
-		return invalid("listed_students only makes sense with student_scope = listed")
-	case assignmentScope != scopeListed && len(assignments) > 0:
-		return invalid("listed_assignments only makes sense with assignment_scope = listed")
+	case s.studentScope != scopeListed && len(s.students) > 0:
+		return errStudentList
+	case s.assignmentScope != scopeListed && len(s.assignments) > 0:
+		return errAssignmentList
 	}
-	for _, id := range students {
-		if s := c.members[id]; id != m.id && (s == nil || s.course != m.course || s.role != "student" || s.status == statusRemoved) {
+	for _, id := range s.students {
+		if st := c.members[id]; st == nil || st.course != co || st.role != "student" || st.status == statusRemoved {
 			return precondition("listed_students must all be current students of this course")
 		}
 	}
-	for _, id := range assignments {
-		if findAssignment(m.course, uuid.MustParse(id)) == nil {
+	for _, id := range s.assignments {
+		if findAssignment(co, uuid.MustParse(id)) == nil {
 			return precondition("listed_assignments must all be assignments of this course")
 		}
 	}
-	m.studentScope, m.assignmentScope = studentScope, assignmentScope
+	return nil
+}
+
+// writeScope gives a new seat its lists, checked (checkScope): whom and
+// what a listed scope reaches; a student listed with nobody lists itself.
+func (c *Core) writeScope(m *member, s *seating) {
+	students := s.students
+	if s.listsItself {
+		students = []string{m.id}
+	}
+	m.studentScope, m.assignmentScope = s.studentScope, s.assignmentScope
 	m.students, m.assignments = map[string]bool{}, map[string]bool{}
 	for _, id := range students {
 		m.students[id] = true
 	}
-	for _, id := range assignments {
+	for _, id := range s.assignments {
 		m.assignments[id] = true
 	}
-	return nil
 }

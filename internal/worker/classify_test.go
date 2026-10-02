@@ -43,6 +43,8 @@ func TestClassifyEveryRowOfTheHandout(t *testing.T) {
 		{"closed", failed(core.CodeConflict, core.ReasonClosed), nil, NextDrop, store.AttemptFailed},
 		{"not_addressable", failed(core.CodeForbidden, core.ReasonNotAddressable), nil, NextDropReseat, store.AttemptFailed},
 		{"invalid_argument", failed(core.CodeInvalidArgument, ""), nil, NextFix, store.AttemptFailed},
+		// A body refused as the arguments are read, never attempted (AIShie-Core #60).
+		{"invalid_argument, refused as read", notAttempted(core.CodeInvalidArgument), nil, NextFix, store.AttemptError},
 		{"idempotency_conflict", notAttempted(core.CodeIdempotencyConflict), nil, NextAttempt, store.AttemptError},
 		{"not_found", notAttempted(core.CodeNotFound), nil, NextDrop, store.AttemptError},
 		{"replayed executed", &core.Envelope{Status: core.StatusExecuted, Replayed: true}, nil, NextDone, store.AttemptExecuted},

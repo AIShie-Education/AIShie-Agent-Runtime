@@ -1,0 +1,159 @@
+{
+ "scenario": "owner_would_be_refused",
+ "steps": [
+  {
+   "args": {
+    "body": "In week 8.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "action_id": "<id:4>",
+    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed.",
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "propose",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "action_id": "<id:4>",
+    "course_id": "<id:2>",
+    "decision": "approve",
+    "idempotency_key": "decide:<id:4>"
+   },
+   "envelope": {
+    "action_id": "<id:5>",
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "owner_would_be_refused",
+      "refusal": {
+       "code": "conflict",
+       "details": {
+        "latest_opener_message_id": "<id:6>",
+        "reason": "moved_on"
+       },
+       "message": "the conversation moved on; answer the latest message"
+      }
+     },
+     "message": "you decide what your agent proposed only where you would do it yourself without anyone's confirmation, and approved now it would be refused (the conversation moved on; answer the latest message); take it back with action.withdraw, or someone else rejects it"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "its_owner_approves",
+   "text_is_envelope": true,
+   "tool": "action_decide"
+  },
+  {
+   "args": {
+    "action_id": "<id:4>",
+    "course_id": "<id:2>",
+    "decision": "reject",
+    "idempotency_key": "decide:<id:4>:1",
+    "reason": "Answer both."
+   },
+   "envelope": {
+    "action_id": "<id:7>",
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "owner_would_be_refused",
+      "refusal": {
+       "code": "conflict",
+       "details": {
+        "latest_opener_message_id": "<id:6>",
+        "reason": "moved_on"
+       },
+       "message": "the conversation moved on; answer the latest message"
+      }
+     },
+     "message": "you decide what your agent proposed only where you would do it yourself without anyone's confirmation, and approved now it would be refused (the conversation moved on; answer the latest message); take it back with action.withdraw, or someone else rejects it"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "its_owner_rejects",
+   "text_is_envelope": true,
+   "tool": "action_decide"
+  },
+  {
+   "args": {
+    "action_id": "<id:4>",
+    "course_id": "<id:2>",
+    "decision": "reject",
+    "idempotency_key": "decide:<id:4>:2",
+    "reason": "Answer both questions."
+   },
+   "envelope": {
+    "action_id": "<id:8>",
+    "result": {
+     "action_id": "<id:4>",
+     "outcome": "rejected"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "someone_else_rejects",
+   "text_is_envelope": true,
+   "tool": "action_decide"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "actions": [
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:9>",
+       "authz_result": "confirm_required",
+       "created_at": "<time>",
+       "decided_at": "<time>",
+       "decided_by_member_id": "<id:10>",
+       "id": "<id:4>",
+       "member_id": "<id:11>",
+       "payload": {
+        "body": "In week 8.",
+        "conversation_id": "<id:1>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:3>"
+       },
+       "result": {
+        "decision": {
+         "by_action_id": "<id:8>",
+         "decision": "reject",
+         "reason": "Answer both questions."
+        }
+       },
+       "review_state": "none",
+       "status": "rejected",
+       "target_id": "<id:1>",
+       "target_type": "conversation"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "mine",
+   "text_is_envelope": true,
+   "tool": "action_list_mine"
+  }
+ ]
+}

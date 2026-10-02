@@ -159,13 +159,11 @@
     "reason": "seat_removed"
    },
    "envelope": {
-    "action_id": "<id:11>",
     "error": {
      "code": "invalid_argument",
      "message": "\"seat_removed\" is what closing a removed seat's conversations says; give another reason"
     },
-    "review_state": "none",
-    "status": "failed"
+    "status": "error"
    },
    "http_status": 200,
    "is_error": true,
@@ -181,7 +179,7 @@
     "reason": "Answered as far as I can."
    },
    "envelope": {
-    "action_id": "<id:12>",
+    "action_id": "<id:11>",
     "result": {
      "ok": true
     },
@@ -201,7 +199,7 @@
     "idempotency_key": "close:<id:1>:2"
    },
    "envelope": {
-    "action_id": "<id:13>",
+    "action_id": "<id:12>",
     "error": {
      "code": "conflict",
      "message": "the conversation is closed already"
@@ -274,7 +272,7 @@
     "result": {
      "events": [
       {
-       "action_id": "<id:14>",
+       "action_id": "<id:13>",
        "occurred_at": "<time>",
        "payload": {},
        "seq": "<seq:1>",
@@ -283,7 +281,7 @@
        "type": "course.created"
       },
       {
-       "action_id": "<id:15>",
+       "action_id": "<id:14>",
        "occurred_at": "<time>",
        "payload": {},
        "seq": "<seq:2>",
@@ -292,7 +290,7 @@
        "type": "course.activated"
       },
       {
-       "action_id": "<id:16>",
+       "action_id": "<id:15>",
        "occurred_at": "<time>",
        "payload": {
         "conversation_id": "<id:1>",
@@ -305,7 +303,7 @@
        "type": "conversation.opened"
       },
       {
-       "action_id": "<id:16>",
+       "action_id": "<id:15>",
        "occurred_at": "<time>",
        "payload": {
         "author_member_id": "<id:10>",
@@ -348,7 +346,7 @@
        "type": "conversation.message_retracted"
       },
       {
-       "action_id": "<id:12>",
+       "action_id": "<id:11>",
        "occurred_at": "<time>",
        "payload": {
         "by_member_id": "<id:9>",

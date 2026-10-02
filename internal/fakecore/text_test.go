@@ -40,12 +40,19 @@ func TestTextQueue(t *testing.T) {
 	var got struct {
 		Result struct {
 			Version struct {
-				Text *core.TextView `json:"text"`
+				Files []struct {
+					Text *core.TextView `json:"text"`
+				} `json:"files"`
 			} `json:"version"`
 		} `json:"result"`
 	}
-	if err := json.Unmarshal([]byte(a.Text), &got); err != nil || got.Result.Version.Text == nil || got.Result.Version.Text.Status != core.TextPending ||
-		got.Result.Version.Text.Revision != 1 || got.Result.Version.Text.Body != nil {
+	text := func() *core.TextView {
+		if len(got.Result.Version.Files) != 1 || got.Result.Version.Files[0].Text == nil {
+			return &core.TextView{}
+		}
+		return got.Result.Version.Files[0].Text
+	}
+	if err := json.Unmarshal([]byte(a.Text), &got); err != nil || text().Status != core.TextPending || text().Revision != 1 || text().Body != nil {
 		t.Fatalf("a text waiting: %s", a.Text)
 	}
 	if syl := mustCall(t, w.agentC, "document_get", inCourseArgs(w, "document_id", w.co.SyllabusID)); strings.Contains(syl.Text, `"text"`) {
@@ -108,13 +115,13 @@ func TestTextQueue(t *testing.T) {
 	// it in parts, each cut after a whole line (or before a page's
 	// heading, where that leaves it half full).
 	g := mustCall(t, w.agentC, "document_get", inCourseArgs(w, "document_id", first))
-	if err := json.Unmarshal([]byte(g.Text), &got); err != nil || got.Result.Version.Text.Status != core.TextDone ||
-		got.Result.Version.Text.Body != nil || got.Result.Version.Text.Bytes != len(long) || got.Result.Version.Text.Source != core.SourceAI {
+	if err := json.Unmarshal([]byte(g.Text), &got); err != nil || text().Status != core.TextDone || text().Body != nil ||
+		text().Bytes != len(long) || text().Source != core.SourceAI {
 		t.Errorf("the text done, as document_get gives it: %s", g.Text[:min(len(g.Text), 600)])
 	}
 	var joined strings.Builder
 	for part := 1; ; part++ {
-		p := mustCall(t, w.agentC, "document_text", inCourseArgs(w, "document_id", first, "part", part))
+		p := mustCall(t, w.agentC, "document_text", inCourseArgs(w, "document_id", first, "file_id", c.FileID, "part", part))
 		var tp core.TextPart
 		if err := json.Unmarshal([]byte(p.Text), &struct {
 			Result *core.TextPart `json:"result"`
@@ -151,13 +158,13 @@ func TestTextQueue(t *testing.T) {
 
 // A version of three files and text (AIShie-Core #49): document_get lists
 // the files in order, each named, with a URL that serves it under its name
-// and its own text version, the version's own fields the first file's;
-// document_versions lists them without either; document_file gives one
-// again by its id, and nothing of another document. The service claims
-// each file on its own, in order, and every call names it; a call that
-// names no file is the lease's file, and lease_lost where no file holds
-// the lease. Each text is written back, read by its file_id, and its news
-// names the file.
+// and its own text version, and the version says nothing of a file of its
+// own (AIShie-Core #61); document_versions lists them without either;
+// document_file gives one again by its id, and nothing of another
+// document. The service claims each file on its own, in order, and every
+// call names it: one that names no file is refused, and one whose lease
+// the file does not hold is lease_lost. Each text is written back, read by
+// its file_id, and its news names the file.
 func TestTextFilesOfAVersion(t *testing.T) {
 	w := newFakeWorld(t, Options{})
 	ctx := t.Context()
@@ -182,20 +189,28 @@ func TestTextFilesOfAVersion(t *testing.T) {
 	var got struct {
 		Result struct {
 			Version struct {
-				BodyMD      string         `json:"body_md"`
-				DownloadURL string         `json:"download_url"`
-				ContentType string         `json:"content_type"`
-				Text        *core.TextView `json:"text"`
-				Files       []fileView     `json:"files"`
+				BodyMD string     `json:"body_md"`
+				Files  []fileView `json:"files"`
 			} `json:"version"`
 		} `json:"result"`
 	}
 	a := mustCall(t, w.agentC, "document_get", inCourseArgs(w, "document_id", doc))
 	w.ok(json.Unmarshal([]byte(a.Text), &got))
 	v := got.Result.Version
-	if len(v.Files) != 3 || v.BodyMD != "Slides first, then run the program." || v.ContentType != "application/pdf" ||
-		v.DownloadURL != v.Files[0].DownloadURL || v.Text == nil {
+	if len(v.Files) != 3 || v.BodyMD != "Slides first, then run the program." {
 		t.Fatalf("the version: %s", a.Text)
+	}
+	// What a version said of its first file alone went with AIShie-Core #61.
+	var own struct {
+		Result struct {
+			Version map[string]any `json:"version"`
+		} `json:"result"`
+	}
+	w.ok(json.Unmarshal([]byte(a.Text), &own))
+	for _, gone := range []string{"download_url", "content_type", "byte_size", "checksum", "text"} {
+		if _, ok := own.Result.Version[gone]; ok {
+			t.Errorf("the version gives %s of its own: %s", gone, a.Text)
+		}
 	}
 	names := []string{"week3-slides.pdf", "Week 3.txt", "loops.py"}
 	for i, f := range v.Files {
@@ -231,14 +246,16 @@ func TestTextFilesOfAVersion(t *testing.T) {
 			t.Errorf("claim %d: %+v", i+1, c)
 		}
 	}
-	// A call naming no file is the lease's file; one of a lease no file
-	// holds is lease_lost.
-	if f, err := s.File(ctx, core.Claim{VersionID: claimed[1].VersionID, LeaseID: claimed[1].LeaseID}); err != nil || f.FileID != ids[1] {
-		t.Errorf("File naming no file = %+v, %v", f, err)
+	// A call naming no file is refused, as AIShie-Core #61 refuses it; one
+	// of a lease the file does not hold is lease_lost.
+	var se *core.ServiceError
+	if _, err := s.File(ctx, core.Claim{VersionID: claimed[1].VersionID, LeaseID: claimed[1].LeaseID}); !errors.As(err, &se) ||
+		se.Code != core.CodeInvalidArgument {
+		t.Errorf("File naming no file: %v", err)
 	}
-	if _, err := s.Renew(ctx, core.Claim{VersionID: claimed[1].VersionID, LeaseID: "01a0f2de-0000-7000-8000-000000000000"}, 0); !core.IsReason(err,
+	if _, err := s.Renew(ctx, core.Claim{VersionID: claimed[1].VersionID, FileID: ids[1], LeaseID: "01a0f2de-0000-7000-8000-000000000000"}, 0); !core.IsReason(err,
 		core.ReasonLeaseLost) {
-		t.Errorf("a renewal of a lease no file holds: %v", err)
+		t.Errorf("a renewal of a lease the file does not hold: %v", err)
 	}
 	for i, c := range claimed {
 		if f, err := s.File(ctx, core.ClaimOf(c)); err != nil || f.FileID != ids[i] || f.Filename != names[i] {
@@ -402,7 +419,7 @@ func mustCatalogue(t *testing.T, w *fakeWorld) *core.Catalogue {
 
 // The runtime's client reads a file of a version again by its id
 // (document_file), and the text of one file of several (TextPart with its
-// file_id), and, naming no file, the first's, as before.
+// file_id); naming no file is refused, as AIShie-Core #61 refuses it.
 func TestFilesThroughTheClient(t *testing.T) {
 	w := newFakeWorld(t, Options{})
 	ctx := t.Context()
@@ -428,10 +445,14 @@ func TestFilesThroughTheClient(t *testing.T) {
 	if tp.FileID != ids[1] || tp.Filename != "notes.md" || tp.Position != 2 || tp.Text.Body == nil || *tp.Text.Body != "## 第 1 頁\n\nThe notes." {
 		t.Errorf("TextPart of the notes = %+v", tp)
 	}
-	tp, err = cl.TextPart(ctx, w.co.ID, doc, "", "", 1)
+	tp, err = cl.TextPart(ctx, w.co.ID, doc, "", ids[0], 1)
 	w.ok(err)
 	if tp.FileID != ids[0] || tp.Text.Body == nil || *tp.Text.Body != "## 第 1 頁\n\nThe slides." {
-		t.Errorf("TextPart naming no file = %+v", tp)
+		t.Errorf("TextPart of the slides = %+v", tp)
+	}
+	var ee *core.EnvelopeError
+	if _, err := cl.TextPart(ctx, w.co.ID, doc, "", "", 1); !errors.As(err, &ee) || ee.Envelope.Code() != core.CodeInvalidArgument {
+		t.Errorf("TextPart naming no file: %v", err)
 	}
 }
 
