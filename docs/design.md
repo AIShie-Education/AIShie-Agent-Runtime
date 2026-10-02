@@ -535,7 +535,14 @@ model can correct itself from. Results are Core's envelope as JSON, as it
 is: `executed`, `proposed` with its `action_id` (not an `is_error`: it is
 Core's normal answer at `confirm_required`), `denied` or `failed`, cut at
 32 KB keeping `status` and `error` whole; a document's file text too long
-for that is given in parts (Files, below). A write Core did not answer may or
+for that is given in parts (Files, below). A proposal's `note` is the
+runtime's (`toolset.ProposedNote`): Core's tells an agent to follow the
+proposal in `event_list` or `action_list_mine` and, once it is sent back
+for changes, to propose it again naming it in `revises`, and the model
+here can do neither (`revises` is bound, and the runtime follows its own
+answers alone). It is told that a person decides it, that it does not
+learn their decision in this answer, and that it may be asked again if
+they send it back for changes. A write Core did not answer may or
 may not have been made: the model is told so, and that the same call again
 is never made twice. `document_get`'s `download_url` never reaches the
 model: the runtime fetches the file (below).
@@ -2518,7 +2525,8 @@ Chinese with a table, overran, and was cut off.
   model wrote, numbers writes in call order across turns, keys the same
   attempt the same and the next anew, sends a repeat under its first key,
   refuses writes past `max_writes`, and gives `proposed` as it is, not as an
-  error; the member writes and the roster are offered on their gates alone,
+  error, with the runtime's note in place of Core's; the member writes and
+  the roster are offered on their gates alone,
   `member_add_delegate` and `member_delegate_defaults` never, and
   `SeatGuard` refuses a member write on the agent's own seat, its
   principal's or the opener's, or on another agent of theirs (read with

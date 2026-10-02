@@ -68,7 +68,8 @@ func toolNamesOf(req *llm.Request) []string {
 // confirm_required, for a document. The model is offered document_create,
 // and told what it may do; the write reaches Core in the conversation's
 // course under the key of the attempt's first write, and comes back
-// proposed, which the model is given as it is, and not as an error. It is
+// proposed, which the model is given as it is, not as an error, with the
+// runtime's note in place of Core's. It is
 // counted in the ledger and the metrics, logged without what it said, and
 // remembered: at autonomous, the next answer's write is executed and the
 // document is in Core, and its prompt remembers the first.
@@ -112,6 +113,13 @@ func TestOwnerWrites(t *testing.T) {
 	res, ok := toolResult(reqs[1], "document_create")
 	if !ok || res.IsError || !strings.HasPrefix(res.Content, `{"status":"proposed","action_id":"`+calls[0].ActionID+`"`) {
 		t.Errorf("the model was given %+v", res)
+	}
+	// Core's note tells an agent to follow the proposal and propose it
+	// again naming it in revises, which this model cannot: it is told the
+	// runtime's own.
+	note, _ := json.Marshal(toolset.ProposedNote)
+	if !strings.Contains(res.Content, `"note":`+string(note)) || strings.Contains(res.Content, "revises") || strings.Contains(res.Content, "event_list") {
+		t.Errorf("the model was told of the proposal: %s", res.Content)
 	}
 	if ps := w.fc.Proposals(w.co.ID); len(ps) != 1 || ps[0].ActionType != "document.create" || ps[0].IdempotencyKey != calls[0].IdempotencyKey {
 		t.Errorf("the proposals: %+v", ps)
