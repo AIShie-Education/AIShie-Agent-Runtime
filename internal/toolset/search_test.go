@@ -382,6 +382,7 @@ type searchResultOf struct {
 			Excerpt    string    `json:"excerpt"`
 			Read       *nextPart `json:"read"`
 			ReadNote   string    `json:"read_note"`
+			Passage    string    `json:"passage"`
 		} `json:"hits"`
 		Page     int       `json:"page"`
 		More     bool      `json:"more"`
@@ -736,6 +737,63 @@ func TestSearchSaysWhenTheCourseHasMore(t *testing.T) {
 		if more != (n > MaxSearchDocuments) || res.Result.Searched.Documents != min(n, MaxSearchDocuments) {
 			t.Errorf("%d documents: more %v, %d searched\n%s", n, more, res.Result.Searched.Documents, part.Content)
 		}
+	}
+}
+
+// TestSearchGivesThePassageItsReadCutsShort: a version's own text far
+// longer than a result is given by document_get cut short; a hit in it
+// past the cut gives the passage itself, saying why, and every hit that
+// gives none is read whole by its read. A file of a version whose own text
+// leaves its part too little room, likewise; a short text's hits give no
+// passage.
+func TestSearchGivesThePassageItsReadCutsShort(t *testing.T) {
+	paragraphs := func(n int, prefix string) string {
+		var b strings.Builder
+		for i := range n {
+			fmt.Fprintf(&b, "Paragraph %d. %s %s%03dx\n\n", i, strings.Repeat("Sorting puts \"things\" in order, step by step. ", 8), prefix, i)
+		}
+		return strings.TrimSpace(b.String())
+	}
+	docs := course()
+	docs = append(docs,
+		&sdoc{id: "0192f3c1-d007-7b4a-9c3d-2e1f0a9b8c7d", title: "Long notes", kind: "material",
+			published: &sversion{id: "0192f3c1-a008-7b4a-9c3d-2e1f0a9b8c7d", body: paragraphs(250, "zb")}},
+		&sdoc{id: "0192f3c1-d008-7b4a-9c3d-2e1f0a9b8c7d", title: "Lab", kind: "material",
+			published: &sversion{id: "0192f3c1-a009-7b4a-9c3d-2e1f0a9b8c7d", body: paragraphs(50, "zl"),
+				files: []sfile{{id: "0192f3c1-b007-7b4a-9c3d-2e1f0a9b8c7d", name: "lab.md", ct: "text/markdown", data: []byte(paragraphs(150, "zf"))}}}},
+	)
+	c := newSearchCore(t, docs...)
+	r := searchRunner(c, memstore.New(), &SearchScope{}, false)
+	given, passages := 0, 0
+	for _, word := range []string{"zb000x", "zb040x", "zb060x", "zb080x", "zb120x", "zb200x", "zb249x", "zl049x", "zf000x", "zf075x", "zf149x"} {
+		res, part := searchFor(t, r, `{"query":"`+word+`","limit":1}`)
+		if len(res.Result.Hits) != 1 {
+			t.Fatalf("%s: %s", word, part.Content)
+		}
+		h := res.Result.Hits[0]
+		args, _ := json.Marshal(h.Read.Arguments)
+		parts, err := searchSet(t).Run(context.Background(), r, courseID, []llm.Part{call("g", h.Read.Tool, string(args))})
+		if err != nil {
+			t.Fatal(err)
+		}
+		read := strings.Contains(parts[0].Content, word)
+		switch {
+		case h.Passage == "" && !read:
+			t.Errorf("%s: its read %v does not give it, and the hit gives no passage: %+v", word, h.Read.Arguments, h)
+		case h.Passage == "":
+			given++
+		case !strings.Contains(h.Passage, word) || h.ReadNote == "":
+			t.Errorf("%s: the passage given: %+v", word, h)
+		default:
+			passages++
+		}
+	}
+	if given == 0 || passages == 0 {
+		t.Errorf("%d hits read by their read, %d given their passage: the test wants both", given, passages)
+	}
+	res, _ := searchFor(t, r, `{"query":"final exam"}`)
+	if len(res.Result.Hits) == 0 || res.Result.Hits[0].DocumentID != docSyllabus || res.Result.Hits[0].Passage != "" {
+		t.Errorf("a short text's hit: %+v", res.Result.Hits)
 	}
 }
 

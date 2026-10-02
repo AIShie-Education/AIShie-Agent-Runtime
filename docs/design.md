@@ -1081,7 +1081,8 @@ each hit the document (its id, title and kind), the version and the file
 it is (`text_source`), an excerpt of at most 200 characters around the
 words, and `read`, the `document_get` call that gives the passage itself,
 which the model makes as it is (and `read_note` where it gives the file
-from its start instead: The pointer, below). A page holds 5 hits (`limit`, at most 10);
+from its start instead, and `passage`, the passage itself, where it would
+give it cut short: The pointer, below). A page holds 5 hits (`limit`, at most 10);
 `more` and `next` give the next page. The result says how many documents
 and files were searched, how many files have no text the search can read,
 and how many were not read yet; a search that finds nothing says what it
@@ -1217,6 +1218,17 @@ course never says it".
   holds all the few words the index has of it.) Of the version's own
   text, the version. A version of several files names the file
   (`file_id`).
+  `document_get` gives a result of at most `MaxResultBytes` (32 KiB),
+  the version's own text in its envelope, and cuts the envelope as one
+  string where it passes that: the version's own text far into a long
+  `body_md` is not given, and a long `body_md` (or a long list of files)
+  leaves a file's part too little room beside it. As it reads a version, the search reckons how
+  much of its own text that call gives (`readRoom`, keeping 2 KiB for
+  what the runtime adds, so that it may say less is given than is, never
+  more), and whether a file's part fits beside it whole; a hit the call
+  would cut short gives the passage itself (`passage`, about 1,500 bytes)
+  with a `read_note` saying why, beside the same `read`. A passage given
+  as pages of a file is given whatever the envelope, and gets none.
 - *Who wrote it does not weigh.* Staff's text, an AI transcription and the
   runtime's reading of a file are ranked by how well they match alone: a
   file has one text at a time (the text version where it is done, which a
@@ -2147,7 +2159,10 @@ Chinese with a table, overran, and was cut off.
   said to have no version it may read now, and one Core could not answer
   for said not read just now and found by the next search; a course of
   99 or exactly 100 documents said to have none more, and one of 101 to
-  have more, its first 100 searched; hits a
+  have more, its first 100 searched; in a version's own text of some
+  100 KB, every hit that gives no `passage` read whole by its read and
+  those past the cut given their passage, and so in a file whose
+  version's own text leaves its part too little room; hits a
   page at a time to the last, a long text version's hit naming the part
   that `document_get`, called as it is, gives it in; in a long text of no
   pages, a text file's and a text version's, every one of 200 words found
