@@ -2762,8 +2762,11 @@ document a YAML file would hold, and runs it beside the YAML agents:
   passes: they keep no other from running. A registry it cannot read (a
   schema older than the binary's, before a deploy's `migrate up`) is said,
   and passes too. `check --live` reads the hosted agents in Core as well,
-  and connects those whose rows hold the token the runtime was issued; it
-  is issued none itself.
+  and connects those whose rows hold the token the runtime was issued,
+  showing each seat's tools as the worker offers them
+  (`toolset.ForSeat`), `course_materials_search` among them, and
+  `attachment_get` where a conversation's messages carry files; it is
+  issued none itself.
 
 ### 11.3 Where M2 departs from the handout
 

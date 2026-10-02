@@ -245,10 +245,7 @@ func (s *Seat) toolsFor(d toolschema.Dialect, access toolset.Access) (*toolset.S
 	if ok {
 		return set, nil
 	}
-	set, err := toolset.Build(s.a.cat, perms, tools, access, d, s.a.s.schemas)
-	if err == nil {
-		set, err = set.WithSearch(tools, d, s.a.s.schemas)
-	}
+	set, err := toolset.ForSeat(s.a.cat, perms, tools, access, d, s.a.s.schemas)
 	if err != nil {
 		return nil, err
 	}

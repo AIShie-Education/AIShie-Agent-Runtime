@@ -166,9 +166,11 @@ aishie-runtime check --live
 resolves the secrets, reads each agent in Core with the runtime's own
 credential (how Core hosts it, its live seats, whether people may ask it
 now), connects with the token the runtime holds for it, if any, to show
-its seats and what its model is offered (its reads, and the writes its
-owner's conversations are offered besides), and tries each model key with
-one call. It is issued no token itself: that would revoke the one a
+its seats and what its model is offered (its reads, with the runtime's
+own `course_materials_search`, and `attachment_get` where a
+conversation's messages carry files; and the writes its owner's
+conversations are offered besides), and tries each model key with one
+call. It is issued no token itself: that would revoke the one a
 running runtime holds. A `core.base_url` must be within
 `CORE_BASE_URL_ALLOWLIST`.
 

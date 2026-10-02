@@ -36,3 +36,16 @@ func CheckCatalogue(cat *core.Catalogue) error {
 func Build(cat *core.Catalogue, perms map[string]string, cfg config.Tools, access Access, dialect toolschema.Dialect, cache *toolschema.Cache) (*Set, error) {
 	return FromCore(cat).Build(perms, cfg, access, dialect, cache)
 }
+
+// ForSeat is the toolset a seat's model is offered: Build's, with the
+// runtime's search of the course's materials where the seat reads them
+// (Set.WithSearch). The worker offers it, and check --live shows it; an
+// answer in a conversation whose messages carry files is offered the
+// runtime's AttachmentTool besides (Set.WithAttachments).
+func ForSeat(cat *core.Catalogue, perms map[string]string, cfg config.Tools, access Access, dialect toolschema.Dialect, cache *toolschema.Cache) (*Set, error) {
+	set, err := Build(cat, perms, cfg, access, dialect, cache)
+	if err != nil {
+		return nil, err
+	}
+	return set.WithSearch(cfg, dialect, cache)
+}
