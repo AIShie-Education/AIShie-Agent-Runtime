@@ -218,7 +218,7 @@ func (c *claim) pass(ctx context.Context, msgID string, shorter bool) passResult
 			poke(c.s.wakeEvents)
 			return r
 		}
-		if n > c.eff.Answer.MaxAttempts {
+		if n-reposts(atts) > c.eff.Answer.MaxAttempts {
 			return c.exhausted(r)
 		}
 		r.no, r.key = n, core.AnswerKey(c.conv, msgID, n)
@@ -552,42 +552,54 @@ func (c *claim) resent(ctx context.Context, at store.Attempt, r passResult) pass
 	return c.send(ctx, r, at, safety.Report{})
 }
 
-// send sends an attempt's bytes, settles the attempt with what came back,
-// and acts on it. An answer Core refused for a source it names (§2.10) is
-// sent again without it, under the next attempt's key (withoutSource),
-// until Core takes it or refuses it otherwise: each time one source fewer.
+// send sends an attempt's bytes, settles the attempt with what came back
+// (sent), and acts on it.
 func (c *claim) send(ctx context.Context, r passResult, at store.Attempt, rep safety.Report) passResult {
+	at, env, d := c.sent(ctx, at, Classify)
+	r.no, r.key = at.No, at.Key
+	r.postAt, r.postedID = c.a.now(), messageID(env)
+	return c.act(ctx, r, d, rep)
+}
+
+// sent sends an attempt's bytes and settles the attempt with what came
+// back, as classify reads it. An answer Core refused for a source it
+// names (§2.10) is sent again without it, under the next attempt's key
+// (withoutSource), until Core takes it or refuses it otherwise: each time
+// one source fewer, the model not asked again, whether a claim sends it
+// or the seat's start sends again one left sending. It returns the
+// attempt sent last, what came back of it, and what to do.
+func (c *claim) sent(ctx context.Context, at store.Attempt, classify func(*core.Envelope, error) Decision) (store.Attempt, *core.Envelope, Decision) {
 	for {
 		over := c.s.sendBegins()
 		env, err := c.a.client.Send(ctx, at.Tool, at.Args)
-		d := Classify(env, err)
-		r.postAt, r.postedID = c.a.now(), messageID(env)
+		d := classify(env, err)
 		settle(c.a, c.eff, at, env, d)
 		over()
 		if d.Next != NextDropSource {
-			return c.act(ctx, r, d, rep)
+			return at, env, d
 		}
 		next, ok := c.withoutSource(ctx, at, d)
 		if !ok {
 			// Nothing to drop, or no attempt written ahead: another
 			// attempt, if the conversation still waits for one.
 			d.Next = NextAttempt
-			return c.act(ctx, r, d, rep)
+			return at, env, d
 		}
-		c.s.log.Info("Core refused a source of the answer: it is posted again without it", "conversation", c.conv, "message", r.msg,
+		c.s.log.Info("Core refused a source of the answer: it is posted again without it", "conversation", c.conv, "message", at.MessageID,
 			"key", at.Key, "next_key", next.Key, "source", d.Source, "code", d.Code, "reason", d.Reason)
-		at, r.no, r.key = next, next.No, next.Key
+		at = next
 	}
 }
 
 // withoutSource is the attempt that posts at's answer again without the
 // source Core refused, d.Source (all of them for -1), under the next
-// attempt's number and key, written ahead; or the one another worker
+// attempt's number and key, written ahead now; or the one another worker
 // wrote under that key first. An answer that relied on sources it can no
 // longer name, every one of them refused, says nothing of its sources: it
 // did rely on course materials, and an empty list would say it relied on
 // none. ok is false when at named no sources, or the attempt could not be
-// written ahead.
+// written ahead. Such an attempt asks no model, and counts toward no
+// max_attempts (reposts).
 func (c *claim) withoutSource(ctx context.Context, at store.Attempt, d Decision) (store.Attempt, bool) {
 	var args core.AnswerArgs
 	if at.Tool != toolAnswer || json.Unmarshal(at.Args, &args) != nil || args.Sources == nil {
@@ -602,6 +614,8 @@ func (c *claim) withoutSource(ctx context.Context, at store.Attempt, d Decision)
 	next.No = at.No + 1
 	next.Key = core.AnswerKey(at.ConversationID, at.MessageID, next.No)
 	next.State, next.ActionID, next.PostedMessageID, next.ErrorCode, next.Reason = store.AttemptSending, "", "", "", ""
+	// Written now, not when the refused attempt was: the store dates it.
+	next.CreatedAt, next.UpdatedAt = time.Time{}, time.Time{}
 	args.IdempotencyKey = next.Key
 	b, err := json.Marshal(args)
 	if err != nil {
