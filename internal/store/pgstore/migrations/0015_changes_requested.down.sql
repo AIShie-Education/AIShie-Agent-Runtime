@@ -1,10 +1,10 @@
 -- AIShie Agent Runtime, store migration 0015 (down)
 -- Reverts 0015_changes_requested.up.sql: an attempt sent back for changes
 -- becomes one rejected, with what was asked as its reason, and so does its
--- note in the conversation's memory. A release before this one reads a
--- rejection's reason only through memory, and reads no note of a kind it
--- does not know: as a rejected note, what was asked still reaches the next
--- attempt's prompt.
+-- note in the conversation's memory, both of kinds a release before this
+-- one knows. A rollback of the runtime never runs this: it leaves the
+-- schema as it is (docs/deploying.md), and `aishie-runtime migrate down`
+-- takes every migration down, not this one alone.
 
 BEGIN;
 
