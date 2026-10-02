@@ -2,12 +2,17 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/fakecore"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/transcribe"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
@@ -30,7 +35,13 @@ func transcribeRuntime() config.Runtime {
 // service; mode is TRANSCRIBE.
 func newTranscribeWorld(t *testing.T, mode string) (*hostWorld, *transcribe.Service) {
 	t.Helper()
-	h, _, _ := newModelWorld(t, transcribeRuntime())
+	return newTranscribeWorldOf(t, mode, fakecore.Options{})
+}
+
+// newTranscribeWorldOf is a transcribe world against a fake Core of o.
+func newTranscribeWorldOf(t *testing.T, mode string, o fakecore.Options) (*hostWorld, *transcribe.Service) {
+	t.Helper()
+	h, _, _ := newModelWorldOf(t, transcribeRuntime(), o)
 	tr := transcribe.New(transcribe.Options{Mode: mode, Store: h.st, Keeps: true, CoreBaseURL: h.srv.URL, CoreHTTP: h.srv.Client(),
 		Now: h.clock})
 	h.s.o.Transcriber = tr
@@ -262,7 +273,7 @@ func TestTranscriptionCredential(t *testing.T) {
 	// The credential was tried by a renewal, which claims nothing, and
 	// nothing else.
 	for _, c := range h.fc.Calls() {
-		if strings.HasPrefix(c.Tool, "document_text.") && c.Tool != "document_text.renew" {
+		if strings.HasPrefix(c.Tool, "document_text_") && c.Tool != core.ToolTextRenew {
 			t.Errorf("the credential's test called %s", c.Tool)
 		}
 	}
@@ -317,6 +328,42 @@ func TestTranscriptionCredential(t *testing.T) {
 	}
 	h.noServiceToken(tok.Token, answers...)
 	h.noServiceToken(old.Token, answers...)
+}
+
+// The credential's try names no version's file, as it names no version:
+// a nil uuid, where Core's renewal takes file_id (it requires it since
+// AIShie-Core #54), and none where it does not (a Core from before #49,
+// which refuses it). The token passes either way.
+func TestTranscriptionCredentialTriedOfNoFile(t *testing.T) {
+	for name, o := range map[string]fakecore.Options{"files": {}, "one_file_a_version": {WithoutFiles: true}} {
+		t.Run(name, func(t *testing.T) {
+			h, _ := newTranscribeWorldOf(t, config.TranscribeAuto, o)
+			h.admin("PATCH", "admin/settings", `{"transcription":{"enabled":true,"offer":"mini"}}`)
+			tok := h.fc.IssueServiceToken("runtime")
+			a := h.admin("PUT", "admin/transcription/credential", `{"token":"`+tok.Token+`"}`)
+			if v := transcriptionOf(t, a); a.code != 200 || v.Credential.Status != CredentialOK {
+				t.Fatalf("the credential: %d %s", a.code, a.body)
+			}
+			tried := 0
+			for _, c := range h.fc.Calls() {
+				if c.Tool != core.ToolTextRenew {
+					continue
+				}
+				tried++
+				var args map[string]any
+				if err := json.Unmarshal(c.Args, &args); err != nil {
+					t.Fatal(err)
+				}
+				file, named := args["file_id"]
+				if named != !o.WithoutFiles || named && file != uuid.Nil.String() || args["version_id"] != uuid.Nil.String() {
+					t.Errorf("the try: %s", c.Args)
+				}
+			}
+			if tried != 1 {
+				t.Errorf("tried %d times", tried)
+			}
+		})
+	}
 }
 
 // secretOf is the store's secret id.

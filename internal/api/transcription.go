@@ -515,10 +515,12 @@ func (s *Server) putCredential(w http.ResponseWriter, r *http.Request, c *Caller
 }
 
 // testCredential tries token with Core by a call that claims nothing: the
-// renewal of a claim no version has (a nil uuid, a lease of chance), which
-// Core answers 404 or 409 to a token of the service's; 401 is a token Core
-// does not take, and 403 service_only one that is not the service's. It
-// answers a refusal, and reports whether the token passed.
+// renewal of a claim no version has (a nil uuid, a lease of chance), of
+// no file (a nil uuid, where Core's renewal takes file_id: it requires it
+// since AIShie-Core #54, and one from before #49 refuses it), which Core
+// answers 404 or 409 to a token of the service's; 401 is a token Core does
+// not take, and 403 service_only one that is not the service's. It answers
+// a refusal, and reports whether the token passed.
 func (s *Server) testCredential(ctx context.Context, w http.ResponseWriter, token string) bool {
 	unavailable := func(msg string) bool {
 		WriteError(w, Error{Code: CodeUnavailable, Reason: ReasonCoreUnavailable, Message: msg})
@@ -544,7 +546,11 @@ func (s *Server) testCredential(ctx context.Context, w http.ResponseWriter, toke
 		return false
 	}
 	svc := core.NewService(core.NewRESTCaller(core.RESTOptions{BaseURL: s.o.CoreBaseURL, Token: token, Catalogue: cat, HTTPClient: s.coreHTTP}))
-	_, err = svc.Renew(ctx, core.Claim{VersionID: uuid.Nil.String(), LeaseID: uuid.NewString()}, core.MinLease)
+	probe := core.Claim{VersionID: uuid.Nil.String(), LeaseID: uuid.NewString()}
+	if cat.Takes(core.ToolTextRenew, "file_id") {
+		probe.FileID = uuid.Nil.String()
+	}
+	_, err = svc.Renew(ctx, probe, core.MinLease)
 	var se *core.ServiceError
 	switch {
 	case err == nil, core.IsNotFound(err), errors.As(err, &se) && se.Code == core.CodeConflict:

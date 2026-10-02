@@ -84,11 +84,20 @@ func documentsResponder(req fakellm.ChatRequest) fakellm.ChatResponse {
 	return fakellm.Reply("I could not read slide " + n + ".")
 }
 
+// uploadExt is the extension of the file upload names after its title,
+// as Core named a file attached with no name of its own.
+var uploadExt = map[string]string{"application/pdf": ".pdf", doctexttest.PPTXType: ".pptx"}
+
 // upload is p putting a file in the course as Core's front end does: an
 // upload URL for it, the bytes PUT there, a material document made of the
-// upload, and its version published. It returns the document's id.
+// upload, its one file named after the title, and its version published. It
+// returns the document's id.
 func (w *world) upload(t *testing.T, p person, title, contentType string, data []byte) string {
 	t.Helper()
+	ext, ok := uploadExt[contentType]
+	if !ok {
+		t.Fatalf("no extension for %s", contentType)
+	}
 	q := url.Values{"kind": {"material"}, "content_type": {contentType}}
 	up := result[struct {
 		UploadURL   string            `json:"upload_url"`
@@ -115,7 +124,8 @@ func (w *world) upload(t *testing.T, p person, title, contentType string, data [
 	doc := result[struct {
 		DocumentID string `json:"document_id"`
 		VersionID  string `json:"version_id"`
-	}](t, w.api, p.token, "POST", w.path("/documents"), map[string]any{"kind": "material", "title": title, "upload_token": up.UploadToken})
+	}](t, w.api, p.token, "POST", w.path("/documents"), map[string]any{"kind": "material", "title": title,
+		"files": []map[string]any{{"upload_token": up.UploadToken, "filename": title + ext}}})
 	w.api.call(t, http.StatusOK, p.token, "POST", w.path("/documents/"+doc.DocumentID+"/publish"), map[string]any{"version_id": doc.VersionID})
 	return doc.DocumentID
 }
