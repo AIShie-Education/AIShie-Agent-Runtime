@@ -1863,8 +1863,13 @@ The events poller reads `event_list` from the seat's cursor:
   to change, from the attempt it revises whether or not memory keeps it,
   and names that proposal in `revises` (§5.3). A revision is sent back
   and revised in turn; `max_attempts` bounds them as it bounds any
-  attempts. A runtime from before this never settled one, and left the
-  conversation unanswered until its opener wrote again.
+  attempts. A revision rejected overrules what was asked: the attempt
+  after names the same proposal, but is not told to make the changes,
+  and memory, when on, notes the request and the rejection in turn
+  (`worker.standing`); one that failed, or expired undecided, leaves the
+  request standing, told as made of an earlier answer. A runtime from
+  before this never settled one, and left the conversation unanswered
+  until its opener wrote again.
 - `action.cancelled`: settled as cancelled, `payload.reason` noted.
 - `conversation.message_retracted`: the answer being written to that
   message, the opener's question withdrawn, stops (§5.3); notes about it
@@ -1948,9 +1953,9 @@ prompt says:
   instructions, and that `attachment_get` reads more of them, or, where it
   is not offered, that the model cannot read more than it is given;
 - the answer's language (`answer_language`);
-- for an answer written again because a person sent the last one back for
-  changes, that they did and what they asked, plainly, in a section of its
-  own (`prompt.Input.Revising`);
+- for an answer written again because a person sent one back for changes,
+  and has decided none since, that they did and what they asked, plainly,
+  in a section of its own (`prompt.Input.Revising`);
 - the memory of this conversation: rejection reasons, what was asked of
   answers sent back for changes, retracted answers,
   and the changes it made here (a write Core executed or proposed: its tool,

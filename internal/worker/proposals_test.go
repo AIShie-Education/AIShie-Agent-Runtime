@@ -245,6 +245,69 @@ func TestRevisionSentBackInTurn(t *testing.T) {
 	}
 }
 
+// TestRevisionDecidedSince: once a person rejects a revision, what they
+// asked of the answer it revised no longer stands: the next attempt names
+// that answer in revises all the same, but is not told to make the changes
+// asked, which memory, when on, notes before the rejection. A revision that
+// expires undecided leaves the request standing, told as made of an
+// earlier answer.
+func TestRevisionDecidedSince(t *testing.T) {
+	const asked, refused = "Add the room.", "Never give the room: it is confidential."
+	for _, c := range []struct {
+		name    string
+		memory  bool
+		decide  func(w *world, actionID string) error
+		told    bool
+		decided string
+	}{
+		{"rejected, memory on", true, func(w *world, id string) error { return w.fc.Reject(id, refused) }, false,
+			fmt.Sprintf("rejected an earlier answer of yours here, saying: %q.", refused)},
+		{"rejected, memory off", false, func(w *world, id string) error { return w.fc.Reject(id, refused) }, false, ""},
+		{"expired", false, func(w *world, id string) error { return w.fc.Expire(id) }, true, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			w := newWorld(t)
+			model := scripted.New(scripted.Reply("On 14 March."), scripted.Reply("On 14 March, in room B12."), scripted.Reply("On 14 March."))
+			tu, wk := confirmedTutor(t, w, model, map[string]any{"answer": map[string]any{"max_attempts": 3},
+				"memory": map[string]any{"enabled": c.memory}})
+			conv, msg := w.ask(1, tu, "When and where is the midterm?")
+			k1, k2, k3 := core.AnswerKey(conv, msg, 1), core.AnswerKey(conv, msg, 2), core.AnswerKey(conv, msg, 3)
+			p1 := w.waitProposal(k1)
+			w.ok(w.fc.RequestChanges(p1.ActionID, asked))
+			wk.waitAttempt("cs101-tutor", k1, store.AttemptChangesRequested)
+			p2 := w.waitProposal(k2)
+			w.ok(c.decide(w, p2.ActionID))
+			if p3 := w.waitProposal(k3); p3.Revises != p1.ActionID {
+				t.Errorf("the third attempt revises %q; want %s", p3.Revises, p1.ActionID)
+			}
+			reqs := model.Requests()
+			if len(reqs) != 3 {
+				t.Fatalf("%d model calls; want 3", len(reqs))
+			}
+			s := reqs[2].System
+			told := strings.Contains(s, "## The answer you are writing again\n- A member of staff read an earlier answer of yours to this question "+
+				"before it was posted, and "+revisionSaid(asked))
+			if told != c.told {
+				t.Errorf("the third attempt's prompt tells the request %v; want %v:\n%s", told, c.told, s)
+			}
+			if strings.Contains(s, "read your last answer") {
+				t.Errorf("the third attempt's prompt says its last answer was sent back:\n%s", s)
+			}
+			if c.told {
+				return
+			}
+			remembered := fmt.Sprintf("back for changes, asking: %q. Take it into account.", asked)
+			if c.memory {
+				if i, j := strings.Index(s, remembered), strings.Index(s, c.decided); i < 0 || j < i {
+					t.Errorf("the third attempt's prompt does not remember the request, then the rejection:\n%s", s)
+				}
+			} else if strings.Contains(s, asked) {
+				t.Errorf("without memory, the third attempt's prompt has the request the rejection overruled:\n%s", s)
+			}
+		})
+	}
+}
+
 // TestProposalExpired: a proposal cancelled as expired is noted, and the
 // question answered again under the next number.
 func TestProposalExpired(t *testing.T) {

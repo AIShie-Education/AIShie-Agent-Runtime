@@ -56,7 +56,9 @@ func TestSystemFillsAndAlwaysAddsTheRules(t *testing.T) {
 // for changes says so plainly, with what they asked, in a section of its
 // own and once, though memory notes it too; a request for changes made of
 // an earlier answer, remembered, is taken into account, as a rejection is;
-// and one the runtime could not read says it was sent back all the same.
+// one still standing though answers were written since says it was made of
+// an earlier answer; and one the runtime could not read says it was sent
+// back all the same.
 func TestSystemRevising(t *testing.T) {
 	asked := store.Note{Kind: store.NoteChangesRequested, MessageID: "q1", Text: "Say where the chapter starts."}
 	earlier := store.Note{Kind: store.NoteChangesRequested, MessageID: "q1", Text: "Name the kinds of graphs."}
@@ -81,7 +83,14 @@ func TestSystemRevising(t *testing.T) {
 	if text, _ := System(in); !strings.Contains(text, `asking: "Say where the chapter starts."`) || strings.Contains(text, "What you remember") {
 		t.Errorf("without memory:\n%s", text)
 	}
-	in.Revising = &store.Note{Kind: store.NoteChangesRequested, MessageID: "q1"}
+	// Answers written since, none posted nor decided: the request was
+	// made of an earlier answer.
+	in.RevisingEarlier = true
+	if text, _ := System(in); !strings.Contains(text, "- A member of staff read an earlier answer of yours to this question before it was posted, "+
+		`and sent it back for changes, asking: "Say where the chapter starts.".`) || strings.Contains(text, "your last answer") {
+		t.Errorf("a request made of an earlier answer:\n%s", text)
+	}
+	in.Revising, in.RevisingEarlier = &store.Note{Kind: store.NoteChangesRequested, MessageID: "q1"}, false
 	if text, _ := System(in); !strings.Contains(text, "sent it back for changes, without saying what to change. Write the answer again, better.") {
 		t.Errorf("a request whose note was not read:\n%s", text)
 	}

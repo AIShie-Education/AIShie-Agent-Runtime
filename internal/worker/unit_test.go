@@ -113,6 +113,32 @@ func TestRevised(t *testing.T) {
 	}
 }
 
+// TestStanding: what a person asked of the attempt revised is told while
+// no person has decided an answer to the message since, as of an earlier
+// answer when one was written after it; a revision rejected or sent back
+// since leaves it to memory.
+func TestStanding(t *testing.T) {
+	at := func(no int, st store.AttemptState) store.Attempt { return store.Attempt{No: no, State: st} }
+	for _, c := range []struct {
+		name        string
+		atts        []store.Attempt
+		revised     int // the index in atts of the attempt revised
+		told, since bool
+	}{
+		{"the last written", []store.Attempt{at(1, store.AttemptRejected), at(2, store.AttemptChangesRequested)}, 1, true, false},
+		{"a revision that failed since", []store.Attempt{at(1, store.AttemptChangesRequested), at(2, store.AttemptFailed)}, 0, true, true},
+		{"a revision expired since", []store.Attempt{at(1, store.AttemptChangesRequested), at(2, store.AttemptCancelled)}, 0, true, true},
+		{"a revision rejected since", []store.Attempt{at(1, store.AttemptChangesRequested), at(2, store.AttemptRejected)}, 0, false, true},
+		{"rejected after one that failed", []store.Attempt{at(1, store.AttemptChangesRequested), at(2, store.AttemptFailed),
+			at(3, store.AttemptRejected)}, 0, false, true},
+		{"sent back since, no action known", []store.Attempt{at(1, store.AttemptChangesRequested), at(2, store.AttemptChangesRequested)}, 0, false, true},
+	} {
+		if told, since := standing(c.atts, &c.atts[c.revised]); told != c.told || since != c.since {
+			t.Errorf("%s: told %v, since %v; want %v, %v", c.name, told, since, c.told, c.since)
+		}
+	}
+}
+
 func TestClassifyClose(t *testing.T) {
 	for _, c := range []struct {
 		name    string

@@ -98,12 +98,16 @@ type Input struct {
 	AnswerLanguage string
 	// Notes are this conversation's memory, oldest first.
 	Notes []store.Note
-	// Revising, when the answer is written again because a person sent the
-	// last one to this question back for changes, is the note of what they
-	// asked (store.NoteChangesRequested): the prompt says so plainly, in a
-	// section of its own, whether or not Notes hold it, and leaves it out
-	// of what is remembered.
+	// Revising, when the answer is written again because a person sent one
+	// to this question back for changes, and has decided none since, is
+	// the note of what they asked (store.NoteChangesRequested): the prompt
+	// says so plainly, in a section of its own, whether or not Notes hold
+	// it, and leaves it out of what is remembered.
 	Revising *store.Note
+	// RevisingEarlier is that the answer sent back was not the last one
+	// written to the question: those since posted nothing, and no person
+	// decided them.
+	RevisingEarlier bool
 	// Now dates the prompt.
 	Now time.Time
 }
@@ -200,7 +204,7 @@ func System(in Input) (text, hash string) {
 	}
 	if in.Revising != nil {
 		b.WriteString("\n## The answer you are writing again\n")
-		line(revisionSentence(in.Revising.Text))
+		line(revisionSentence(in.Revising.Text, in.RevisingEarlier))
 	}
 	return strings.TrimRight(b.String(), "\n"), hash
 }
@@ -270,10 +274,14 @@ func noteSentence(n store.Note) string {
 }
 
 // revisionSentence tells the model that a member of staff sent its last
-// answer to this question back for changes, and what they asked: asked,
-// as they wrote it, or "" when the runtime could not read it.
-func revisionSentence(asked string) string {
-	const sent = "A member of staff read your last answer to this question before it was posted, and sent it back for changes"
+// answer to this question back for changes, or an earlier one, and what
+// they asked: asked, as they wrote it, or "" when the runtime could not
+// read it.
+func revisionSentence(asked string, earlier bool) string {
+	sent := "A member of staff read your last answer to this question before it was posted, and sent it back for changes"
+	if earlier {
+		sent = "A member of staff read an earlier answer of yours to this question before it was posted, and sent it back for changes"
+	}
 	if asked == "" {
 		return sent + ", without saying what to change. Write the answer again, better."
 	}

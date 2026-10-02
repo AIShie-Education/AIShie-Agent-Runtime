@@ -113,8 +113,10 @@ type passResult struct {
 	withdrawn bool
 	// revises is the proposal a person sent back for changes that this
 	// attempt proposes again (revised), "" for none; changes is what they
-	// asked to change.
+	// asked to change, told only while it stands (told, standing); since
+	// is that answers were written after the one sent back.
 	revises, changes string
+	told, since      bool
 }
 
 // answer answers one inbox row, holding its slot of the scheduler until it
@@ -220,7 +222,10 @@ func (c *claim) pass(ctx context.Context, msgID string, shorter bool) passResult
 		}
 		r.no, r.key = n, core.AnswerKey(c.conv, msgID, n)
 		if at := revised(atts); at != nil {
-			r.revises, r.changes = at.ActionID, at.Reason
+			r.revises = at.ActionID
+			if r.told, r.since = standing(atts, at); r.told {
+				r.changes = at.Reason
+			}
 		}
 		// 4. Quotas. One of the school's spent, the owner's own key
 		// answers, when the agent has one behind the school's.
@@ -274,6 +279,29 @@ func revised(atts []store.Attempt) *store.Attempt {
 		}
 	}
 	return last
+}
+
+// standing is whether what a person asked of at, the attempt the next one
+// revises (revised), still stands, to be told plainly (told): no person
+// has decided an answer to the message since; those written after it
+// (since) posted nothing, failed or expired, say. A revision rejected
+// since, or sent back with no action known, leaves the request to memory,
+// which notes both in turn, the decision last; the next attempt names at
+// in revises all the same.
+func standing(atts []store.Attempt, at *store.Attempt) (told, since bool) {
+	after := false
+	for i := range atts {
+		switch {
+		case &atts[i] == at:
+			after = true
+		case !after:
+		case atts[i].State == store.AttemptRejected || atts[i].State == store.AttemptChangesRequested:
+			return false, true
+		default:
+			since = true
+		}
+	}
+	return true, since
 }
 
 // nextAttempt is the number of the next attempt at a message, one more than
@@ -410,8 +438,8 @@ func (c *claim) toolset(m *model, access toolset.Access, files bool) (*toolset.S
 // system is the system prompt for this answer, whose model is offered set,
 // and its hash; files is that the conversation's messages carry files. An
 // answer that revises one a person sent back for changes (r.revises) is
-// told what they asked, from the attempt it revises: whether memory keeps
-// the note, or has it yet, or not.
+// told what they asked, from the attempt it revises, while it stands
+// (r.told): whether memory keeps the note, or has it yet, or not.
 func (c *claim) system(ctx context.Context, read *core.Messages, shorter bool, set *toolset.Set, files bool, r passResult) (string, string, error) {
 	var notes []store.Note
 	if c.eff.Memory.Enabled {
@@ -421,7 +449,7 @@ func (c *claim) system(ctx context.Context, read *core.Messages, shorter bool, s
 		}
 	}
 	var revising *store.Note
-	if r.revises != "" {
+	if r.told {
 		revising = &store.Note{AgentID: c.a.id, MemberID: c.s.id, ConversationID: c.conv, Kind: store.NoteChangesRequested,
 			MessageID: r.msg, Text: r.changes}
 	}
@@ -433,7 +461,8 @@ func (c *claim) system(ctx context.Context, read *core.Messages, shorter bool, s
 			AskerName: read.Conversation.Opener.DisplayName, AnswerLevel: read.Conversation.Respondent.AnswerLevel,
 			Tools: set.Reads(), Writes: set.Writes(), Files: files, FileTool: fileTool(set), SearchTool: searchTool(set),
 		},
-		AnswerLanguage: c.eff.Prompt.AnswerLanguage, Notes: notes, Revising: revising, Now: c.a.now(),
+		AnswerLanguage: c.eff.Prompt.AnswerLanguage, Notes: notes, Revising: revising, RevisingEarlier: r.since,
+		Now: c.a.now(),
 	})
 	if shorter {
 		text += fmt.Sprintf("\n- Your last answer here could not be posted as it was: it was too long, or held links that had to be removed. "+
