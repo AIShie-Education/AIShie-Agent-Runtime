@@ -697,27 +697,46 @@ func TestSearchDropsWhatCoreSaysIsPurged(t *testing.T) {
 // (withheld since it was listed), are said to have no version the seat
 // may read now, not to be unread for a while; one Core could not answer
 // for just now is said so, to be searched again, and is searched by the
-// next answer's search once Core answers.
+// answer's next search once Core answers, the answer's scope kept for
+// the rest, and by the next answer's.
 func TestSearchSaysWhatIsGoneAndWhatIsNotReadYet(t *testing.T) {
-	docs := course()
-	docs[1].published.purged = true
-	c := newSearchCore(t, docs...)
-	c.failGet = map[string]bool{docSyllabus: true}
-	index := memstore.New()
-	res, part := searchFor(t, searchRunner(c.as(false), index, nil, false), `{"query":"final exam"}`)
-	if !strings.Contains(res.Note, "2 documents listed have no version this seat may read now (purged, or withheld from it since the list)") {
-		t.Errorf("the purged and the withheld documents are not said to be gone: %s", part.Content)
-	}
-	if !strings.Contains(res.Note, "1 document listed could not be read just now, and not searched; search again in a minute") {
-		t.Errorf("the document Core did not answer for is not said to be unread: %s", part.Content)
-	}
-	if len(res.Result.Hits) != 0 || res.Result.Searched.Documents != 2 {
-		t.Errorf("searched: %+v", res.Result)
-	}
-	delete(c.failGet, docSyllabus)
-	res, part = searchFor(t, searchRunner(c.as(false), index, nil, false), `{"query":"final exam"}`)
-	if len(res.Result.Hits) != 1 || res.Result.Hits[0].DocumentID != docSyllabus || strings.Contains(res.Note, "could not be read just now") {
-		t.Errorf("the next search, Core answering: %s", part.Content)
+	for _, scope := range []*SearchScope{{}, nil} {
+		docs := course()
+		docs[1].published.purged = true
+		c := newSearchCore(t, docs...)
+		c.failGet = map[string]bool{docSyllabus: true}
+		r := searchRunner(c.as(false), memstore.New(), scope, false)
+		res, part := searchFor(t, r, `{"query":"final exam"}`)
+		if !strings.Contains(res.Note, "2 documents listed have no version this seat may read now (purged, or withheld from it since the list)") {
+			t.Errorf("the purged and the withheld documents are not said to be gone: %s", part.Content)
+		}
+		if !strings.Contains(res.Note, "1 document listed could not be read just now, and not searched; search again in a minute") {
+			t.Errorf("the document Core did not answer for is not said to be unread: %s", part.Content)
+		}
+		if len(res.Result.Hits) != 0 || res.Result.Searched.Documents != 2 {
+			t.Errorf("searched: %+v", res.Result)
+		}
+		res, _ = searchFor(t, r, `{"query":"final exam"}`)
+		if len(res.Result.Hits) != 0 || !strings.Contains(res.Note, "1 document listed could not be read just now") {
+			t.Errorf("searched again, Core still not answering: %+v", res)
+		}
+		delete(c.failGet, docSyllabus)
+		lists, gets := c.count("document_list"), c.count("document_get")
+		res, part = searchFor(t, r, `{"query":"final exam"}`)
+		if len(res.Result.Hits) != 1 || res.Result.Hits[0].DocumentID != docSyllabus || strings.Contains(res.Note, "could not be read just now") ||
+			!strings.Contains(res.Note, "2 documents listed have no version") || res.Result.Searched.Documents != 3 {
+			t.Errorf("searched again, Core answering (scope %v): %s", scope != nil, part.Content)
+		}
+		if scope != nil && (c.count("document_list") != lists || c.count("document_get") != gets+1) {
+			t.Errorf("the answer's scope is read again whole: %d lists, %d gets more", c.count("document_list")-lists, c.count("document_get")-gets)
+		}
+		if scope != nil {
+			gets = c.count("document_get")
+			res, _ = searchFor(t, r, `{"query":"final exam"}`)
+			if len(res.Result.Hits) != 1 || c.count("document_get") != gets {
+				t.Errorf("once all are read, the answer's scope is not kept: %d gets more, %+v", c.count("document_get")-gets, res.Result.Hits)
+			}
+		}
 	}
 }
 

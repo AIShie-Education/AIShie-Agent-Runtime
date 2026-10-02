@@ -1103,27 +1103,29 @@ course never says it".
   it lists, by their ids, which are made in time order, so the oldest
   first, asked for 101, since Core names a next page whenever a page is
   full, and a course of exactly 100 has none more; archived ones aside:
-  what Core lists the seat,
-  its drafts only to a seat that reads drafts, instructions and rubrics
-  only as their assignments are released to it, no submission or feedback
-  file), and `document_get` of each, of no version, which gives the
-  version the seat reads (the published one, or the latest to a seat that
-  reads drafts) and its files, each with its text version's status and
-  revision. Those files, each at that revision, are all the store
-  searches: a passage of another version (a draft, a newer version than
-  the published one), of a document Core does not give the seat now, or
-  of another revision of a file's text is never a candidate, whoever read
-  it into the index. The result says which documents listed were not
-  searched, and why: those Core gives the seat no version of now (the
-  version or the document purged, none it may read, or the document
-  refused it, withheld since it was listed), which a search again will not
-  find, apart from those Core could not be asked of just now (not reached,
-  or its answer not read), which the model is told to search again for in
-  a minute. What one answer's seat may read is read at its first search
-  and used by its later ones (`toolset.SearchScope`): once an answer, a
-  list and a `document_get` a document, at most four at once, within the
-  agent's rate limit like any call, which in a course of 100 documents is
-  some 100 calls an answer that searches (§2.2).
+  what Core lists the seat, its drafts only to a seat that reads drafts,
+  instructions and rubrics only as their assignments are released to it,
+  no submission or feedback file), and `document_get` of each, of no
+  version, which gives the version the seat reads (the published one, or
+  the latest to a seat that reads drafts) and its files, each with its
+  text version's status and revision. Those files, each at that revision,
+  are all the store searches: a passage of another version (a draft, a
+  newer version than the published one), of a document Core does not give
+  the seat now, or of another revision of a file's text is never a
+  candidate, whoever read it into the index. The result says which
+  documents listed were not searched, and why: those Core gives the seat
+  no version of now (the version or the document purged, none it may read,
+  or the document refused it, withheld since it was listed), which a
+  search again will not find, apart from those Core could not be asked of
+  just now (not reached, or its answer not read), which the model is told
+  to search again for in a minute. What one answer's seat may read is read
+  at its first search and used by its later ones (`toolset.SearchScope`),
+  but for the documents Core could not be asked of, which each later
+  search of the answer asks of again, so that searching again finds them
+  once Core answers: once an answer, a list and a `document_get` a
+  document, at most four at once, within the agent's rate limit like any
+  call, which in a course of 100 documents is some 100 calls an answer
+  that searches (§2.2).
 - *What it searches*: the text a model given the file as text reads, from
   the same pipeline (`giveFile`): Core's text version where it is done
   (staff's or an AI transcription), otherwise the runtime's own reading of
