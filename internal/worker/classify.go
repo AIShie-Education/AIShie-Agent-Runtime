@@ -162,8 +162,10 @@ func classifyNeverAttempted(env *core.Envelope, d *Decision) {
 	case core.CodeNotFound:
 		d.Next, d.Outcome = NextDrop, store.OutcomeDropped
 	case core.CodeInvalidArgument:
-		// The arguments did not match the tool's schema; the body is the
-		// only part the model writes.
+		// The arguments did not match the tool's schema, or Core's check
+		// of what they say alone refused them (AIShie-Core #60: an empty
+		// or overlong body, say); the body is the only part the model
+		// writes.
 		d.Next, d.Outcome = NextFix, store.OutcomeFailed
 	case core.CodeForbidden:
 		d.Next, d.Outcome = NextDropReseat, store.OutcomeDropped

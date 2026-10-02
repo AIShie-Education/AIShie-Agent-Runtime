@@ -50,17 +50,37 @@
    "args": {
     "action_id": "<id:4>",
     "course_id": "<id:2>",
-    "decision": "maybe",
-    "idempotency_key": "decide:<id:4>:0"
+    "decision": "approve",
+    "idempotency_key": "decide:<id:4>:agent"
    },
    "envelope": {
     "action_id": "<id:6>",
     "error": {
-     "code": "invalid_argument",
-     "message": "decision must be \"approve\" or \"reject\""
+     "code": "forbidden",
+     "message": "nobody decides their own proposal, nor their owner's, nor another agent's of their owner"
     },
     "review_state": "none",
     "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "the_agent_approves_at_confirm_required",
+   "text_is_envelope": true,
+   "tool": "action_decide"
+  },
+  {
+   "args": {
+    "action_id": "<id:4>",
+    "course_id": "<id:2>",
+    "decision": "maybe",
+    "idempotency_key": "decide:<id:4>:0"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "decision must be \"approve\" or \"reject\""
+    },
+    "status": "error"
    },
    "http_status": 200,
    "is_error": true,

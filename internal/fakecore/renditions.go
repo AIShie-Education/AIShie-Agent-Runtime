@@ -417,7 +417,8 @@ func (c *Core) claimRenditions(cred *credential, n int, lease time.Duration, now
 	return out
 }
 
-// checkRenditionCompletion holds a completion to its shape, as Core does.
+// checkRenditionCompletion holds a completion to its shape, as Core's
+// check does: invokeService asks it before anything else.
 func checkRenditionCompletion(in renditionIn) *apiError {
 	switch in.Status {
 	case renditionDone:
@@ -471,9 +472,6 @@ func (c *Core) completeRendition(caller *actor, t *toolDef, raw []byte, key stri
 	failed := func(e *apiError) outcome {
 		act.status, act.result = actFailed, errorResult(e)
 		return outcome{Status: actFailed, ActionID: act.id, ReviewState: reviewNone, Error: e}
-	}
-	if e := checkRenditionCompletion(in); e != nil {
-		return failed(e)
 	}
 	if !r.holds(in.LeaseID) {
 		return failed(errRendLost)

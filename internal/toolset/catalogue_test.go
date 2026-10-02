@@ -555,7 +555,7 @@ func TestGateAllowed(t *testing.T) {
 func TestBuiltinDenied(t *testing.T) {
 	denied := []string{"agent_create", "agent_issue_token", "agent_withdraw", "credential_list", "credential_issue_token",
 		"credential_set_password", "actor_get", "actor_register", "actor_invite_new", "actor_lookup_by_email", "me_get",
-		"me_memberships", "me_site_chat", "me_conversations", "member_add_delegate", "member_delegate_defaults",
+		"me_memberships", "me_conversations", "member_add_delegate", "member_delegate_defaults",
 		"member_reset_password", "action_withdraw", "conversation_answer", "conversation_open", "conversation_retract",
 		"conversation_messages", "conversation_inbox", "conversation_mark_read", "conversation_draft", "conversation_upload_url",
 		"conversation_attachment", "preset_create", "course_create", "course_update",

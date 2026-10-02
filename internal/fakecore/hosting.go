@@ -20,9 +20,8 @@ import (
 // a live runtime token, and it and its owner, if it has one, are active
 // (Core's SiteChatOf): nothing is declared. A question to an mcp agent is
 // refused mcp_agent, and to a runtime agent not hosted now
-// agent_not_hosted. me.site_chat is kept for one release: with a runtime
-// token it changes nothing and says whether the agent is asked now; from
-// any other credential it is refused (not_runtime_hosted).
+// agent_not_hosted. There is no me.site_chat any more (AIShie-Core #61):
+// MCP lists no such tool, and a call of it is an unknown tool's.
 //
 // The agent runtime's four tools are REST's alone, and the agent_runtime
 // service's (a site service of its own, beside the transcription
@@ -105,40 +104,6 @@ func (c *Core) notAskable(respondent *member) error {
 		return errAgentNotHosted
 	}
 	return nil
-}
-
-// me.site_chat's refusals: a person's call, and an agent's but with a
-// runtime token.
-var (
-	errSiteChatNotAgent = precondition("site chat is an agent's; a person asks in the site, and is asked nothing: conversations are with agents").
-				with("reason", "not_an_agent")
-	errSiteChatNotRuntime = precondition("only a runtime agent is asked in the site, by the token the site's agent runtime holds for it; "+
-		"an mcp agent, reached by its owner's own tools, is asked nothing there").with("reason", "not_runtime_hosted")
-)
-
-type siteChatIn struct {
-	On bool `json:"on"`
-}
-
-// meSiteChat is me.site_chat, deprecated: it declares nothing. A runtime
-// agent's call is made with its runtime token, the one API token a runtime
-// agent may hold, and is told whether it is asked now, whatever on says;
-// an mcp agent's is refused.
-func meSiteChat() *impl {
-	return define(spec[siteChatIn]{
-		gate:    gate{self: true},
-		resolve: func(*Core, *course, siteChatIn) (target, error) { return target{typ: "actor"}, nil },
-		execute: func(c *Core, ec *execCtx, _ siteChatIn) (any, error) {
-			a := ec.actor
-			switch {
-			case a.kind != "agent":
-				return nil, errSiteChatNotAgent
-			case a.hosting != hostingRuntime || c.runtimeTokenOf(a) == nil:
-				return nil, errSiteChatNotRuntime
-			}
-			return map[string]bool{"site_chat": c.askable(a)}, nil
-		},
-	})
 }
 
 // The agent runtime's refusals of an agent it may not host.

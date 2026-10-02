@@ -210,7 +210,7 @@ func TestCatalogueStrictNullsCleaned(t *testing.T) {
 	}
 	// limit, include_archived, treat_ungraded_as_zero and the like: optional
 	// and not nullable in dozens of Core's tools.
-	t.Logf("%d of 168 tools' strict arguments needed cleaning", cleaned)
+	t.Logf("%d of 167 tools' strict arguments needed cleaning", cleaned)
 	if cleaned < 20 {
 		t.Errorf("only %d tools needed cleaning; the test is not exercising Reverse", cleaned)
 	}

@@ -150,29 +150,40 @@ func checkFilename(name string) (string, error) {
 	return n, nil
 }
 
-// checkFiles holds the files a message is to carry, in m's name, to what a
-// message may carry, and returns the uploads with the names they are kept
-// under, claiming nothing: their number, their names, and that each is an
-// upload of m's for a message in its course, uploaded, not attached, and no
-// larger than a file may be. A file too large is deleted, as Core deletes
-// it. old, for a proposal, refuses an upload past uploadGrace.
-func (c *Core) checkFiles(m *member, files []attachmentIn, old bool) ([]*upload, []string, error) {
+// shapeFiles is what the files a message is to carry say alone (Core's
+// shapeAttachments, which a message's check asks): their number, no upload
+// named twice, and each one's name; the names as they are kept.
+func shapeFiles(files []attachmentIn) ([]string, error) {
 	if len(files) > attachmentsPerMessage {
-		return nil, nil, invalid("a message carries at most %d files; this one names %d", attachmentsPerMessage, len(files)).
+		return nil, invalid("a message carries at most %d files; this one names %d", attachmentsPerMessage, len(files)).
 			with("reason", "too_many_attachments").with("max_files", attachmentsPerMessage)
 	}
 	names := make([]string, len(files))
 	seen := map[string]bool{}
 	for i, f := range files {
 		if seen[f.UploadToken] {
-			return nil, nil, invalid("the same upload is named twice").with("reason", "duplicate_attachment")
+			return nil, invalid("the same upload is named twice").with("reason", "duplicate_attachment")
 		}
 		seen[f.UploadToken] = true
 		name, err := checkFilename(f.Filename)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		names[i] = name
+	}
+	return names, nil
+}
+
+// checkFiles holds the files a message is to carry, in m's name, to what a
+// message may carry, and returns the uploads with the names they are kept
+// under, claiming nothing: their shape (shapeFiles), and that each is an
+// upload of m's for a message in its course, uploaded, not attached, and no
+// larger than a file may be. A file too large is deleted, as Core deletes
+// it. old, for a proposal, refuses an upload past uploadGrace.
+func (c *Core) checkFiles(m *member, files []attachmentIn, old bool) ([]*upload, []string, error) {
+	names, err := shapeFiles(files)
+	if err != nil {
+		return nil, nil, err
 	}
 	ups := make([]*upload, len(files))
 	for i, f := range files {
@@ -234,15 +245,16 @@ func roomFor(cv *conversation, adding int64) error {
 	return nil
 }
 
-// checkProposedFiles is what a message that is to wait for a decision is
-// held to as it is proposed: files it may carry, young enough to outlast
-// the proposal, with room for them in cv (nil: a conversation to be
-// opened).
-func (c *Core) checkProposedFiles(m *member, cv *conversation, files []attachmentIn) error {
+// checkMessageFiles is what a message's files are held to before it is
+// written or proposed, and when it is approved (Core's checkMessageFiles):
+// files m may attach, with room for them in cv (nil: a conversation to be
+// opened). old, as it is proposed, refuses an upload too old to outlast
+// the proposal too.
+func (c *Core) checkMessageFiles(m *member, cv *conversation, files []attachmentIn, old bool) error {
 	if len(files) == 0 {
 		return nil
 	}
-	ups, _, err := c.checkFiles(m, files, true)
+	ups, _, err := c.checkFiles(m, files, old)
 	if err != nil {
 		return err
 	}

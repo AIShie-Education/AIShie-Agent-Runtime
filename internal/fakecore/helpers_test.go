@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"unicode/utf8"
@@ -99,8 +100,19 @@ func (a toolAnswer) status() string {
 func (a toolAnswer) str(path ...string) string {
 	var v any = a.Structured
 	for _, p := range path {
-		m, _ := v.(map[string]any)
-		v = m[p]
+		switch x := v.(type) {
+		case map[string]any:
+			v = x[p]
+		case []any:
+			// An element of a list, by its index.
+			i, err := strconv.Atoi(p)
+			if err != nil || i < 0 || i >= len(x) {
+				return ""
+			}
+			v = x[i]
+		default:
+			return ""
+		}
 	}
 	s, _ := v.(string)
 	return s

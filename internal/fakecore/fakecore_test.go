@@ -89,8 +89,8 @@ func TestCatalogueSnapshot(t *testing.T) {
 			reads++
 		}
 	}
-	if len(cat.tools) != 168 || reads != 63 || writes != 100 || ephemeral != 5 {
-		t.Errorf("%d tools, %d reads, %d writes, %d ephemeral; the snapshot holds 168, 63, 100, 5", len(cat.tools), reads, writes, ephemeral)
+	if len(cat.tools) != 167 || reads != 63 || writes != 99 || ephemeral != 5 {
+		t.Errorf("%d tools, %d reads, %d writes, %d ephemeral; the snapshot holds 167, 63, 99, 5", len(cat.tools), reads, writes, ephemeral)
 	}
 	for _, name := range []string{"agent_runtime.agent", "agent_runtime.check_owner", "agent_runtime.issue_token", "agent_runtime.revoke_token",
 		"agent_runtime.rendition_claim", "agent_runtime.rendition_file", "agent_runtime.rendition_renew",
@@ -131,9 +131,9 @@ func TestCatalogueSnapshot(t *testing.T) {
 
 // TestHosting: an agent is asked in the site while it is a runtime agent
 // with a live runtime token, it and its owner active; an mcp agent never.
-// me_site_chat declares nothing, and refuses all but a runtime token. The
-// controls issue and revoke a runtime agent's one token, as the agent
-// runtime's service does, and refuse an owner's token for one.
+// There is no me_site_chat to declare anything with. The controls issue
+// and revoke a runtime agent's one token, as the agent runtime's service
+// does, and refuse an owner's token for one.
 func TestHosting(t *testing.T) {
 	w := newFakeWorld(t, Options{})
 	if !w.fc.SiteChat(w.tutorA.ID) || w.fc.Hosting(w.tutorA.ID) != hostingRuntime {
@@ -142,23 +142,20 @@ func TestHosting(t *testing.T) {
 	if w.fc.SiteChat(w.satoA.ID) || w.fc.Hosting(w.satoA.ID) != "" {
 		t.Error("a person is asked in the site")
 	}
-	// me_site_chat changes nothing, either way.
-	a := mustCall(t, w.agentC, "me_site_chat", map[string]any{"on": false, "idempotency_key": "site-chat:1"})
-	if wantEnvelope(t, a, "executed", "", ""); a.Structured["result"].(map[string]any)["site_chat"] != true || !w.fc.SiteChat(w.tutorA.ID) {
-		t.Errorf("me_site_chat off: %s", a.Text)
+	// me_site_chat is no tool: tools/call answers as for any name it does
+	// not know, and the agent is asked as before.
+	if a, err := w.agentC.call(context.Background(), "me_site_chat", map[string]any{"on": false, "idempotency_key": "site-chat:1"}); err != nil ||
+		a.RPCError == nil || !strings.Contains(string(a.RPCError), `unknown tool \"me_site_chat\"`) || !w.fc.SiteChat(w.tutorA.ID) {
+		t.Errorf("me_site_chat: %v %s", err, a.RPCError)
 	}
-	wantEnvelope(t, mustCall(t, w.as("sato"), "me_site_chat", map[string]any{"on": true, "idempotency_key": "site-chat:2"}),
-		"failed", codeFailedPrecondition, "not_an_agent")
 	if _, err := w.fc.IssueToken(w.tutorA.ID); err == nil {
 		t.Error("an owner's token issued for a runtime agent")
 	}
 
-	mcpID, mcpSeat, mcp := w.mcpAgent()
+	mcpID, mcpSeat, _ := w.mcpAgent()
 	if w.fc.SiteChat(mcpID) || w.fc.Hosting(mcpID) != hostingMCP {
 		t.Error("an mcp agent is asked in the site")
 	}
-	wantEnvelope(t, mustCall(t, mcp, "me_site_chat", map[string]any{"on": true, "idempotency_key": "site-chat:3"}),
-		"failed", codeFailedPrecondition, "not_runtime_hosted")
 	if _, _, err := w.fc.Ask(w.co.ID, w.seats[1].ID, mcpSeat, "Q"); !isRefusal(err, "mcp_agent") {
 		t.Errorf("a question to an mcp agent: %v", err)
 	}
@@ -742,8 +739,8 @@ func TestModelReads(t *testing.T) {
 			t.Errorf("syllabus: %s", a.Text)
 		}
 		a = mustCall(t, w.agentC, "document_get", inCourseArgs(w, "document_id", w.co.SlidesID))
-		url := a.str("result", "version", "download_url")
-		if !strings.HasPrefix(url, w.srv.URL+blobPath) || a.str("result", "version", "content_type") != "application/pdf" {
+		url := a.str("result", "version", "files", "0", "download_url")
+		if !strings.HasPrefix(url, w.srv.URL+blobPath) || a.str("result", "version", "files", "0", "content_type") != "application/pdf" {
 			t.Fatalf("slides: %s", a.Text)
 		}
 		resp, err := w.srv.Client().Get(url)
@@ -1321,6 +1318,51 @@ func TestReview(t *testing.T) {
 	}
 }
 
+// A decision that confirming would refuse is refused at once, never
+// proposed for a person to confirm and fail (AIShie-Core #60): an agent
+// whose decisions a person confirms, deciding its own proposal; and an
+// owner whose agent's proposal approving would now refuse is refused that
+// refusal (owner_would_be_refused), whether they approve or reject, while
+// someone else may still reject it.
+func TestDecisionsApprovingWouldRefuseAreRefusedAtOnce(t *testing.T) {
+	w := newFakeWorld(t, Options{})
+	w.setTutorLevel("confirm_required")
+	conv, m1 := w.ask(0, "Q")
+	p := mustCall(t, w.agentC, "conversation_answer", answer(w, conv, m1, "A", 1))
+	wantEnvelope(t, p, "proposed", "", "")
+	id := p.str("action_id")
+	// The tutor decides actions as far as a person confirms them, for a
+	// while (Yuki may not address it meanwhile: it can do what she cannot).
+	w.ok(w.fc.SetLevel(w.tutorM.ID, permActionDecide, "confirm_required"))
+	decide := func(c *mcpClient, decision, key string) toolAnswer {
+		return mustCall(t, c, "action_decide", inCourseArgs(w, "action_id", id, "decision", decision, "idempotency_key", key, "reason", "r"))
+	}
+	if d := decide(w.agentC, "approve", "d1"); d.status() != "failed" || d.str("error", "code") != codeForbidden ||
+		!strings.Contains(d.str("error", "message"), "nobody decides their own proposal") {
+		t.Errorf("the agent decides its own proposal: %s", d.Text)
+	}
+	if got := w.fc.Proposals(w.co.ID); len(got) != 1 || got[0].ActionID != id {
+		t.Errorf("proposals: %+v", got)
+	}
+	// Not a decision at all is refused as the arguments are read, at any
+	// level, recording nothing.
+	wantEnvelope(t, decide(w.agentC, "maybe", "d2"), "error", codeInvalidArgument, "")
+	w.ok(w.fc.SetLevel(w.tutorM.ID, permActionDecide, "denied"))
+
+	w.followUp(conv, "Q2")
+	for _, decision := range []string{"approve", "reject"} {
+		d := decide(w.as("sato"), decision, "owner:"+decision)
+		wantEnvelope(t, d, "failed", codeForbidden, "owner_would_be_refused")
+		refusal, _ := d.Structured["error"].(map[string]any)["details"].(map[string]any)["refusal"].(map[string]any)
+		if refusal["code"] != codeConflict || refusal["details"].(map[string]any)["reason"] != "moved_on" {
+			t.Errorf("its owner %ss: %s", decision, d.Text)
+		}
+	}
+	if d := decide(w.as("mori"), "reject", "mori"); d.status() != "executed" || d.str("result", "outcome") != "rejected" {
+		t.Errorf("someone else rejects it: %s", d.Text)
+	}
+}
+
 func TestNobodyDecidesTheirOwnAtOneRemove(t *testing.T) {
 	w := newFakeWorld(t, Options{})
 	w.setTutorLevel("confirm_required")
@@ -1453,7 +1495,9 @@ func TestDocumentCreate(t *testing.T) {
 	if wantEnvelope(t, empty, "executed", "", ""); empty.str("result", "version_id") != "" {
 		t.Errorf("a document made without text has a version: %s", empty.Text)
 	}
-	wantEnvelope(t, mustCall(t, c, "document_create", create("tool:x:m:2:3", "  ")), "failed", codeInvalidArgument, "")
+	// A title of spaces is refused as the arguments are read (AIShie-Core
+	// #60), recording nothing.
+	wantEnvelope(t, mustCall(t, c, "document_create", create("tool:x:m:2:3", "  ")), "error", codeInvalidArgument, "")
 	wantEnvelope(t, mustCall(t, c, "document_create", create("tool:x:m:2:4", "Exam", "kind", "exam")), "error", codeInvalidArgument, "")
 	// A submission's file needs its draft, as Core resolves it.
 	wantEnvelope(t, mustCall(t, c, "document_create", create("tool:x:m:2:5", "Mine", "kind", "submission")), "error", codeInvalidArgument, "")
@@ -1549,7 +1593,7 @@ func TestOwners(t *testing.T) {
 			} `json:"tools"`
 		} `json:"result"`
 	}
-	if err != nil || json.Unmarshal(l.Body, &list) != nil || len(list.Result.Tools) != 155 {
+	if err != nil || json.Unmarshal(l.Body, &list) != nil || len(list.Result.Tools) != 154 {
 		t.Fatalf("tools/list: %v %d %d", err, l.Status, len(list.Result.Tools))
 	}
 	for _, tl := range list.Result.Tools {
@@ -1583,8 +1627,9 @@ func TestAddFile(t *testing.T) {
 		data   []byte
 	}{{id, pptx, deck}, {untyped, "", []byte("plain")}} {
 		a := mustCall(t, w.agentC, "document_get", inCourseArgs(w, "document_id", c.id))
-		url := a.str("result", "version", "download_url")
-		if !strings.HasPrefix(url, w.srv.URL+blobPath) || a.str("result", "version", "content_type") != c.ct || a.str("result", "status") != "active" {
+		url := a.str("result", "version", "files", "0", "download_url")
+		if !strings.HasPrefix(url, w.srv.URL+blobPath) || a.str("result", "version", "files", "0", "content_type") != c.ct ||
+			a.str("result", "status") != "active" {
 			t.Fatalf("document_get: %s", a.Text)
 		}
 		resp, err := w.srv.Client().Get(url)
@@ -1607,8 +1652,12 @@ func TestAddFile(t *testing.T) {
 		t.Fatalf("versions: %s", v.Text)
 	}
 	got := versions[0].(map[string]any)
-	if got["has_file"] != true || got["published"] != true || got["content_type"] != pptx || fmt.Sprint(got["byte_size"]) != fmt.Sprint(len(deck)) {
-		t.Errorf("version %v", got)
+	files, _ := got["files"].([]any)
+	if len(files) != 1 || got["published"] != true || got["has_file"] != nil || got["content_type"] != nil {
+		t.Fatalf("version %v", got)
+	}
+	if f := files[0].(map[string]any); f["content_type"] != pptx || fmt.Sprint(f["byte_size"]) != fmt.Sprint(len(deck)) {
+		t.Errorf("its file %v", f)
 	}
 }
 

@@ -22,10 +22,10 @@ type openIn struct {
 	Attachments        []attachmentIn `json:"attachments,omitempty"`
 }
 
-// checkOpen is conversation_open's rule: a title and a body that fit, a
-// respondent that is an agent (errWithAgents) the caller may address, and
-// then that people in the site may ask it (notAskable).
-func (c *Core) checkOpen(m, respondent *member, in openIn) error {
+// checkOpenArgs is what conversation_open's arguments say alone (its
+// check): a title and a body that fit, files only with a body, and files a
+// message may carry.
+func checkOpenArgs(in openIn) error {
 	if _, err := optionalText("title", in.Title, 200); err != nil {
 		return err
 	}
@@ -36,6 +36,14 @@ func (c *Core) checkOpen(m, respondent *member, in openIn) error {
 	} else if len(in.Attachments) > 0 {
 		return errAttachmentsNeedBody
 	}
+	_, err := shapeFiles(in.Attachments)
+	return err
+}
+
+// checkOpen is conversation_open's rule on arguments checkOpenArgs has
+// taken: a respondent that is an agent (errWithAgents) the caller may
+// address, and then that people in the site may ask it (notAskable).
+func (c *Core) checkOpen(m, respondent *member) error {
 	if respondent.actor.kind != "agent" {
 		return errWithAgents
 	}
@@ -47,22 +55,26 @@ func (c *Core) checkOpen(m, respondent *member, in openIn) error {
 
 func conversationOpen() *impl {
 	return define(spec[openIn]{
-		gate: gateAsks,
+		gate:  gateAsks,
+		check: checkOpenArgs,
 		resolve: func(c *Core, co *course, in openIn) (target, error) {
 			if r := c.members[in.RespondentMemberID.String()]; r == nil || r.course != co {
 				return target{}, missing("no such member in this course")
 			}
 			return target{typ: "conversation"}, nil
 		},
-		pin: func(c *Core, m *member, in openIn) error {
-			if err := c.checkOpen(m, c.members[in.RespondentMemberID.String()], in); err != nil {
+		validate: func(c *Core, m *member, in openIn) error {
+			if err := c.checkOpen(m, c.members[in.RespondentMemberID.String()]); err != nil {
 				return err
 			}
-			return c.checkProposedFiles(m, nil, in.Attachments)
+			return c.checkMessageFiles(m, nil, in.Attachments, false)
+		},
+		pin: func(c *Core, m *member, in openIn) error {
+			return c.checkMessageFiles(m, nil, in.Attachments, true)
 		},
 		execute: func(c *Core, ec *execCtx, in openIn) (any, error) {
 			respondent := c.members[in.RespondentMemberID.String()]
-			if err := c.checkOpen(ec.member, respondent, in); err != nil {
+			if err := c.checkOpen(ec.member, respondent); err != nil {
 				return nil, err
 			}
 			files, names, err := c.checkFiles(ec.member, in.Attachments, false)
@@ -102,18 +114,16 @@ type askIn struct {
 
 var errNotOpener = forbid("only whoever opened a conversation asks in it; the member it is addressed to answers, with conversation.answer")
 
-// checkAsk is conversation_ask's rule: the caller opened it, it is open, the
-// body fits, its respondent is an agent (errWithAgents) the caller may still
-// address, and people in the site may still ask it (notAskable).
-func (c *Core) checkAsk(m *member, cv *conversation, body string) error {
+// checkAsk is conversation_ask's rule on arguments checkMessage has taken:
+// the caller opened it, it is open, its respondent is an agent
+// (errWithAgents) the caller may still address, and people in the site may
+// still ask it (notAskable).
+func (c *Core) checkAsk(m *member, cv *conversation) error {
 	if cv.opener != m {
 		return errNotOpener
 	}
 	if cv.status != "open" {
 		return errClosed
-	}
-	if err := checkBody(body); err != nil {
-		return err
 	}
 	if cv.respondent.actor.kind != "agent" {
 		return errWithAgents
@@ -126,26 +136,34 @@ func (c *Core) checkAsk(m *member, cv *conversation, body string) error {
 
 func conversationAsk() *impl {
 	return define(spec[askIn]{
-		gate: gateAsks,
+		gate:  gateAsks,
+		check: func(in askIn) error { return checkMessage(in.Body, in.Attachments) },
 		resolve: func(c *Core, co *course, in askIn) (target, error) {
 			return conversationTarget(c, co, in.ConversationID)
+		},
+		validate: func(c *Core, m *member, in askIn) error {
+			cv, err := c.findConversation(m.course, in.ConversationID)
+			if err != nil {
+				return err
+			}
+			if err := c.checkAsk(m, cv); err != nil {
+				return err
+			}
+			return c.checkMessageFiles(m, cv, in.Attachments, false)
 		},
 		pin: func(c *Core, m *member, in askIn) error {
 			cv, err := c.findConversation(m.course, in.ConversationID)
 			if err != nil {
 				return err
 			}
-			if err := c.checkAsk(m, cv, in.Body); err != nil {
-				return err
-			}
-			return c.checkProposedFiles(m, cv, in.Attachments)
+			return c.checkMessageFiles(m, cv, in.Attachments, true)
 		},
 		execute: func(c *Core, ec *execCtx, in askIn) (any, error) {
 			cv, err := c.findConversation(ec.course, in.ConversationID)
 			if err != nil {
 				return nil, err
 			}
-			if err := c.checkAsk(ec.member, cv, in.Body); err != nil {
+			if err := c.checkAsk(ec.member, cv); err != nil {
 				return nil, err
 			}
 			files, names, err := c.checkFiles(ec.member, in.Attachments, false)
@@ -207,7 +225,7 @@ func ownAgentsJudge(c *Core, caller *actor, seat *member, tgt target) level {
 	if a == nil {
 		return denied
 	}
-	if _, may := c.ownerJudges(caller, seat, a); may {
+	if _, may, _ := c.ownerJudges(caller, seat, a); may {
 		return autonomous
 	}
 	return denied
@@ -217,15 +235,18 @@ func ownAgentsJudge(c *Core, caller *actor, seat *member, tgt target) level {
 // that did a (owner), and whether they could have done a themselves just
 // now without anyone's confirmation (may): their own level for it
 // autonomous (for an answer, their action_decide: gate.ownerJudgedBy), its
-// target within their reach (Core's pipeline.ownerJudges).
-func (c *Core) ownerJudges(caller *actor, seat *member, a *action) (owner, may bool) {
+// target within their reach, and, for a proposal, approving it now not
+// refused for what it asks (refusal), which is then refused (Core's
+// pipeline.ownerJudges).
+func (c *Core) ownerJudges(caller *actor, seat *member, a *action) (owner, may bool, refused *apiError) {
 	if a.member == nil || a.member == seat || a.actor == caller || a.actor.owner != caller {
-		return false, false
+		return false, false, nil
 	}
 	t := c.cat.byName[a.actionType]
 	if t == nil || t.impl == nil {
-		return true, false
+		return true, false, nil
 	}
+	tool := t
 	if by := t.impl.gate.ownerJudgedBy; len(by) > 0 {
 		// A permission no person holds, conversation_answer: the owner is
 		// measured by what judging it is instead.
@@ -234,15 +255,44 @@ func (c *Core) ownerJudges(caller *actor, seat *member, a *action) (owner, may b
 		def.impl = &im
 		t = &def
 	}
-	args, err := t.decodeArgs(a.payload)
+	args, err := t.parseArgs(a.payload)
 	if err != nil {
-		return true, false
+		return true, false, nil
 	}
 	got, err := c.authorize(t, args, caller, seat)
-	if err != nil {
-		return true, false
+	if err != nil || got.decision.level != autonomous {
+		return true, false, nil
 	}
-	return true, got.decision.level == autonomous
+	if a.status == actProposed {
+		if refused := c.refusal(tool, a, args); refused != nil {
+			return true, false, refused
+		}
+	}
+	return true, true, nil
+}
+
+// refusal is what approving proposal a, of tool t with arguments args,
+// would be refused with now for what it asks, before anything is carried
+// out: the tool's check, and its validate as the proposer's (Core's
+// pipeline.refusal); nil when neither refuses it. It changes nothing.
+func (c *Core) refusal(t *toolDef, a *action, args any) *apiError {
+	asked := func(err error) *apiError {
+		if e, ok := asAPI(err); ok {
+			return e
+		}
+		return &apiError{Code: codeInternal, Message: "something went wrong on our side; retry with the same idempotency_key"}
+	}
+	if t.impl.check != nil {
+		if err := t.impl.check(args); err != nil {
+			return asked(err)
+		}
+	}
+	if t.impl.validate != nil {
+		if err := t.impl.validate(c, a.member, args); err != nil {
+			return asked(err)
+		}
+	}
+	return nil
 }
 
 // errOwnerNotAutonomous refuses an agent's owner who could not have done
@@ -253,9 +303,27 @@ func errOwnerNotAutonomous(what string) *apiError {
 		with("reason", "owner_not_autonomous")
 }
 
+// errOwnerWouldBeRefused refuses an agent's owner a decision about its
+// proposal that, approved now, would be refused as refused says (AIShie-Core
+// #60): the owner may well hold the action at autonomous.
+func errOwnerWouldBeRefused(refused *apiError) *apiError {
+	return forbid("you decide what your agent proposed only where you would do it yourself without anyone's confirmation, "+
+		"and approved now it would be refused (%s); take it back with action.withdraw, or someone else rejects it", refused.Message).
+		with("reason", "owner_would_be_refused").with("refusal", refused)
+}
+
+// checkDecision is action.decide's check (Core's CheckDecision).
+func checkDecision(in decideIn) error {
+	if in.Decision != "approve" && in.Decision != "reject" {
+		return invalid("decision must be %q or %q", "approve", "reject")
+	}
+	return nil
+}
+
 func actionDecide() *impl {
 	return define(spec[decideIn]{
-		gate: gate{perms: []string{permActionDecide}, ownAgents: ownAgentsJudge},
+		gate:  gate{perms: []string{permActionDecide}, ownAgents: ownAgentsJudge},
+		check: checkDecision,
 		resolve: func(c *Core, co *course, in decideIn) (target, error) {
 			a := c.actions[in.ActionID.String()]
 			if a == nil || a.course != co {
@@ -263,46 +331,68 @@ func actionDecide() *impl {
 			}
 			return target{typ: "action", id: &a.id}, nil
 		},
+		// What deciding would refuse is refused before anything is decided
+		// or proposed: a party agent's decision is never proposed for a
+		// person to confirm and fail (Core's ValidateDecision).
+		validate: func(c *Core, m *member, in decideIn) error {
+			prop := c.actions[in.ActionID.String()]
+			if prop == nil || prop.course == nil || prop.course.id != in.CourseID.String() {
+				return missing("no such action in this course")
+			}
+			_, err := c.refuseDecision(m, prop)
+			return err
+		},
 		execute: func(c *Core, ec *execCtx, in decideIn) (any, error) {
 			return c.decide(ec, in)
 		},
 	})
 }
 
+// refuseDecision says why seat m may not decide proposal prop now, or nil
+// when it may; and, when it may, whether it decides it as the owner of the
+// agent that proposed it (byOwner), as Core's refuseDecision does. It
+// changes nothing.
+func (c *Core) refuseDecision(m *member, prop *action) (byOwner bool, err error) {
+	if prop.status != actProposed {
+		return false, conflicts("the action is %s, not awaiting a decision", prop.status)
+	}
+	if m == nil || prop.member == nil {
+		return false, forbid("only a course member decides a member's proposal")
+	}
+	if prop.member == m || sameParty(prop.actor, m.actor) {
+		// An agent decides nothing its owner proposed, nor another of the
+		// owner's agents anything it did. Its owner decides what it
+		// proposed only where they could have done it themselves without
+		// anyone's confirmation, and approving it now would not be refused.
+		owner, may, refused := c.ownerJudges(m.actor, m, prop)
+		switch {
+		case owner && refused != nil:
+			return false, errOwnerWouldBeRefused(refused)
+		case owner && !may:
+			return false, errOwnerNotAutonomous("decide")
+		case !may:
+			return false, forbid("nobody decides their own proposal, nor their owner's, nor another agent's of their owner")
+		}
+		byOwner = true
+	}
+	if c.judgesOwn(prop, m, m.actor) {
+		return false, forbid("nobody decides their own proposal, even at one remove: this one decides or reviews an action of yours")
+	}
+	return byOwner, nil
+}
+
 // decide approves or rejects a proposal, as Core's pipeline.Decide does:
 // the proposer authorized again, now, against the seat it proposed from,
-// and the tool carried out as the proposer under the proposal's id.
+// what it asks checked again as the proposer's, and the tool carried out
+// as the proposer under the proposal's id.
 func (c *Core) decide(ec *execCtx, in decideIn) (any, error) {
-	if in.Decision != "approve" && in.Decision != "reject" {
-		return nil, invalid("decision must be %q or %q", "approve", "reject")
-	}
 	prop := c.actions[in.ActionID.String()]
 	if prop == nil || prop.course != ec.course {
 		return nil, missing("no such action in this course")
 	}
-	if prop.status != actProposed {
-		return nil, conflicts("the action is %s, not awaiting a decision", prop.status)
-	}
-	if ec.member == nil || prop.member == nil {
-		return nil, forbid("only a course member decides a member's proposal")
-	}
-	byOwner := false
-	if prop.member == ec.member || sameParty(prop.actor, ec.actor) {
-		// An agent decides nothing its owner proposed, nor another of the
-		// owner's agents anything it did. Its owner decides what it
-		// proposed only where they could have done it themselves without
-		// anyone's confirmation.
-		owner, may := c.ownerJudges(ec.actor, ec.member, prop)
-		switch {
-		case owner && !may:
-			return nil, errOwnerNotAutonomous("decide")
-		case !may:
-			return nil, forbid("nobody decides their own proposal, nor their owner's, nor another agent's of their owner")
-		}
-		byOwner = true
-	}
-	if c.judgesOwn(prop, ec.member, ec.actor) {
-		return nil, forbid("nobody decides their own proposal, even at one remove: this one decides or reviews an action of yours")
+	byOwner, err := c.refuseDecision(ec.member, prop)
+	if err != nil {
+		return nil, err
 	}
 	// said is what an event, and the record of a rejection, say of the
 	// decision: that the proposer's owner made it, when they did.
@@ -335,7 +425,8 @@ func (c *Core) decide(ec *execCtx, in decideIn) (any, error) {
 	if t == nil || t.impl == nil {
 		return cancel(cancelToolRemoved, nil), nil
 	}
-	args, err := t.decodeArgs(prop.payload)
+	// Read back by the schema alone: what its check refuses fails below.
+	args, err := t.parseArgs(prop.payload)
 	if err != nil {
 		return cancel(cancelToolRemoved, map[string]any{"detail": err.Error()}), nil
 	}
@@ -349,10 +440,7 @@ func (c *Core) decide(ec *execCtx, in decideIn) (any, error) {
 	if !a.decision.level.allowed() {
 		return cancel(cancelReauthorization, map[string]any{"authz_reason": a.decision.reason}), nil
 	}
-	child := &execCtx{now: ec.now, actor: prop.actor, member: a.decision.member, course: prop.course, actionID: prop.id,
-		createdAt: prop.createdAt}
-	res, err := t.impl.execute(c, child, args)
-	if err != nil {
+	fail := func(err error) (any, error) {
 		e, ok := asAPI(err)
 		if !ok {
 			return nil, err
@@ -361,6 +449,22 @@ func (c *Core) decide(ec *execCtx, in decideIn) (any, error) {
 		c.finish(prop, actFailed, ec.member, ec.now)
 		ec.emit(proposalEvent("action.approved", prop, ec.actionID, said(map[string]any{"outcome": actFailed, "error": e.Code})))
 		return decideOut{ActionID: prop.id, Outcome: actFailed, Error: e, ByOwner: byOwner}, nil
+	}
+	if t.impl.check != nil {
+		if err := t.impl.check(args); err != nil {
+			return fail(err)
+		}
+	}
+	if t.impl.validate != nil {
+		if err := t.impl.validate(c, a.decision.member, args); err != nil {
+			return fail(err)
+		}
+	}
+	child := &execCtx{now: ec.now, actor: prop.actor, member: a.decision.member, course: prop.course, actionID: prop.id,
+		createdAt: prop.createdAt}
+	res, err := t.impl.execute(c, child, args)
+	if err != nil {
+		return fail(err)
 	}
 	full, err := json.Marshal(res)
 	if err != nil {
@@ -407,7 +511,8 @@ type reviewIn struct {
 
 func actionReview() *impl {
 	return define(spec[reviewIn]{
-		gate: gate{perms: []string{permActionDecide}, ownAgents: ownAgentsJudge},
+		gate:  gate{perms: []string{permActionDecide}, ownAgents: ownAgentsJudge},
+		check: checkReview,
 		resolve: func(c *Core, co *course, in reviewIn) (target, error) {
 			a := c.actions[in.ActionID.String()]
 			if a == nil || a.course != co {
@@ -415,10 +520,27 @@ func actionReview() *impl {
 			}
 			return target{typ: "action", id: &a.id}, nil
 		},
+		// As action.decide's (Core's ValidateReview).
+		validate: func(c *Core, m *member, in reviewIn) error {
+			row := c.actions[in.ActionID.String()]
+			if row == nil || row.course == nil || row.course.id != in.CourseID.String() {
+				return missing("no such action in this course")
+			}
+			_, err := c.refuseReview(m, row, in.Outcome)
+			return err
+		},
 		execute: func(c *Core, ec *execCtx, in reviewIn) (any, error) {
 			return c.review(ec, in)
 		},
 	})
+}
+
+// checkReview is action.review's check (Core's CheckReview).
+func checkReview(in reviewIn) error {
+	if in.Outcome != reviewReviewed && in.Outcome != reviewEscalated {
+		return invalid("outcome must be %q or %q", reviewReviewed, reviewEscalated)
+	}
+	return nil
 }
 
 // canReview reports whether a review may move from one state to another:
@@ -433,45 +555,53 @@ func canReview(from, to string) bool {
 	return false
 }
 
+// refuseReview says why seat m may not review action row as outcome says
+// now, or nil when it may; and, when it may, whether it reviews it as the
+// owner of the agent that did it (byOwner), as Core's refuseReview does.
+// It changes nothing.
+func (c *Core) refuseReview(m *member, row *action, outcome string) (byOwner bool, err error) {
+	from := row.reviewState
+	if !canReview(from, outcome) {
+		if from == reviewEscalated {
+			return false, conflicts("the action is already escalated")
+		}
+		return false, conflicts("the action is not awaiting review")
+	}
+	if m == nil {
+		return false, forbid("only a course member reviews")
+	}
+	if row.member == m || sameParty(row.actor, m.actor) {
+		// An agent does not review its owner's action, nor a sibling's;
+		// its owner reviews what it did only where they could have done
+		// it themselves without anyone's confirmation.
+		owner, may, _ := c.ownerJudges(m.actor, m, row)
+		switch {
+		case owner && !may:
+			return false, errOwnerNotAutonomous("review")
+		case !may:
+			return false, forbid("nobody reviews their own action, nor their owner's, nor another agent's of their owner")
+		}
+		byOwner = true
+	}
+	if c.judgesOwn(row, m, m.actor) {
+		return false, forbid("nobody reviews their own action, even at one remove: this one decides or reviews an action of yours")
+	}
+	if from == reviewEscalated && c.escalatedBy(row, m.actor) {
+		return false, forbid("an escalation is for someone else to look at")
+	}
+	return byOwner, nil
+}
+
 // review records that a person looked at an action that executed pending
 // review, as Core's pipeline.Review does. It undoes nothing.
 func (c *Core) review(ec *execCtx, in reviewIn) (any, error) {
-	if in.Outcome != reviewReviewed && in.Outcome != reviewEscalated {
-		return nil, invalid("outcome must be %q or %q", reviewReviewed, reviewEscalated)
-	}
 	row := c.actions[in.ActionID.String()]
 	if row == nil || row.course != ec.course {
 		return nil, missing("no such action in this course")
 	}
-	from := row.reviewState
-	if !canReview(from, in.Outcome) {
-		if from == reviewEscalated {
-			return nil, conflicts("the action is already escalated")
-		}
-		return nil, conflicts("the action is not awaiting review")
-	}
-	if ec.member == nil {
-		return nil, forbid("only a course member reviews")
-	}
-	byOwner := false
-	if row.member == ec.member || sameParty(row.actor, ec.actor) {
-		// An agent does not review its owner's action, nor a sibling's;
-		// its owner reviews what it did only where they could have done
-		// it themselves without anyone's confirmation.
-		owner, may := c.ownerJudges(ec.actor, ec.member, row)
-		switch {
-		case owner && !may:
-			return nil, errOwnerNotAutonomous("review")
-		case !may:
-			return nil, forbid("nobody reviews their own action, nor their owner's, nor another agent's of their owner")
-		}
-		byOwner = true
-	}
-	if c.judgesOwn(row, ec.member, ec.actor) {
-		return nil, forbid("nobody reviews their own action, even at one remove: this one decides or reviews an action of yours")
-	}
-	if from == reviewEscalated && c.escalatedBy(row, ec.actor) {
-		return nil, forbid("an escalation is for someone else to look at")
+	byOwner, err := c.refuseReview(ec.member, row, in.Outcome)
+	if err != nil {
+		return nil, err
 	}
 	at := ec.now
 	row.reviewState, row.reviewedBy, row.reviewedAt = in.Outcome, ec.member, &at

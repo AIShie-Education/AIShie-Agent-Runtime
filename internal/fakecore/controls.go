@@ -890,7 +890,7 @@ func (c *Core) judge(a *action, also func(*member) bool) (*member, error) {
 	// without anyone's confirmation, as Core lets them.
 	if o := a.actor.owner; o != nil {
 		if m := c.seatOf(o, a.course); m != nil && m.counts(now) && also(m) {
-			if _, may := c.ownerJudges(o, m, a); may {
+			if _, may, _ := c.ownerJudges(o, m, a); may {
 				return m, nil
 			}
 		}

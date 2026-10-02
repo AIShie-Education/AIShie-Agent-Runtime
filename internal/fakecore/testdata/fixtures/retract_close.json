@@ -88,6 +88,67 @@
   },
   {
    "args": {
+    "course_id": "<id:2>",
+    "idempotency_key": "retract:<id:5>:3",
+    "message_id": "<id:5>"
+   },
+   "envelope": {
+    "action_id": "<id:9>",
+    "error": {
+     "code": "conflict",
+     "message": "the message is retracted already"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "retract_again_proposed",
+   "text_is_envelope": true,
+   "tool": "conversation_retract"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "close:<id:1>:0",
+    "reason": "seat_removed"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "\"seat_removed\" is what closing a removed seat's conversations says; give another reason"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "close_reserved_reason",
+   "text_is_envelope": true,
+   "tool": "conversation_close"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "close:<id:1>:1",
+    "reason": "Conversations_Are_With_Agents"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "\"Conversations_Are_With_Agents\" is what closing the conversations people were asked in says; give another reason"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "close_reserved_reason_with_agents",
+   "text_is_envelope": true,
+   "tool": "conversation_close"
+  },
+  {
+   "args": {
     "conversation_id": "<id:1>",
     "course_id": "<id:2>"
    },
@@ -96,14 +157,14 @@
      "conversation": {
       "created_at": "<time>",
       "id": "<id:1>",
-      "last_author_member_id": "<id:9>",
+      "last_author_member_id": "<id:10>",
       "last_message_at": "<time>",
       "last_retracted_at": "<time>",
       "latest_opener_message_id": "<id:3>",
       "opener": {
        "display_name": "Yuki",
        "kind": "human",
-       "member_id": "<id:10>"
+       "member_id": "<id:11>"
       },
       "respondent": {
        "answer_level": "autonomous",
@@ -111,7 +172,7 @@
        "is_delegate_of_opener": false,
        "kind": "agent",
        "last_seen_at": "<time>",
-       "member_id": "<id:9>",
+       "member_id": "<id:10>",
        "owner_name": "Sato",
        "role": "assistant",
        "seat_status": "active"
@@ -122,20 +183,20 @@
      "draft": null,
      "messages": [
       {
-       "author_member_id": "<id:10>",
+       "author_member_id": "<id:11>",
        "body": "Is the lab open late?",
        "created_at": "<time>",
        "id": "<id:3>",
        "seq": 1
       },
       {
-       "author_member_id": "<id:9>",
+       "author_member_id": "<id:10>",
        "created_at": "<time>",
        "id": "<id:5>",
        "in_reply_to_message_id": "<id:3>",
        "retracted": {
         "at": "<time>",
-        "by_member_id": "<id:9>",
+        "by_member_id": "<id:10>",
         "reason": "Wrong hours"
        },
        "seq": 2
@@ -150,28 +211,6 @@
    "step": "messages",
    "text_is_envelope": true,
    "tool": "conversation_messages"
-  },
-  {
-   "args": {
-    "conversation_id": "<id:1>",
-    "course_id": "<id:2>",
-    "idempotency_key": "close:<id:1>:0",
-    "reason": "seat_removed"
-   },
-   "envelope": {
-    "action_id": "<id:11>",
-    "error": {
-     "code": "invalid_argument",
-     "message": "\"seat_removed\" is what closing a removed seat's conversations says; give another reason"
-    },
-    "review_state": "none",
-    "status": "failed"
-   },
-   "http_status": 200,
-   "is_error": true,
-   "step": "close_reserved_reason",
-   "text_is_envelope": true,
-   "tool": "conversation_close"
   },
   {
    "args": {
@@ -218,6 +257,27 @@
   {
    "args": {
     "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "close:<id:1>:3"
+   },
+   "envelope": {
+    "action_id": "<id:14>",
+    "error": {
+     "code": "conflict",
+     "message": "the conversation is closed already"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "close_again_proposed",
+   "text_is_envelope": true,
+   "tool": "conversation_close"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
     "course_id": "<id:2>"
    },
    "envelope": {
@@ -226,14 +286,14 @@
      "created_at": "<time>",
      "draft": null,
      "id": "<id:1>",
-     "last_author_member_id": "<id:9>",
+     "last_author_member_id": "<id:10>",
      "last_message_at": "<time>",
      "last_retracted_at": "<time>",
      "latest_opener_message_id": "<id:3>",
      "opener": {
       "display_name": "Yuki",
       "kind": "human",
-      "member_id": "<id:10>"
+      "member_id": "<id:11>"
      },
      "respondent": {
       "answer_level": "autonomous",
@@ -241,7 +301,7 @@
       "is_delegate_of_opener": false,
       "kind": "agent",
       "last_seen_at": "<time>",
-      "member_id": "<id:9>",
+      "member_id": "<id:10>",
       "owner_name": "Sato",
       "role": "assistant",
       "seat_status": "active"
@@ -274,7 +334,7 @@
     "result": {
      "events": [
       {
-       "action_id": "<id:14>",
+       "action_id": "<id:15>",
        "occurred_at": "<time>",
        "payload": {},
        "seq": "<seq:1>",
@@ -283,7 +343,7 @@
        "type": "course.created"
       },
       {
-       "action_id": "<id:15>",
+       "action_id": "<id:16>",
        "occurred_at": "<time>",
        "payload": {},
        "seq": "<seq:2>",
@@ -292,12 +352,12 @@
        "type": "course.activated"
       },
       {
-       "action_id": "<id:16>",
+       "action_id": "<id:17>",
        "occurred_at": "<time>",
        "payload": {
         "conversation_id": "<id:1>",
-        "opener_member_id": "<id:10>",
-        "respondent_member_id": "<id:9>"
+        "opener_member_id": "<id:11>",
+        "respondent_member_id": "<id:10>"
        },
        "seq": "<seq:3>",
        "subject_id": "<id:1>",
@@ -305,14 +365,14 @@
        "type": "conversation.opened"
       },
       {
-       "action_id": "<id:16>",
+       "action_id": "<id:17>",
        "occurred_at": "<time>",
        "payload": {
-        "author_member_id": "<id:10>",
+        "author_member_id": "<id:11>",
         "conversation_id": "<id:1>",
         "message_id": "<id:3>",
-        "opener_member_id": "<id:10>",
-        "respondent_member_id": "<id:9>"
+        "opener_member_id": "<id:11>",
+        "respondent_member_id": "<id:10>"
        },
        "seq": "<seq:4>",
        "subject_id": "<id:1>",
@@ -323,11 +383,11 @@
        "action_id": "<id:4>",
        "occurred_at": "<time>",
        "payload": {
-        "author_member_id": "<id:9>",
+        "author_member_id": "<id:10>",
         "conversation_id": "<id:1>",
         "message_id": "<id:5>",
-        "opener_member_id": "<id:10>",
-        "respondent_member_id": "<id:9>"
+        "opener_member_id": "<id:11>",
+        "respondent_member_id": "<id:10>"
        },
        "seq": "<seq:5>",
        "subject_id": "<id:1>",
@@ -338,7 +398,7 @@
        "action_id": "<id:7>",
        "occurred_at": "<time>",
        "payload": {
-        "by_member_id": "<id:9>",
+        "by_member_id": "<id:10>",
         "conversation_id": "<id:1>",
         "message_id": "<id:5>"
        },
@@ -351,7 +411,7 @@
        "action_id": "<id:12>",
        "occurred_at": "<time>",
        "payload": {
-        "by_member_id": "<id:9>",
+        "by_member_id": "<id:10>",
         "conversation_id": "<id:1>",
         "reason": "closed"
        },

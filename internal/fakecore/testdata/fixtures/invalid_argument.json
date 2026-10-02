@@ -10,13 +10,11 @@
     "in_reply_to_message_id": "<id:3>"
    },
    "envelope": {
-    "action_id": "<id:4>",
     "error": {
      "code": "invalid_argument",
      "message": "the message is empty"
     },
-    "review_state": "none",
-    "status": "failed"
+    "status": "error"
    },
    "http_status": 200,
    "is_error": true,
@@ -33,13 +31,11 @@
     "in_reply_to_message_id": "<id:3>"
    },
    "envelope": {
-    "action_id": "<id:5>",
     "error": {
      "code": "invalid_argument",
      "message": "the message is empty"
     },
-    "review_state": "none",
-    "status": "failed"
+    "status": "error"
    },
    "http_status": 200,
    "is_error": true,
@@ -56,13 +52,11 @@
     "in_reply_to_message_id": "<id:3>"
    },
    "envelope": {
-    "action_id": "<id:6>",
     "error": {
      "code": "invalid_argument",
      "message": "the message is 20001 characters long; the most is 20000"
     },
-    "review_state": "none",
-    "status": "failed"
+    "status": "error"
    },
    "http_status": 200,
    "is_error": true,
@@ -160,10 +154,10 @@
     "conversation_id": "<id:1>",
     "course_id": "<id:2>",
     "idempotency_key": "answer:other:1",
-    "in_reply_to_message_id": "<id:7>"
+    "in_reply_to_message_id": "<id:4>"
    },
    "envelope": {
-    "action_id": "<id:8>",
+    "action_id": "<id:5>",
     "error": {
      "code": "invalid_argument",
      "message": "in_reply_to_message_id must name a message of the opener's in this conversation"
@@ -186,9 +180,9 @@
     "in_reply_to_message_id": "<id:3>"
    },
    "envelope": {
-    "action_id": "<id:9>",
+    "action_id": "<id:6>",
     "result": {
-     "message_id": "<id:10>"
+     "message_id": "<id:7>"
     },
     "review_state": "none",
     "status": "executed"
@@ -211,88 +205,16 @@
      "actions": [
       {
        "action_type": "conversation.answer",
-       "actor_id": "<id:11>",
-       "authz_result": "autonomous",
-       "created_at": "<time>",
-       "id": "<id:4>",
-       "member_id": "<id:12>",
-       "payload": {
-        "body": "",
-        "conversation_id": "<id:1>",
-        "course_id": "<id:2>",
-        "in_reply_to_message_id": "<id:3>"
-       },
-       "result": {
-        "error": {
-         "code": "invalid_argument",
-         "message": "the message is empty"
-        }
-       },
-       "review_state": "none",
-       "status": "failed",
-       "target_id": "<id:1>",
-       "target_type": "conversation"
-      },
-      {
-       "action_type": "conversation.answer",
-       "actor_id": "<id:11>",
+       "actor_id": "<id:8>",
        "authz_result": "autonomous",
        "created_at": "<time>",
        "id": "<id:5>",
-       "member_id": "<id:12>",
-       "payload": {
-        "body": " \n\t ",
-        "conversation_id": "<id:1>",
-        "course_id": "<id:2>",
-        "in_reply_to_message_id": "<id:3>"
-       },
-       "result": {
-        "error": {
-         "code": "invalid_argument",
-         "message": "the message is empty"
-        }
-       },
-       "review_state": "none",
-       "status": "failed",
-       "target_id": "<id:1>",
-       "target_type": "conversation"
-      },
-      {
-       "action_type": "conversation.answer",
-       "actor_id": "<id:11>",
-       "authz_result": "autonomous",
-       "created_at": "<time>",
-       "id": "<id:6>",
-       "member_id": "<id:12>",
-       "payload": {
-        "body": "<text:20001 chars>",
-        "conversation_id": "<id:1>",
-        "course_id": "<id:2>",
-        "in_reply_to_message_id": "<id:3>"
-       },
-       "result": {
-        "error": {
-         "code": "invalid_argument",
-         "message": "the message is 20001 characters long; the most is 20000"
-        }
-       },
-       "review_state": "none",
-       "status": "failed",
-       "target_id": "<id:1>",
-       "target_type": "conversation"
-      },
-      {
-       "action_type": "conversation.answer",
-       "actor_id": "<id:11>",
-       "authz_result": "autonomous",
-       "created_at": "<time>",
-       "id": "<id:8>",
-       "member_id": "<id:12>",
+       "member_id": "<id:9>",
        "payload": {
         "body": "Chapter 2 is about sets.",
         "conversation_id": "<id:1>",
         "course_id": "<id:2>",
-        "in_reply_to_message_id": "<id:7>"
+        "in_reply_to_message_id": "<id:4>"
        },
        "result": {
         "error": {
@@ -307,12 +229,12 @@
       },
       {
        "action_type": "conversation.answer",
-       "actor_id": "<id:11>",
+       "actor_id": "<id:8>",
        "authz_result": "autonomous",
        "created_at": "<time>",
        "executed_at": "<time>",
-       "id": "<id:9>",
-       "member_id": "<id:12>",
+       "id": "<id:6>",
+       "member_id": "<id:9>",
        "payload": {
         "body": "<text:20000 chars>",
         "conversation_id": "<id:1>",
@@ -320,7 +242,7 @@
         "in_reply_to_message_id": "<id:3>"
        },
        "result": {
-        "message_id": "<id:10>"
+        "message_id": "<id:7>"
        },
        "review_state": "none",
        "status": "executed",

@@ -230,6 +230,22 @@ func (c *Core) invokeService(caller *actor, cred *credential, t *toolDef, raw []
 	if _, err := t.decodeArgs(raw); err != nil {
 		return c.failure(err)
 	}
+	// The two completions' checks of what they say alone, which refuse a
+	// call before anything is attempted or recorded (AIShie-Core #60).
+	switch t.Name {
+	case "document_text.complete":
+		var in completion
+		_ = json.Unmarshal(raw, &in)
+		if e := checkCompletion(in); e != nil {
+			return errorOutcome(e)
+		}
+	case "agent_runtime.rendition_complete":
+		var in renditionIn
+		_ = json.Unmarshal(raw, &in)
+		if e := checkRenditionCompletion(in); e != nil {
+			return errorOutcome(e)
+		}
+	}
 	now := c.now()
 	if strings.HasPrefix(t.Name, scopeAgentRuntime+".rendition_") {
 		return c.invokeRendition(caller, cred, t, raw, key, base, now)
@@ -471,9 +487,6 @@ func (c *Core) completeText(in completion, now time.Time) (*versionFile, *apiErr
 	case f == nil:
 		return nil, missing("no such text version")
 	}
-	if e := checkCompletion(in); e != nil {
-		return f, e
-	}
 	tv := f.text
 	switch {
 	case tv.source == sourceStaff && tv.claim != nil && tv.claim.leaseID == in.LeaseID:
@@ -495,35 +508,37 @@ func (c *Core) completeText(in completion, now time.Time) (*versionFile, *apiErr
 	return f, nil
 }
 
-// checkCompletion holds a completion to its shape, as Core does.
+// checkCompletion holds a completion to its shape, as Core's check does,
+// in its order and its words.
 func checkCompletion(in completion) *apiError {
+	text := func(what string, s *string, most int) *apiError {
+		if s == nil || strings.TrimSpace(*s) == "" || utf8.RuneCountInString(*s) > most {
+			return invalid("%s is 1 to %d characters", what, most)
+		}
+		return nil
+	}
 	switch in.Status {
 	case textDone:
 		switch {
-		case in.Body == nil || *in.Body == "":
+		case in.Body == nil:
 			return invalid("done needs body")
+		case strings.TrimSpace(*in.Body) == "":
+			return invalid("the text is empty")
 		case len(*in.Body) > maxTextBytes:
-			return invalid("the text is longer than 2 MiB").with("reason", "text_too_long")
-		case !utf8.ValidString(*in.Body):
-			return invalid("the text is not UTF-8")
+			return invalid("the text is %d bytes; the most is %d", len(*in.Body), maxTextBytes).with("reason", "text_too_long")
 		case in.Pages == nil || *in.Pages < 1 || *in.Pages > 100000:
-			return invalid("done needs pages, from 1 to 100000")
-		case in.Model == nil || *in.Model == "" || utf8.RuneCountInString(*in.Model) > 200:
-			return invalid("done needs model, 1 to 200 characters")
+			return invalid("done needs pages, 1 to 100000")
 		case in.Reason != nil:
-			return invalid("done takes no reason")
+			return invalid("done gives no reason")
 		}
+		return text("model", in.Model, 200)
 	case textFailed, textSkipped:
-		switch {
-		case in.Reason == nil || *in.Reason == "" || utf8.RuneCountInString(*in.Reason) > 500:
-			return invalid("%s needs reason, 1 to 500 characters", in.Status)
-		case in.Body != nil || in.Pages != nil || in.Model != nil:
-			return invalid("%s takes no body, pages or model", in.Status)
+		if in.Body != nil || in.Pages != nil || in.Model != nil {
+			return invalid("%s gives no body, pages or model", in.Status)
 		}
-	default:
-		return invalid("status is done, failed or skipped")
+		return text("reason", in.Reason, 500)
 	}
-	return nil
+	return invalid("status must be done, failed or skipped")
 }
 
 // waitForQueue is what a call of a queue that asked to wait (wait_s), and
@@ -820,8 +835,9 @@ func textParts(s string) []string {
 }
 
 // documentText is Core's document.text: the text of a file of a version
-// (file_id; its first for none), a part at a time, to whoever may read the
-// version.
+// (file_id, which AIShie-Core #61 requires; the version's one file from a
+// Core before several files to a version, which takes none), a part at a
+// time, to whoever may read the version.
 func documentText() *impl {
 	return define(spec[documentTextIn]{
 		gate: gate{any: true, perms: []string{permDocumentRead, permRubricRead}},

@@ -149,37 +149,12 @@
     "idempotency_key": "site-chat:on",
     "on": true
    },
-   "envelope": {
-    "action_id": "<id:6>",
-    "result": {
-     "site_chat": true
-    },
-    "review_state": "none",
-    "status": "executed"
-   },
    "http_status": 200,
-   "is_error": false,
-   "step": "site_chat_on",
-   "text_is_envelope": true,
-   "tool": "me_site_chat"
-  },
-  {
-   "args": {
-    "idempotency_key": "site-chat:off",
-    "on": false
+   "rpc_error": {
+    "code": -32602,
+    "message": "unknown tool \"me_site_chat\""
    },
-   "envelope": {
-    "action_id": "<id:7>",
-    "result": {
-     "site_chat": true
-    },
-    "review_state": "none",
-    "status": "executed"
-   },
-   "http_status": 200,
-   "is_error": false,
-   "step": "site_chat_off",
-   "text_is_envelope": true,
+   "step": "site_chat_gone",
    "tool": "me_site_chat"
   },
   {
@@ -225,7 +200,7 @@
   {
    "body": {
     "result": {
-     "agent_id": "<id:8>",
+     "agent_id": "<id:6>",
      "display_name": "Sato's tools",
      "hostable": false,
      "hosting": "mcp",
@@ -242,14 +217,14 @@
    "content_type": "application/json",
    "http_status": 200,
    "method": "GET",
-   "path": "/v1/services/agent_runtime/agents/<id:8>",
+   "path": "/v1/services/agent_runtime/agents/<id:6>",
    "step": "agent_mcp"
   },
   {
    "body": {
     "result": {
      "agent": {
-      "agent_id": "<id:8>",
+      "agent_id": "<id:6>",
       "display_name": "Sato's tools",
       "hostable": false,
       "hosting": "mcp",
@@ -268,12 +243,12 @@
    "content_type": "application/json",
    "http_status": 200,
    "method": "GET",
-   "path": "/v1/services/agent_runtime/owners/<id:2>/agents/<id:8>",
+   "path": "/v1/services/agent_runtime/owners/<id:2>/agents/<id:6>",
    "step": "check_owner_mcp"
   },
   {
    "body": {
-    "action_id": "<id:9>",
+    "action_id": "<id:7>",
     "error": {
      "code": "failed_precondition",
      "details": {
@@ -287,15 +262,15 @@
    "content_type": "application/json",
    "http_status": 422,
    "method": "POST",
-   "path": "/v1/services/agent_runtime/agents/<id:8>/token",
+   "path": "/v1/services/agent_runtime/agents/<id:6>/token",
    "request": {},
    "step": "issue_mcp"
   },
   {
    "body": {
-    "action_id": "<id:10>",
+    "action_id": "<id:8>",
     "result": {
-     "agent_id": "<id:8>",
+     "agent_id": "<id:6>",
      "revoked": []
     },
     "review_state": "none",
@@ -304,7 +279,7 @@
    "content_type": "application/json",
    "http_status": 200,
    "method": "POST",
-   "path": "/v1/services/agent_runtime/agents/<id:8>/token/revoke",
+   "path": "/v1/services/agent_runtime/agents/<id:6>/token/revoke",
    "request": {},
    "step": "revoke_mcp"
   },
@@ -314,7 +289,7 @@
     "result": {
      "display_name": "Sato's tools",
      "hosting": "mcp",
-     "id": "<id:8>",
+     "id": "<id:6>",
      "kind": "agent",
      "owner_actor_id": "<id:2>",
      "status": "active"
@@ -329,36 +304,13 @@
   },
   {
    "args": {
-    "idempotency_key": "site-chat:mcp",
-    "on": true
+    "body": "Can you help me?",
+    "course_id": "<id:9>",
+    "idempotency_key": "open:ken:mcp",
+    "respondent_member_id": "<id:10>"
    },
    "envelope": {
     "action_id": "<id:11>",
-    "error": {
-     "code": "failed_precondition",
-     "details": {
-      "reason": "not_runtime_hosted"
-     },
-     "message": "only a runtime agent is asked in the site, by the token the site's agent runtime holds for it; an mcp agent, reached by its owner's own tools, is asked nothing there"
-    },
-    "review_state": "none",
-    "status": "failed"
-   },
-   "http_status": 200,
-   "is_error": true,
-   "step": "site_chat_mcp",
-   "text_is_envelope": true,
-   "tool": "me_site_chat"
-  },
-  {
-   "args": {
-    "body": "Can you help me?",
-    "course_id": "<id:12>",
-    "idempotency_key": "open:ken:mcp",
-    "respondent_member_id": "<id:13>"
-   },
-   "envelope": {
-    "action_id": "<id:14>",
     "error": {
      "code": "failed_precondition",
      "details": {
@@ -377,10 +329,10 @@
   },
   {
    "body": {
-    "action_id": "<id:15>",
+    "action_id": "<id:12>",
     "result": {
      "agent_id": "<id:1>",
-     "credential_id": "<id:16>",
+     "credential_id": "<id:13>",
      "replaced": [
       "<id:3>"
      ],
@@ -401,11 +353,11 @@
   },
   {
    "body": {
-    "action_id": "<id:15>",
+    "action_id": "<id:12>",
     "replayed": true,
     "result": {
      "agent_id": "<id:1>",
-     "credential_id": "<id:16>",
+     "credential_id": "<id:13>",
      "replaced": [
       "<id:3>"
      ],
@@ -426,7 +378,7 @@
   },
   {
    "body": {
-    "action_id": "<id:17>",
+    "action_id": "<id:14>",
     "error": {
      "code": "invalid_argument",
      "details": {
@@ -498,7 +450,7 @@
      "owner_status": "active",
      "runtime_token": {
       "created_at": "<time>",
-      "credential_id": "<id:16>",
+      "credential_id": "<id:13>",
       "last_used_at": "<time>",
       "token_prefix": "<prefix>"
      },
@@ -515,11 +467,11 @@
   },
   {
    "body": {
-    "action_id": "<id:18>",
+    "action_id": "<id:15>",
     "result": {
      "agent_id": "<id:1>",
      "revoked": [
-      "<id:16>"
+      "<id:13>"
      ]
     },
     "review_state": "none",
@@ -534,12 +486,12 @@
   },
   {
    "body": {
-    "action_id": "<id:18>",
+    "action_id": "<id:15>",
     "replayed": true,
     "result": {
      "agent_id": "<id:1>",
      "revoked": [
-      "<id:16>"
+      "<id:13>"
      ]
     },
     "review_state": "none",
@@ -555,7 +507,7 @@
   },
   {
    "body": {
-    "action_id": "<id:19>",
+    "action_id": "<id:16>",
     "result": {
      "agent_id": "<id:1>",
      "revoked": []
@@ -615,12 +567,12 @@
   {
    "args": {
     "body": "Are you there?",
-    "course_id": "<id:12>",
+    "course_id": "<id:9>",
     "idempotency_key": "open:yuki:not-hosted",
-    "respondent_member_id": "<id:20>"
+    "respondent_member_id": "<id:17>"
    },
    "envelope": {
-    "action_id": "<id:21>",
+    "action_id": "<id:18>",
     "error": {
      "code": "failed_precondition",
      "details": {
@@ -662,7 +614,7 @@
   },
   {
    "body": {
-    "action_id": "<id:22>",
+    "action_id": "<id:19>",
     "error": {
      "code": "failed_precondition",
      "details": {
@@ -682,10 +634,10 @@
   },
   {
    "body": {
-    "action_id": "<id:23>",
+    "action_id": "<id:20>",
     "result": {
      "agent_id": "<id:1>",
-     "credential_id": "<id:24>",
+     "credential_id": "<id:21>",
      "token": "<token>",
      "token_prefix": "<prefix>"
     },
@@ -713,7 +665,7 @@
       "owner_status": "active",
       "runtime_token": {
        "created_at": "<time>",
-       "credential_id": "<id:24>",
+       "credential_id": "<id:21>",
        "token_prefix": "<prefix>"
       },
       "site_chat": true,

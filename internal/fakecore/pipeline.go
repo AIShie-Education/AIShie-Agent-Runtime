@@ -174,23 +174,39 @@ func (ec *execCtx) emit(e *event) {
 }
 
 // impl is how the fake carries out one tool, in the shape of Core's
-// tool.Spec: a gate, a resolution of the target, then a query (a read) or a
-// pin and an execution (a write).
+// tool.Spec: what the arguments say alone (check), a gate, a resolution of
+// the target, then a query (a read), or what the course and the seat say
+// (validate), a pin and an execution (a write).
 type impl struct {
 	gate     gate
 	decode   func(raw []byte) (any, error)
+	check    func(in any) error
 	courseOf func(in any) string
 	resolve  func(c *Core, co *course, in any) (target, error)
 	query    func(c *Core, rc *readCtx, in any) (any, error)
+	validate func(c *Core, m *member, in any) error
 	pin      func(c *Core, m *member, in any) error
 	execute  func(c *Core, ec *execCtx, in any) (any, error)
 }
 
 // spec is impl, typed by the tool's input.
 type spec[In any] struct {
-	gate    gate
+	gate gate
+	// check is Core's Spec.Check: what the arguments say alone, read
+	// nothing else. A call it refuses is never attempted (status error, no
+	// action_id), whatever the caller's level; a proposal it refuses fails
+	// on approval, and is not its owner's to decide.
+	check   func(in In) error
 	resolve func(c *Core, co *course, in In) (target, error)
 	query   func(c *Core, rc *readCtx, in In) (any, error)
+	// validate is Core's Spec.Validate: what the course, the seat m and the
+	// moment refuse a write in. It is asked before a call is carried out
+	// or proposed, which it fails at once, recorded; again, as the
+	// proposer's, when a proposal is approved; and for an agent's owner, as
+	// approving would ask it, before they are let decide its proposal.
+	validate func(c *Core, m *member, in In) error
+	// pin is what a proposal alone is held to as it is made (Core's
+	// Spec.Pin), after validate.
 	pin     func(c *Core, m *member, in In) error
 	execute func(c *Core, ec *execCtx, in In) (any, error)
 }
@@ -222,8 +238,14 @@ func define[In any](s spec[In]) *impl {
 		}
 		return ""
 	}
+	if s.check != nil {
+		im.check = func(in any) error { return s.check(in.(In)) }
+	}
 	if s.resolve != nil {
 		im.resolve = func(c *Core, co *course, in any) (target, error) { return s.resolve(c, co, in.(In)) }
+	}
+	if s.validate != nil {
+		im.validate = func(c *Core, m *member, in any) error { return s.validate(c, m, in.(In)) }
 	}
 	if s.query != nil {
 		im.query = func(c *Core, rc *readCtx, in any) (any, error) { return s.query(c, rc, in.(In)) }
@@ -237,10 +259,23 @@ func define[In any](s spec[In]) *impl {
 	return im
 }
 
-// decodeArgs judges raw arguments as Core's tool.Decode does: one JSON
-// object, no key named twice, matching the tool's schema, no U+0000; then
-// into the tool's own input.
+// decodeArgs judges raw arguments as Core's tool.Decode does: as
+// parseArgs, and then what they say alone (the tool's check).
 func (t *toolDef) decodeArgs(raw []byte) (any, error) {
+	in, err := t.parseArgs(raw)
+	if err != nil || t.impl == nil || t.impl.check == nil {
+		return in, err
+	}
+	if err := t.impl.check(in); err != nil {
+		return nil, err
+	}
+	return in, nil
+}
+
+// parseArgs judges raw arguments as Core's tool.Parse does, which reads a
+// stored proposal back: one JSON object, no key named twice, matching the
+// tool's schema, no U+0000; then into the tool's own input.
+func (t *toolDef) parseArgs(raw []byte) (any, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		raw = []byte("{}")
 	}
@@ -574,8 +609,19 @@ func (c *Core) invokeWrite(caller *actor, t *toolDef, in any, raw []byte, key st
 	lvl := a.decision.level
 	status := initialStatus(lvl)
 	var failure *apiError
-	if !lvl.allowed() {
+	switch {
+	case !lvl.allowed():
 		failure = a.refusal()
+	case t.impl.validate != nil:
+		// What the course would refuse is failed now, before it is
+		// carried out, and before anyone is asked to approve it.
+		if err := t.impl.validate(c, a.decision.member, in); err != nil {
+			e, ok := asAPI(err)
+			if !ok {
+				return outcome{}, err
+			}
+			status, failure = actFailed, e
+		}
 	}
 	// A proposal is kept as its tool pins it: the arguments as the tool
 	// read them, not as they were written (an id in upper case comes back

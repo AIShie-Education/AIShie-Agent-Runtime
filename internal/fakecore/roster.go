@@ -99,9 +99,12 @@ type documentIDIn struct {
 
 // versionSummary is a version as Core's document.versions lists it.
 type versionSummary struct {
-	ID          string  `json:"id"`
-	Seq         int     `json:"seq"`
-	HasFile     bool    `json:"has_file"`
+	ID  string `json:"id"`
+	Seq int    `json:"seq"`
+	// HasFile, ContentType, ByteSize and Text are the version's one
+	// file's, from a Core before several files to a version
+	// (Options.WithoutFiles) alone: AIShie-Core #61 took them out.
+	HasFile     *bool   `json:"has_file,omitempty"`
 	ContentType *string `json:"content_type,omitempty"`
 	ByteSize    *int64  `json:"byte_size,omitempty"`
 	// Files are the version's files, without URLs or text; none from a
@@ -110,7 +113,7 @@ type versionSummary struct {
 	AuthorMemberID string      `json:"author_member_id"`
 	CreatedAt      time.Time   `json:"created_at"`
 	Published      bool        `json:"published"`
-	// Text is the version's text version, never its body.
+	// Text is the version's one file's text version, never its body.
 	Text *textView `json:"text,omitempty"`
 }
 
@@ -138,15 +141,18 @@ func documentVersions() *impl {
 				Versions []versionSummary `json:"versions"`
 			}{Versions: []versionSummary{}}
 			if doc.versionID != "" {
-				v := versionSummary{ID: doc.versionID, Seq: 1, HasFile: len(doc.files) > 0, AuthorMemberID: doc.authorMemberID,
-					CreatedAt: doc.versionCreatedAt, Published: !doc.draft}
+				v := versionSummary{ID: doc.versionID, Seq: 1, AuthorMemberID: doc.authorMemberID, CreatedAt: doc.versionCreatedAt,
+					Published: !doc.draft}
 				files := filesOf(doc, "", false, rc.now)
 				if !c.opts.WithoutFiles {
 					v.Files = &files
-				}
-				if len(files) > 0 {
-					f := files[0]
-					v.ContentType, v.ByteSize, v.Text = &f.ContentType, &f.ByteSize, f.Text
+				} else {
+					has := len(files) > 0
+					v.HasFile = &has
+					if has {
+						f := files[0]
+						v.ContentType, v.ByteSize, v.Text = &f.ContentType, &f.ByteSize, f.Text
+					}
 				}
 				out.Versions = append(out.Versions, v)
 			}

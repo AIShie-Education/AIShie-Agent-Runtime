@@ -442,12 +442,12 @@ type versionView struct {
 	ID     string  `json:"id"`
 	Seq    int     `json:"seq"`
 	BodyMD *string `json:"body_md,omitempty"`
-	// DownloadURL, ContentType, ByteSize, Checksum and Text are the first
-	// file's, as Core keeps them for the runtimes of the release before.
+	// DownloadURL, ContentType, ByteSize and Text are the version's one
+	// file's, from a Core before several files to a version
+	// (Options.WithoutFiles) alone: AIShie-Core #61 took them out.
 	DownloadURL *string `json:"download_url,omitempty"`
 	ContentType *string `json:"content_type,omitempty"`
 	ByteSize    *int64  `json:"byte_size,omitempty"`
-	Checksum    *string `json:"checksum,omitempty"`
 	// Files are the version's files, in order; none from a Core before
 	// several files to a version (Options.WithoutFiles).
 	Files          *[]fileView `json:"files,omitempty"`
@@ -522,17 +522,14 @@ func documentGet() *impl {
 					v.BodyMD, v.Purged = nil, &purgedView{At: *doc.purgedAt, ByActorID: newID(), Reason: "uploaded by mistake"}
 				}
 				files := filesOf(doc, rc.base, true, rc.now)
-				if !c.opts.WithoutFiles {
+				switch {
+				case !c.opts.WithoutFiles:
 					v.Files = &files
-				}
-				if len(files) > 0 {
+				case len(files) > 0:
+					// The version's one file, and its text whatever its
+					// size, as before.
 					f := files[0]
-					v.DownloadURL, v.ContentType, v.ByteSize, v.Checksum, v.Text = f.DownloadURL, &f.ContentType, &f.ByteSize, f.Checksum, f.Text
-					if c.opts.WithoutFiles {
-						// The version's one file's text, whatever its size
-						// beside the others', as before.
-						v.Checksum, v.Text = nil, doc.files[0].text.viewIf(true)
-					}
+					v.DownloadURL, v.ContentType, v.ByteSize, v.Text = f.DownloadURL, &f.ContentType, &f.ByteSize, doc.files[0].text.viewIf(true)
 				}
 			}
 			out := struct {

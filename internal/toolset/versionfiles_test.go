@@ -31,8 +31,8 @@ type vfile struct {
 }
 
 // versionResult is document_get's result for version v1 of the document,
-// its text body (none for "") and files, in order; the version's own
-// deprecated fields are the first file's, as Core gives them.
+// its text body (none for "") and files, in order, as Core gives them
+// since AIShie-Core #61, with no first-file fields of the version's own.
 func versionResult(fs *fileServer, body string, files ...vfile) string {
 	var b strings.Builder
 	for i, f := range files {
@@ -46,21 +46,13 @@ func versionResult(fs *fileServer, body string, files ...vfile) string {
 		fmt.Fprintf(&b, `{"id":%q,"position":%d,"filename":%q,"content_type":%q,"byte_size":%d,"checksum":"sha256:%x","download_url":%q%s}`,
 			f.id, i+1, f.name, f.ct, f.size, i+1, fs.url(f.path), text)
 	}
-	first := ""
-	if len(files) > 0 {
-		f := files[0]
-		first = fmt.Sprintf(`"download_url":%q,"content_type":%q,"byte_size":%d,`, fs.url(f.path), f.ct, f.size)
-		if f.text != "" {
-			first += `"text":` + f.text + `,`
-		}
-	}
 	bodyMD := ""
 	if body != "" {
 		bodyMD = fmt.Sprintf(`"body_md":%q,`, body)
 	}
 	return fmt.Sprintf(`{"id":%q,"kind":"material","title":"Week 3","sort_order":0,"status":"active","created_at":"2026-09-01T00:00:00Z",`+
-		`"version":{"id":"v1","seq":1,%s%s"files":[%s],"author_member_id":"m","created_at":"2026-09-01T00:00:00Z","published":true}}`,
-		docID, bodyMD, first, b.String())
+		`"version":{"id":"v1","seq":1,%s"files":[%s],"author_member_id":"m","created_at":"2026-09-01T00:00:00Z","published":true}}`,
+		docID, bodyMD, b.String())
 }
 
 // versionCore answers document_get with result, document_text of a file

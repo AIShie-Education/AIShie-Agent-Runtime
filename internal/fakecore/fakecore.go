@@ -221,7 +221,6 @@ func implemented() map[string]*impl {
 		"grade.get":               gradeGet(),
 		"component.tree":          componentTree(),
 		"gradebook.get":           gradebookGet(),
-		"me.site_chat":            meSiteChat(),
 		"member.list":             memberList(),
 		"member.get":              memberGet(),
 		"member.lookup_actor":     memberLookupActor(),

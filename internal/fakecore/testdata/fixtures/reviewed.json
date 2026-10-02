@@ -56,13 +56,11 @@
     "outcome": "fine"
    },
    "envelope": {
-    "action_id": "<id:7>",
     "error": {
      "code": "invalid_argument",
      "message": "outcome must be \"reviewed\" or \"escalated\""
     },
-    "review_state": "none",
-    "status": "failed"
+    "status": "error"
    },
    "http_status": 200,
    "is_error": true,
@@ -78,7 +76,7 @@
     "outcome": "escalated"
    },
    "envelope": {
-    "action_id": "<id:8>",
+    "action_id": "<id:7>",
     "result": {
      "action_id": "<id:4>",
      "review_state": "escalated"
@@ -100,7 +98,7 @@
     "outcome": "escalated"
    },
    "envelope": {
-    "action_id": "<id:9>",
+    "action_id": "<id:8>",
     "error": {
      "code": "conflict",
      "message": "the action is already escalated"
@@ -122,7 +120,7 @@
     "outcome": "reviewed"
    },
    "envelope": {
-    "action_id": "<id:10>",
+    "action_id": "<id:9>",
     "error": {
      "code": "forbidden",
      "message": "an escalation is for someone else to look at"
@@ -162,15 +160,15 @@
   {
    "args": {
     "body": "No.",
-    "conversation_id": "<id:11>",
+    "conversation_id": "<id:10>",
     "course_id": "<id:2>",
-    "idempotency_key": "answer:<id:11>:<id:12>:1",
-    "in_reply_to_message_id": "<id:12>"
+    "idempotency_key": "answer:<id:10>:<id:11>:1",
+    "in_reply_to_message_id": "<id:11>"
    },
    "envelope": {
-    "action_id": "<id:13>",
+    "action_id": "<id:12>",
     "result": {
-     "message_id": "<id:14>"
+     "message_id": "<id:13>"
     },
     "review_state": "pending",
     "status": "executed"
@@ -183,15 +181,15 @@
   },
   {
    "args": {
-    "action_id": "<id:13>",
+    "action_id": "<id:12>",
     "course_id": "<id:2>",
-    "idempotency_key": "review:<id:13>",
+    "idempotency_key": "review:<id:12>",
     "outcome": "reviewed"
    },
    "envelope": {
-    "action_id": "<id:15>",
+    "action_id": "<id:14>",
     "result": {
-     "action_id": "<id:13>",
+     "action_id": "<id:12>",
      "by_owner": true,
      "review_state": "reviewed"
     },
@@ -206,13 +204,13 @@
   },
   {
    "args": {
-    "action_id": "<id:13>",
+    "action_id": "<id:12>",
     "course_id": "<id:2>",
-    "idempotency_key": "review:<id:13>:2",
+    "idempotency_key": "review:<id:12>:2",
     "outcome": "reviewed"
    },
    "envelope": {
-    "action_id": "<id:16>",
+    "action_id": "<id:15>",
     "error": {
      "code": "conflict",
      "message": "the action is not awaiting review"
@@ -229,16 +227,16 @@
   {
    "args": {
     "body": "No.",
-    "conversation_id": "<id:11>",
+    "conversation_id": "<id:10>",
     "course_id": "<id:2>",
-    "idempotency_key": "answer:<id:11>:<id:12>:1",
-    "in_reply_to_message_id": "<id:12>"
+    "idempotency_key": "answer:<id:10>:<id:11>:1",
+    "in_reply_to_message_id": "<id:11>"
    },
    "envelope": {
-    "action_id": "<id:13>",
+    "action_id": "<id:12>",
     "replayed": true,
     "result": {
-     "message_id": "<id:14>"
+     "message_id": "<id:13>"
     },
     "review_state": "reviewed",
     "status": "executed"
@@ -258,7 +256,7 @@
     "result": {
      "events": [
       {
-       "action_id": "<id:17>",
+       "action_id": "<id:16>",
        "occurred_at": "<time>",
        "payload": {},
        "seq": "<seq:1>",
@@ -267,7 +265,7 @@
        "type": "course.created"
       },
       {
-       "action_id": "<id:18>",
+       "action_id": "<id:17>",
        "occurred_at": "<time>",
        "payload": {},
        "seq": "<seq:2>",
@@ -276,12 +274,12 @@
        "type": "course.activated"
       },
       {
-       "action_id": "<id:19>",
+       "action_id": "<id:18>",
        "occurred_at": "<time>",
        "payload": {
         "conversation_id": "<id:1>",
-        "opener_member_id": "<id:20>",
-        "respondent_member_id": "<id:21>"
+        "opener_member_id": "<id:19>",
+        "respondent_member_id": "<id:20>"
        },
        "seq": "<seq:3>",
        "subject_id": "<id:1>",
@@ -289,14 +287,14 @@
        "type": "conversation.opened"
       },
       {
-       "action_id": "<id:19>",
+       "action_id": "<id:18>",
        "occurred_at": "<time>",
        "payload": {
-        "author_member_id": "<id:20>",
+        "author_member_id": "<id:19>",
         "conversation_id": "<id:1>",
         "message_id": "<id:3>",
-        "opener_member_id": "<id:20>",
-        "respondent_member_id": "<id:21>"
+        "opener_member_id": "<id:19>",
+        "respondent_member_id": "<id:20>"
        },
        "seq": "<seq:4>",
        "subject_id": "<id:1>",
@@ -307,11 +305,11 @@
        "action_id": "<id:4>",
        "occurred_at": "<time>",
        "payload": {
-        "author_member_id": "<id:21>",
+        "author_member_id": "<id:20>",
         "conversation_id": "<id:1>",
         "message_id": "<id:5>",
-        "opener_member_id": "<id:20>",
-        "respondent_member_id": "<id:21>"
+        "opener_member_id": "<id:19>",
+        "respondent_member_id": "<id:20>"
        },
        "seq": "<seq:5>",
        "subject_id": "<id:1>",
@@ -323,7 +321,7 @@
        "occurred_at": "<time>",
        "payload": {
         "action_type": "conversation.answer",
-        "by_action_id": "<id:8>"
+        "by_action_id": "<id:7>"
        },
        "seq": "<seq:6>",
        "subject_id": "<id:4>",
@@ -331,58 +329,58 @@
        "type": "action.escalated"
       },
       {
-       "action_id": "<id:22>",
+       "action_id": "<id:21>",
        "occurred_at": "<time>",
        "payload": {
-        "conversation_id": "<id:11>",
-        "opener_member_id": "<id:23>",
-        "respondent_member_id": "<id:21>"
+        "conversation_id": "<id:10>",
+        "opener_member_id": "<id:22>",
+        "respondent_member_id": "<id:20>"
        },
        "seq": "<seq:7>",
-       "subject_id": "<id:11>",
+       "subject_id": "<id:10>",
        "subject_type": "conversation",
        "type": "conversation.opened"
       },
       {
-       "action_id": "<id:22>",
+       "action_id": "<id:21>",
        "occurred_at": "<time>",
        "payload": {
-        "author_member_id": "<id:23>",
-        "conversation_id": "<id:11>",
-        "message_id": "<id:12>",
-        "opener_member_id": "<id:23>",
-        "respondent_member_id": "<id:21>"
+        "author_member_id": "<id:22>",
+        "conversation_id": "<id:10>",
+        "message_id": "<id:11>",
+        "opener_member_id": "<id:22>",
+        "respondent_member_id": "<id:20>"
        },
        "seq": "<seq:8>",
-       "subject_id": "<id:11>",
+       "subject_id": "<id:10>",
        "subject_type": "conversation",
        "type": "conversation.message_posted"
       },
       {
-       "action_id": "<id:13>",
+       "action_id": "<id:12>",
        "occurred_at": "<time>",
        "payload": {
-        "author_member_id": "<id:21>",
-        "conversation_id": "<id:11>",
-        "message_id": "<id:14>",
-        "opener_member_id": "<id:23>",
-        "respondent_member_id": "<id:21>"
+        "author_member_id": "<id:20>",
+        "conversation_id": "<id:10>",
+        "message_id": "<id:13>",
+        "opener_member_id": "<id:22>",
+        "respondent_member_id": "<id:20>"
        },
        "seq": "<seq:9>",
-       "subject_id": "<id:11>",
+       "subject_id": "<id:10>",
        "subject_type": "conversation",
        "type": "conversation.message_posted"
       },
       {
-       "action_id": "<id:13>",
+       "action_id": "<id:12>",
        "occurred_at": "<time>",
        "payload": {
         "action_type": "conversation.answer",
-        "by_action_id": "<id:15>",
+        "by_action_id": "<id:14>",
         "by_owner": true
        },
        "seq": "<seq:10>",
-       "subject_id": "<id:13>",
+       "subject_id": "<id:12>",
        "subject_type": "action",
        "type": "action.reviewed"
       }
@@ -407,12 +405,12 @@
      "actions": [
       {
        "action_type": "conversation.answer",
-       "actor_id": "<id:24>",
+       "actor_id": "<id:23>",
        "authz_result": "pending_review",
        "created_at": "<time>",
        "executed_at": "<time>",
        "id": "<id:4>",
-       "member_id": "<id:21>",
+       "member_id": "<id:20>",
        "payload": {
         "body": "Yes, at noon.",
         "conversation_id": "<id:1>",
@@ -424,18 +422,18 @@
        },
        "review_state": "escalated",
        "reviewed_at": "<time>",
-       "reviewed_by_member_id": "<id:25>",
+       "reviewed_by_member_id": "<id:24>",
        "status": "executed",
        "target_id": "<id:1>",
        "target_type": "conversation"
       },
       {
        "action_type": "action.review",
-       "actor_id": "<id:24>",
+       "actor_id": "<id:23>",
        "authz_result": "denied",
        "created_at": "<time>",
        "id": "<id:6>",
-       "member_id": "<id:21>",
+       "member_id": "<id:20>",
        "payload": {
         "action_id": "<id:4>",
         "course_id": "<id:2>",
@@ -457,26 +455,26 @@
       },
       {
        "action_type": "conversation.answer",
-       "actor_id": "<id:24>",
+       "actor_id": "<id:23>",
        "authz_result": "pending_review",
        "created_at": "<time>",
        "executed_at": "<time>",
-       "id": "<id:13>",
-       "member_id": "<id:21>",
+       "id": "<id:12>",
+       "member_id": "<id:20>",
        "payload": {
         "body": "No.",
-        "conversation_id": "<id:11>",
+        "conversation_id": "<id:10>",
         "course_id": "<id:2>",
-        "in_reply_to_message_id": "<id:12>"
+        "in_reply_to_message_id": "<id:11>"
        },
        "result": {
-        "message_id": "<id:14>"
+        "message_id": "<id:13>"
        },
        "review_state": "reviewed",
        "reviewed_at": "<time>",
-       "reviewed_by_member_id": "<id:26>",
+       "reviewed_by_member_id": "<id:25>",
        "status": "executed",
-       "target_id": "<id:11>",
+       "target_id": "<id:10>",
        "target_type": "conversation"
       }
      ]

@@ -83,6 +83,9 @@ type world interface {
 	// service's credential: the tutor, and every agent of the world but
 	// mcpAgent's, is a runtime agent whose token it was issued.
 	runtimeService() *restClient
+	// textService is the site's transcription service over REST, with a
+	// credential of the document_text service's.
+	textService() *restClient
 	// mcpAgent is an agent of Sato's hosted mcp, with a token he issued
 	// it, seated as the course's tutor: its actor id, its seat and its
 	// client.
@@ -600,7 +603,7 @@ var scenarios = []scenario{
 		call(t, w, s, "events", "event_list", inCourseArgs(w, "since_seq", 0))
 		call(t, w, s, "mine", "action_list_mine", inCourseArgs(w))
 	}},
-	{name: "retract_close", about: "conversation_retract by the author, conversation_close and their refusals", run: func(t *testing.T, w world, s *steps) {
+	{name: "retract_close", about: "conversation_retract by the author, conversation_close and their refusals; at confirm_required, a retraction of a message retracted already and a close of a closed conversation failed at once, never proposed (AIShie-Core #60), and the reasons the system writes refused at any level", run: func(t *testing.T, w world, s *steps) {
 		conv, m1 := w.ask(0, "Is the lab open late?")
 		a := call(t, w, s, "answer", "conversation_answer", answer(w, conv, m1, "Until nine.", 1))
 		wantStatus(t, a, "executed")
@@ -608,10 +611,19 @@ var scenarios = []scenario{
 		call(t, w, s, "retract_theirs", "conversation_retract", inCourseArgs(w, "message_id", m1, "idempotency_key", "retract:"+m1))
 		call(t, w, s, "retract_mine", "conversation_retract", inCourseArgs(w, "message_id", mine, "reason", "Wrong hours", "idempotency_key", "retract:"+mine))
 		call(t, w, s, "retract_again", "conversation_retract", inCourseArgs(w, "message_id", mine, "idempotency_key", "retract:"+mine+":2"))
-		call(t, w, s, "messages", "conversation_messages", inCourseArgs(w, "conversation_id", conv))
+		// Retracting and closing are document_read's: a person confirms them.
+		w.setLevel(w.tutorSeat(), permDocumentRead, "confirm_required")
+		call(t, w, s, "retract_again_proposed", "conversation_retract", inCourseArgs(w, "message_id", mine, "idempotency_key", "retract:"+mine+":3"))
 		call(t, w, s, "close_reserved_reason", "conversation_close", inCourseArgs(w, "conversation_id", conv, "reason", "seat_removed", "idempotency_key", "close:"+conv+":0"))
+		call(t, w, s, "close_reserved_reason_with_agents", "conversation_close", inCourseArgs(w, "conversation_id", conv, "reason", "Conversations_Are_With_Agents",
+			"idempotency_key", "close:"+conv+":1"))
+		w.setLevel(w.tutorSeat(), permDocumentRead, "autonomous")
+		call(t, w, s, "messages", "conversation_messages", inCourseArgs(w, "conversation_id", conv))
 		call(t, w, s, "close", "conversation_close", inCourseArgs(w, "conversation_id", conv, "reason", "Answered as far as I can.", "idempotency_key", "close:"+conv))
 		call(t, w, s, "close_again", "conversation_close", inCourseArgs(w, "conversation_id", conv, "idempotency_key", "close:"+conv+":2"))
+		w.setLevel(w.tutorSeat(), permDocumentRead, "confirm_required")
+		call(t, w, s, "close_again_proposed", "conversation_close", inCourseArgs(w, "conversation_id", conv, "idempotency_key", "close:"+conv+":3"))
+		w.setLevel(w.tutorSeat(), permDocumentRead, "autonomous")
 		call(t, w, s, "get", "conversation_get", inCourseArgs(w, "conversation_id", conv))
 		call(t, w, s, "events", "event_list", inCourseArgs(w, "since_seq", 0))
 	}},
@@ -632,7 +644,7 @@ var scenarios = []scenario{
 		}
 		s.http("revoked_token", a)
 	}},
-	{name: "hosting", about: "the site's agent runtime (agent_runtime, a site service): check_owner and agent of a runtime agent, an mcp agent, a suspended one and ids that are no agent's; issue_token replacing the runtime's token, a replay without it, refused for an mcp agent, a suspended one and nobody; revoke_token, and again with none; a question to a runtime agent not hosted and to an mcp agent; me_site_chat, deprecated; the service's credential anywhere else, and an agent's at the service's routes",
+	{name: "hosting", about: "the site's agent runtime (agent_runtime, a site service): check_owner and agent of a runtime agent, an mcp agent, a suspended one and ids that are no agent's; issue_token replacing the runtime's token, a replay without it, refused for an mcp agent, a suspended one and nobody; revoke_token, and again with none; a question to a runtime agent not hosted and to an mcp agent; me_site_chat, which is no tool any more; the service's credential anywhere else, and an agent's at the service's routes",
 		run: func(t *testing.T, w world, s *steps) {
 			ctx := context.Background()
 			svc := w.runtimeService()
@@ -657,8 +669,7 @@ var scenarios = []scenario{
 			do("agent_no_agent", svc, "GET", base+"/agents/"+nobody, nil, "")
 			do("agent_a_person", svc, "GET", base+"/agents/"+yuki, nil, "")
 			call(t, w, s, "me_runtime", "me_get", map[string]any{})
-			call(t, w, s, "site_chat_on", "me_site_chat", map[string]any{"on": true, "idempotency_key": "site-chat:on"})
-			call(t, w, s, "site_chat_off", "me_site_chat", map[string]any{"on": false, "idempotency_key": "site-chat:off"})
+			call(t, w, s, "site_chat_gone", "me_site_chat", map[string]any{"on": true, "idempotency_key": "site-chat:on"})
 			do("agent_as_an_agent", w.rest(), "GET", base+"/agents/"+tutor, nil, "")
 			do("me_as_the_service", svc, "GET", "/v1/me", nil, "")
 			a, err := newMCPClient(w.base(), svc.token, nil).post(ctx, ping)
@@ -673,7 +684,6 @@ var scenarios = []scenario{
 			do("issue_mcp", svc, "POST", base+"/agents/"+mcpID+"/token", map[string]any{}, "issue:mcp")
 			do("revoke_mcp", svc, "POST", base+"/agents/"+mcpID+"/token/revoke", map[string]any{}, "revoke:mcp")
 			callAs(t, mcp, s, "me_mcp", "me_get", map[string]any{})
-			callAs(t, mcp, s, "site_chat_mcp", "me_site_chat", map[string]any{"on": true, "idempotency_key": "site-chat:mcp"})
 			callAs(t, w.as("ken"), s, "open_mcp", "conversation_open", inCourseArgs(w, "respondent_member_id", mcpSeat,
 				"body", "Can you help me?", "idempotency_key", "open:ken:mcp"))
 
@@ -983,7 +993,7 @@ var scenarios = []scenario{
 		call(t, w, s, "replay", "conversation_answer", args)
 		call(t, w, s, "messages", "conversation_messages", inCourseArgs(w, "conversation_id", strings.ToUpper(conv)))
 	}},
-	{name: "decide_own_party", about: "an agent's proposal is decided by its owner where they could make it themselves, never by the agent: the agent is refused, its owner approves at once, and it is decided for anyone after", run: func(t *testing.T, w world, s *steps) {
+	{name: "decide_own_party", about: "an agent's proposal is decided by its owner where they could make it themselves, never by the agent: the agent is refused, at once too where a person confirms its decisions, its owner approves at once, and it is decided for anyone after", run: func(t *testing.T, w world, s *steps) {
 		w.setTutorLevel("confirm_required")
 		conv, m1 := w.ask(0, "May I submit HW1 late?")
 		args := answer(w, conv, m1, "Ask your instructor.", 1)
@@ -995,6 +1005,11 @@ var scenarios = []scenario{
 		}
 		sato, mori := w.as("sato"), w.as("mori")
 		call(t, w, s, "the_agent_approves", "action_decide", decide("approve", "decide:"+id))
+		// Where a person confirms its decisions, the agent's own decision is
+		// refused at once, recorded, and not proposed (AIShie-Core #60).
+		w.setLevel(w.tutorSeat(), permActionDecide, "confirm_required")
+		call(t, w, s, "the_agent_approves_at_confirm_required", "action_decide", decide("approve", "decide:"+id+":agent"))
+		w.setLevel(w.tutorSeat(), permActionDecide, "denied")
 		callAs(t, mori, s, "not_a_decision", "action_decide", decide("maybe", "decide:"+id+":0"))
 		wantStatus(t, callAs(t, sato, s, "its_owner_approves", "action_decide", decide("approve", "decide:"+id)), "executed")
 		callAs(t, mori, s, "decided_again", "action_decide", decide("reject", "decide:"+id+":2", "reason", "Say when the deadline is."))
@@ -1002,6 +1017,22 @@ var scenarios = []scenario{
 			"idempotency_key", "decide:"+id+":3"))
 		call(t, w, s, "replay", "conversation_answer", args)
 		call(t, w, s, "events", "event_list", inCourseArgs(w, "since_seq", 0))
+	}},
+	{name: "owner_would_be_refused", about: "an agent's proposal that approving now would refuse is not its owner's to decide (AIShie-Core #60): the opener asks again while its answer waits, its owner is refused owner_would_be_refused with the refusal inside, and someone else may still reject it", run: func(t *testing.T, w world, s *steps) {
+		w.setTutorLevel("confirm_required")
+		conv, m1 := w.ask(0, "When is the midterm?")
+		p := call(t, w, s, "propose", "conversation_answer", answer(w, conv, m1, "In week 8.", 1))
+		wantStatus(t, p, "proposed")
+		id := p.str("action_id")
+		w.followUp(conv, "And where is it held?")
+		decide := func(decision, key string, more ...any) map[string]any {
+			return inCourseArgs(w, append([]any{"action_id", id, "decision", decision, "idempotency_key", key}, more...)...)
+		}
+		callAs(t, w.as("sato"), s, "its_owner_approves", "action_decide", decide("approve", "decide:"+id))
+		callAs(t, w.as("sato"), s, "its_owner_rejects", "action_decide", decide("reject", "decide:"+id+":1", "reason", "Answer both."))
+		wantStatus(t, callAs(t, w.as("mori"), s, "someone_else_rejects", "action_decide",
+			decide("reject", "decide:"+id+":2", "reason", "Answer both questions.")), "executed")
+		call(t, w, s, "mine", "action_list_mine", inCourseArgs(w))
 	}},
 	{name: "reviewed", about: "answers at pending_review reviewed after: escalated, reviewed by the agent's owner, the refusals, and what the agent sees of it", run: func(t *testing.T, w world, s *steps) {
 		w.setTutorLevel("pending_review")
@@ -1065,7 +1096,45 @@ var scenarios = []scenario{
 	withdrawn,
 	attachments,
 	renditions,
+	transcriptionChecks,
 }
+
+// transcriptionChecks is what a transcription's completion says alone
+// refused as it is read (AIShie-Core #60, its Check): status error, no
+// action_id, before any version, lease or file is looked up; and one that
+// says nothing amiss, for a version that is not there, looked up.
+var transcriptionChecks = scenario{name: "transcription_checks", about: "document_text.complete refused on what it says alone, before " +
+	"anything is looked up or recorded: done without a body, with an empty one, without pages, with a reason or without a model; failed " +
+	"or skipped with a body, pages or a model, or without a reason; and a completion of nothing amiss for a version that is not there",
+	run: func(t *testing.T, w world, s *steps) {
+		ctx := context.Background()
+		svc := w.textService()
+		version, lease, file := uuid.NewString(), uuid.NewString(), uuid.NewString()
+		path := "/v1/services/document_text/versions/" + version + "/complete"
+		n := 0
+		complete := func(name string, more ...any) {
+			t.Helper()
+			body := map[string]any{"lease_id": lease, "file_id": file}
+			for i := 0; i+1 < len(more); i += 2 {
+				body[more[i].(string)] = more[i+1]
+			}
+			n++
+			a, err := svc.do(ctx, http.MethodPost, path, body, fmt.Sprintf("text:%s:%d", version, n))
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.rest(name, http.MethodPost, path, body, a)
+		}
+		complete("done_without_body", "status", "done", "pages", 1, "model", "m")
+		complete("done_empty_body", "status", "done", "body", " \n", "pages", 1, "model", "m")
+		complete("done_without_pages", "status", "done", "body", "## 第 1 頁\n\nText.", "model", "m")
+		complete("done_with_reason", "status", "done", "body", "## 第 1 頁\n\nText.", "pages", 1, "model", "m", "reason", "timeout")
+		complete("done_without_model", "status", "done", "body", "## 第 1 頁\n\nText.", "pages", 1)
+		complete("failed_with_body", "status", "failed", "reason", "timeout", "body", "x")
+		complete("skipped_with_pages", "status", "skipped", "reason", "too_many_pages", "pages", 1)
+		complete("failed_without_reason", "status", "failed")
+		complete("done_for_no_version", "status", "done", "body", "## 第 1 頁\n\nText.", "pages", 1, "model", "m")
+	}}
 
 // modelWrites is a write a model makes through its seat's perms (the
 // runtime's docs/design.md §4), document_create under the runtime's keys.
@@ -1106,7 +1175,7 @@ func digest(v any) string {
 // through a seat that manages the course's members (the runtime's
 // docs/design.md §4): an agent nobody owns, which Sato seated with
 // member_manage.
-var memberWrites = scenario{name: "member_writes", about: "member_lookup_actor, member_add, member_get and member_list by an agent nobody owns that manages the course's members: whom an id names, a seat proposed at confirm_required and approved, executed at autonomous and replayed, refused for a seat already there, for more than the agent holds, for an agent someone owns and for arguments Core refuses; the seats as Core shows them, and the roster denied to a student",
+var memberWrites = scenario{name: "member_writes", about: "member_lookup_actor, member_add, member_get and member_list by an agent nobody owns that manages the course's members: whom an id names, a seat proposed at confirm_required and approved, and the seats the course refuses failing there at once in Core's order (a seat already there, a listed student who is none, an expiry past), executed at autonomous and replayed, refused for a seat already there, for more than the agent holds, for an agent someone owns and for arguments Core refuses; the seats as Core shows them, and the roster denied to a student",
 	run: func(t *testing.T, w world, s *steps) {
 		// A ta's seat, with the submission_write a student's has, which it
 		// could not give otherwise.
@@ -1127,6 +1196,15 @@ var memberWrites = scenario{name: "member_writes", about: "member_lookup_actor, 
 		}
 		proposed := add("add_proposed", "tool:x:m:1:1", "actor_id", aoi, "preset", "student")
 		wantStatus(t, proposed, "proposed")
+		// What the course says refuses a seat at once, never proposed
+		// (AIShie-Core #60), in Core's order: the lists before a seat
+		// already there, and a seat already there before an expiry past.
+		add("add_seated_proposed", "tool:x:m:1:2", "actor_id", w.actorOf("yuki"), "preset", "observer")
+		add("add_seated_listed_nobody_there", "tool:x:m:1:3", "actor_id", w.actorOf("yuki"), "preset", "observer",
+			"student_scope", "listed", "listed_students", []string{w.tutorSeat()})
+		add("add_seated_expired", "tool:x:m:1:4", "actor_id", w.actorOf("yuki"), "preset", "observer", "expires_at", "2020-01-01T00:00:00Z")
+		add("add_expired_listed_nobody_there", "tool:x:m:1:5", "actor_id", ren, "preset", "observer",
+			"student_scope", "listed", "listed_students", []string{w.tutorSeat()}, "expires_at", "2020-01-01T00:00:00Z")
 		w.setLevel(seat, "member_manage", "autonomous")
 		made := add("add_executed", "tool:x:m:2:1", "actor_id", ren, "preset", "student")
 		wantStatus(t, made, "executed")

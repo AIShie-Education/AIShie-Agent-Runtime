@@ -205,6 +205,10 @@ func (w *fakeWorld) runtimeService() *restClient {
 	return &restClient{base: w.srv.URL, token: w.svc.Token, hc: w.srv.Client()}
 }
 
+func (w *fakeWorld) textService() *restClient {
+	return &restClient{base: w.srv.URL, token: w.fc.IssueServiceToken("record").Token, hc: w.srv.Client()}
+}
+
 func (w *fakeWorld) mcpAgent() (string, string, *mcpClient) {
 	w.t.Helper()
 	a, err := w.fc.AddMCPAgent("Sato's tools", w.satoA.ID)
