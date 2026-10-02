@@ -1034,10 +1034,12 @@ machine's loopback, should `HTTP_ADDR` listen wider).
   database (migration 0014, tables `search_file` and `search_passage`):
   the text of the course's files the models read, kept per version,
   dropped as the runtime hears that Core purged the version (by the events
-  of a seat that reads drafts, or as a search reads its tombstone) and
-  otherwise after 30 days unused: a whole document purged in a course
-  where no agent here reads drafts stays stored, though never searched,
-  for up to those 30 days. It needs no extension, so the stack's
+  of a seat that reads drafts, `document.purged`, or of one that writes
+  assignments, `document.purged_unreleased`, for instructions or a rubric
+  not yet released; or as a search reads its tombstone) and otherwise
+  after 30 days unused: a whole document purged in a course where no
+  agent here sees those events stays stored, though never searched, for
+  up to those 30 days. It needs no extension, so the stack's
   `postgres:18` serves it as it is. Scans and older Office and OpenDocument
   files are searchable only by their text versions, which the transcriber
   makes where it is on. Each answer's first search asks Core what its seat
