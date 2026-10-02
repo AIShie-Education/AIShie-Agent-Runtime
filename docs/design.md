@@ -1082,12 +1082,12 @@ it is (`text_source`), an excerpt of at most 200 characters around the
 words, and `read`, the `document_get` call that gives the passage itself,
 which the model makes as it is (and `read_note` where it gives the file
 from its start instead, and `passage`, the passage itself, where it would
-give it cut short: The pointer, below). A page holds 5 hits (`limit`, at most 10);
-`more` and `next` give the next page. The result says how many documents
-and files were searched, how many files have no text the search can read,
-and how many were not read yet; a search that finds nothing says what it
-could not search, so that the model does not take "not found" for "the
-course never says it".
+give it cut short: The pointer, below). A page holds 5 hits (`limit`, at
+most 10); `more` and `next` give the next page. The result says how many
+documents and files were searched, how many files have no text the search
+can read, and how many were not read yet; a search that finds nothing says
+what it could not search, so that the model does not take "not found" for
+"the course never says it".
 
 - *Offered* (`Set.WithSearch`) to every seat's model whose set offers
   `document_list` and `document_get`, through which it reads (a seat that
@@ -2236,17 +2236,18 @@ Chinese with a table, overran, and was cut off.
   to end (`transcription`) against the pinned Core, where a lecture of
   three files in one version is transcribed file by file too, each job
   naming its file, and read back file by file.
-- Adapters: golden translations both ways in `testdata/`, every stop reason
-  and usage field; `LIVE=1` runs them against the real providers whose keys
-  are set (the live tests, below, say which providers declare every tool
-  and which stream an answer). `openai_chat`, `anthropic` and `gemini` have goldens
-  of streams written in their providers' SSE format (`testdata/stream`): text
-  in pieces with keep-alives, reasoning streamed before the answer,
-  parallel calls whose arguments are split and interleaved across chunks,
-  the usage alone in the last chunk and in its choice, a refusal with CRLF
-  endings, a stream ending at its finish reason without `[DONE]`, an error
-  part way and one cut off; for each answer also written whole, `Stream`
-  must make exactly what `Call` makes of it.
+- Adapters: golden translations both ways in `testdata/`, every stop
+  reason and usage field; `LIVE=1` runs them against the real providers
+  whose keys are set (the live tests, below, say which providers declare
+  every tool and which stream an answer). `openai_chat`, `anthropic` and
+  `gemini` have goldens of streams written in their providers' SSE format
+  (`testdata/stream`): text in pieces with keep-alives, reasoning streamed
+  before the answer, parallel calls whose arguments are split and
+  interleaved across chunks, the usage alone in the last chunk and in its
+  choice, a refusal with CRLF endings, a stream ending at its finish
+  reason without `[DONE]`, an error part way and one cut off; for each
+  answer also written whole, `Stream` must make exactly what `Call` makes
+  of it.
 - Drafts: the drafter coalesces (fewer writes than changes, each the whole
   state, versions rising, one in flight, spaced), keeps its steps, ends an
   attempt with `done` unless its answer went in, drops a 429 and sends
@@ -2415,19 +2416,18 @@ Chinese with a table, overran, and was cut off.
 - `ocr`: the engine against programs of the test's own (shell scripts
   standing in for pdftoppm and tesseract) under the real prlimit, so
   skipped where there is none, as on macOS (CI's Linux runners run them):
-  the
-  pages read, their headings, the pages past `MaxPages` left out and said
-  so, a page that fails or passes its time marked and the rest read, a
-  program that sleeps killed with its whole process group at its timeout,
-  one that allocates past its memory limit refused it, the environment
-  each sees (nothing of the runtime's), its niceness and working
-  directory, an image refused by its header's size before any program
-  runs, and the private directory removed. The service: a file recognized
-  once, in the background, and fetched once, the first question told its
-  progress, a question meanwhile waiting as the first did, then the text
-  read from the store; the wait never past half an answer's time left;
-  turns and a full queue; a file another worker holds; failures kept and
-  tried again; nothing kept when the process stops. With the real
+  the pages read, their headings, the pages past `MaxPages` left out and
+  said so, a page that fails or passes its time marked and the rest read,
+  a program that sleeps killed with its whole process group at its
+  timeout, one that allocates past its memory limit refused it, the
+  environment each sees (nothing of the runtime's), its niceness and
+  working directory, an image refused by its header's size before any
+  program runs, and the private directory removed. The service: a file
+  recognized once, in the background, and fetched once, the first question
+  told its progress, a question meanwhile waiting as the first did, then
+  the text read from the store; the wait never past half an answer's time
+  left; turns and a full queue; a file another worker holds; failures kept
+  and tried again; nothing kept when the process stops. With the real
   programs (`TestRecognizeScannedCJK`, skipped only where they are not
   installed, and never with `OCR_REQUIRED=1`): a scanned notice drawn in
   Unifont's glyphs, in traditional and simplified Chinese and in English,
