@@ -150,17 +150,30 @@ func TestPresence(t *testing.T) {
 }
 
 // TestReload: agents added, paused, changed and removed are started,
-// stopped and restarted.
+// stopped and restarted. Ken's agent runs throughout, unchanged. The
+// agents' calls are counted as they begin them, on their connections to
+// Core, and "no more" from the agents paused and removed is over ten calls
+// Ken's begins meanwhile, not over a time, in which a busy machine would
+// poll less: the fake Core logs a poll the stop cancelled as it ends, on a
+// busy machine after the agent has stopped.
 func TestReload(t *testing.T) {
 	w := newWorld(t)
 	own := w.ownAgent("yuki-helper", 0)
-	tu := w.tutor("cs101-tutor")
+	w.ownAgent("ken-helper", 1)
+	w.tutor("cs101-tutor")
 	ms := models{"m1": scripted.New(scripted.Reply("One.")), "m2": scripted.New(scripted.Reply("Two.")), "m3": scripted.New(scripted.Reply("Three."))}
-	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), ms, workerOpts{})
+	ken := w.agentDoc("ken-helper", "m1", nil, nil)
+	var yukiBegan, tutorBegan, kenBegan atomic.Int32
+	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil), ken), ms, workerOpts{edit: func(o *Options) {
+		countCalls("yuki-helper", &yukiBegan)(o)
+		countCalls("cs101-tutor", &tutorBegan)(o)
+		countCalls("ken-helper", &kenBegan)(o)
+	}})
 	wk.waitState("yuki-helper", store.AgentRunning)
+	wk.waitState("ken-helper", store.AgentRunning)
 
 	// The tutor is added, and Yuki's agent changes model.
-	wk.sup.Reload(w.config(nil, w.agentDoc("yuki-helper", "m2", nil, nil), w.agentDoc("cs101-tutor", "m3", nil, nil)))
+	wk.sup.Reload(w.config(nil, w.agentDoc("yuki-helper", "m2", nil, nil), w.agentDoc("cs101-tutor", "m3", nil, nil), ken))
 	wk.waitState("cs101-tutor", store.AgentRunning)
 	eventually(t, "the changed agent running again", func() bool {
 		for _, s := range wk.sup.Status() {
@@ -175,18 +188,21 @@ func TestReload(t *testing.T) {
 		t.Errorf("answered %q", got[0].Body)
 	}
 
-	// Yuki's agent paused; the tutor removed.
-	wk.sup.Reload(w.config(nil, w.agentDoc("yuki-helper", "m2", map[string]any{"paused": true}, nil)))
+	// Yuki's agent paused; the tutor removed. Each state is written once
+	// the agent has stopped, its calls returned: whatever it calls after
+	// this, it began after.
+	wk.sup.Reload(w.config(nil, w.agentDoc("yuki-helper", "m2", map[string]any{"paused": true}, nil), ken))
 	wk.waitState("yuki-helper", store.AgentPaused)
 	wk.waitState("cs101-tutor", store.AgentStopped)
-	time.Sleep(50 * time.Millisecond)
-	n := len(w.calls(own.actor.ID, "")) + len(w.calls(tu.actor.ID, ""))
-	time.Sleep(200 * time.Millisecond)
-	if more := len(w.calls(own.actor.ID, "")) + len(w.calls(tu.actor.ID, "")) - n; more != 0 {
-		t.Errorf("%d calls after pausing and removing", more)
+	noMoreOver(t, "the agents paused and removed", begun(&yukiBegan, &tutorBegan), "calls by Ken's agent, still running", begun(&kenBegan))
+	if st := wk.statusOf("yuki-helper"); !st.Paused || st.Running {
+		t.Errorf("the paused agent's status: %+v", st)
 	}
-	if st := wk.sup.Status(); len(st) != 1 || !st[0].Paused {
-		t.Errorf("status %+v", st)
+	if st := wk.statusOf("cs101-tutor"); st.AgentID != "" {
+		t.Errorf("the removed agent's status: %+v", st)
+	}
+	if st := wk.statusOf("ken-helper"); !st.Running {
+		t.Errorf("the status of the agent left as it was: %+v", st)
 	}
 }
 

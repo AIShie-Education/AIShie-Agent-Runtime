@@ -12,6 +12,7 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/fakecore"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/scripted"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
@@ -241,13 +242,9 @@ func TestHostedAgentsRunBesideYAML(t *testing.T) {
 	// over ten calls the YAML agent, still running, begins meanwhile, not
 	// over a time, in which a busy machine would poll less.
 	eventually(t, "the hosted agent stopped", func() bool { return !wk.statusOf("agt_yuki").Running })
-	n, other := began.Load(), yamlBegan.Load()
-	if n == 0 {
-		t.Fatal("none of the hosted agent's calls was counted")
-	}
-	eventually(t, "ten calls more by the YAML agent", func() bool { return yamlBegan.Load() >= other+10 })
-	if more := began.Load() - n; more != 0 {
-		t.Errorf("%d calls to Core begun by the paused agent", more)
+	noMoreOver(t, "the paused agent", begun(&began), "calls by the YAML agent", begun(&yamlBegan))
+	if st := wk.statusOf("agt_yuki"); st.Running {
+		t.Errorf("the paused agent runs: %+v", st)
 	}
 	if w.fc.SiteChat(own.actor.ID) {
 		t.Error("a paused agent is asked in the site")
@@ -356,6 +353,85 @@ func TestHostedUpgradeReissuesPastedTokens(t *testing.T) {
 	}
 	if stats := bucket.Stats(); stats.Granted < 7 || stats.Waited == 0 {
 		t.Errorf("the service's calls were not paced by the bucket: %+v", stats)
+	}
+}
+
+// The registry rebuilt from a hosted agent's row as it was before the
+// worker wrote the token it was issued, and put in force after: older than
+// the row the agent runs (adopt), it restarts nothing, and has no token
+// issued again. So a busy machine has it: the rebuild set off by the check
+// of its owner, which writes its row, reads the row before the token's
+// write, and is put in force after it. Here the registry is read while
+// Core holds the token's issue.
+func TestHostedOlderRebuildRestartsNothing(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("agt_yuki", 0)
+	w.ownAgent("ken-helper", 1)
+	h := w.hosting()
+	h.hostPasted("agt_yuki", own, hostedSettings("m1"))
+	held, release := make(chan struct{}), make(chan struct{})
+	var holding, releasing sync.Once
+	let := func() { releasing.Do(func() { close(release) }) }
+	t.Cleanup(let)
+	w.fc.Inject(func(c fakecore.InjectedCall) *fakecore.Injection {
+		if strings.HasSuffix(c.Tool, "issue_token") {
+			holding.Do(func() { close(held); <-release })
+		}
+		return nil
+	})
+	yaml := &config.Config{}
+	wk := h.start(h.build(yaml), models{"m1": scripted.New(scripted.Reply("Once."))})
+	select {
+	case <-held:
+	case <-time.After(15 * time.Second):
+		t.Fatal("timed out waiting for the token's issue")
+	}
+	// Read now, the row is as the owner's check wrote it, with the token
+	// pasted; a paused YAML agent's state says when it is in force.
+	older := h.build(w.config(nil, w.agentDoc("ken-helper", "m1", map[string]any{"paused": true}, nil)))
+	var before *config.Agent
+	for _, a := range older.Agents {
+		if a.ID == "agt_yuki" {
+			before = a
+		}
+	}
+	if before == nil || !before.Hosted.OwnerVerified || before.Hosted.TokenIssued {
+		t.Fatalf("the row read before the token's write: %+v", before)
+	}
+	let()
+	wk.waitState("agt_yuki", store.AgentRunning)
+	h.wantIssued("agt_yuki", own)
+	issued, written := w.fc.RuntimeIssues(own.actor.ID), h.row("agt_yuki")
+	runs := func() (*Agent, int) {
+		wk.sup.mu.Lock()
+		defer wk.sup.mu.Unlock()
+		r := wk.sup.runners["agt_yuki"]
+		if r == nil {
+			return nil, 0
+		}
+		return r.agent, hostedVersion(r.cfg)
+	}
+	inst, version := runs()
+	if inst == nil || version != written.Version {
+		t.Fatalf("the agent runs at version %d; its row is at %d", version, written.Version)
+	}
+
+	wk.sup.Update(older)
+	wk.waitState("ken-helper", store.AgentPaused)
+	if now, v := runs(); now != inst || v != written.Version {
+		t.Errorf("the configuration read before the token's write restarted the agent (%t), at version %d; its row is at %d",
+			now != inst, v, written.Version)
+	}
+	if n := w.fc.RuntimeIssues(own.actor.ID); n != issued {
+		t.Errorf("%d tokens issued after the older configuration", n-issued)
+	}
+	if st := wk.state("agt_yuki"); st.State != store.AgentRunning || st.ConfigVersion != written.Version {
+		t.Errorf("the agent's state: %s at version %d; its row is at %d", st.State, st.ConfigVersion, written.Version)
+	}
+	h.wantIssued("agt_yuki", own)
+	conv, _ := w.ask(0, own, "Still there?")
+	if got := w.waitAnswers(conv, 1); got[0].Body != "Once." {
+		t.Errorf("answered %q", got[0].Body)
 	}
 }
 
@@ -501,7 +577,12 @@ func TestHostedOwnerSuspended(t *testing.T) {
 // runtime (its owner, an administrator) stops, unauthorized, and stays
 // stopped through changes to the registry that are not its own, issued
 // nothing; its owner asking for a new token (its row's dropped) has it
-// issued another, and it runs again.
+// issued another, and it runs again. Its starts, and its calls as it
+// begins them on its connection to Core, are counted from before the
+// change to another, and "no more" after it is over ten of its lease ticks
+// (leaseTicks), at each of which it would have been started again, not
+// over a time: an instance started again fetches the catalogue and has
+// its token before its first call, after more ticks than ten.
 func TestHostedRevokedElsewhere(t *testing.T) {
 	w := newWorld(t)
 	own := w.ownAgent("agt_yuki", 0)
@@ -510,7 +591,13 @@ func TestHostedRevokedElsewhere(t *testing.T) {
 	h.host("agt_yuki", own, hostedSettings("m1"))
 	h.host("agt_ken", other, hostedSettings("m1"))
 	yaml := &config.Config{}
-	wk := h.start(h.build(yaml), models{"m1": scripted.New(scripted.Reply("Back again."))})
+	ticks := &leaseTicks{Store: h.st}
+	var began atomic.Int32
+	wk := w.start(h.build(yaml), models{"m1": scripted.New(scripted.Reply("Back again."))},
+		workerOpts{store: ticks, edit: func(o *Options) {
+			h.options(o)
+			countCalls("agt_yuki", &began)(o)
+		}})
 	wk.waitState("agt_yuki", store.AgentRunning)
 	wk.waitState("agt_ken", store.AgentRunning)
 
@@ -520,17 +607,17 @@ func TestHostedRevokedElsewhere(t *testing.T) {
 	if st.Reason != store.ReasonTokenRefused || !strings.Contains(st.Detail, "revoked in Core") || strings.Contains(st.Detail, "token_ref") {
 		t.Errorf("the unauthorized hosted agent's state: %q (%s)", st.Detail, st.Reason)
 	}
-	time.Sleep(50 * time.Millisecond)
-	n, issued := len(w.calls(own.actor.ID, "")), w.fc.RuntimeIssues(own.actor.ID)
+	// What it has done is taken before the change to another: a start the
+	// change sets off may come at the first lease tick after it.
+	stopped, issued := ticks.stopped(t, wk, "agt_yuki", begun(&began)), w.fc.RuntimeIssues(own.actor.ID)
 	// Another agent's change: this one is not tried again.
 	_, err = h.st.SetHostedAgentPaused(context.Background(), "agt_ken", true, 0)
 	w.ok(err)
 	h.update(wk, yaml)
 	wk.waitState("agt_ken", store.AgentPaused)
-	time.Sleep(200 * time.Millisecond)
-	if more := len(w.calls(own.actor.ID, "")) - n; more != 0 || w.fc.RuntimeIssues(own.actor.ID) != issued {
-		t.Errorf("%d calls, and %d tokens issued, for the unauthorized agent after a change to another", more,
-			w.fc.RuntimeIssues(own.actor.ID)-issued)
+	stopped.staysStopped(t)
+	if n := w.fc.RuntimeIssues(own.actor.ID); n != issued {
+		t.Errorf("%d tokens issued for the unauthorized agent after a change to another", n-issued)
 	}
 
 	// Its owner asks for a new token (POST …/token): the row's dropped.

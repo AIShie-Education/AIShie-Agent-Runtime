@@ -47,7 +47,14 @@ func stopCancelsTheAnswer(t *testing.T, w *world) {
 	}
 
 	// Nothing is posted, then or after: the runtime records the answer
-	// dropped, and polls on without trying it again.
+	// dropped, and polls on without trying it again. A read of the inbox
+	// from before the withdrawal may come back only once the answer has
+	// stopped, on a busy machine, and start a second claim, which reads
+	// the question withdrawn and drops it too, asking no model
+	// (TestWithdrawnStopsTheAnswer in internal/worker). So the scenario
+	// accepts any number of answers counted dropped, at least one, and
+	// none counted otherwise; what bounds it is that the model is asked
+	// once and nothing is posted.
 	eventually(t, answerWait, "the answer recorded dropped", func() bool {
 		return rt.metric("answers_total", map[string]string{"outcome": "dropped"}) >= 1
 	})
@@ -55,8 +62,10 @@ func stopCancelsTheAnswer(t *testing.T, w *world) {
 	if as := w.answers(t, w.yuki, conv, w.own.member); len(as) != 0 {
 		t.Errorf("answers were posted to a question withdrawn: %+v", as)
 	}
-	if n := rt.metric("answers_total", nil); n != 1 {
-		t.Errorf("answers_total = %v; want the one dropped", n)
+	for outcome, n := range rt.counters("answers_total", "outcome") {
+		if outcome != "dropped" && n != 0 {
+			t.Errorf("answers_total{outcome=%q} = %v; want the question dropped alone", outcome, n)
+		}
 	}
 	if n := len(m.Requests()); n != 1 {
 		t.Errorf("the model was asked %d times", n)

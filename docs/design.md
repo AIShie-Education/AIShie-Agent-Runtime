@@ -1319,7 +1319,10 @@ agent's row dropping its token (its owner asking for a new one, §11.4) is
 a change of its own, which starts it again, to be issued another. The
 worker's own write of the token it was issued is not: it puts the row as
 it wrote it in force for the agent at once, so that the rebuild the write
-sets off restarts nothing. `SIGHUP` goes through `Reload`, which starts
+sets off restarts nothing; nor does a rebuild that read the row before
+that write and is put in force after it (the one the check of its owner
+sets off, on a busy machine), which is older than the row the agent runs
+and is not taken for it. `SIGHUP` goes through `Reload`, which starts
 every such agent again, an operator's agent being issued a new token. A hosted agent that does
 not pass is not run, and is shown in state `error` with every problem; it
 keeps none of the others from running.
