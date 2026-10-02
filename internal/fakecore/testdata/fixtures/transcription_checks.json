@@ -1,0 +1,187 @@
+{
+ "scenario": "transcription_checks",
+ "steps": [
+  {
+   "body": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "done needs body"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "method": "POST",
+   "path": "/v1/services/document_text/versions/<id:1>/complete",
+   "request": {
+    "file_id": "<id:2>",
+    "lease_id": "<id:3>",
+    "model": "m",
+    "pages": 1,
+    "status": "done"
+   },
+   "step": "done_without_body"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "the text is empty"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "method": "POST",
+   "path": "/v1/services/document_text/versions/<id:1>/complete",
+   "request": {
+    "body": " \n",
+    "file_id": "<id:2>",
+    "lease_id": "<id:3>",
+    "model": "m",
+    "pages": 1,
+    "status": "done"
+   },
+   "step": "done_empty_body"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "done needs pages, 1 to 100000"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "method": "POST",
+   "path": "/v1/services/document_text/versions/<id:1>/complete",
+   "request": {
+    "body": "## 第 1 頁\n\nText.",
+    "file_id": "<id:2>",
+    "lease_id": "<id:3>",
+    "model": "m",
+    "status": "done"
+   },
+   "step": "done_without_pages"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "done gives no reason"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "method": "POST",
+   "path": "/v1/services/document_text/versions/<id:1>/complete",
+   "request": {
+    "body": "## 第 1 頁\n\nText.",
+    "file_id": "<id:2>",
+    "lease_id": "<id:3>",
+    "model": "m",
+    "pages": 1,
+    "reason": "timeout",
+    "status": "done"
+   },
+   "step": "done_with_reason"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "model is 1 to 200 characters"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "method": "POST",
+   "path": "/v1/services/document_text/versions/<id:1>/complete",
+   "request": {
+    "body": "## 第 1 頁\n\nText.",
+    "file_id": "<id:2>",
+    "lease_id": "<id:3>",
+    "pages": 1,
+    "status": "done"
+   },
+   "step": "done_without_model"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "failed gives no body, pages or model"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "method": "POST",
+   "path": "/v1/services/document_text/versions/<id:1>/complete",
+   "request": {
+    "body": "x",
+    "file_id": "<id:2>",
+    "lease_id": "<id:3>",
+    "reason": "timeout",
+    "status": "failed"
+   },
+   "step": "failed_with_body"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "skipped gives no body, pages or model"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "method": "POST",
+   "path": "/v1/services/document_text/versions/<id:1>/complete",
+   "request": {
+    "file_id": "<id:2>",
+    "lease_id": "<id:3>",
+    "pages": 1,
+    "reason": "too_many_pages",
+    "status": "skipped"
+   },
+   "step": "skipped_with_pages"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "reason is 1 to 500 characters"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "method": "POST",
+   "path": "/v1/services/document_text/versions/<id:1>/complete",
+   "request": {
+    "file_id": "<id:2>",
+    "lease_id": "<id:3>",
+    "status": "failed"
+   },
+   "step": "failed_without_reason"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "not_found",
+     "message": "no such text version"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 404,
+   "method": "POST",
+   "path": "/v1/services/document_text/versions/<id:1>/complete",
+   "request": {
+    "body": "## 第 1 頁\n\nText.",
+    "file_id": "<id:2>",
+    "lease_id": "<id:3>",
+    "model": "m",
+    "pages": 1,
+    "status": "done"
+   },
+   "step": "done_for_no_version"
+  }
+ ]
+}

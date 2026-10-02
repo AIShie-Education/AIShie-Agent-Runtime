@@ -265,6 +265,9 @@ Move the three together, in one pull request:
    DATABASE_URL=postgres:///aishie_pin_core scripts/ci-core.sh start
    . "${TMPDIR:-/tmp}/aishie-ci-core/env"
    bin/aishie-runtime catalogue --core "$E2E_CORE_URL" --write internal/core/testdata/catalogue.json
+   jq -S --indent 1 . internal/core/testdata/catalogue.json > catalogue.tmp
+   mv catalogue.tmp internal/core/testdata/catalogue.json
+   cp internal/core/testdata/catalogue.json internal/fakecore/testdata/catalogue.json
    make record-fixtures
    scripts/ci-core.sh stop
    ```

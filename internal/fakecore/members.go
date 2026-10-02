@@ -379,8 +379,9 @@ type seating struct {
 }
 
 // seatingFor is the seat a member.add of g's would give at now, or what
-// refuses it: the preset, the levels within the granter's and the seat's
-// ceilings, the scope and its lists, the expiry, and the actor (seatable).
+// refuses it: the preset, the levels and the expiry within the granter's,
+// the actor (seatable) and the seat's ceilings, the scope and its lists,
+// a live seat (seatedNow), and an expiry already past.
 func (c *Core) seatingFor(g *member, in memberAddIn, now time.Time) (*seating, error) {
 	name, pr, err := c.findPreset(in.Preset, in.PresetID)
 	if err != nil {
@@ -418,17 +419,22 @@ func (c *Core) seatingFor(g *member, in memberAddIn, now time.Time) (*seating, e
 	if exp := g.expiresAt; exp != nil && (s.expiresAt == nil || s.expiresAt.After(*exp)) {
 		return nil, forbid("your own membership ends at %s; you cannot give one that lasts longer", exp.UTC().Format(time.RFC3339))
 	}
-	if s.actor, s.expired, err = c.seatable(in.ActorID.String(), g.course, now); err != nil {
+	// In the order Core's Validate asks: the actor and the ceilings of
+	// what it may hold, the lists, a live seat, and then the expiry.
+	if s.actor, err = c.seatable(in.ActorID.String()); err != nil {
 		return nil, err
-	}
-	if s.expiresAt != nil && !s.expiresAt.After(now) {
-		return nil, invalid("expires_at is in the past")
 	}
 	if err := toCeilings(s.actor.kind == "agent", nil, s.perms, in.Perms); err != nil {
 		return nil, err
 	}
 	if err := c.checkScope(g.course, s); err != nil {
 		return nil, err
+	}
+	if s.expired, err = c.seatedNow(s.actor, g.course, now); err != nil {
+		return nil, err
+	}
+	if s.expiresAt != nil && !s.expiresAt.After(now) {
+		return nil, invalid("expires_at is in the past")
 	}
 	return s, nil
 }
@@ -472,27 +478,32 @@ func memberAdd() *impl {
 // errSeated refuses a second live seat.
 var errSeated = conflicts("the actor already has a seat in this course; change it, or remove it and add again for a fresh start")
 
-// seatable is the actor of actorID, if Core's seat() would seat it in co
-// at now: someone active, not the system, and not an agent someone owns,
-// with no live seat there; and its seat there whose expiry has passed,
-// which is to be removed first.
-func (c *Core) seatable(actorID string, co *course, now time.Time) (*actor, *member, error) {
+// seatable is the actor of actorID, if Core's seat() would seat it at
+// all: someone active, not the system, and not an agent someone owns.
+func (c *Core) seatable(actorID string) (*actor, error) {
 	a := c.actors[actorID]
 	switch {
 	case a == nil:
-		return nil, nil, missing("no such actor")
+		return nil, missing("no such actor")
 	case !a.active():
-		return nil, nil, precondition("the actor is suspended")
+		return nil, precondition("the actor is suspended")
 	case a.kind == "system":
-		return nil, nil, precondition("the system actor is not seated in courses")
+		return nil, precondition("the system actor is not seated in courses")
 	case a.owner != nil:
-		return nil, nil, precondition("the agent belongs to someone: its owner brings it in, with member.add_delegate")
+		return nil, precondition("the agent belongs to someone: its owner brings it in, with member.add_delegate")
 	}
+	return a, nil
+}
+
+// seatedNow refuses a's seat in co if it has a live one at now, as Core's
+// does; a seat there whose expiry has passed is returned, to be removed
+// first.
+func (c *Core) seatedNow(a *actor, co *course, now time.Time) (*member, error) {
 	live := c.seatOf(a, co)
 	if live != nil && (live.expiresAt == nil || live.expiresAt.After(now)) {
-		return nil, nil, errSeated
+		return nil, errSeated
 	}
-	return a, live, nil
+	return live, nil
 }
 
 // checkScope holds a new seat's lists to its scope and to the course:

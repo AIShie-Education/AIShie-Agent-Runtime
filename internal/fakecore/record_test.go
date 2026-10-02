@@ -293,6 +293,14 @@ func (w *liveWorld) runtimeService() *restClient {
 	return &restClient{base: w.lc.base, token: w.lc.svc, hc: w.lc.hc}
 }
 
+// textService is a credential of the document_text service's, issued as
+// it is needed.
+func (w *liveWorld) textService() *restClient {
+	w.t.Helper()
+	tok := str(w.lc.result(w.lc.admin, "POST", "/v1/services/document_text/credentials", map[string]any{"label": "record"}), "token")
+	return &restClient{base: w.lc.base, token: tok, hc: w.lc.hc}
+}
+
 func (w *liveWorld) path(rest string) string { return "/v1/courses/" + w.courseID + rest }
 
 func (w *liveWorld) ask(student int, body string) (string, string) {

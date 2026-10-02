@@ -158,15 +158,113 @@
   },
   {
    "args": {
-    "actor_id": "<id:10>",
+    "actor_id": "<id:3>",
+    "course_id": "<id:2>",
+    "idempotency_key": "tool:x:m:1:2",
+    "preset": "observer"
+   },
+   "envelope": {
+    "action_id": "<id:10>",
+    "error": {
+     "code": "conflict",
+     "message": "the actor already has a seat in this course; change it, or remove it and add again for a fresh start"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "add_seated_proposed",
+   "text_is_envelope": true,
+   "tool": "member_add"
+  },
+  {
+   "args": {
+    "actor_id": "<id:3>",
+    "course_id": "<id:2>",
+    "idempotency_key": "tool:x:m:1:3",
+    "listed_students": [
+     "<id:6>"
+    ],
+    "preset": "observer",
+    "student_scope": "listed"
+   },
+   "envelope": {
+    "action_id": "<id:11>",
+    "error": {
+     "code": "failed_precondition",
+     "message": "listed_students must all be current students of this course"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "add_seated_listed_nobody_there",
+   "text_is_envelope": true,
+   "tool": "member_add"
+  },
+  {
+   "args": {
+    "actor_id": "<id:3>",
+    "course_id": "<id:2>",
+    "expires_at": "<time>",
+    "idempotency_key": "tool:x:m:1:4",
+    "preset": "observer"
+   },
+   "envelope": {
+    "action_id": "<id:12>",
+    "error": {
+     "code": "conflict",
+     "message": "the actor already has a seat in this course; change it, or remove it and add again for a fresh start"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "add_seated_expired",
+   "text_is_envelope": true,
+   "tool": "member_add"
+  },
+  {
+   "args": {
+    "actor_id": "<id:13>",
+    "course_id": "<id:2>",
+    "expires_at": "<time>",
+    "idempotency_key": "tool:x:m:1:5",
+    "listed_students": [
+     "<id:6>"
+    ],
+    "preset": "observer",
+    "student_scope": "listed"
+   },
+   "envelope": {
+    "action_id": "<id:14>",
+    "error": {
+     "code": "failed_precondition",
+     "message": "listed_students must all be current students of this course"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "add_expired_listed_nobody_there",
+   "text_is_envelope": true,
+   "tool": "member_add"
+  },
+  {
+   "args": {
+    "actor_id": "<id:13>",
     "course_id": "<id:2>",
     "idempotency_key": "tool:x:m:2:1",
     "preset": "student"
    },
    "envelope": {
-    "action_id": "<id:11>",
+    "action_id": "<id:15>",
     "result": {
-     "member_id": "<id:12>"
+     "member_id": "<id:16>"
     },
     "review_state": "none",
     "status": "executed"
@@ -179,16 +277,16 @@
   },
   {
    "args": {
-    "actor_id": "<id:10>",
+    "actor_id": "<id:13>",
     "course_id": "<id:2>",
     "idempotency_key": "tool:x:m:2:1",
     "preset": "student"
    },
    "envelope": {
-    "action_id": "<id:11>",
+    "action_id": "<id:15>",
     "replayed": true,
     "result": {
-     "member_id": "<id:12>"
+     "member_id": "<id:16>"
     },
     "review_state": "none",
     "status": "executed"
@@ -201,13 +299,13 @@
   },
   {
    "args": {
-    "actor_id": "<id:10>",
+    "actor_id": "<id:13>",
     "course_id": "<id:2>",
     "idempotency_key": "tool:x:m:2:2",
     "preset": "observer"
    },
    "envelope": {
-    "action_id": "<id:13>",
+    "action_id": "<id:17>",
     "error": {
      "code": "conflict",
      "message": "the actor already has a seat in this course; change it, or remove it and add again for a fresh start"
@@ -229,7 +327,7 @@
     "preset": "instructor"
    },
    "envelope": {
-    "action_id": "<id:14>",
+    "action_id": "<id:18>",
     "error": {
      "code": "forbidden",
      "details": {
@@ -257,7 +355,7 @@
     "preset": "student"
    },
    "envelope": {
-    "action_id": "<id:15>",
+    "action_id": "<id:19>",
     "error": {
      "code": "forbidden",
      "details": {
@@ -282,7 +380,7 @@
     "preset": "observer"
    },
    "envelope": {
-    "action_id": "<id:16>",
+    "action_id": "<id:20>",
     "error": {
      "code": "failed_precondition",
      "message": "the agent belongs to someone: its owner brings it in, with member.add_delegate"
@@ -304,7 +402,7 @@
     "preset": "wizard"
    },
    "envelope": {
-    "action_id": "<id:17>",
+    "action_id": "<id:21>",
     "error": {
      "code": "not_found",
      "message": "no such preset"
@@ -413,7 +511,7 @@
     "preset": "student"
    },
    "envelope": {
-    "action_id": "<id:18>",
+    "action_id": "<id:22>",
     "error": {
      "code": "not_found",
      "message": "no such actor"
@@ -439,7 +537,7 @@
     "student_scope": "listed"
    },
    "envelope": {
-    "action_id": "<id:19>",
+    "action_id": "<id:23>",
     "error": {
      "code": "failed_precondition",
      "message": "listed_students must all be current students of this course"
@@ -464,7 +562,7 @@
     "preset": "observer"
    },
    "envelope": {
-    "action_id": "<id:20>",
+    "action_id": "<id:24>",
     "error": {
      "code": "invalid_argument",
      "message": "listed_students only makes sense with student_scope = listed"
@@ -481,19 +579,19 @@
   {
    "args": {
     "course_id": "<id:2>",
-    "member_id": "<id:12>"
+    "member_id": "<id:16>"
    },
    "envelope": {
     "result": {
-     "actor_id": "<id:10>",
+     "actor_id": "<id:13>",
      "answers_course": false,
      "assignment_scope": "all",
      "created_at": "<time>",
      "display_name": "Ren",
-     "id": "<id:12>",
+     "id": "<id:16>",
      "kind": "human",
      "listed_students": [
-      "<id:12>"
+      "<id:16>"
      ],
      "perm_ceiling_reasons": {
       "conversation_answer": "conversations_are_with_agents"
@@ -536,7 +634,7 @@
       "submission_read": "autonomous",
       "submission_write": "autonomous"
      },
-     "preset_id": "<id:21>",
+     "preset_id": "<id:25>",
      "role": "student",
      "status": "active",
      "student_scope": "listed"
@@ -552,17 +650,17 @@
   {
    "args": {
     "course_id": "<id:2>",
-    "member_id": "<id:22>"
+    "member_id": "<id:26>"
    },
    "envelope": {
     "result": {
-     "actor_id": "<id:23>",
+     "actor_id": "<id:27>",
      "answers_course": false,
      "assignment_scope": "all",
      "created_at": "<time>",
      "display_name": "CS101 Registrar",
      "hosting": "runtime",
-     "id": "<id:22>",
+     "id": "<id:26>",
      "kind": "agent",
      "perm_ceiling_reasons": {
       "action_decide": "agent_decides_by_proposal"
@@ -605,7 +703,7 @@
       "submission_read": "autonomous",
       "submission_write": "autonomous"
      },
-     "preset_id": "<id:24>",
+     "preset_id": "<id:28>",
      "role": "ta",
      "site_chat": true,
      "status": "active",
@@ -678,8 +776,8 @@
       "submission_read": "denied",
       "submission_write": "denied"
      },
-     "preset_id": "<id:25>",
-     "principal_member_id": "<id:26>",
+     "preset_id": "<id:29>",
+     "principal_member_id": "<id:30>",
      "role": "assistant",
      "site_chat": true,
      "status": "active",
@@ -768,18 +866,18 @@
         "submission_read": "autonomous",
         "submission_write": "autonomous"
        },
-       "preset_id": "<id:21>",
+       "preset_id": "<id:25>",
        "role": "student",
        "status": "active",
        "student_scope": "listed"
       },
       {
-       "actor_id": "<id:27>",
+       "actor_id": "<id:31>",
        "answers_course": false,
        "assignment_scope": "all",
        "created_at": "<time>",
        "display_name": "Ken",
-       "id": "<id:28>",
+       "id": "<id:32>",
        "kind": "human",
        "perm_ceiling_reasons": {
         "conversation_answer": "conversations_are_with_agents"
@@ -822,18 +920,18 @@
         "submission_read": "autonomous",
         "submission_write": "autonomous"
        },
-       "preset_id": "<id:21>",
+       "preset_id": "<id:25>",
        "role": "student",
        "status": "active",
        "student_scope": "listed"
       },
       {
-       "actor_id": "<id:10>",
+       "actor_id": "<id:13>",
        "answers_course": false,
        "assignment_scope": "all",
        "created_at": "<time>",
        "display_name": "Ren",
-       "id": "<id:12>",
+       "id": "<id:16>",
        "kind": "human",
        "perm_ceiling_reasons": {
         "conversation_answer": "conversations_are_with_agents"
@@ -876,7 +974,7 @@
         "submission_read": "autonomous",
         "submission_write": "autonomous"
        },
-       "preset_id": "<id:21>",
+       "preset_id": "<id:25>",
        "role": "student",
        "status": "active",
        "student_scope": "listed"
@@ -905,7 +1003,7 @@
        "assignment_scope": "all",
        "created_at": "<time>",
        "display_name": "Sato",
-       "id": "<id:26>",
+       "id": "<id:30>",
        "kind": "human",
        "perm_ceiling_reasons": {
         "conversation_answer": "conversations_are_with_agents"
@@ -948,18 +1046,18 @@
         "submission_read": "autonomous",
         "submission_write": "autonomous"
        },
-       "preset_id": "<id:29>",
+       "preset_id": "<id:33>",
        "role": "instructor",
        "status": "active",
        "student_scope": "all"
       },
       {
-       "actor_id": "<id:30>",
+       "actor_id": "<id:34>",
        "answers_course": false,
        "assignment_scope": "all",
        "created_at": "<time>",
        "display_name": "Mori",
-       "id": "<id:31>",
+       "id": "<id:35>",
        "kind": "human",
        "perm_ceiling_reasons": {
         "conversation_answer": "conversations_are_with_agents"
@@ -1002,13 +1100,13 @@
         "submission_read": "autonomous",
         "submission_write": "autonomous"
        },
-       "preset_id": "<id:29>",
+       "preset_id": "<id:33>",
        "role": "instructor",
        "status": "active",
        "student_scope": "all"
       }
      ],
-     "next": "<id:31>"
+     "next": "<id:35>"
     },
     "status": "executed"
    },
@@ -1048,7 +1146,7 @@
      "actor_id": "<id:1>",
      "display_name": "Aoi",
      "kind": "human",
-     "member_id": "<id:32>",
+     "member_id": "<id:36>",
      "status": "active"
     },
     "status": "executed"

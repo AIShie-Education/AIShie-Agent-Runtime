@@ -131,8 +131,9 @@ func TestCatalogueSnapshot(t *testing.T) {
 
 // TestHosting: an agent is asked in the site while it is a runtime agent
 // with a live runtime token, it and its owner active; an mcp agent never.
-// There is no me_site_chat to declare anything with. The controls issue and revoke a runtime agent's one token, as the agent
-// runtime's service does, and refuse an owner's token for one.
+// There is no me_site_chat to declare anything with. The controls issue
+// and revoke a runtime agent's one token, as the agent runtime's service
+// does, and refuse an owner's token for one.
 func TestHosting(t *testing.T) {
 	w := newFakeWorld(t, Options{})
 	if !w.fc.SiteChat(w.tutorA.ID) || w.fc.Hosting(w.tutorA.ID) != hostingRuntime {

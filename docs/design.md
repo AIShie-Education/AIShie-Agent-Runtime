@@ -2073,9 +2073,11 @@ Chinese with a table, overran, and was cut off.
   and not a proposal of its that approving now would refuse
   (`owner_would_be_refused`, the refusal inside); a call's rules where
   AIShie-Core #60 runs them: what the arguments say alone refused as they
-  are read (`error`, no `action_id`, at any level), what the course says
-  failed before anything is carried out or proposed (a party agent's
-  decision among them), and both asked again when a proposal is approved;
+  are read (`error`, no `action_id`, at any level; a transcription's
+  completion among them, held to `transcription_checks`), what the course
+  says failed before anything is carried out or proposed (a party agent's
+  decision among them), in Core's order, and both asked again when a
+  proposal is approved;
   and no question to a runtime agent the site's runtime holds no live
   token for, nor ever to an `mcp` agent (the worker's tests wait for the
   runtime to be issued the agent's token, or, asking before a worker

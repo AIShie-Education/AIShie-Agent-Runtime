@@ -346,9 +346,9 @@ type TextPart struct {
 const ToolText = "document_text"
 
 // TextPart reads part (from 1) of the text of the file fileID of the
-// document's version (its first, as before, for ""; a Core before #49
-// takes no file_id, and none is sent), with the caller's own token: the
-// version's access is the text's.
+// document's version, with the caller's own token: the version's access is
+// the text's. fileID is "" only for a Core before #49, which takes no
+// file_id, and none is sent; Core since #61 refuses a call without one.
 func (c *Client) TextPart(ctx context.Context, courseID, documentID, versionID, fileID string, part int) (*TextPart, error) {
 	var r TextPart
 	err := c.read(ctx, ToolText, struct {
