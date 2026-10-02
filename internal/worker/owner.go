@@ -59,6 +59,16 @@ func (s *Supervisor) markOwnerVerified(ctx context.Context, cfg *config.Agent) {
 	}
 }
 
+// olderRow reports whether version, of a hosted agent's row as a rebuild
+// of the registry read it, is older than the row run runs: one its worker
+// wrote after that read, as it kept the token it was issued (adopt). A
+// row's version moves on at every write, and the registry's rebuilds are
+// put in force in the order they read it, so only the worker's own write
+// puts a runner ahead of them. 0, no hosted agent's, is older than none.
+func olderRow(version int, run *config.Agent) bool {
+	return version > 0 && run.Hosted != nil && version < run.Hosted.Version
+}
+
 // sameRun reports whether two configurations of one agent run it alike:
 // equal, but for whether its owner has been checked, which the registry
 // records of a hosted agent the check at its start passed

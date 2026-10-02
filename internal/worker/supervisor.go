@@ -254,6 +254,16 @@ func (s *Supervisor) apply(ctx context.Context) {
 	for _, a := range cfg.Agents {
 		want[a.ID] = a
 	}
+	// A hosted agent's runner runs the row its worker wrote as it kept
+	// the token it was issued (adopt): a rebuild that read the row before
+	// that write, put in force after it, is older than what runs, and the
+	// runner keeps its own (olderRow). The rebuild the write sets off
+	// brings the row as written.
+	for id, r := range s.runners {
+		if a, ok := want[id]; ok && olderRow(hostedVersion(a), r.cfg) {
+			want[id] = r.cfg
+		}
+	}
 	type change struct {
 		r      *runner
 		remove bool

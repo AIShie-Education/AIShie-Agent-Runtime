@@ -12,6 +12,7 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/fakecore"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/scripted"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
@@ -349,6 +350,85 @@ func TestHostedUpgradeReissuesPastedTokens(t *testing.T) {
 	}
 	if stats := bucket.Stats(); stats.Granted < 7 || stats.Waited == 0 {
 		t.Errorf("the service's calls were not paced by the bucket: %+v", stats)
+	}
+}
+
+// The registry rebuilt from a hosted agent's row as it was before the
+// worker wrote the token it was issued, and put in force after: older than
+// the row the agent runs (adopt), it restarts nothing, and has no token
+// issued again. So a busy machine has it: the rebuild set off by the check
+// of its owner, which writes its row, reads the row before the token's
+// write, and is put in force after it. Here the registry is read while
+// Core holds the token's issue.
+func TestHostedOlderRebuildRestartsNothing(t *testing.T) {
+	w := newWorld(t)
+	own := w.ownAgent("agt_yuki", 0)
+	w.ownAgent("ken-helper", 1)
+	h := w.hosting()
+	h.hostPasted("agt_yuki", own, hostedSettings("m1"))
+	held, release := make(chan struct{}), make(chan struct{})
+	var holding, releasing sync.Once
+	let := func() { releasing.Do(func() { close(release) }) }
+	t.Cleanup(let)
+	w.fc.Inject(func(c fakecore.InjectedCall) *fakecore.Injection {
+		if strings.HasSuffix(c.Tool, "issue_token") {
+			holding.Do(func() { close(held); <-release })
+		}
+		return nil
+	})
+	yaml := &config.Config{}
+	wk := h.start(h.build(yaml), models{"m1": scripted.New(scripted.Reply("Once."))})
+	select {
+	case <-held:
+	case <-time.After(15 * time.Second):
+		t.Fatal("timed out waiting for the token's issue")
+	}
+	// Read now, the row is as the owner's check wrote it, with the token
+	// pasted; a paused YAML agent's state says when it is in force.
+	older := h.build(w.config(nil, w.agentDoc("ken-helper", "m1", map[string]any{"paused": true}, nil)))
+	var before *config.Agent
+	for _, a := range older.Agents {
+		if a.ID == "agt_yuki" {
+			before = a
+		}
+	}
+	if before == nil || !before.Hosted.OwnerVerified || before.Hosted.TokenIssued {
+		t.Fatalf("the row read before the token's write: %+v", before)
+	}
+	let()
+	wk.waitState("agt_yuki", store.AgentRunning)
+	h.wantIssued("agt_yuki", own)
+	issued, written := w.fc.RuntimeIssues(own.actor.ID), h.row("agt_yuki")
+	runs := func() (*Agent, int) {
+		wk.sup.mu.Lock()
+		defer wk.sup.mu.Unlock()
+		r := wk.sup.runners["agt_yuki"]
+		if r == nil {
+			return nil, 0
+		}
+		return r.agent, hostedVersion(r.cfg)
+	}
+	inst, version := runs()
+	if inst == nil || version != written.Version {
+		t.Fatalf("the agent runs at version %d; its row is at %d", version, written.Version)
+	}
+
+	wk.sup.Update(older)
+	wk.waitState("ken-helper", store.AgentPaused)
+	if now, v := runs(); now != inst || v != written.Version {
+		t.Errorf("the configuration read before the token's write restarted the agent (%t), at version %d; its row is at %d",
+			now != inst, v, written.Version)
+	}
+	if n := w.fc.RuntimeIssues(own.actor.ID); n != issued {
+		t.Errorf("%d tokens issued after the older configuration", n-issued)
+	}
+	if st := wk.state("agt_yuki"); st.State != store.AgentRunning || st.ConfigVersion != written.Version {
+		t.Errorf("the agent's state: %s at version %d; its row is at %d", st.State, st.ConfigVersion, written.Version)
+	}
+	h.wantIssued("agt_yuki", own)
+	conv, _ := w.ask(0, own, "Still there?")
+	if got := w.waitAnswers(conv, 1); got[0].Body != "Once." {
+		t.Errorf("answered %q", got[0].Body)
 	}
 }
 
