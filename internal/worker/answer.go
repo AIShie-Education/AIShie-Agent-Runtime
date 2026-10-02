@@ -112,12 +112,13 @@ type passResult struct {
 	// withdrawn: the question was withdrawn (questionWithdrawn), and
 	// nothing more is tried at it.
 	withdrawn bool
-	// revises is the proposal a person sent back for changes that this
-	// attempt proposes again (revised), "" for none; changes is what they
-	// asked to change, told only while it stands (told, standing); since
-	// is that answers were written after the one sent back.
-	revises, changes string
-	told, since      bool
+	// told is that this attempt writes again an answer a person sent back
+	// for changes, whose request stands (revised): changes is what they
+	// asked, read the answer they read, and since that answers were
+	// written after it. revises is the proposal it names as the one it
+	// revises, "" for none.
+	revises, changes, read string
+	told, since            bool
 }
 
 // answer answers one inbox row, holding its slot of the scheduler until it
@@ -222,10 +223,10 @@ func (c *claim) pass(ctx context.Context, msgID string, shorter bool) passResult
 			return c.exhausted(r)
 		}
 		r.no, r.key = n, core.AnswerKey(c.conv, msgID, n)
-		if at := revised(atts); at != nil {
-			r.revises = at.ActionID
-			if r.told, r.since = standing(atts, at); r.told {
-				r.changes = at.Reason
+		if at, since, named := revised(atts); at != nil {
+			r.told, r.since, r.changes, r.read = true, since, at.Reason, sentBody(at)
+			if named {
+				r.revises = at.ActionID
 			}
 		}
 		// 4. Quotas. One of the school's spent, the owner's own key
@@ -263,46 +264,56 @@ func (c *claim) pass(ctx context.Context, msgID string, shorter bool) passResult
 	}
 }
 
-// revised is the attempt whose proposal the next attempt at a message
-// revises (§2.2): the newest a person sent back for changes, which a
-// revision of it sent back in turn replaces, so that the chain runs back
-// to the first. None when none was sent back, or when Core refused the
-// newest such revision as naming nothing the agent may revise
-// (not_revisable): the attempts after it answer anew, naming none.
-func revised(atts []store.Attempt) *store.Attempt {
-	var last *store.Attempt
+// revised is the attempt the next one at a message writes again (§2.2):
+// the newest a person sent back for changes, which a revision of it sent
+// back in turn replaces, so that the chain runs back to the first. Its
+// request stands, to be told plainly with the answer they read, while no
+// person has decided an attempt since. None when none was sent back, or
+// when a person rejected an attempt since: a rejection overrules what was
+// asked, and the next attempt answers it as it answers any rejection,
+// told its reason by memory and naming nothing (§5.4). since is that
+// attempts were written after at, none decided by a person (they posted
+// nothing, failed or expired, say). named is that the next attempt names
+// at's proposal in revises: not when its action is not known, nor once
+// Core refused an attempt since for what it named (refusedRevises), when
+// those after it name none, though what was asked still stands.
+func revised(atts []store.Attempt) (at *store.Attempt, since, named bool) {
 	for i := range atts {
-		switch at := &atts[i]; {
-		case at.State == store.AttemptChangesRequested && at.ActionID != "":
-			last = at
-		case at.Reason == core.ReasonNotRevisable:
-			last = nil
-		}
-	}
-	return last
-}
-
-// standing is whether what a person asked of at, the attempt the next one
-// revises (revised), still stands, to be told plainly (told): no person
-// has decided an answer to the message since; those written after it
-// (since) posted nothing, failed or expired, say. A revision rejected
-// since, or sent back with no action known, leaves the request to memory,
-// which notes both in turn, the decision last; the next attempt names at
-// in revises all the same.
-func standing(atts []store.Attempt, at *store.Attempt) (told, since bool) {
-	after := false
-	for i := range atts {
-		switch {
-		case &atts[i] == at:
-			after = true
-		case !after:
-		case atts[i].State == store.AttemptRejected || atts[i].State == store.AttemptChangesRequested:
-			return false, true
+		switch a := &atts[i]; {
+		case a.State == store.AttemptChangesRequested:
+			at, since, named = a, false, a.ActionID != ""
+		case at == nil:
+		case a.State == store.AttemptRejected:
+			at, since, named = nil, false, false
 		default:
 			since = true
+			if refusedRevises(a) {
+				named = false
+			}
 		}
 	}
-	return true, since
+	return at, since, named
+}
+
+// refusedRevises reports whether Core refused an attempt for the proposal
+// it named in revises, recording nothing: as none of the agent's sent back
+// for changes, as Core has it now (not_revisable: one a rollback of Core
+// made a rejection, say), or for naming one at all, as a Core from before
+// AIShie-Core #68 refuses an argument its schema does not name
+// (reasonRevisesNotTaken).
+func refusedRevises(at *store.Attempt) bool {
+	return at.Reason == core.ReasonNotRevisable || at.Reason == reasonRevisesNotTaken
+}
+
+// sentBody is the answer an attempt sent, as the bytes written ahead hold
+// it: of one sent back for changes, the answer the person read. "" for an
+// attempt of another tool's.
+func sentBody(at *store.Attempt) string {
+	var args core.AnswerArgs
+	if at.Tool != toolAnswer || json.Unmarshal(at.Args, &args) != nil {
+		return ""
+	}
+	return args.Body
 }
 
 // nextAttempt is the number of the next attempt at a message, one more than
@@ -438,9 +449,10 @@ func (c *claim) toolset(m *model, access toolset.Access, files bool) (*toolset.S
 
 // system is the system prompt for this answer, whose model is offered set,
 // and its hash; files is that the conversation's messages carry files. An
-// answer that revises one a person sent back for changes (r.revises) is
-// told what they asked, from the attempt it revises, while it stands
-// (r.told): whether memory keeps the note, or has it yet, or not.
+// answer written again because a person sent one back for changes, whose
+// request stands (r.told), is told what they asked and shown the answer
+// they read, from the attempt it revises: whether memory keeps the note,
+// or has it yet, or not.
 func (c *claim) system(ctx context.Context, read *core.Messages, shorter bool, set *toolset.Set, files bool, r passResult) (string, string, error) {
 	var notes []store.Note
 	if c.eff.Memory.Enabled {
@@ -462,7 +474,7 @@ func (c *claim) system(ctx context.Context, read *core.Messages, shorter bool, s
 			AskerName: read.Conversation.Opener.DisplayName, AnswerLevel: read.Conversation.Respondent.AnswerLevel,
 			Tools: set.Reads(), Writes: set.Writes(), Files: files, FileTool: fileTool(set), SearchTool: searchTool(set),
 		},
-		AnswerLanguage: c.eff.Prompt.AnswerLanguage, Notes: notes, Revising: revising, RevisingEarlier: r.since,
+		AnswerLanguage: c.eff.Prompt.AnswerLanguage, Notes: notes, Revising: revising, RevisingEarlier: r.since, Revised: r.read,
 		Now: c.a.now(),
 	})
 	if shorter {

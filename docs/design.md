@@ -1603,14 +1603,28 @@ For an inbox row (conversation X, question M, opener P):
    bytes) before `conversation_answer`, and finished with what came back.
    The bytes name what the answer relied on (`sources`, below).
    An attempt after one a person sent back for changes (AIShie-Core #68)
-   names that proposal in `revises` (the `Revises` header over REST), so
-   that whoever decides it sees what it revises: the newest attempt at M
-   sent back, so that a revision sent back is revised in turn, and the
-   chain runs back to the first (`worker.revised`). What it revises is
-   part of the bytes written ahead, and of the call under its key. Core
-   refusing it (`not_revisable`, nothing recorded: a proposal its
-   rollback made a rejection, say) has the next attempt answer anew,
-   naming none, with the sources of what that attempt reads.
+   writes that answer again, and names its proposal in `revises` (the
+   `Revises` header over REST), so that whoever decides it sees what was
+   asked of what it revises: the newest attempt at M sent back, so that a
+   revision sent back is revised in turn, and the chain runs back to the
+   first (`worker.revised`). What it revises is part of the bytes written
+   ahead, and of the call under its key. A person rejecting an attempt
+   since overrules what was asked: the attempt after answers the
+   rejection as any does, naming nothing. Core takes in `revises` only a
+   proposal sent back for changes, not the rejected one, and naming the
+   first would lead whoever decides it to the request the rejection
+   overruled. Core refusing what an attempt names (`not_revisable`,
+   nothing recorded: a proposal a rollback of Core made a rejection,
+   say), or `revises` itself, has the next attempt written at once,
+   naming none, with the sources of what that attempt reads; what was
+   asked still stands, no person having decided since, and that attempt
+   is told it. A Core rolled back to before AIShie-Core #68 refuses
+   `revises` over MCP as an argument its schema does not name (`error
+   invalid_argument`, no field or reason; kept as the runtime's
+   `revises_not_taken`), and over REST ignores the header, proposing the
+   revision as one that names nothing. The catalogue cannot say
+   beforehand whether Core takes it: `GET /v1/tools` gives each write's
+   own schema, without `idempotency_key` and `revises`.
 10. **Outcome** (§2.4, `worker.Classify`):
 
 | Envelope | Done |
@@ -1629,7 +1643,7 @@ For an inbox row (conversation X, question M, opener P):
 | replayed | treated as its stored status |
 | replayed `rejected`, `cancelled` | next attempt, with the reason in the prompt |
 | replayed `changes_requested` (409 over REST) | settled `changes_requested` with what to change; next attempt, told it plainly, naming the proposal in `revises` |
-| `error invalid_argument` or `failed_precondition`, `not_revisable` | nothing recorded; next attempt at once, naming nothing it revises |
+| `error invalid_argument` or `failed_precondition`, `not_revisable`; `error invalid_argument` refusing `revises` as an argument the schema does not name (with `sources`, this first) | nothing recorded; next attempt at once, naming nothing it revises, still told what was asked |
 
 11. **Ledger**: a row per model call and one per answer, with the writes
     the model made counted by what Core said of them; metrics; release the
@@ -1932,16 +1946,25 @@ The events poller reads `event_list` from the seat's cursor:
   read from `action_list_mine` as a rejection's reason is, kept on the
   attempt and in X's memory. The conversation is back in the inbox, and
   the next attempt is told plainly that the answer was sent back and what
-  to change, from the attempt it revises whether or not memory keeps it,
-  and names that proposal in `revises` (§5.3). A revision is sent back
-  and revised in turn; `max_attempts` bounds them as it bounds any
-  attempts. A revision rejected overrules what was asked: the attempt
-  after names the same proposal, but is not told to make the changes,
-  and memory, when on, notes the request and the rejection in turn
-  (`worker.standing`); one that failed, or expired undecided, leaves the
-  request standing, told as made of an earlier answer. A runtime from
-  before this never settled one, and left the conversation unanswered
-  until its opener wrote again.
+  to change, and shown the answer they read, whole, from the attempt it
+  revises whether or not memory keeps it, and names that proposal in
+  `revises` (§5.3). A revision is sent back and revised in turn, each
+  shown the answer before it, which carries the changes asked before;
+  `max_attempts` bounds them as it bounds any attempts. A revision
+  rejected overrules what was asked: the attempt after answers the
+  rejection as any does, naming nothing in `revises`, not told to make
+  the changes, and memory, when on, notes the request and the rejection
+  in turn (`worker.revised`); one that failed, or expired undecided,
+  leaves the request standing, told as made of an earlier answer, which
+  is shown and named. Core requires a note (1 to 2000 characters), but
+  the event carries none: one `action_list_mine` does not give (an error
+  the client does not retry, the read cut short, the proposal more than
+  the lookup's 50 pages on) is settled from the event all the same, and
+  the next attempt is told that what was asked could not be read, never
+  that nothing was. Leaving the event to be read again would read the
+  same pages again, fail the same way, and hold up every event after it.
+  A runtime from before this never settled one, and left the
+  conversation unanswered until its opener wrote again.
 - `action.cancelled`: settled as cancelled, `payload.reason` noted.
 - `conversation.message_retracted`: the answer being written to that
   message, the opener's question withdrawn, stops (§5.3); notes about it
@@ -2027,7 +2050,10 @@ prompt says:
 - the answer's language (`answer_language`);
 - for an answer written again because a person sent one back for changes,
   and has decided none since, that they did and what they asked, plainly,
-  in a section of its own (`prompt.Input.Revising`);
+  or that what they asked could not be read, in a section of its own
+  (`prompt.Input.Revising`), with the answer they read, whole and as it
+  was sent, in a block of its own, with no word on what to keep of it
+  beyond what they asked;
 - the memory of this conversation: rejection reasons, what was asked of
   answers sent back for changes, retracted answers,
   and the changes it made here (a write Core executed or proposed: its tool,
@@ -2661,7 +2687,13 @@ Chinese with a table, overran, and was cut off.
   of its database, or in its status.
 - `worker`: the fake Core and the scripted model: every row of §5.3's table,
   moved on, duplicates across two workers, denied, 401, 429, quotas,
-  budgets, proposals followed, retractions; long polls (§5.2): a question
+  budgets, proposals followed, retractions; answers sent back for changes
+  revised, told what was asked, or that it could not be read when
+  `action_list_mine` fails, and shown the answer read, in a chain of
+  revisions with memory on and off, the one after a revision rejected
+  naming nothing, and the one after Core refuses `revises`
+  (`not_revisable`, or a Core from before it) naming nothing, still told
+  what was asked; long polls (§5.2): a question
   claimed at once by an inbox waiting 20 s, an older Core polled on the
   schedule, one behind a newer catalogue refusing `wait_s` over MCP and
   REST, Core not waiting and a long poll cut short sending the seat to its
@@ -2716,8 +2748,9 @@ Chinese with a table, overran, and was cut off.
   `denied` stops polling and answers again
   when restored; a proposal approved is recorded, and a rejection's reason
   reaches the next attempt; an answer Mori sends back for changes with a
-  note is revised, told the note, and proposed naming it, then sent back
-  and revised in turn, and approved; no token or key in any log, before or after
+  note is revised, told the note and shown the answer he read, and
+  proposed naming it, then sent back and revised in turn, and approved;
+  no token or key in any log, before or after
   redaction; the binary's `catalogue --check` and `check --live`; and
   writes: Sato asks his own agent, which holds `document_write`, to create a
   document, which at `confirm_required` is proposed, as the answer says, and

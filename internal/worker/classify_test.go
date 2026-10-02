@@ -123,6 +123,38 @@ func TestClassifyARefusedSource(t *testing.T) {
 	}
 }
 
+// A Core from before AIShie-Core #68 refuses revises as an argument its
+// schema does not name, saying so only in its message, with no reason: as
+// not_revisable, the next attempt names none, the attempt kept with the
+// runtime's reason for it, which revised reads. Where sources are refused
+// with it (a Core before both), what it names is dropped first, the next
+// attempt naming none; an argument refused that is neither is the body's.
+func TestClassifyARefusedRevises(t *testing.T) {
+	unexpected := func(msg string) *core.Envelope {
+		return &core.Envelope{Status: core.StatusError, Error: &core.Error{Code: core.CodeInvalidArgument, Message: msg}}
+	}
+	for _, c := range []struct {
+		name   string
+		env    *core.Envelope
+		next   Next
+		reason string
+	}{
+		{"revises", unexpected(`arguments do not match the schema of conversation.answer: validating root: unexpected additional properties ["revises"]`),
+			NextAttempt, reasonRevisesNotTaken},
+		{"revises and sources", unexpected(`validating root: unexpected additional properties ["revises" "sources"]`), NextAttempt, reasonRevisesNotTaken},
+		{"another argument", unexpected(`validating root: unexpected additional properties ["revisions"]`), NextFix, ""},
+		{"a body that says revises", unexpected(`body: "revises" is too long`), NextFix, ""},
+		{"not_revisable", notRevisable(core.CodeInvalidArgument), NextAttempt, core.ReasonNotRevisable},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			d := Classify(c.env, nil)
+			if d.Next != c.next || d.Reason != c.reason || d.State != store.AttemptError || d.Outcome != store.OutcomeFailed {
+				t.Errorf("Classify = %s, %q, %q, %q; want %s, %q", d.Next, d.Reason, d.State, d.Outcome, c.next, c.reason)
+			}
+		})
+	}
+}
+
 func TestClassifyMovedOnNamesTheNewestMessage(t *testing.T) {
 	d := Classify(failed(core.CodeConflict, core.ReasonMovedOn, "latest_opener_message_id", "m3"), nil)
 	if d.LatestMessageID != "m3" {

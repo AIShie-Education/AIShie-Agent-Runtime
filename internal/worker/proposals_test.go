@@ -196,59 +196,126 @@ func TestProposalSentBackForChanges(t *testing.T) {
 	}
 }
 
+// answerRead is how an answer written again is shown the answer the
+// member of staff read and sent back.
+func answerRead(body string) string {
+	return "- This is the answer they read, as it was sent to them:\n\n```\n" + body + "\n```"
+}
+
 // TestRevisionSentBackInTurn: a revision a person sends back is revised in
-// turn, each attempt naming the one before and told what was asked of it,
-// remembering what was asked before; max_attempts still bounds them: after
-// the third is sent back, the question is skipped until the next day, its
-// conversation left open.
+// turn, each attempt naming the one before, told what was asked of it and
+// shown it as they read it, remembering what was asked before; max_attempts
+// still bounds them: after the third is sent back, the question is skipped
+// until the next day, its conversation left open. With memory off, the
+// newest request is all an attempt is told, and the answer it is shown
+// carries the changes asked before.
 func TestRevisionSentBackInTurn(t *testing.T) {
+	for _, memory := range []bool{true, false} {
+		t.Run(fmt.Sprintf("memory %v", memory), func(t *testing.T) {
+			w := newWorld(t)
+			bodies := []string{"Soon.", "On 14 March.", "On 14 March, in room B12."}
+			model := scripted.New(scripted.Reply(bodies[0]), scripted.Reply(bodies[1]), scripted.Reply(bodies[2]))
+			tu, wk := confirmedTutor(t, w, model, map[string]any{"answer": map[string]any{"max_attempts": 3},
+				"memory": map[string]any{"enabled": memory}})
+			conv, msg := w.ask(1, tu, "When is the midterm?")
+			notes := []string{"Give the date.", "And the room.", "Say which building."}
+			prev := ""
+			for i, note := range notes {
+				key := core.AnswerKey(conv, msg, i+1)
+				p := w.waitProposal(key)
+				if p.Revises != prev {
+					t.Errorf("attempt %d revises %q; want %q", i+1, p.Revises, prev)
+				}
+				w.ok(w.fc.RequestChanges(p.ActionID, note))
+				wk.waitAttempt("cs101-tutor", key, store.AttemptChangesRequested)
+				prev = p.ActionID
+			}
+			eventually(t, "the question skipped", func() bool {
+				o := wk.st.outcomes(conv)
+				return len(o) > 0 && o[len(o)-1] == store.OutcomeSkipped
+			})
+			reqs := model.Requests()
+			if len(reqs) != 3 {
+				t.Fatalf("%d model calls; want 3", len(reqs))
+			}
+			if s := reqs[0].System; strings.Contains(s, "back for changes, asking") || strings.Contains(s, "the answer they read") {
+				t.Errorf("the first attempt's prompt:\n%s", s)
+			}
+			if s := reqs[1].System; !strings.Contains(s, revisionSaid(notes[0])+"\n"+answerRead(bodies[0])) {
+				t.Errorf("the second attempt's prompt:\n%s", s)
+			}
+			s := reqs[2].System
+			if !strings.Contains(s, revisionSaid(notes[1])+"\n"+answerRead(bodies[1])) || strings.Contains(s, bodies[0]) {
+				t.Errorf("the third attempt's prompt:\n%s", s)
+			}
+			if remembered := strings.Contains(s, fmt.Sprintf("back for changes, asking: %q. Take it into account.", notes[0])); remembered != memory {
+				t.Errorf("memory %v: the third attempt's prompt remembers the first request %v:\n%s", memory, remembered, s)
+			}
+			if !memory && strings.Contains(s, notes[0]) {
+				t.Errorf("without memory, the third attempt's prompt has the first request:\n%s", s)
+			}
+			if n := len(w.fc.Proposals(w.co.ID)); n != 0 {
+				t.Errorf("%d proposals waiting after max_attempts", n)
+			}
+			if n := len(w.calls(tu.actor.ID, toolClose)); n != 0 {
+				t.Errorf("conversation_close was called %d times", n)
+			}
+		})
+	}
+}
+
+// TestSentBackNoteNotRead: an answer is sent back for changes while
+// action_list_mine, which alone holds what was asked, fails in a way the
+// client does not retry (HTTP 400). The attempt is settled from the event,
+// with no note: the next attempt still revises it, and is told that what
+// was asked could not be read, never that nothing was asked, which Core
+// does not allow; memory says the same, once.
+func TestSentBackNoteNotRead(t *testing.T) {
 	w := newWorld(t)
-	model := scripted.New(scripted.Reply("Soon."), scripted.Reply("On 14 March."), scripted.Reply("On 14 March, in room B12."))
-	tu, wk := confirmedTutor(t, w, model, map[string]any{"answer": map[string]any{"max_attempts": 3}})
-	conv, msg := w.ask(1, tu, "When is the midterm?")
-	notes := []string{"Give the date.", "And the room.", "Say which building."}
-	prev := ""
-	for i, note := range notes {
-		key := core.AnswerKey(conv, msg, i+1)
-		p := w.waitProposal(key)
-		if p.Revises != prev {
-			t.Errorf("attempt %d revises %q; want %q", i+1, p.Revises, prev)
+	model := scripted.New(scripted.Reply("Graphs."), scripted.Reply("Graphs, and where the chapter starts."))
+	tu, wk := confirmedTutor(t, w, model, nil)
+	conv, msg := w.ask(0, tu, "What does chapter 4 cover?")
+	k1, k2 := core.AnswerKey(conv, msg, 1), core.AnswerKey(conv, msg, 2)
+	p1 := w.waitProposal(k1)
+	var refused atomic.Int32
+	w.fc.Inject(func(c fakecore.InjectedCall) *fakecore.Injection {
+		if c.Tool != "action_list_mine" {
+			return nil
 		}
-		w.ok(w.fc.RequestChanges(p.ActionID, note))
-		wk.waitAttempt("cs101-tutor", key, store.AttemptChangesRequested)
-		prev = p.ActionID
-	}
-	eventually(t, "the question skipped", func() bool {
-		o := wk.st.outcomes(conv)
-		return len(o) > 0 && o[len(o)-1] == store.OutcomeSkipped
+		refused.Add(1)
+		return &fakecore.Injection{Status: http.StatusBadRequest}
 	})
-	reqs := model.Requests()
-	if len(reqs) != 3 {
-		t.Fatalf("%d model calls; want 3", len(reqs))
+	const note = "Say where the chapter starts."
+	w.ok(w.fc.RequestChanges(p1.ActionID, note))
+	if at := wk.waitAttempt("cs101-tutor", k1, store.AttemptChangesRequested); at.Reason != "" || at.ActionID != p1.ActionID {
+		t.Errorf("the first attempt settled as %+v; want sent back, under %s, with no note read", at, p1.ActionID)
 	}
-	if strings.Contains(reqs[0].System, "back for changes, asking") {
-		t.Errorf("the first attempt's prompt:\n%s", reqs[0].System)
+	if refused.Load() == 0 {
+		t.Fatal("action_list_mine was not called, and not refused")
 	}
-	if !strings.Contains(reqs[1].System, revisionSaid(notes[0])) {
-		t.Errorf("the second attempt's prompt:\n%s", reqs[1].System)
+	if p2 := w.waitProposal(k2); p2.Revises != p1.ActionID {
+		t.Errorf("the second attempt revises %q; want %s", p2.Revises, p1.ActionID)
 	}
-	if s := reqs[2].System; !strings.Contains(s, revisionSaid(notes[1])) || !strings.Contains(s, fmt.Sprintf("back for changes, asking: %q. Take it into account.", notes[0])) {
-		t.Errorf("the third attempt's prompt:\n%s", s)
+	s := lastRequest(t, model).System
+	if !strings.Contains(s, "sent it back for changes; what they asked could not be read. Write the answer again, better.\n"+answerRead("Graphs.")) ||
+		strings.Contains(s, "without saying") || strings.Contains(s, note) || strings.Count(s, "could not be read") != 1 {
+		t.Errorf("the second attempt's prompt:\n%s", s)
 	}
-	if n := len(w.fc.Proposals(w.co.ID)); n != 0 {
-		t.Errorf("%d proposals waiting after max_attempts", n)
-	}
-	if n := len(w.calls(tu.actor.ID, toolClose)); n != 0 {
-		t.Errorf("conversation_close was called %d times", n)
+	notes, err := wk.st.Notes(context.Background(), "cs101-tutor", tu.seat.ID, conv, 10)
+	w.ok(err)
+	if len(notes) != 1 || notes[0].Kind != store.NoteChangesRequested || notes[0].Text != "" {
+		t.Errorf("memory keeps %+v; want the request, its note not read", notes)
 	}
 }
 
 // TestRevisionDecidedSince: once a person rejects a revision, what they
-// asked of the answer it revised no longer stands: the next attempt names
-// that answer in revises all the same, but is not told to make the changes
-// asked, which memory, when on, notes before the rejection. A revision that
-// expires undecided leaves the request standing, told as made of an
-// earlier answer.
+// asked of the answer it revised no longer stands: the next attempt answers
+// the rejection as any attempt after one does, naming nothing in revises,
+// so that whoever decides it is not shown the request the rejection
+// overruled, and is not told to make the changes asked, which memory, when
+// on, notes before the rejection. A revision that expires undecided leaves
+// the request standing, told as made of an earlier answer, which is shown
+// and named.
 func TestRevisionDecidedSince(t *testing.T) {
 	const asked, refused = "Add the room.", "Never give the room: it is confidential."
 	for _, c := range []struct {
@@ -275,8 +342,12 @@ func TestRevisionDecidedSince(t *testing.T) {
 			wk.waitAttempt("cs101-tutor", k1, store.AttemptChangesRequested)
 			p2 := w.waitProposal(k2)
 			w.ok(c.decide(w, p2.ActionID))
-			if p3 := w.waitProposal(k3); p3.Revises != p1.ActionID {
-				t.Errorf("the third attempt revises %q; want %s", p3.Revises, p1.ActionID)
+			want := ""
+			if c.told {
+				want = p1.ActionID
+			}
+			if p3 := w.waitProposal(k3); p3.Revises != want {
+				t.Errorf("the third attempt revises %q; want %q", p3.Revises, want)
 			}
 			reqs := model.Requests()
 			if len(reqs) != 3 {
@@ -284,7 +355,7 @@ func TestRevisionDecidedSince(t *testing.T) {
 			}
 			s := reqs[2].System
 			told := strings.Contains(s, "## The answer you are writing again\n- A member of staff read an earlier answer of yours to this question "+
-				"before it was posted, and "+revisionSaid(asked))
+				"before it was posted, and "+revisionSaid(asked)+"\n"+answerRead("On 14 March."))
 			if told != c.told {
 				t.Errorf("the third attempt's prompt tells the request %v; want %v:\n%s", told, c.told, s)
 			}
@@ -468,8 +539,9 @@ func TestRejectedWhileLeftSending(t *testing.T) {
 // TestSentBackWhileLeftSending: an answer Core took as a proposal, whose
 // attempt a crash left sending, is sent back for changes while no worker
 // runs. Sent again at the seat's start, it replays as changes_requested
-// (409 over REST): the attempt keeps what to change and its action, and
-// the next attempt is told it, and revises it.
+// (409 over REST): the attempt keeps what to change and its action, memory
+// notes it, and the next attempt is told it, is shown the answer sent
+// back, and revises it.
 func TestSentBackWhileLeftSending(t *testing.T) {
 	for _, transport := range []string{"mcp", "rest"} {
 		t.Run(transport, func(t *testing.T) {
@@ -517,8 +589,13 @@ func TestSentBackWhileLeftSending(t *testing.T) {
 			if p := w.waitProposal(core.AnswerKey(conv, msg, 2)); p.Revises != env.ActionID {
 				t.Errorf("the second attempt revises %q; want %s", p.Revises, env.ActionID)
 			}
-			if !strings.Contains(lastRequest(t, model).System, revisionSaid(note)) {
-				t.Errorf("the second attempt's prompt lacks what to change:\n%s", lastRequest(t, model).System)
+			if s := lastRequest(t, model).System; !strings.Contains(s, revisionSaid(note)+"\n"+answerRead("Written before the crash.")) {
+				t.Errorf("the second attempt's prompt lacks what to change, or the answer sent back:\n%s", s)
+			}
+			notes, err := wk.st.Notes(context.Background(), "cs101-tutor", tu.seat.ID, conv, 10)
+			w.ok(err)
+			if len(notes) != 1 || notes[0].Kind != store.NoteChangesRequested || notes[0].Text != note || notes[0].MessageID != msg {
+				t.Errorf("memory keeps %+v; want what to change, of the question", notes)
 			}
 		})
 	}
@@ -526,58 +603,79 @@ func TestSentBackWhileLeftSending(t *testing.T) {
 
 // TestRevisesRefusedAnswersAnew: an attempt the store has as sent back for
 // changes, whose action Core has as rejected (a rollback of Core made it a
-// rejection, say), is named in revises by the next attempt, which Core
-// refuses (failed_precondition, not_revisable), recording nothing; the
-// attempt after answers anew, naming none, rather than sending again what
-// Core refused, and the question is not left waiting. The refusal is not
-// one of the answer's sources: the answer after is written again by the
-// model, and says what its own loop relied on.
+// rejection), is named in revises by the next attempt, which Core refuses,
+// recording nothing: a Core that takes revises as not_revisable
+// (failed_precondition), one from before AIShie-Core #68 as an argument
+// its schema does not name (invalid_argument, no reason). Either way the
+// attempt after is written again, naming none, rather than sending again
+// what Core refused, and is proposed: the question is not left waiting.
+// What was asked still stands, no person having decided anything since,
+// and that attempt is told it, as made of an earlier answer, and shown
+// that answer. The refusal is not one of the answer's sources: the answer
+// after says what its own loop relied on.
 func TestRevisesRefusedAnswersAnew(t *testing.T) {
-	w := newWorld(t)
-	tu := w.tutor("cs101-tutor")
-	w.ok(w.fc.SetLevel(tu.seat.ID, "conversation_answer", "confirm_required"))
-	conv, msg := w.ask(0, tu, "Sent back, as the store has it.")
-	k1 := core.AnswerKey(conv, msg, 1)
-	args, err := json.Marshal(core.AnswerArgs{CourseID: w.co.ID, ConversationID: conv, InReplyToMessageID: msg,
-		Body: "Proposed before the rollback.", IdempotencyKey: k1})
-	w.ok(err)
-	caller := core.NewMCPCaller(core.MCPOptions{BaseURL: w.srv.URL, Token: tu.actor.Token, HTTPClient: &http.Client{Timeout: 5 * time.Second}})
-	env, err := caller.Call(context.Background(), toolAnswer, args)
-	if err != nil || env.Status != core.StatusProposed {
-		t.Fatalf("the first answer: %+v, %v", env, err)
-	}
-	w.ok(w.fc.Reject(env.ActionID, "Rejected, as Core has it now."))
-	st := memstore.New()
-	if _, err := st.PutAttempt(context.Background(), store.Attempt{Key: k1, AgentID: "cs101-tutor", MemberID: tu.seat.ID, CourseID: w.co.ID,
-		ConversationID: conv, MessageID: msg, No: 1, Tool: toolAnswer, Args: args, Kind: kindModel, State: store.AttemptSending}); err != nil {
-		t.Fatal(err)
-	}
-	w.ok(st.FinishAttempt(context.Background(), "cs101-tutor", k1, store.Outcome{State: store.AttemptChangesRequested, ActionID: env.ActionID,
-		Reason: "From before the rollback."}))
-	syllabus := w.source(w.co.SyllabusID)
-	model := scripted.New(scripted.CallTools(getDoc(w.co.SyllabusID)), scripted.Reply("Naming what Core refuses."),
-		scripted.CallTools(getDoc(w.co.SyllabusID)), scripted.Reply("Answered anew."))
-	wk := w.start(w.config(nil, w.agentDoc("cs101-tutor", "m1", nil, nil)), models{"m1": model}, workerOpts{store: st})
-	k2, k3 := core.AnswerKey(conv, msg, 2), core.AnswerKey(conv, msg, 3)
-	at := wk.waitAttempt("cs101-tutor", k2, store.AttemptError)
-	if at.Reason != core.ReasonNotRevisable || at.ErrorCode != core.CodeFailedPrecondition {
-		t.Errorf("the second attempt settled as %+v; want refused, failed_precondition, not_revisable", at)
-	}
-	if !strings.Contains(string(at.Args), `"revises":"`+env.ActionID+`"`) || sentSources(t, at.Args) != syllabus {
-		t.Errorf("the second attempt was written ahead as %s; want it revising %s, relying on %s", at.Args, env.ActionID, syllabus)
-	}
-	if p := w.waitProposal(k3); p.Revises != "" || sentSources(t, p.Args) != syllabus {
-		t.Errorf("the third attempt revises %q, relying on %s; want none, relying on %s", p.Revises, sentSources(t, p.Args), syllabus)
-	}
-	sent := map[string]int{}
-	for _, c := range w.calls(tu.actor.ID, toolAnswer) {
-		sent[c.IdempotencyKey]++
-	}
-	if sent[k2] != 1 || sent[k3] != 1 {
-		t.Errorf("answers sent %v; want the refused one once, and the one anew", sent)
-	}
-	if n := len(model.Requests()); n != 4 {
-		t.Errorf("%d model calls; want 4: the answer after the refusal written anew", n)
+	for _, c := range []struct {
+		name         string
+		opts         fakecore.Options
+		code, reason string
+	}{
+		{"not_revisable", fakecore.Options{}, core.CodeFailedPrecondition, core.ReasonNotRevisable},
+		{"a Core from before revises", fakecore.Options{WithoutRevises: true}, core.CodeInvalidArgument, reasonRevisesNotTaken},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			w := newWorldWith(t, c.opts)
+			tu := w.tutor("cs101-tutor")
+			w.ok(w.fc.SetLevel(tu.seat.ID, "conversation_answer", "confirm_required"))
+			conv, msg := w.ask(0, tu, "Sent back, as the store has it.")
+			k1 := core.AnswerKey(conv, msg, 1)
+			args, err := json.Marshal(core.AnswerArgs{CourseID: w.co.ID, ConversationID: conv, InReplyToMessageID: msg,
+				Body: "Proposed before the rollback.", IdempotencyKey: k1})
+			w.ok(err)
+			caller := core.NewMCPCaller(core.MCPOptions{BaseURL: w.srv.URL, Token: tu.actor.Token, HTTPClient: &http.Client{Timeout: 5 * time.Second}})
+			env, err := caller.Call(context.Background(), toolAnswer, args)
+			if err != nil || env.Status != core.StatusProposed {
+				t.Fatalf("the first answer: %+v, %v", env, err)
+			}
+			w.ok(w.fc.Reject(env.ActionID, "From before the rollback."))
+			st := memstore.New()
+			if _, err := st.PutAttempt(context.Background(), store.Attempt{Key: k1, AgentID: "cs101-tutor", MemberID: tu.seat.ID, CourseID: w.co.ID,
+				ConversationID: conv, MessageID: msg, No: 1, Tool: toolAnswer, Args: args, Kind: kindModel, State: store.AttemptSending}); err != nil {
+				t.Fatal(err)
+			}
+			w.ok(st.FinishAttempt(context.Background(), "cs101-tutor", k1, store.Outcome{State: store.AttemptChangesRequested, ActionID: env.ActionID,
+				Reason: "From before the rollback."}))
+			syllabus := w.source(w.co.SyllabusID)
+			model := scripted.New(scripted.CallTools(getDoc(w.co.SyllabusID)), scripted.Reply("Naming what Core refuses."),
+				scripted.CallTools(getDoc(w.co.SyllabusID)), scripted.Reply("Answered anew."))
+			wk := w.start(w.config(nil, w.agentDoc("cs101-tutor", "m1", map[string]any{"memory": map[string]any{"enabled": false}}, nil)),
+				models{"m1": model}, workerOpts{store: st})
+			k2, k3 := core.AnswerKey(conv, msg, 2), core.AnswerKey(conv, msg, 3)
+			at := wk.waitAttempt("cs101-tutor", k2, store.AttemptError)
+			if at.Reason != c.reason || at.ErrorCode != c.code {
+				t.Errorf("the second attempt settled as %+v; want refused, %s, %s", at, c.code, c.reason)
+			}
+			if !strings.Contains(string(at.Args), `"revises":"`+env.ActionID+`"`) || sentSources(t, at.Args) != syllabus {
+				t.Errorf("the second attempt was written ahead as %s; want it revising %s, relying on %s", at.Args, env.ActionID, syllabus)
+			}
+			if p := w.waitProposal(k3); p.Revises != "" || strings.Contains(string(p.Args), "revises") || sentSources(t, p.Args) != syllabus {
+				t.Errorf("the third attempt revises %q (%s), relying on %s; want none, relying on %s", p.Revises, p.Args, sentSources(t, p.Args), syllabus)
+			}
+			sent := map[string]int{}
+			for _, call := range w.calls(tu.actor.ID, toolAnswer) {
+				sent[call.IdempotencyKey]++
+			}
+			if sent[k2] != 1 || sent[k3] != 1 {
+				t.Errorf("answers sent %v; want the refused one once, and the one anew", sent)
+			}
+			reqs := model.Requests()
+			if len(reqs) != 4 {
+				t.Fatalf("%d model calls; want 4: the answer after the refusal written anew", len(reqs))
+			}
+			if s := reqs[2].System; !strings.Contains(s, "- A member of staff read an earlier answer of yours to this question before it was posted, and "+
+				revisionSaid("From before the rollback.")+"\n"+answerRead("Proposed before the rollback.")) {
+				t.Errorf("the third attempt's prompt:\n%s", s)
+			}
+		})
 	}
 }
 

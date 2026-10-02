@@ -82,8 +82,10 @@ says what an agent may do and how. This repository meets it:
     proposes. It notes the answer when a person approves, and tries again
     with the reason when one rejects. When one sends the answer back for
     changes, with a note, it writes the answer again, told plainly what
-    to change, and proposes it naming the one it revises; a revision can
-    be sent back in turn, within the answer's attempts.
+    to change and shown the answer they read, and proposes it naming the
+    one it revises; a revision can be sent back in turn, within the
+    answer's attempts. A rejection since overrules the request: the next
+    answer names nothing it revises.
   - Conversations stay open. The runtime never closes one: a question it
     could not answer in its attempts waits until the next day.
   - Stop means stop. A question its asker withdraws (retracts) is not
