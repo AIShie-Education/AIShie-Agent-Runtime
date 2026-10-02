@@ -315,7 +315,7 @@ func errOwnerWouldBeRefused(refused *apiError) *apiError {
 // checkDecision is action.decide's check (Core's CheckDecision).
 func checkDecision(in decideIn) error {
 	if in.Decision != "approve" && in.Decision != "reject" {
-		return invalid("decision must be %q or %q", "approve", "reject")
+		return invalid("decision must be %q, %q or %q", "approve", "reject", "request_changes")
 	}
 	return nil
 }
