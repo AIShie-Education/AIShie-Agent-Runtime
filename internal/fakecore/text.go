@@ -448,7 +448,7 @@ func (c *Core) complete(caller *actor, t *toolDef, raw []byte, key string, now t
 	}
 	hash := payloadHash(t.Name, canonical)
 	if existing := c.keys[actorKey{caller.id, key}]; existing != nil {
-		out, err := replay(existing, hash)
+		out, err := replay(existing, hash, "")
 		if err != nil {
 			return c.failure(err)
 		}

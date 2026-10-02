@@ -97,6 +97,10 @@ const (
 	// that expired.
 	AttemptRejected  AttemptState = "rejected"
 	AttemptCancelled AttemptState = "cancelled"
+	// AttemptChangesRequested: a proposal a person sent back for changes;
+	// Reason is what they asked to change. The next attempt at the message
+	// names its ActionID as the proposal it revises.
+	AttemptChangesRequested AttemptState = "changes_requested"
 )
 
 // Known reports whether s is one of the states above. A store refuses any
@@ -104,7 +108,7 @@ const (
 func (s AttemptState) Known() bool {
 	switch s {
 	case AttemptSending, AttemptExecuted, AttemptProposed, AttemptFailed,
-		AttemptDenied, AttemptError, AttemptRejected, AttemptCancelled:
+		AttemptDenied, AttemptError, AttemptRejected, AttemptCancelled, AttemptChangesRequested:
 		return true
 	}
 	return false
@@ -217,6 +221,9 @@ type Cursors interface {
 const (
 	// NoteRejected: a person rejected an answer; Text is their reason.
 	NoteRejected = "rejected"
+	// NoteChangesRequested: a person sent an answer back for changes; Text
+	// is what they asked to change.
+	NoteChangesRequested = "changes_requested"
 	// NoteCancelled: a proposed answer expired or was cancelled.
 	NoteCancelled = "cancelled"
 	// NoteRetractedOwn: an answer of the agent's was retracted; do not

@@ -17,7 +17,7 @@ import (
 
 // MaxTools is the most tools one live request declares. OpenAI's APIs take
 // at most 128 functions in a request, and the pinned catalogue has more
-// (167 at AIShie-Core 2ba8ac7, its site services' own among them), so
+// (167 at AIShie-Core 81ad1fe, its site services' own among them), so
 // every tool is declared across requests of at most this many, to every
 // provider alike (slices.Chunk). No seat is ever offered nearly as many:
 // the runtime offers a model the tools its gates allow (internal/toolset).
@@ -25,13 +25,13 @@ const MaxTools = 128
 
 // bound are the arguments the runtime sets and a model never sees
 // (toolset.Bound, which this package does not import).
-var bound = []string{"course_id", "idempotency_key"}
+var bound = []string{"course_id", "idempotency_key", "revises"}
 
 // CatalogueTools are the tools of the pinned catalogue
 // (internal/core/testdata/catalogue.json) under their MCP names, with
 // Core's schemas as they are; with unbound, without the arguments the
-// runtime binds (course_id, idempotency_key), as the runtime declares
-// them. It is called from an adapter's tests, which run in the adapter's
+// runtime binds (course_id, idempotency_key, revises), as the runtime
+// declares them. It is called from an adapter's tests, which run in the adapter's
 // directory (internal/llm/<adapter>), so the catalogue is found from there,
 // as the other tests find it, and under -trimpath too.
 func CatalogueTools(t testing.TB, unbound bool) []llm.Tool {

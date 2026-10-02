@@ -111,9 +111,9 @@ const (
 // begins, as the built-in list's do, since a deny list only narrows. Mode
 // none offers nothing; an empty toolset is fine, the model then answers
 // from the conversation alone. Each tool is declared with Core's
-// description and its schema sanitised for dialect, with course_id and
-// idempotency_key bound, made once per catalogue through cache (which may
-// be nil).
+// description and its schema sanitised for dialect, with course_id,
+// idempotency_key and revises bound (Bound), made once per catalogue
+// through cache (which may be nil).
 func (c *Catalogue) Build(perms map[string]string, cfg config.Tools, access Access, dialect toolschema.Dialect, cache *toolschema.Cache) (*Set, error) {
 	if !dialect.Valid() {
 		return nil, fmt.Errorf("toolset: unknown schema dialect %q", string(dialect))

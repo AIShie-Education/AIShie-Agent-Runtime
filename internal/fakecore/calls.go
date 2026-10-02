@@ -23,6 +23,10 @@ type Call struct {
 	// Args are the arguments as sent, the idempotency key included over MCP.
 	Args           json.RawMessage
 	IdempotencyKey string
+	// Revises is the proposal the call named as the one it revises (the
+	// revises argument over MCP, the Revises header over REST), "" for
+	// none.
+	Revises string
 	// Status is the envelope's status; "" when none was given (an injected
 	// answer, a 401, a 429).
 	Status   string

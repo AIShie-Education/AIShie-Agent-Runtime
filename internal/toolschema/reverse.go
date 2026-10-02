@@ -21,7 +21,8 @@ import (
 //   - The bound values are put back, over anything the model wrote for them
 //     (course_id is always the conversation's course). One the schema has no
 //     property for, and takes no other properties, is left out instead:
-//     Core would refuse the call for it.
+//     Core would refuse the call for it. A bound value of nil is always
+//     left out: the model's goes, and the runtime gives none (revises).
 //
 // Numbers pass through exactly as written (json.Number), and the output's
 // keys are sorted. The result is not validated: Validate does that against
@@ -37,8 +38,8 @@ func Reverse(coreSchema, modelArgs json.RawMessage, bound map[string]any) (json.
 	}
 	clean(args, []any{schema})
 	for _, k := range sortedKeys(bound) {
-		if acceptsProperty(schema, k) {
-			args[k] = bound[k]
+		if v := bound[k]; v != nil && acceptsProperty(schema, k) {
+			args[k] = v
 		} else {
 			delete(args, k)
 		}

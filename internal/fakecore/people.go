@@ -2,7 +2,9 @@ package fakecore
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
@@ -312,12 +314,45 @@ func errOwnerWouldBeRefused(refused *apiError) *apiError {
 		with("reason", "owner_would_be_refused").with("refusal", refused)
 }
 
-// checkDecision is action.decide's check (Core's CheckDecision).
+// The decisions about a proposal. Whoever may reject one may request
+// changes to it instead, under the same rules: it ends as a rejection does,
+// nothing of it carried out, in changes_requested, with a note of what to
+// change, for the proposer to propose again naming it (revises).
+const (
+	decisionApprove        = "approve"
+	decisionReject         = "reject"
+	decisionRequestChanges = "request_changes"
+)
+
+// maxChangesNoteChars bounds the note a request for changes carries, its
+// reason, in characters.
+const maxChangesNoteChars = 2000
+
+// checkDecision is action.decide's check (Core's CheckDecision): a decision
+// is to approve, to reject, or to request changes, which says what to
+// change (changesNote).
 func checkDecision(in decideIn) error {
-	if in.Decision != "approve" && in.Decision != "reject" {
-		return invalid("decision must be %q or %q", "approve", "reject")
+	switch in.Decision {
+	case decisionApprove, decisionReject:
+		return nil
+	case decisionRequestChanges:
+		_, err := changesNote(in.Reason)
+		return err
 	}
-	return nil
+	return invalid("decision must be %q, %q or %q", decisionApprove, decisionReject, decisionRequestChanges)
+}
+
+// changesNote is what a request for changes asks of its proposer: its
+// reason, trimmed, 1 to maxChangesNoteChars characters (Core's changesNote).
+func changesNote(reason *string) (string, error) {
+	if reason == nil || strings.TrimSpace(*reason) == "" {
+		return "", invalid("a request for changes says what to change, in reason").with("reason", "note_required")
+	}
+	note := strings.TrimSpace(*reason)
+	if n := utf8.RuneCountInString(note); n > maxChangesNoteChars {
+		return "", invalid("the note is %d characters long; the most is %d", n, maxChangesNoteChars).with("reason", "note_too_long")
+	}
+	return note, nil
 }
 
 func actionDecide() *impl {
@@ -381,7 +416,8 @@ func (c *Core) refuseDecision(m *member, prop *action) (byOwner bool, err error)
 	return byOwner, nil
 }
 
-// decide approves or rejects a proposal, as Core's pipeline.Decide does:
+// decide approves, rejects or sends back a proposal, as Core's
+// pipeline.Decide does:
 // the proposer authorized again, now, against the seat it proposed from,
 // what it asks checked again as the proposer's, and the tool carried out
 // as the proposer under the proposal's id.
@@ -413,12 +449,26 @@ func (c *Core) decide(ec *execCtx, in decideIn) (any, error) {
 	if ttl := c.proposalTTL(); ttl > 0 && prop.createdAt.Add(ttl).Before(ec.now) {
 		return cancel(cancelExpired, nil), nil
 	}
-	if in.Decision == "reject" {
+	if in.Decision == decisionReject {
 		prop.result = mustJSON(map[string]any{"decision": said(map[string]any{
-			"decision": "reject", "reason": in.Reason, "by_action_id": ec.actionID})})
+			"decision": decisionReject, "reason": in.Reason, "by_action_id": ec.actionID})})
 		c.finish(prop, actRejected, ec.member, ec.now)
 		ec.emit(proposalEvent("action.rejected", prop, ec.actionID, said(nil)))
 		return decideOut{ActionID: prop.id, Outcome: actRejected, ByOwner: byOwner}, nil
+	}
+	if in.Decision == decisionRequestChanges {
+		// As a rejection, with the note it carries as its reason: a
+		// proposer reads both the same way. The event carries no note, as
+		// no event carries what was written.
+		note, err := changesNote(in.Reason)
+		if err != nil {
+			return nil, err
+		}
+		prop.result = mustJSON(map[string]any{"decision": said(map[string]any{
+			"decision": decisionRequestChanges, "reason": note, "by_action_id": ec.actionID})})
+		c.finish(prop, actChangesRequested, ec.member, ec.now)
+		ec.emit(proposalEvent("action.changes_requested", prop, ec.actionID, said(nil)))
+		return decideOut{ActionID: prop.id, Outcome: actChangesRequested, ByOwner: byOwner}, nil
 	}
 
 	t := c.cat.byName[prop.actionType]

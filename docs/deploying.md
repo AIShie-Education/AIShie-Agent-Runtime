@@ -469,6 +469,15 @@ act for them in the conversations they open, as far as its seats'
 permissions allow, unless they turn that off (`tools.writes`, through the
 API).
 
+A person who decides an agent's answers may send one back for changes,
+with a note (Core since AIShie-Core #68): the runtime writes the answer
+again, told what to change, and proposes it naming the one it revises. A
+runtime from before this release never answers such a conversation again
+until its asker writes again, so deploy it before people are given the
+choice. Its store's migration 0015 lets an attempt be kept as sent back;
+the release before reads one as an attempt that posted nothing, and
+answers the question again without naming what it revises.
+
 ### The runtime's own credential in Core
 
 The runtime is a site service of Core's, `agent_runtime`, and holds a

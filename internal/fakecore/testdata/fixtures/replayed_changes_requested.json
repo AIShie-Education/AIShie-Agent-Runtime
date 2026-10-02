@@ -1,9 +1,9 @@
 {
- "scenario": "replayed_rejected",
+ "scenario": "replayed_changes_requested",
  "steps": [
   {
    "args": {
-    "body": "It is about sets.",
+    "body": "Graphs.",
     "conversation_id": "<id:1>",
     "course_id": "<id:2>",
     "idempotency_key": "answer:<id:1>:<id:3>:1",
@@ -23,7 +23,7 @@
   },
   {
    "args": {
-    "body": "It is about sets.",
+    "body": "Graphs.",
     "conversation_id": "<id:1>",
     "course_id": "<id:2>",
     "idempotency_key": "answer:<id:1>:<id:3>:1",
@@ -35,12 +35,12 @@
     "result": {
      "decision": {
       "by_action_id": "<id:5>",
-      "decision": "reject",
-      "reason": "Too terse; explain the thesis."
+      "decision": "request_changes",
+      "reason": "Say which kinds of graphs, and where the chapter starts."
      }
     },
     "review_state": "none",
-    "status": "rejected"
+    "status": "changes_requested"
    },
    "http_status": 200,
    "is_error": true,
@@ -215,7 +215,7 @@
        "seq": "<seq:6>",
        "subject_id": "<id:4>",
        "subject_type": "action",
-       "type": "action.rejected"
+       "type": "action.changes_requested"
       }
      ],
      "more": false,
@@ -246,7 +246,7 @@
        "id": "<id:4>",
        "member_id": "<id:7>",
        "payload": {
-        "body": "It is about sets.",
+        "body": "Graphs.",
         "conversation_id": "<id:1>",
         "course_id": "<id:2>",
         "in_reply_to_message_id": "<id:3>"
@@ -254,12 +254,12 @@
        "result": {
         "decision": {
          "by_action_id": "<id:5>",
-         "decision": "reject",
-         "reason": "Too terse; explain the thesis."
+         "decision": "request_changes",
+         "reason": "Say which kinds of graphs, and where the chapter starts."
         }
        },
        "review_state": "none",
-       "status": "rejected",
+       "status": "changes_requested",
        "target_id": "<id:1>",
        "target_type": "conversation"
       }
@@ -275,11 +275,12 @@
   },
   {
    "args": {
-    "body": "Chapter 3 argues that every set has a size.",
+    "body": "Chapter 4 covers directed and undirected graphs, from page 61.",
     "conversation_id": "<id:1>",
     "course_id": "<id:2>",
     "idempotency_key": "answer:<id:1>:<id:3>:2",
-    "in_reply_to_message_id": "<id:3>"
+    "in_reply_to_message_id": "<id:3>",
+    "revises": "<id:4>"
    },
    "envelope": {
     "action_id": "<id:13>",
@@ -289,9 +290,223 @@
    },
    "http_status": 200,
    "is_error": false,
-   "step": "next_attempt",
+   "step": "revision",
    "text_is_envelope": true,
    "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "Chapter 4 covers directed and undirected graphs, from page 61.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:2",
+    "in_reply_to_message_id": "<id:3>",
+    "revises": "<id:4>"
+   },
+   "envelope": {
+    "action_id": "<id:13>",
+    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected, action.changes_requested or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed. After action.changes_requested, read what to change in its result.decision.reason and propose again under a new key, with revises = this action_id.",
+    "replayed": true,
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "revision_replay",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "Chapter 4 covers directed and undirected graphs, from page 61.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:2",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "error": {
+     "code": "idempotency_conflict",
+     "details": {
+      "action_id": "<id:13>"
+     },
+     "message": "this idempotency key was already used for a different conversation.answer call; use a new key for a new request"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "revision_without_revises",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "since_seq": 0
+   },
+   "envelope": {
+    "result": {
+     "events": [
+      {
+       "action_id": "<id:8>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:1>",
+       "subject_id": "<id:2>",
+       "subject_type": "course",
+       "type": "course.created"
+      },
+      {
+       "action_id": "<id:9>",
+       "occurred_at": "<time>",
+       "payload": {},
+       "seq": "<seq:2>",
+       "subject_id": "<id:2>",
+       "subject_type": "course",
+       "type": "course.activated"
+      },
+      {
+       "action_id": "<id:10>",
+       "occurred_at": "<time>",
+       "payload": {
+        "conversation_id": "<id:1>",
+        "opener_member_id": "<id:6>",
+        "respondent_member_id": "<id:7>"
+       },
+       "seq": "<seq:3>",
+       "subject_id": "<id:1>",
+       "subject_type": "conversation",
+       "type": "conversation.opened"
+      },
+      {
+       "action_id": "<id:10>",
+       "occurred_at": "<time>",
+       "payload": {
+        "author_member_id": "<id:6>",
+        "conversation_id": "<id:1>",
+        "message_id": "<id:3>",
+        "opener_member_id": "<id:6>",
+        "respondent_member_id": "<id:7>"
+       },
+       "seq": "<seq:4>",
+       "subject_id": "<id:1>",
+       "subject_type": "conversation",
+       "type": "conversation.message_posted"
+      },
+      {
+       "action_id": "<id:4>",
+       "occurred_at": "<time>",
+       "payload": {
+        "action_type": "conversation.answer",
+        "target_id": "<id:1>",
+        "target_type": "conversation"
+       },
+       "seq": "<seq:5>",
+       "subject_id": "<id:4>",
+       "subject_type": "action",
+       "type": "action.proposed"
+      },
+      {
+       "action_id": "<id:4>",
+       "occurred_at": "<time>",
+       "payload": {
+        "action_type": "conversation.answer",
+        "by_action_id": "<id:5>"
+       },
+       "seq": "<seq:6>",
+       "subject_id": "<id:4>",
+       "subject_type": "action",
+       "type": "action.changes_requested"
+      },
+      {
+       "action_id": "<id:13>",
+       "occurred_at": "<time>",
+       "payload": {
+        "action_type": "conversation.answer",
+        "revises_action_id": "<id:4>",
+        "target_id": "<id:1>",
+        "target_type": "conversation"
+       },
+       "seq": "<seq:7>",
+       "subject_id": "<id:13>",
+       "subject_type": "action",
+       "type": "action.proposed"
+      }
+     ],
+     "more": false,
+     "next_seq": "<seq:7>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "events_after",
+   "text_is_envelope": true,
+   "tool": "event_list"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "actions": [
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:11>",
+       "authz_result": "confirm_required",
+       "created_at": "<time>",
+       "decided_at": "<time>",
+       "decided_by_member_id": "<id:12>",
+       "id": "<id:4>",
+       "member_id": "<id:7>",
+       "payload": {
+        "body": "Graphs.",
+        "conversation_id": "<id:1>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:3>"
+       },
+       "result": {
+        "decision": {
+         "by_action_id": "<id:5>",
+         "decision": "request_changes",
+         "reason": "Say which kinds of graphs, and where the chapter starts."
+        }
+       },
+       "review_state": "none",
+       "status": "changes_requested",
+       "target_id": "<id:1>",
+       "target_type": "conversation"
+      },
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:11>",
+       "authz_result": "confirm_required",
+       "created_at": "<time>",
+       "id": "<id:13>",
+       "member_id": "<id:7>",
+       "payload": {
+        "body": "Chapter 4 covers directed and undirected graphs, from page 61.",
+        "conversation_id": "<id:1>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:3>"
+       },
+       "review_state": "none",
+       "revises_action_id": "<id:4>",
+       "status": "proposed",
+       "target_id": "<id:1>",
+       "target_type": "conversation"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "mine_after",
+   "text_is_envelope": true,
+   "tool": "action_list_mine"
   }
  ]
 }

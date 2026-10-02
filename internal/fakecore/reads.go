@@ -108,7 +108,7 @@ func meMemberships() *impl {
 // its two participants' and nobody else's.
 var visibility = map[string][]string{
 	"action.proposed": {permActionDecide}, "action.approved": {permActionDecide},
-	"action.rejected": {permActionDecide}, "action.cancelled": {permActionDecide},
+	"action.rejected": {permActionDecide}, "action.changes_requested": {permActionDecide}, "action.cancelled": {permActionDecide},
 	"action.reviewed": {permActionDecide}, "action.escalated": {permActionDecide},
 	"member.added": {permMemberRead}, "member.updated": {permMemberRead},
 	"member.paused": {permMemberRead}, "member.resumed": {permMemberRead},
@@ -208,6 +208,7 @@ type actionView struct {
 	ExecutedAt         *time.Time      `json:"executed_at,omitempty"`
 	Result             json.RawMessage `json:"result,omitempty"`
 	CreatedAt          time.Time       `json:"created_at"`
+	RevisesActionID    *string         `json:"revises_action_id,omitempty"`
 }
 
 func viewAction(a *action) actionView {
@@ -225,6 +226,10 @@ func viewAction(a *action) actionView {
 	if a.reviewedBy != nil {
 		id := a.reviewedBy.id
 		v.ReviewedByMemberID = &id
+	}
+	if a.revises != "" {
+		id := a.revises
+		v.RevisesActionID = &id
 	}
 	return v
 }
@@ -248,7 +253,8 @@ type actionListMineIn struct {
 }
 
 // actionListMine is the caller's own actions in the course, oldest first:
-// how an agent reads what became of its proposals, and a rejection's reason.
+// how an agent reads what became of its proposals, a rejection's reason and
+// what to change in one sent back for changes.
 func actionListMine() *impl {
 	return define(spec[actionListMineIn]{
 		gate:    gateConverses,

@@ -111,13 +111,80 @@ func TestRESTRequests(t *testing.T) {
 	}
 }
 
+// TestRESTRevises: the proposal a write revises goes in the Revises
+// header, out of the body, as the key goes in its own; null, or a string
+// of blanks, names nothing and sends none, as over MCP; one that is not a
+// string stays in the body for Core to refuse; a read's stays an argument.
+func TestRESTRevises(t *testing.T) {
+	cat := testCatalogue(t)
+	const A = "0192f3c1-0000-7000-8000-0000000000aa"
+	for _, tc := range []struct {
+		name, tool, args string
+		path, revises    string
+		body             string // "" for none
+	}{
+		{"an answer that revises one sent back", "conversation_answer",
+			`{"course_id":"C","conversation_id":"X","in_reply_to_message_id":"M","body":"hi","idempotency_key":"answer:X:M:2","revises":"` + A + `"}`,
+			"/v1/courses/C/conversations/X/answer", A, `{"in_reply_to_message_id":"M","body":"hi"}`},
+		{"null names nothing", "conversation_answer",
+			`{"course_id":"C","conversation_id":"X","in_reply_to_message_id":"M","body":"hi","revises":null,"idempotency_key":"k"}`,
+			"/v1/courses/C/conversations/X/answer", "", `{"in_reply_to_message_id":"M","body":"hi"}`},
+		{"blanks name nothing", "conversation_answer",
+			`{"course_id":"C","conversation_id":"X","in_reply_to_message_id":"M","body":"hi","revises":" ","idempotency_key":"k"}`,
+			"/v1/courses/C/conversations/X/answer", "", `{"in_reply_to_message_id":"M","body":"hi"}`},
+		{"not a string stays in the body for Core to refuse", "conversation_answer",
+			`{"course_id":"C","conversation_id":"X","in_reply_to_message_id":"M","body":"hi","revises":7,"idempotency_key":"k"}`,
+			"/v1/courses/C/conversations/X/answer", "", `{"in_reply_to_message_id":"M","body":"hi","revises":7}`},
+		{"a read's stays an argument", "me_get", `{"revises":"` + A + `"}`, "/v1/me?revises=" + A, "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tl, ok := cat.Tool(tc.tool)
+			if !ok {
+				t.Fatalf("no %s", tc.tool)
+			}
+			r, err := buildRequest(tl, json.RawMessage(tc.args))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if r.path != tc.path || r.revises != tc.revises {
+				t.Errorf("got %s revises %q, want %s revises %q", r.path, r.revises, tc.path, tc.revises)
+			}
+			if tc.body == "" && r.body != nil || tc.body != "" && string(r.body) != tc.body {
+				t.Errorf("body %s, want %s", r.body, tc.body)
+			}
+		})
+	}
+	srv, seen := newFakeREST(t, func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusAccepted, map[string]any{"status": "proposed", "action_id": "a2", "review_state": "none"})
+	})
+	c := NewRESTCaller(RESTOptions{BaseURL: srv.URL, Token: testToken, Catalogue: cat})
+	args, err := json.Marshal(AnswerArgs{CourseID: "C", ConversationID: "X", InReplyToMessageID: "M", Body: "hi", IdempotencyKey: "answer:X:M:2", Revises: A})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Call(context.Background(), "conversation_answer", args); err != nil {
+		t.Fatal(err)
+	}
+	if got := seen(); len(got) != 1 || got[0].Header.Get("Revises") != A || got[0].Header.Get("Idempotency-Key") != "answer:X:M:2" ||
+		strings.Contains(got[0].Body, "revises") {
+		t.Errorf("the revision was sent as %+v", got)
+	}
+	// An answer that revises nothing is the bytes it always was.
+	plain, err := json.Marshal(AnswerArgs{CourseID: "C", ConversationID: "X", InReplyToMessageID: "M", Body: "hi", IdempotencyKey: "k"})
+	if err != nil || strings.Contains(string(plain), "revises") {
+		t.Errorf("an answer revising nothing: %s, %v", plain, err)
+	}
+}
+
 func TestRESTRefusesArgumentsItCannotSend(t *testing.T) {
 	cat := testCatalogue(t)
 	answer, _ := cat.Tool("conversation_answer")
 	for _, args := range []string{`[1]`, `"x"`, `{"a":1,"a":2}`, `{"a":1} {}`, `{"a":`, `{"idempotency_key":"a\nb"}`,
 		// A header's value comes to Core without its leading and trailing
-		// blanks: another key than the one given.
-		`{"idempotency_key":" answer:x:m:1"}`, `{"idempotency_key":"answer:x:m:1\t"}`} {
+		// blanks: another key than the one given; and what a call revises
+		// with them, which Core refuses over MCP.
+		`{"idempotency_key":" answer:x:m:1"}`, `{"idempotency_key":"answer:x:m:1\t"}`,
+		`{"revises":" 0192f3c1-0000-7000-8000-0000000000aa"}`, `{"revises":"a\nb"}`} {
 		_, err := buildRequest(answer, json.RawMessage(args))
 		var pe *ProtocolError
 		if !errors.As(err, &pe) {
@@ -250,6 +317,16 @@ func TestRESTAnswers(t *testing.T) {
 					t.Fatal("not replayed")
 				}
 			}},
+		{"409 replayed changes_requested, with what to change", body(409, `{"status":"changes_requested","action_id":"a1","review_state":"none","replayed":true,`+
+			`"result":{"decision":{"decision":"request_changes","reason":"Cite it.","by_action_id":"a2"}}}`),
+			func(t *testing.T, env *Envelope, err error) {
+				envelope(StatusChangesRequested, "", "")(t, env, err)
+				if !env.Replayed || (Action{Result: env.Result}).DecisionReason() != "Cite it." {
+					t.Fatalf("got %+v", env)
+				}
+			}},
+		{"400 not_revisable, never attempted", body(400, `{"error":{"code":"invalid_argument","message":"revises names no proposal of yours in this course","details":{"reason":"not_revisable"}}}`),
+			envelope(StatusError, CodeInvalidArgument, ReasonNotRevisable)},
 		{"409 idempotency_conflict, never attempted", body(409, `{"error":{"code":"idempotency_conflict","message":"used before","details":{"action_id":"a0"}}}`),
 			func(t *testing.T, env *Envelope, err error) {
 				envelope(StatusError, CodeIdempotencyConflict, "")(t, env, err)

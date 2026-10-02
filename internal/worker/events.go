@@ -34,6 +34,9 @@ const (
 	actionFailed    = "failed"
 	actionRejected  = "rejected"
 	actionCancelled = "cancelled"
+	// actionChangesRequested is a proposal a person sent back for changes:
+	// over, as a rejected one is.
+	actionChangesRequested = "changes_requested"
 )
 
 // pollEvents follows the seat's events (design §5.4) until ctx is done:
@@ -230,7 +233,7 @@ func (s *Seat) onEvent(ctx context.Context, ev core.Event, acts *actionLookup) e
 	switch ev.Type {
 	case core.EventDocumentPurged, core.EventDocumentPurgedUnreleased:
 		return s.purged(ctx, ev)
-	case core.EventActionApproved, core.EventActionRejected, core.EventActionCancelled:
+	case core.EventActionApproved, core.EventActionRejected, core.EventActionChangesRequested, core.EventActionCancelled:
 		if ev.ActionID == nil {
 			return nil
 		}
@@ -338,6 +341,11 @@ func actionFromEvent(ev core.Event) core.Action {
 		}
 	case core.EventActionRejected:
 		act.Status = actionRejected
+	case core.EventActionChangesRequested:
+		// What to change is not in the event: action_list_mine has it,
+		// and without it the next attempt knows only that it was sent
+		// back.
+		act.Status = actionChangesRequested
 	case core.EventActionCancelled:
 		act.Status = actionCancelled
 		act.Result, _ = json.Marshal(map[string]any{"error": map[string]any{"details": map[string]string{"reason": p.Reason}}})
@@ -348,9 +356,11 @@ func actionFromEvent(ev core.Event) core.Action {
 // settleProposal settles a proposed attempt as its action stands (§2.4):
 // executed, it posted (the course is hot, and memory notes it); rejected,
 // the reason goes into the conversation's memory for the next attempt;
-// cancelled (expired, most often), memory notes why; failed, nothing was
-// posted. Whatever did not post puts the conversation back in the inbox,
-// for the next attempt. Its error is the store failing to record it.
+// sent back for changes, so does what to change, and the attempt keeps
+// it, for the next attempt, which revises it, to be told; cancelled
+// (expired, most often), memory notes why; failed, nothing was posted.
+// Whatever did not post puts the conversation back in the inbox, for the
+// next attempt. Its error is the store failing to record it.
 func (s *Seat) settleProposal(at *store.Attempt, act core.Action) error {
 	o := store.Outcome{ActionID: act.ID}
 	var note *store.Note
@@ -368,6 +378,11 @@ func (s *Seat) settleProposal(at *store.Attempt, act core.Action) error {
 		o.State, o.Reason = store.AttemptRejected, act.DecisionReason()
 		n := base
 		n.Kind, n.Text = store.NoteRejected, o.Reason
+		note = &n
+	case actionChangesRequested:
+		o.State, o.Reason = store.AttemptChangesRequested, act.DecisionReason()
+		n := base
+		n.Kind, n.Text = store.NoteChangesRequested, o.Reason
 		note = &n
 	case actionCancelled:
 		o.State, o.Reason = store.AttemptCancelled, actionErrorReason(act)

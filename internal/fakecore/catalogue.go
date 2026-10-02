@@ -21,6 +21,11 @@ var catalogueJSON []byte
 // in a header.
 const idempotencyKey = "idempotency_key"
 
+// revisesArg is the argument every write may take over MCP, naming the
+// proposal sent back for changes that the call proposes again (Core's
+// pipeline.InvokeRevising); REST carries it in the Revises header.
+const revisesArg = "revises"
+
 // maxKeyChars bounds an idempotency key, in characters, as Core's schema
 // does.
 const maxKeyChars = 200
@@ -138,7 +143,7 @@ func (t *toolDef) prepare() error {
 }
 
 // mcpInputSchema is the tool's own schema; for a write, plus the idempotency
-// key, worded as Core words it.
+// key and revises, worded as Core words them.
 func mcpInputSchema(raw json.RawMessage, write bool) (json.RawMessage, error) {
 	if !write {
 		return raw, nil
@@ -156,6 +161,11 @@ func mcpInputSchema(raw json.RawMessage, write bool) (json.RawMessage, error) {
 		"description": "Any string unique to this request. Retrying after a timeout with the SAME key and arguments returns " +
 			"the original outcome and does nothing twice. Use a new key only for a new request.",
 	}
+	props[revisesArg] = map[string]any{
+		"type": "string", "format": "uuid",
+		"description": "Only when this call proposes again what a person sent back for changes: the action_id of your " +
+			"proposal that ended in changes_requested, whose result.decision.reason said what to change. Leave it out otherwise.",
+	}
 	s["properties"] = props
 	required, _ := s["required"].([]any)
 	s["required"] = append(required, idempotencyKey)
@@ -169,8 +179,8 @@ func envelopeSchema(result json.RawMessage) (json.RawMessage, error) {
 		"type":     "object",
 		"required": []string{"status"},
 		"properties": map[string]any{
-			"status": map[string]any{"type": "string", "enum": []string{"executed", "proposed", "denied", "failed", "rejected", "cancelled", "error"},
-				"description": "executed: done. proposed: queued for a person's confirmation, not done. denied, failed: not done. error: the call was never attempted."},
+			"status": map[string]any{"type": "string", "enum": []string{"executed", "proposed", "denied", "failed", "rejected", "changes_requested", "cancelled", "error"},
+				"description": "executed: done. proposed: queued for a person's confirmation, not done. denied, failed: not done. rejected, changes_requested, cancelled: a proposal replayed after it was decided so; not done. error: the call was never attempted."},
 			"action_id":    map[string]any{"type": "string", "format": "uuid", "description": "the recorded action; absent for reads"},
 			"review_state": map[string]any{"type": "string"},
 			"replayed":     map[string]any{"type": "boolean", "description": "true when this is the stored outcome of an earlier call with the same idempotency_key"},
