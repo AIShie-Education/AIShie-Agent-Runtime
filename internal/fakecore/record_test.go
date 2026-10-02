@@ -528,6 +528,10 @@ func (w *liveWorld) reject(actionID, reason string) {
 	w.decide(actionID, map[string]any{"decision": "reject", "reason": reason})
 }
 
+func (w *liveWorld) requestChanges(actionID, note string) {
+	w.decide(actionID, map[string]any{"decision": "request_changes", "reason": note})
+}
+
 // expire waits for Core's sweep to cancel the proposal, which it does once
 // it is older than PROPOSAL_TTL.
 func (w *liveWorld) expire(actionID string) bool {

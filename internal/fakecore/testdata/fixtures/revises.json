@@ -1,0 +1,510 @@
+{
+ "scenario": "revises",
+ "steps": [
+  {
+   "args": {
+    "body": "Soon.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "action_id": "<id:4>",
+    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected, action.changes_requested or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed. After action.changes_requested, read what to change in its result.decision.reason and propose again under a new key, with revises = this action_id.",
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "answer",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "In week 7.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:2",
+    "in_reply_to_message_id": "<id:3>",
+    "revises": "<id:4>"
+   },
+   "envelope": {
+    "error": {
+     "code": "failed_precondition",
+     "details": {
+      "reason": "not_revisable"
+     },
+     "message": "the proposal it revises is proposed: only one sent back for changes is revised"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "revises_waiting",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "In week 7.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:2",
+    "in_reply_to_message_id": "<id:3>",
+    "revises": "<id:5>"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "details": {
+      "reason": "not_revisable"
+     },
+     "message": "revises names no proposal of yours in this course"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "revises_no_action",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "actions": [
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:6>",
+       "authz_result": "confirm_required",
+       "created_at": "<time>",
+       "decided_at": "<time>",
+       "decided_by_member_id": "<id:7>",
+       "id": "<id:4>",
+       "member_id": "<id:8>",
+       "payload": {
+        "body": "Soon.",
+        "conversation_id": "<id:1>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:3>"
+       },
+       "result": {
+        "decision": {
+         "by_action_id": "<id:9>",
+         "decision": "request_changes",
+         "reason": "Give the date."
+        }
+       },
+       "review_state": "none",
+       "status": "changes_requested",
+       "target_id": "<id:1>",
+       "target_type": "conversation"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "mine",
+   "text_is_envelope": true,
+   "tool": "action_list_mine"
+  },
+  {
+   "args": {
+    "body": "On 14 March.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:2",
+    "in_reply_to_message_id": "<id:3>",
+    "revises": "<id:9>"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "details": {
+      "reason": "not_revisable"
+     },
+     "message": "revises names no proposal of yours in this course"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "revises_others",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "On 14 March.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:2",
+    "in_reply_to_message_id": "<id:3>",
+    "revises": "<id:4>"
+   },
+   "envelope": {
+    "action_id": "<id:10>",
+    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected, action.changes_requested or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed. After action.changes_requested, read what to change in its result.decision.reason and propose again under a new key, with revises = this action_id.",
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "revision",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "On 14 March, in room B12.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:3",
+    "in_reply_to_message_id": "<id:3>",
+    "revises": "<id:10>"
+   },
+   "envelope": {
+    "action_id": "<id:11>",
+    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected, action.changes_requested or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed. After action.changes_requested, read what to change in its result.decision.reason and propose again under a new key, with revises = this action_id.",
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "revision_of_revision",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "On 14 March, in room B12.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:3",
+    "in_reply_to_message_id": "<id:3>",
+    "revises": "<id:10>"
+   },
+   "envelope": {
+    "action_id": "<id:11>",
+    "replayed": true,
+    "result": {
+     "message_id": "<id:12>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "revision_of_revision_replay",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "actions": [
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:6>",
+       "authz_result": "confirm_required",
+       "created_at": "<time>",
+       "decided_at": "<time>",
+       "decided_by_member_id": "<id:7>",
+       "id": "<id:4>",
+       "member_id": "<id:8>",
+       "payload": {
+        "body": "Soon.",
+        "conversation_id": "<id:1>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:3>"
+       },
+       "result": {
+        "decision": {
+         "by_action_id": "<id:9>",
+         "decision": "request_changes",
+         "reason": "Give the date."
+        }
+       },
+       "review_state": "none",
+       "status": "changes_requested",
+       "target_id": "<id:1>",
+       "target_type": "conversation"
+      },
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:6>",
+       "authz_result": "confirm_required",
+       "created_at": "<time>",
+       "decided_at": "<time>",
+       "decided_by_member_id": "<id:7>",
+       "id": "<id:10>",
+       "member_id": "<id:8>",
+       "payload": {
+        "body": "On 14 March.",
+        "conversation_id": "<id:1>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:3>"
+       },
+       "result": {
+        "decision": {
+         "by_action_id": "<id:13>",
+         "decision": "request_changes",
+         "reason": "And the room."
+        }
+       },
+       "review_state": "none",
+       "revises_action_id": "<id:4>",
+       "status": "changes_requested",
+       "target_id": "<id:1>",
+       "target_type": "conversation"
+      },
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:6>",
+       "authz_result": "confirm_required",
+       "created_at": "<time>",
+       "decided_at": "<time>",
+       "decided_by_member_id": "<id:7>",
+       "executed_at": "<time>",
+       "id": "<id:11>",
+       "member_id": "<id:8>",
+       "payload": {
+        "body": "On 14 March, in room B12.",
+        "conversation_id": "<id:1>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:3>"
+       },
+       "result": {
+        "message_id": "<id:12>"
+       },
+       "review_state": "none",
+       "revises_action_id": "<id:10>",
+       "status": "executed",
+       "target_id": "<id:1>",
+       "target_type": "conversation"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "chain",
+   "text_is_envelope": true,
+   "tool": "action_list_mine"
+  },
+  {
+   "args": {
+    "body": "Yes.",
+    "conversation_id": "<id:14>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:14>:<id:15>:1",
+    "in_reply_to_message_id": "<id:15>",
+    "revises": null
+   },
+   "envelope": {
+    "action_id": "<id:16>",
+    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected, action.changes_requested or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed. After action.changes_requested, read what to change in its result.decision.reason and propose again under a new key, with revises = this action_id.",
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "revises_null",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "Yes.",
+    "conversation_id": "<id:14>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:14>:<id:15>:1",
+    "in_reply_to_message_id": "<id:15>",
+    "revises": ""
+   },
+   "envelope": {
+    "action_id": "<id:16>",
+    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected, action.changes_requested or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed. After action.changes_requested, read what to change in its result.decision.reason and propose again under a new key, with revises = this action_id.",
+    "replayed": true,
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "revises_empty",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "Yes, in August.",
+    "conversation_id": "<id:14>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:14>:<id:15>:2",
+    "in_reply_to_message_id": "<id:15>",
+    "revises": "<id:16>"
+   },
+   "envelope": {
+    "error": {
+     "code": "failed_precondition",
+     "details": {
+      "reason": "not_revisable"
+     },
+     "message": "the proposal it revises is rejected: only one sent back for changes is revised"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "revises_rejected",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "invalid_argument",
+     "details": {
+      "reason": "not_revisable"
+     },
+     "message": "conversation.get is recorded nowhere, so it revises no proposal"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "method": "GET",
+   "path": "/v1/courses/<id:2>/conversations/<id:14>",
+   "revises_header": "<id:4>",
+   "step": "rest_read"
+  },
+  {
+   "body": {
+    "action_id": "<id:17>",
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "content_type": "application/json",
+   "http_status": 202,
+   "method": "POST",
+   "path": "/v1/courses/<id:2>/conversations/<id:18>/answer",
+   "request": {
+    "body": "At the office.",
+    "in_reply_to_message_id": "<id:19>"
+   },
+   "revises_header": "",
+   "step": "rest_answer"
+  },
+  {
+   "body": {
+    "action_id": "<id:17>",
+    "replayed": true,
+    "result": {
+     "decision": {
+      "by_action_id": "<id:20>",
+      "decision": "request_changes",
+      "reason": "Which office, and when it is open."
+     }
+    },
+    "review_state": "none",
+    "status": "changes_requested"
+   },
+   "content_type": "application/json",
+   "http_status": 409,
+   "method": "POST",
+   "path": "/v1/courses/<id:2>/conversations/<id:18>/answer",
+   "replayed_header": "true",
+   "request": {
+    "body": "At the office.",
+    "in_reply_to_message_id": "<id:19>"
+   },
+   "revises_header": "",
+   "step": "rest_replayed_changes_requested"
+  },
+  {
+   "body": {
+    "action_id": "<id:21>",
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "content_type": "application/json",
+   "http_status": 202,
+   "method": "POST",
+   "path": "/v1/courses/<id:2>/conversations/<id:18>/answer",
+   "request": {
+    "body": "At the department office, room A3, 9 to 5.",
+    "in_reply_to_message_id": "<id:19>"
+   },
+   "revises_header": "<id:17>",
+   "step": "rest_revision"
+  },
+  {
+   "body": {
+    "action_id": "<id:21>",
+    "replayed": true,
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "content_type": "application/json",
+   "http_status": 202,
+   "method": "POST",
+   "path": "/v1/courses/<id:2>/conversations/<id:18>/answer",
+   "replayed_header": "true",
+   "request": {
+    "body": "At the department office, room A3, 9 to 5.",
+    "in_reply_to_message_id": "<id:19>"
+   },
+   "revises_header": "<id:17>",
+   "step": "rest_revision_replay"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "idempotency_conflict",
+     "details": {
+      "action_id": "<id:21>"
+     },
+     "message": "this idempotency key was already used for a different conversation.answer call; use a new key for a new request"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 409,
+   "method": "POST",
+   "path": "/v1/courses/<id:2>/conversations/<id:18>/answer",
+   "request": {
+    "body": "At the department office, room A3, 9 to 5.",
+    "in_reply_to_message_id": "<id:19>"
+   },
+   "revises_header": "",
+   "step": "rest_revision_without_revises"
+  },
+  {
+   "body": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "Revises must be the id of the proposal the call revises"
+    }
+   },
+   "content_type": "application/json",
+   "http_status": 400,
+   "method": "POST",
+   "path": "/v1/courses/<id:2>/conversations/<id:18>/answer",
+   "request": {
+    "body": "At the department office, room A3, 9 to 5.",
+    "in_reply_to_message_id": "<id:19>"
+   },
+   "revises_header": "the one before",
+   "step": "rest_revises_no_id"
+  }
+ ]
+}

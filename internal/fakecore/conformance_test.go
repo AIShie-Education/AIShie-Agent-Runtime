@@ -278,6 +278,11 @@ func (w *fakeWorld) reject(actionID, reason string) {
 	w.ok(w.fc.Reject(actionID, reason))
 }
 
+func (w *fakeWorld) requestChanges(actionID, note string) {
+	w.t.Helper()
+	w.ok(w.fc.RequestChanges(actionID, note))
+}
+
 func (w *fakeWorld) expire(actionID string) bool {
 	w.t.Helper()
 	w.ok(w.fc.Expire(actionID))

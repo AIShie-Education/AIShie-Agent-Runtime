@@ -376,6 +376,7 @@ func TestProposalsReplayAsTheyStandNow(t *testing.T) {
 	}{
 		{"approved replays executed", func(w *fakeWorld, id string) { w.approve(id) }, "executed", ""},
 		{"rejected replays rejected", func(w *fakeWorld, id string) { w.reject(id, "Too terse") }, "rejected", ""},
+		{"sent back replays changes_requested", func(w *fakeWorld, id string) { w.requestChanges(id, "Say more") }, "changes_requested", ""},
 		{"expired replays cancelled", func(w *fakeWorld, id string) { w.expire(id) }, "cancelled", codeFailedPrecondition},
 		{"withdrawn by removal replays cancelled", func(w *fakeWorld, _ string) { w.removeTutor() }, "cancelled", codeFailedPrecondition},
 	}
@@ -532,6 +533,59 @@ func TestProposals(t *testing.T) {
 			t.Errorf("action_list_mine: %v", last)
 		}
 	})
+	// A request for changes says what to change, or is refused as its
+	// arguments are read; sent back, the proposal is over, its note in
+	// action_list_mine, the conversation back in the inbox, which a
+	// long poll waiting for it learns at once; the revision names it.
+	t.Run("sent back for changes: the note in action_list_mine, the inbox woken, a revision naming it", func(t *testing.T) {
+		w := newFakeWorld(t, Options{})
+		w.setTutorLevel("confirm_required")
+		conv, m1 := w.ask(0, "Q")
+		a := mustCall(t, w.agentC, "conversation_answer", answer(w, conv, m1, "A", 1))
+		id := a.str("action_id")
+		mori := w.as("mori")
+		for i, note := range []any{nil, " \t ", strings.Repeat("é", maxChangesNoteChars+1)} {
+			args := inCourseArgs(w, "action_id", id, "decision", "request_changes", "idempotency_key", fmt.Sprintf("send-back:%d", i))
+			want := "note_required"
+			if note != nil {
+				args["reason"] = note
+				if i == 2 {
+					want = "note_too_long"
+				}
+			}
+			wantEnvelope(t, mustCall(t, mori, "action_decide", args), "error", codeInvalidArgument, want)
+		}
+		if got := w.fc.Proposals(w.co.ID); len(got) != 1 || got[0].ActionID != id {
+			t.Fatalf("a refused request for changes changed the proposals: %+v", got)
+		}
+		inbox := waitInBackground(w.agentC, inCourseArgs(w, "wait_s", 5))
+		eventually(t, "the inbox waiting", func() bool { return w.fc.WaitingOf(w.tutorA.ID) == 1 })
+		w.ok(w.fc.RequestChanges(id, " Explain the thesis. "))
+		select {
+		case got := <-inbox:
+			if convs := list(got, "conversations"); len(convs) != 1 || convs[0].(map[string]any)["id"] != conv {
+				t.Errorf("the inbox woken: %s", got.Text)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("the waiting inbox was not woken by the request for changes")
+		}
+		mine := list(mustCall(t, w.agentC, "action_list_mine", inCourseArgs(w)), "actions")
+		last := mine[len(mine)-1].(map[string]any)
+		decision := last["result"].(map[string]any)["decision"].(map[string]any)
+		if last["status"] != actChangesRequested || decision["decision"] != "request_changes" || decision["reason"] != "Explain the thesis." {
+			t.Errorf("action_list_mine: %v", last)
+		}
+		rev := answer(w, conv, m1, "A, with its thesis.", 2)
+		rev["revises"] = strings.ToUpper(id)
+		wantEnvelope(t, mustCall(t, w.agentC, "conversation_answer", rev), "proposed", "", "")
+		got := w.fc.Proposals(w.co.ID)
+		if len(got) != 1 || got[0].Revises != id {
+			t.Errorf("the revision: %+v; want it to revise %s", got, id)
+		}
+		if calls := w.fc.Calls(); calls[len(calls)-1].Revises != id {
+			t.Errorf("the call log: %+v", calls[len(calls)-1])
+		}
+	})
 	t.Run("expired by the proposal TTL when a person gets to it", func(t *testing.T) {
 		clk := newClock()
 		w := newFakeWorld(t, Options{Now: clk.now, ProposalTTL: time.Hour})
@@ -568,7 +622,7 @@ func TestProposals(t *testing.T) {
 			}
 			fc.mu.Lock()
 			out := fc.invoke(fc.actors[tutor.ID], fc.cat.byName["conversation.answer"],
-				[]byte(fmt.Sprintf(`{"course_id":%q,"conversation_id":%q,"in_reply_to_message_id":%q,"body":%q}`, co.ID, conv.ID, m.ID, body)), "k:"+body, "")
+				[]byte(fmt.Sprintf(`{"course_id":%q,"conversation_id":%q,"in_reply_to_message_id":%q,"body":%q}`, co.ID, conv.ID, m.ID, body)), "k:"+body, "", "")
 			fc.mu.Unlock()
 			if out.Status != "proposed" {
 				t.Fatalf("%+v", out)

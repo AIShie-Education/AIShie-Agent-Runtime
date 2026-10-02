@@ -162,6 +162,12 @@ type restClient struct {
 }
 
 func (r *restClient) do(ctx context.Context, method, path string, body any, key string) (httpAnswer, error) {
+	return r.doRevising(ctx, method, path, body, key, "")
+}
+
+// doRevising is do with a Revises header naming the proposal the call
+// revises, when revises is not "".
+func (r *restClient) doRevising(ctx context.Context, method, path string, body any, key, revises string) (httpAnswer, error) {
 	var rd io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -179,6 +185,9 @@ func (r *restClient) do(ctx context.Context, method, path string, body any, key 
 	}
 	if key != "" {
 		req.Header.Set("Idempotency-Key", key)
+	}
+	if revises != "" {
+		req.Header.Set("Revises", revises)
 	}
 	if r.token != "" {
 		req.Header.Set("Authorization", "Bearer "+r.token)

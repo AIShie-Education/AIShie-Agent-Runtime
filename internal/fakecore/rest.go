@@ -15,18 +15,24 @@ import (
 	"time"
 
 	"github.com/google/jsonschema-go/jsonschema"
+	"github.com/google/uuid"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/jsonstrict"
 )
 
 // REST, as Core's httpapi answers it: every tool at its catalogue route and
-// at POST /v1/tools/{name}, writes with an Idempotency-Key header, and the
-// outcome's HTTP status (Core's README, "The API in one paragraph").
+// at POST /v1/tools/{name}, writes with an Idempotency-Key header (and a
+// Revises header naming the proposal sent back for changes that one
+// proposes again), and the outcome's HTTP status (Core's README, "The API
+// in one paragraph").
 
 const (
 	headerIdempotencyKey = "Idempotency-Key"
-	headerReplayed       = "Idempotency-Replayed"
-	maxRESTBody          = 1 << 20
+	// headerRevises names the proposal a call revises, as the argument
+	// revises does over MCP.
+	headerRevises  = "Revises"
+	headerReplayed = "Idempotency-Replayed"
+	maxRESTBody    = 1 << 20
 )
 
 // schemaVersion is the database schema of the Core the catalogue was taken
@@ -128,9 +134,11 @@ func (c *Core) callByName(w http.ResponseWriter, r *http.Request) {
 func (c *Core) restTool(t *toolDef, method, pattern string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		actorID, _ := r.Context().Value(restCallerKey{}).(string)
-		if len(r.Header.Values(headerIdempotencyKey)) > 1 {
-			writeError(w, invalid("%s is given more than once", headerIdempotencyKey))
-			return
+		for _, h := range []string{headerIdempotencyKey, headerRevises} {
+			if len(r.Header.Values(h)) > 1 {
+				writeError(w, invalid("%s is given more than once", h))
+				return
+			}
 		}
 		args, err := buildArgs(t, method, pattern, r)
 		if err != nil {
@@ -142,12 +150,21 @@ func (c *Core) restTool(t *toolDef, method, pattern string) http.HandlerFunc {
 			return
 		}
 		key := r.Header.Get(headerIdempotencyKey)
+		var revises string
+		if v := r.Header.Get(headerRevises); v != "" {
+			id, err := uuid.Parse(strings.TrimSpace(v))
+			if err != nil {
+				writeError(w, invalid("%s must be the id of the proposal the call revises", headerRevises))
+				return
+			}
+			revises = id.String()
+		}
 		p := &peek{transport: "rest", actorID: actorID, method: r.Method, tool: t.mcpName, args: args, key: key}
 		delayAfter, ok := c.admit(w, r, p)
 		if !ok {
 			return
 		}
-		out := c.serve(r.Context(), actorID, "rest", t, args, args, key, c.baseURL(r))
+		out := c.serve(r.Context(), actorID, "rest", t, args, args, key, revises, c.baseURL(r))
 		// Carried out; the answer is held as a slow network would hold it.
 		sleep(context.WithoutCancel(r.Context()), delayAfter)
 		if out.Status == "error" {
