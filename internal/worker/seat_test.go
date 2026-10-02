@@ -38,6 +38,29 @@ func wrapCaller(wrap func(next core.Caller) core.Caller) func(*Options) {
 	}
 }
 
+// countCalls has the worker's agents connect as by default, or as an
+// earlier edit has them, counting in began the calls the agent id begins,
+// as it begins them: unlike the fake Core's log, which has a call when it
+// ends, it counts nothing that was in flight when the agent stopped.
+func countCalls(id string, began *atomic.Int32) func(*Options) {
+	return func(o *Options) {
+		if o.NewCaller == nil {
+			wrapCaller(func(next core.Caller) core.Caller { return next })(o)
+		}
+		connect := o.NewCaller
+		o.NewCaller = func(a *config.Agent, token string, cat *core.Catalogue) (core.Caller, error) {
+			c, err := connect(a, token, cat)
+			if err != nil || a.ID != id {
+				return c, err
+			}
+			return callerFunc(func(ctx context.Context, tool string, args json.RawMessage) (*core.Envelope, error) {
+				began.Add(1)
+				return c.Call(ctx, tool, args)
+			}), nil
+		}
+	}
+}
+
 // TestDeniedStopsPolling: the seat's level set to denied; Core denies its
 // inbox, the seat is held and its seats read again, and it polls its inbox
 // no more until its level is back; then it answers. On the schedule: a

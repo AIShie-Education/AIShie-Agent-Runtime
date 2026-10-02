@@ -154,45 +154,62 @@ func squeezeSpaces(s string) string { return strings.Join(strings.Fields(s), " "
 // TestEnginePageTimeout: a page whose program outlives its time is killed,
 // the whole of its process group, said so, and the pages after it are
 // read; a file whose own time runs out keeps the pages read, said so.
+//
+// The program that outlives its time sleeps until it is killed, and the
+// times are generous, which the two halves wait out side by side: what is
+// tested is what the engine does when a time ends, and the pages that end
+// in time are run, as every program is, below the runtime's priority
+// (package sandbox), which on a busy machine is slow. 300 ms was once too
+// little for a page that only echoes.
 func TestEnginePageTimeout(t *testing.T) {
-	pids := t.TempDir()
-	page := `if grep -q 'page 2' "$1"; then sleep 30 & echo $! > ` + pids + `/sleeper; wait; fi; ` + readsPage
-	e := fakeEngine(t, Config{PageTimeout: 300 * time.Millisecond}, fakeTesseract(page), fakePDFToPPM(3, ""))
-	start := time.Now()
-	res, err := e.Recognize(t.Context(), []byte("%PDF-1.4"), PDF, 3, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if took := time.Since(start); took > 10*time.Second {
-		t.Errorf("took %s: the page's time did not end it", took)
-	}
-	if res.Pages != 3 || res.Failed != 1 || !strings.Contains(res.Text, "## Page 2\n[this page took longer to recognize") ||
-		!strings.Contains(res.Text, "text of page 3") || !strings.Contains(strings.Join(res.Notes, "; "), "pages 2 took too long") {
-		t.Errorf("result %+v", res)
-	}
-	if raw, err := os.ReadFile(filepath.Join(pids, "sleeper")); err == nil {
-		pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
-		deadline := time.Now().Add(5 * time.Second)
-		for pid > 0 && alive(pid) && time.Now().Before(deadline) {
-			time.Sleep(20 * time.Millisecond)
+	const generous = 5 * time.Second
+	t.Run("a page's", func(t *testing.T) {
+		t.Parallel()
+		pids := t.TempDir()
+		page := `if grep -q 'page 2' "$1"; then sleep 60 & echo $! > ` + pids + `/sleeper; wait; fi; ` + readsPage
+		e := fakeEngine(t, Config{PageTimeout: generous}, fakeTesseract(page), fakePDFToPPM(3, ""))
+		start := time.Now()
+		res, err := e.Recognize(t.Context(), []byte("%PDF-1.4"), PDF, 3, nil)
+		if err != nil {
+			t.Fatal(err)
 		}
-		if pid > 0 && alive(pid) {
-			t.Errorf("the page's child %d outlived its kill", pid)
+		if took := time.Since(start); took > 45*time.Second {
+			t.Errorf("took %s: the page's time did not end it", took)
 		}
-	}
+		if res.Pages != 3 || res.Failed != 1 || !strings.Contains(res.Text, "## Page 2\n[this page took longer to recognize") ||
+			!strings.Contains(res.Text, "text of page 1") || !strings.Contains(res.Text, "text of page 3") ||
+			!strings.Contains(strings.Join(res.Notes, "; "), "pages 2 took too long") {
+			t.Errorf("result %+v", res)
+		}
+		if raw, err := os.ReadFile(filepath.Join(pids, "sleeper")); err == nil {
+			pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
+			deadline := time.Now().Add(10 * time.Second)
+			for pid > 0 && alive(pid) && time.Now().Before(deadline) {
+				time.Sleep(20 * time.Millisecond)
+			}
+			if pid > 0 && alive(pid) {
+				t.Errorf("the page's child %d outlived its kill", pid)
+			}
+		}
+		empty(t, e.cfg.TempDir)
+	})
 
-	slow := `sleep 0.3; ` + readsPage
-	e = fakeEngine(t, Config{}, fakeTesseract(slow), fakePDFToPPM(20, ""))
-	ctx, cancel := context.WithTimeout(t.Context(), 800*time.Millisecond)
-	defer cancel()
-	res, err = e.Recognize(ctx, []byte("%PDF-1.4"), PDF, 20, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Pages == 0 || res.Pages >= 20 || !strings.Contains(strings.Join(res.Notes, "; "), "took longer than the runtime allows") {
-		t.Errorf("the file's time spent: %+v", res)
-	}
-	empty(t, e.cfg.TempDir)
+	t.Run("the file's", func(t *testing.T) {
+		t.Parallel()
+		page := `if grep -q 'page 3' "$1"; then sleep 60 & wait; fi; ` + readsPage
+		e := fakeEngine(t, Config{}, fakeTesseract(page), fakePDFToPPM(20, ""))
+		ctx, cancel := context.WithTimeout(t.Context(), generous)
+		defer cancel()
+		res, err := e.Recognize(ctx, []byte("%PDF-1.4"), PDF, 20, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Pages != 2 || !strings.Contains(res.Text, "text of page 2") ||
+			!strings.Contains(strings.Join(res.Notes, "; "), "only its first 2 pages were recognized: recognizing it took longer than the runtime allows") {
+			t.Errorf("the file's time spent: %+v", res)
+		}
+		empty(t, e.cfg.TempDir)
+	})
 }
 
 // alive reports whether a process is still there (and not a zombie).

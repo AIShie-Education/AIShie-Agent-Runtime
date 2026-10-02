@@ -59,6 +59,52 @@ also runs `vuln`, and all of it again every week.
 - **Logs hold ids, counts, codes and timings, never what anyone wrote**, and
   every line goes through `redact`.
 
+## Tests and time
+
+A test waits on what it tests, never on how fast the machine is: a busy
+runner, or a laptop doing other things, stretches every sleep and timer,
+and a test that passed alone then fails.
+
+- How long code decides to wait is read off what it decided: a timer or
+  clock the test holds (the OCR and Office services' `after` and `now`,
+  the worker's `Options.Now`), or the deadline it gives a call; not off
+  how long the call took.
+- An event is waited for (`eventually`, a channel the code closes, a
+  counter in a fake), never slept for. A step that must come before
+  another is made to: a scripted model that waits on a channel the fake
+  Core closes, not one that waits long enough.
+- "Nothing more happens" is held over events that keep happening (lease
+  ticks a store counts, calls another agent begins), and counts what was
+  begun after, not what landed after (`countCalls` in the worker's
+  tests): a call cancelled in flight is logged by the fake Core when it
+  ends. Likewise what is counted when it ends is read once it has ended,
+  not once the test has stopped it.
+- Where a time bound is itself the point, it is generous (seconds, for a
+  program the sandbox runs below the runtime's priority), tied to what it
+  bounds (an agent whose lease renewal hangs stops before the lease would
+  lapse, on a lease of seconds), or reckoned from what was measured.
+- A fake reached over the loopback is a server like any other: a busy
+  machine is slow to accept its connections, and the kernel resets those
+  past its listener's backlog. A test that makes many calls at once keeps
+  its connections between calls, and makes again a connection reset as
+  it is made, which carried no call (`loadTransport` in the worker's
+  load test); a call that failed once under way still fails.
+- No test is skipped or retried for being slow.
+
+Try a test that waits under load before calling it done, with the race
+detector and many runs, beside a few busy processes that end with it,
+in zsh or bash; `go test`'s `-timeout` bounds it, interrupted or not:
+
+```
+(
+  pids=()
+  trap 'kill "${pids[@]}" 2>/dev/null' EXIT
+  trap 'exit 130' INT TERM
+  for _ in $(seq 16); do yes > /dev/null & pids+=($!); done
+  go test -race -count=50 -timeout 10m -run 'TestName$' ./internal/worker
+)
+```
+
 ## Migrations
 
 `NNNN_name.up.sql` and `NNNN_name.down.sql`, both required, each one

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -121,10 +122,14 @@ func (h *hosting) start(cfg *config.Config, ms models) *worker {
 
 // startAs is start, of the worker id.
 func (h *hosting) startAs(id string, cfg *config.Config, ms models) *worker {
-	return h.w.start(cfg, ms, workerOpts{id: id, store: h.st, edit: func(o *Options) {
-		o.Secrets = secrets.Resolver{Getenv: h.w.getenv, Sealed: vault.Opener{Vault: h.v, Store: h.st}}
-		o.Sealer = h.v
-	}})
+	return h.w.start(cfg, ms, workerOpts{id: id, store: h.st, edit: h.options})
+}
+
+// options has a worker seal the tokens it is issued, and open its sealed
+// secrets, in the registry's store.
+func (h *hosting) options(o *Options) {
+	o.Secrets = secrets.Resolver{Getenv: h.w.getenv, Sealed: vault.Opener{Vault: h.v, Store: h.st}}
+	o.Sealer = h.v
 }
 
 // update puts the registry in force in wk, as the watcher does.
@@ -180,7 +185,15 @@ func TestHostedAgentsRunBesideYAML(t *testing.T) {
 	if len(cfg.Agents) != 2 || len(cfg.Rejected) != 1 {
 		t.Fatalf("agents %d, rejected %+v", len(cfg.Agents), cfg.Rejected)
 	}
-	wk := h.start(cfg, models{"m1": scripted.New(scripted.Reply("From the registry.")), "m2": scripted.New(scripted.Reply("From YAML."))})
+	// The agents' calls are counted as they begin them, on their
+	// connections to Core.
+	var began, yamlBegan atomic.Int32
+	wk := w.start(cfg, models{"m1": scripted.New(scripted.Reply("From the registry.")), "m2": scripted.New(scripted.Reply("From YAML."))},
+		workerOpts{id: "w1", store: h.st, edit: func(o *Options) {
+			h.options(o)
+			countCalls("agt_yuki", &began)(o)
+			countCalls("cs101-tutor", &yamlBegan)(o)
+		}})
 
 	wk.waitState("agt_yuki", store.AgentRunning)
 	wk.waitState("cs101-tutor", store.AgentRunning)
@@ -221,13 +234,20 @@ func TestHostedAgentsRunBesideYAML(t *testing.T) {
 	w.ok(err)
 	h.update(wk, yaml)
 	wk.waitState("agt_yuki", store.AgentPaused)
+	// Not running is its pollers and its answers returned: whatever it
+	// calls after this, it began after. The calls are those it begins, not
+	// those the fake Core logs, which logs a poll the pause cancelled as it
+	// ends, on a busy machine after the agent has stopped; and "no more" is
+	// over ten calls the YAML agent, still running, begins meanwhile, not
+	// over a time, in which a busy machine would poll less.
 	eventually(t, "the hosted agent stopped", func() bool { return !wk.statusOf("agt_yuki").Running })
-	// A call in flight as it stopped reaches the fake Core just after.
-	time.Sleep(50 * time.Millisecond)
-	n := len(w.calls(own.actor.ID, ""))
-	time.Sleep(200 * time.Millisecond)
-	if more := len(w.calls(own.actor.ID, "")) - n; more != 0 {
-		t.Errorf("%d calls to Core by the paused agent", more)
+	n, other := began.Load(), yamlBegan.Load()
+	if n == 0 {
+		t.Fatal("none of the hosted agent's calls was counted")
+	}
+	eventually(t, "ten calls more by the YAML agent", func() bool { return yamlBegan.Load() >= other+10 })
+	if more := began.Load() - n; more != 0 {
+		t.Errorf("%d calls to Core begun by the paused agent", more)
 	}
 	if w.fc.SiteChat(own.actor.ID) {
 		t.Error("a paused agent is asked in the site")

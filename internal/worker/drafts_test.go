@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -141,6 +143,22 @@ func agentStatus(t *testing.T, wk *worker, id string) AgentStatus {
 	return AgentStatus{}
 }
 
+// drafting is how many drafters the agent id has sending.
+func drafting(wk *worker, id string) int {
+	wk.sup.mu.Lock()
+	var a *Agent
+	if r := wk.sup.runners[id]; r != nil {
+		a = r.agent
+	}
+	wk.sup.mu.Unlock()
+	if a == nil {
+		return 0
+	}
+	a.draftMu.Lock()
+	defer a.draftMu.Unlock()
+	return len(a.drafters)
+}
+
 // TestNoDraftsWithoutTheTool: against a Core whose catalogue has no
 // conversation_draft (one from before drafts), not one draft is written,
 // and the model's call is not streamed.
@@ -265,30 +283,54 @@ func TestDraftTextStartsAgainAfterABrokenStream(t *testing.T) {
 	}
 }
 
-// TestDraftWritesNeverHoldTheAnswer: Core takes two seconds over each
-// draft; the answer is posted as soon as the model has written it, and
-// the drafts are sent one at a time meanwhile.
+// TestDraftWritesNeverHoldTheAnswer: Core holds the first draft until the
+// test lets it go, which is after the answer: the answer is posted as soon
+// as the model has written it, and no other draft is sent meanwhile, one
+// at a time. The model writes the rest of its answer once that draft is
+// held, so that the answer is always written behind it; and the test waits
+// on the answer, not on a time a busy machine may pass. That the answer
+// did not wait for the draft is read off the draft: let go once the answer
+// is in, it is answered, and counted, rather than having run out its own
+// time (5 s), which a worker that held the answer behind it would have
+// waited for, and then not counted (a write that fails on the way is
+// counted when it has been sent once more, or given up).
 func TestDraftWritesNeverHoldTheAnswer(t *testing.T) {
 	w := newDraftWorld(t)
 	own := w.ownAgent("yuki-helper", 0)
-	model := scripted.New(scripted.Streamed(20*time.Millisecond, "On", " Friday."))
+	held, release := make(chan struct{}), make(chan struct{})
+	let := sync.OnceFunc(func() { close(release) })
+	defer let() // before the fake Core's server closes, which waits for it
+	var drafts atomic.Int32
 	w.fc.Inject(func(c fakecore.InjectedCall) *fakecore.Injection {
-		if c.Tool == core.ToolDraft {
-			return &fakecore.Injection{Delay: 2 * time.Second}
+		if c.Tool == core.ToolDraft && drafts.Add(1) == 1 {
+			close(held)
+			<-release
 		}
 		return nil
 	})
-	w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": model}, draftsEvery(10*time.Millisecond))
+	model := scripted.New(func(ctx context.Context, req *llm.Request) (*llm.Response, error) {
+		scripted.TextOf(ctx)("On")
+		select {
+		case <-held:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		scripted.TextOf(ctx)(" Friday.")
+		return scripted.Reply("On Friday.")(ctx, req)
+	})
+	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": model}, draftsEvery(10*time.Millisecond))
 	w.answersInSite(own)
-	asked := time.Now()
 	conv, _ := w.ask(0, own, "When is HW3 due?")
 	w.waitAnswers(conv, 1)
-	if took := time.Since(asked); took > 1500*time.Millisecond {
-		t.Errorf("the answer took %s, behind its drafts", took)
+	let()
+	eventually(t, "the drafter ended", func() bool { return drafting(wk, "yuki-helper") == 0 })
+	if n := drafts.Load(); n != 1 {
+		t.Errorf("%d drafts sent while the first was held", n)
 	}
-	eventually(t, "the draft in flight answered", func() bool { return len(w.calls(own.actor.ID, core.ToolDraft)) >= 1 })
-	if n := len(w.calls(own.actor.ID, core.ToolDraft)); n > 2 {
-		t.Errorf("%d drafts sent while one took two seconds", n)
+	answered := counter(t, wk.reg, "draft_writes_total", map[string]string{"outcome": draftSent}) +
+		counter(t, wk.reg, "draft_writes_total", map[string]string{"outcome": draftDropped})
+	if answered != 1 {
+		t.Errorf("%v of the held draft's writes answered by Core; want it answered once let go, not timed out behind the answer", answered)
 	}
 }
 
@@ -333,22 +375,43 @@ func TestDraftsTooSoonAreDropped(t *testing.T) {
 
 // TestDraftsFailingOnTheWayAreSentOnceMore: Core cannot be reached for
 // drafts (a 503 each time); each is sent once more, then given up, and the
-// answer goes in regardless.
+// answer goes in regardless. The model writes the rest of its answer
+// once Core has had a draft twice, so that one is given up whatever the
+// machine's speed; and the drafts are counted once the drafter has ended,
+// its last write answered: a write the agent's stop cuts short is logged
+// by the fake Core but not counted, as happened on a busy machine when the
+// test stopped the agent as soon as one draft was given up.
 func TestDraftsFailingOnTheWayAreSentOnceMore(t *testing.T) {
 	w := newDraftWorld(t)
 	own := w.ownAgent("yuki-helper", 0)
-	model := scripted.New(scripted.Streamed(40*time.Millisecond, "HW3", " is due", " on Friday."))
+	twice := make(chan struct{})
+	var drafts atomic.Int32
 	w.fc.Inject(func(c fakecore.InjectedCall) *fakecore.Injection {
 		if c.Tool == core.ToolDraft {
+			if drafts.Add(1) == 2 {
+				close(twice)
+			}
 			return &fakecore.Injection{Status: http.StatusServiceUnavailable}
 		}
 		return nil
+	})
+	model := scripted.New(func(ctx context.Context, req *llm.Request) (*llm.Response, error) {
+		scripted.TextOf(ctx)("HW3")
+		select {
+		case <-twice:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		scripted.TextOf(ctx)(" is due")
+		scripted.TextOf(ctx)(" on Friday.")
+		return scripted.Reply("HW3 is due on Friday.")(ctx, req)
 	})
 	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": model}, draftsEvery(10*time.Millisecond))
 	conv, _ := w.ask(0, own, "When is HW3 due?")
 	w.waitAnswers(conv, 1)
 	eventually(t, "a draft given up", func() bool { return agentStatus(t, wk, "yuki-helper").DraftWrites.Failed >= 1 })
-	wk.stop() // its drafts sent, and answered
+	eventually(t, "the drafter ended", func() bool { return drafting(wk, "yuki-helper") == 0 })
+	wk.stop()
 	failed := int(counter(t, wk.reg, "draft_writes_total", map[string]string{"outcome": "failed"}))
 	n := len(w.calls(own.actor.ID, core.ToolDraft))
 	// Each given up after two sends; the last, perhaps, sent once, its
