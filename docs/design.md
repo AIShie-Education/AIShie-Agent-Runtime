@@ -2399,7 +2399,9 @@ Chinese with a table, overran, and was cut off.
   `submission_roster` and `document_versions`, held to `roster_reads`; and
   serves the files `AddFile` puts in a course.
 - `ocr`: the engine against programs of the test's own (shell scripts
-  standing in for pdftoppm and tesseract) under the real prlimit: the
+  standing in for pdftoppm and tesseract) under the real prlimit, so
+  skipped where there is none, as on macOS (CI's Linux runners run them):
+  the
   pages read, their headings, the pages past `MaxPages` left out and said
   so, a page that fails or passes its time marked and the rest read, a
   program that sleeps killed with its whole process group at its timeout,
