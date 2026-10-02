@@ -513,6 +513,117 @@ func TestAFollowUpOnAnAnswerThatReliedOnMaterialsSaysNothing(t *testing.T) {
 	}
 }
 
+// A revision that reads none of the course's materials itself, of an
+// answer that relied on the syllabus, says nothing of its sources: Mori
+// sends the answer back asking only that it be shorter, and what the
+// revision keeps of it rests on the syllabus that answer read for its own
+// attempt, which the revision cannot name. Written ahead, proposed and
+// approved, it says nothing. A revision of an answer that relied on none
+// says it relies on none.
+func TestARevisionOfAnAnswerThatReliedOnMaterialsSaysNothing(t *testing.T) {
+	w := newWorld(t)
+	model := scripted.New(
+		scripted.CallTools(getDoc(w.co.SyllabusID)), scripted.Reply("Lectures are weekly, on Mondays at 10, in room 4."),
+		scripted.Reply("Weekly, on Mondays."),
+		scripted.Reply("Hello."),
+		scripted.Reply("Hello, and welcome to CS101."),
+	)
+	tu, wk := confirmedTutor(t, w, model, nil)
+	revision := func(question, note string) (first, again fakecore.Proposal, conv string) {
+		t.Helper()
+		conv, msg := w.ask(0, tu, question)
+		k1, k2 := core.AnswerKey(conv, msg, 1), core.AnswerKey(conv, msg, 2)
+		first = w.waitProposal(k1)
+		wk.waitAttempt("cs101-tutor", k1, store.AttemptProposed)
+		w.ok(w.fc.RequestChanges(first.ActionID, note))
+		again = w.waitProposal(k2)
+		if again.Revises != first.ActionID {
+			t.Errorf("the revision revises %q; want %s", again.Revises, first.ActionID)
+		}
+		if at := wk.waitAttempt("cs101-tutor", k2, store.AttemptProposed); sentSources(t, at.Args) != sentSources(t, again.Args) {
+			t.Errorf("the revision written ahead relied on %s, and was proposed relying on %s", sentSources(t, at.Args), sentSources(t, again.Args))
+		}
+		return first, again, conv
+	}
+
+	p1, p2, conv := revision("How often are the lectures?", "Make it shorter.")
+	if got := sentSources(t, p1.Args); got != w.source(w.co.SyllabusID) {
+		t.Fatalf("the first answer relied on %s", got)
+	}
+	if got := sentSources(t, p2.Args); got != "unsaid" {
+		t.Errorf("the shorter revision relied on %s; want it to say nothing", got)
+	}
+	outcome, err := w.fc.Approve(p2.ActionID)
+	w.ok(err)
+	if outcome != "executed" {
+		t.Fatalf("approval: %s", outcome)
+	}
+	if a := w.waitAnswers(conv, 1)[0]; a.Body != "Weekly, on Mondays." || sourcesOf(a) != "unsaid" {
+		t.Errorf("the revision posted: %q, relying on %s; want it to say nothing", a.Body, sourcesOf(a))
+	}
+
+	p1, p2, _ = revision("Hi!", "Welcome them to the course.")
+	if got := sentSources(t, p1.Args); got != "none" {
+		t.Fatalf("the greeting relied on %s", got)
+	}
+	if got := sentSources(t, p2.Args); got != "none" {
+		t.Errorf("the greeting's revision relied on %s; want none", got)
+	}
+	if err := model.Err(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// saidOf leaves out the sources of an answer that read none of the
+// course's materials, where an earlier answer in the conversation, or the
+// answer it writes again, relied on some or said nothing of them; one
+// that read some names them whatever came before, and one that says
+// nothing stays so.
+func TestSaidOf(t *testing.T) {
+	sent := func(sources []core.Source) []byte {
+		args, err := json.Marshal(core.AnswerArgs{CourseID: "c", ConversationID: "x", InReplyToMessageID: "q", Body: "A",
+			Sources: sources, IdempotencyKey: core.AnswerKey("x", "q", 1)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return args
+	}
+	syllabus := core.Source{DocumentID: "s", VersionID: "1"}
+	read := func(earlier ...core.Message) *core.Messages {
+		return &core.Messages{Messages: append(earlier, core.Message{ID: "q", AuthorMemberID: "student"})}
+	}
+	ownNone := core.Message{ID: "a", AuthorMemberID: "self", Sources: []core.SourceView{}}
+	ownSyllabus := core.Message{ID: "a", AuthorMemberID: "self", Sources: []core.SourceView{{DocumentID: &syllabus.DocumentID}}}
+	for _, tc := range []struct {
+		name    string
+		sources []core.Source
+		read    *core.Messages
+		redone  []byte
+		want    string
+	}{
+		{"none read, nothing before", []core.Source{}, read(), nil, "none"},
+		{"none read, after an answer that relied on none", []core.Source{}, read(ownNone), nil, "none"},
+		{"none read, after an answer that relied on the syllabus", []core.Source{}, read(ownSyllabus), nil, "unsaid"},
+		{"none read, writing again an answer that relied on the syllabus", []core.Source{}, read(), sent([]core.Source{syllabus}), "unsaid"},
+		{"none read, writing again an answer that said nothing", []core.Source{}, read(), sent(nil), "unsaid"},
+		{"none read, writing again an answer that relied on none", []core.Source{}, read(ownNone), sent([]core.Source{}), "none"},
+		{"none read, writing again bytes that cannot be read", []core.Source{}, read(), []byte("{"), "unsaid"},
+		{"the syllabus read, writing again an answer that said nothing", []core.Source{syllabus}, read(), sent(nil), "s@1//0/0/0"},
+		{"only searched, writing again an answer that relied on none", nil, read(), sent([]core.Source{}), "unsaid"},
+	} {
+		got := saidOf(tc.sources, tc.read, "self", "q", tc.redone)
+		var said fakecore.MessageRecord
+		if said.SourcesStated = got != nil; got != nil {
+			for _, s := range got {
+				said.Sources = append(said.Sources, fakecore.SourceRecord{DocumentID: s.DocumentID, VersionID: s.VersionID})
+			}
+		}
+		if sourcesOf(said) != tc.want {
+			t.Errorf("%s: %s; want %s", tc.name, sourcesOf(said), tc.want)
+		}
+	}
+}
+
 // The runtime's own notices rely on no course material, whatever the
 // model read first: on_budget_text, after the syllabus was read and the
 // turns ran out; and the quota's notice, with no model call, once the

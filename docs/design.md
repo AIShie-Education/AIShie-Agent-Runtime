@@ -1914,7 +1914,16 @@ keep, and keeps to what it knows.
   `sources` either, rather than carrying the earlier answer's: Core's
   §2.10 takes what an answer read for its own question, "nor anything it
   read for another question" (`worker.saidOf`). Earlier answers that
-  relied on none (the runtime's notices, say) leave it `[]`.
+  relied on none (the runtime's notices, say) leave it `[]`. Nor can a
+  revision that read none of them, of an answer a person sent back for
+  changes and whose request stands (step 9), where that answer relied on
+  some or said nothing of them: it writes that answer again as they asked
+  ("make it shorter"), and may keep what that answer read for its own
+  attempt, which an attempt never names. It sends no `sources`; the
+  answer it writes again is read from that attempt's bytes written ahead
+  (`passResult.redone`), as it was proposed. A revision of one that
+  relied on none sends `[]`, as any answer that read none does after
+  earlier answers that relied on none.
 - *Refused.* Core takes a source only where the answering seat may read
   it as it takes the answer, and refuses the whole answer otherwise,
   naming it (`invalid_argument`, `source_unreadable` or `source_purged`,
@@ -2399,7 +2408,10 @@ Chinese with a table, overran, and was cut off.
   The worker posts them in the order read, `[]` for an answer that read
   nothing and for a refusal's, the budget's and the quota's notices, and
   no `sources` for one that only searched, nor for a follow-up that read
-  nothing after an answer that relied on the syllabus; a source Core
+  nothing after an answer that relied on the syllabus, nor for a revision
+  that read nothing of an answer sent back for changes that relied on it
+  ("make it shorter"), proposed and approved, while a revision of one
+  that relied on none sends `[]`; a source Core
   refuses as unreadable (the instructions of an assignment unpublished
   meanwhile) or purged is dropped and the same answer posted at once under
   the next attempt, saying nothing of its sources once none is left, and

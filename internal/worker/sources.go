@@ -70,13 +70,31 @@ func answerApart(args []byte) (rest []byte, sources int, ok bool) {
 // on none; but one given, in the conversation, an earlier answer that
 // relied on some, or did not say (earlierRelied), may rest on what that
 // answer read ("repeat question 2 of HW1"), which it may not name: Core
-// takes what an answer read for its own question, not another's. It says
-// nothing of its sources.
-func saidOf(sources []core.Source, read *core.Messages, self, question string) []core.Source {
-	if sources == nil || len(sources) > 0 || !earlierRelied(read.Messages, self, question) {
+// takes what an answer read for its own question, not another's. So may
+// one that writes again an answer a person sent back for changes, whose
+// bytes written ahead are redone (passResult.redone, nil for none), where
+// that answer relied on some or did not say (relied): "make it shorter"
+// keeps what that answer read for its own attempt, which this one may
+// not name either. It says nothing of its sources.
+func saidOf(sources []core.Source, read *core.Messages, self, question string, redone []byte) []core.Source {
+	if sources == nil || len(sources) > 0 {
 		return sources
 	}
-	return nil
+	if relied(redone) || earlierRelied(read.Messages, self, question) {
+		return nil
+	}
+	return sources
+}
+
+// relied reports whether the answer whose bytes written ahead are args
+// names course materials it relied on, or says nothing of them, or cannot
+// be read; nil args are no answer.
+func relied(args []byte) bool {
+	if args == nil {
+		return false
+	}
+	_, n, ok := answerApart(args)
+	return !ok || n != 0
 }
 
 // earlierRelied reports whether msgs, up to question, hold an answer

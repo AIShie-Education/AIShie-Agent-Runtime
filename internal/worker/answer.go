@@ -118,6 +118,11 @@ type passResult struct {
 	// is that answers were written after the one sent back.
 	revises, changes string
 	told, since      bool
+	// redone is the bytes written ahead of the answer this attempt writes
+	// again while what was asked of it stands (told), nil for none: what
+	// that answer relied on bears on what this one says of its own
+	// (saidOf).
+	redone []byte
 }
 
 // answer answers one inbox row, holding its slot of the scheduler until it
@@ -225,7 +230,7 @@ func (c *claim) pass(ctx context.Context, msgID string, shorter bool) passResult
 		if at := revised(atts); at != nil {
 			r.revises = at.ActionID
 			if r.told, r.since = standing(atts, at); r.told {
-				r.changes = at.Reason
+				r.changes, r.redone = at.Reason, at.Args
 			}
 		}
 		// 4. Quotas. One of the school's spent, the owner's own key
@@ -382,7 +387,7 @@ func (c *claim) generate(ctx context.Context, r passResult, read *core.Messages,
 		return c.providersDown(ctx, r)
 	}
 	c.s.providerRecovered(r.msg)
-	r = c.post(ctx, r, end.body, end.kind, saidOf(end.sources, read, c.s.id, r.msg))
+	r = c.post(ctx, r, end.body, end.kind, saidOf(end.sources, read, c.s.id, r.msg, r.redone))
 	if r.withdrawn {
 		// Refused, its question withdrawn as it was sent: its draft went
 		// with the question.
