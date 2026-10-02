@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/fakecore"
@@ -131,6 +134,114 @@ func TestProposalRejectedThenSkipped(t *testing.T) {
 	}
 	if n := len(w.answers(conv)); n != 0 {
 		t.Errorf("%d answers posted", n)
+	}
+}
+
+// revisionSaid is what an answer written again after a person sent the last
+// one back for changes is told they asked.
+func revisionSaid(note string) string {
+	return fmt.Sprintf("sent it back for changes, asking: %q. Write the answer again, making the changes they asked for.", note)
+}
+
+// TestProposalSentBackForChanges: an answer a person sends back for changes
+// is settled with what they asked, read from action_list_mine; the next
+// attempt, under the next number, is told plainly that it was sent back and
+// what to change, and is proposed naming the proposal it revises: revises
+// over MCP, the Revises header over REST. Memory notes the request too;
+// with memory off, the prompt says it all the same.
+func TestProposalSentBackForChanges(t *testing.T) {
+	for _, c := range []struct {
+		name, transport string
+		memory          bool
+	}{
+		{"over MCP", "mcp", true},
+		{"over REST", "rest", true},
+		{"memory off", "mcp", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			w := newWorld(t)
+			const note = "Say which kinds of graphs, and where the chapter starts."
+			model := scripted.New(scripted.Reply("Graphs."), scripted.Reply("Directed and undirected graphs, from page 61."))
+			tu, wk := confirmedTutor(t, w, model, map[string]any{"core": map[string]any{"transport": c.transport},
+				"memory": map[string]any{"enabled": c.memory}})
+			conv, msg := w.ask(0, tu, "What does chapter 4 cover?")
+			k1, k2 := core.AnswerKey(conv, msg, 1), core.AnswerKey(conv, msg, 2)
+			p1 := w.waitProposal(k1)
+			w.ok(w.fc.RequestChanges(p1.ActionID, note))
+			if at := wk.waitAttempt("cs101-tutor", k1, store.AttemptChangesRequested); at.Reason != note || at.ActionID != p1.ActionID {
+				t.Errorf("the first attempt settled as %+v; want sent back, with the note, under %s", at, p1.ActionID)
+			}
+			p2 := w.waitProposal(k2)
+			if p2.Revises != p1.ActionID {
+				t.Errorf("the second attempt revises %q; want %s", p2.Revises, p1.ActionID)
+			}
+			var sent []fakecore.Call
+			for _, call := range w.calls(tu.actor.ID, toolAnswer) {
+				if call.IdempotencyKey == k2 {
+					sent = append(sent, call)
+				}
+			}
+			if len(sent) != 1 || sent[0].Revises != p1.ActionID || sent[0].Transport != c.transport {
+				t.Errorf("the second attempt was sent as %+v; want once, over %s, revising %s", sent, c.transport, p1.ActionID)
+			}
+			reqs := model.Requests()
+			if len(reqs) != 2 || strings.Contains(reqs[0].System, note) || !strings.Contains(reqs[1].System, revisionSaid(note)) {
+				t.Fatalf("the second attempt's prompt does not say what to change:\n%s", lastRequest(t, model).System)
+			}
+			notes, err := wk.st.Notes(context.Background(), "cs101-tutor", tu.seat.ID, conv, 10)
+			w.ok(err)
+			kept := len(notes) == 1 && notes[0].Kind == store.NoteChangesRequested && notes[0].Text == note && notes[0].MessageID == msg
+			if kept != c.memory {
+				t.Errorf("memory %v keeps %+v", c.memory, notes)
+			}
+		})
+	}
+}
+
+// TestRevisionSentBackInTurn: a revision a person sends back is revised in
+// turn, each attempt naming the one before and told what was asked of it,
+// remembering what was asked before; max_attempts still bounds them: after
+// the third is sent back, the question is skipped until the next day, its
+// conversation left open.
+func TestRevisionSentBackInTurn(t *testing.T) {
+	w := newWorld(t)
+	model := scripted.New(scripted.Reply("Soon."), scripted.Reply("On 14 March."), scripted.Reply("On 14 March, in room B12."))
+	tu, wk := confirmedTutor(t, w, model, map[string]any{"answer": map[string]any{"max_attempts": 3}})
+	conv, msg := w.ask(1, tu, "When is the midterm?")
+	notes := []string{"Give the date.", "And the room.", "Say which building."}
+	prev := ""
+	for i, note := range notes {
+		key := core.AnswerKey(conv, msg, i+1)
+		p := w.waitProposal(key)
+		if p.Revises != prev {
+			t.Errorf("attempt %d revises %q; want %q", i+1, p.Revises, prev)
+		}
+		w.ok(w.fc.RequestChanges(p.ActionID, note))
+		wk.waitAttempt("cs101-tutor", key, store.AttemptChangesRequested)
+		prev = p.ActionID
+	}
+	eventually(t, "the question skipped", func() bool {
+		o := wk.st.outcomes(conv)
+		return len(o) > 0 && o[len(o)-1] == store.OutcomeSkipped
+	})
+	reqs := model.Requests()
+	if len(reqs) != 3 {
+		t.Fatalf("%d model calls; want 3", len(reqs))
+	}
+	if strings.Contains(reqs[0].System, "back for changes, asking") {
+		t.Errorf("the first attempt's prompt:\n%s", reqs[0].System)
+	}
+	if !strings.Contains(reqs[1].System, revisionSaid(notes[0])) {
+		t.Errorf("the second attempt's prompt:\n%s", reqs[1].System)
+	}
+	if s := reqs[2].System; !strings.Contains(s, revisionSaid(notes[1])) || !strings.Contains(s, fmt.Sprintf("back for changes, asking: %q. Take it into account.", notes[0])) {
+		t.Errorf("the third attempt's prompt:\n%s", s)
+	}
+	if n := len(w.fc.Proposals(w.co.ID)); n != 0 {
+		t.Errorf("%d proposals waiting after max_attempts", n)
+	}
+	if n := len(w.calls(tu.actor.ID, toolClose)); n != 0 {
+		t.Errorf("conversation_close was called %d times", n)
 	}
 }
 
@@ -290,6 +401,98 @@ func TestRejectedWhileLeftSending(t *testing.T) {
 	w.waitProposal(core.AnswerKey(conv, msg, 2))
 	if !strings.Contains(lastRequest(t, model).System, "Cite the syllabus.") {
 		t.Errorf("the second attempt's prompt lacks the rejection's reason:\n%s", lastRequest(t, model).System)
+	}
+}
+
+// TestSentBackWhileLeftSending: an answer Core took as a proposal, whose
+// attempt a crash left sending, is sent back for changes while no worker
+// runs. Sent again at the seat's start, it replays as changes_requested
+// (409 over REST): the attempt keeps what to change and its action, and
+// the next attempt is told it, and revises it.
+func TestSentBackWhileLeftSending(t *testing.T) {
+	for _, transport := range []string{"mcp", "rest"} {
+		t.Run(transport, func(t *testing.T) {
+			w := newWorld(t)
+			tu := w.tutor("cs101-tutor")
+			w.ok(w.fc.SetLevel(tu.seat.ID, "conversation_answer", "confirm_required"))
+			conv, msg := w.ask(0, tu, "Proposed before the crash.")
+			key := core.AnswerKey(conv, msg, 1)
+			args, err := json.Marshal(core.AnswerArgs{CourseID: w.co.ID, ConversationID: conv, InReplyToMessageID: msg,
+				Body: "Written before the crash.", IdempotencyKey: key})
+			w.ok(err)
+			caller := core.NewMCPCaller(core.MCPOptions{BaseURL: w.srv.URL, Token: tu.actor.Token, HTTPClient: &http.Client{Timeout: 5 * time.Second}})
+			env, err := caller.Call(context.Background(), toolAnswer, args)
+			if err != nil || env.Status != core.StatusProposed {
+				t.Fatalf("the answer sent before the crash: %+v, %v", env, err)
+			}
+			const note = "Cite the syllabus, and its page."
+			w.ok(w.fc.RequestChanges(env.ActionID, note))
+			st := memstore.New()
+			if _, err := st.PutAttempt(context.Background(), store.Attempt{Key: key, AgentID: "cs101-tutor", MemberID: tu.seat.ID, CourseID: w.co.ID,
+				ConversationID: conv, MessageID: msg, No: 1, Tool: toolAnswer, Args: args, Kind: kindModel, State: store.AttemptSending}); err != nil {
+				t.Fatal(err)
+			}
+
+			model := scripted.New(scripted.Reply("Second try, citing page 3 of the syllabus."))
+			over := map[string]any{"core": map[string]any{"transport": transport}}
+			wk := w.start(w.config(nil, w.agentDoc("cs101-tutor", "m1", over, nil)), models{"m1": model}, workerOpts{store: st})
+			at := wk.waitAttempt("cs101-tutor", key, store.AttemptChangesRequested)
+			if at.Reason != note || at.ActionID != env.ActionID {
+				t.Errorf("the attempt settled as %+v", at)
+			}
+			replays := 0
+			for _, c := range w.calls(tu.actor.ID, toolAnswer) {
+				if c.IdempotencyKey != key || !c.Replayed {
+					continue
+				}
+				replays++
+				if c.Status != string(core.StatusChangesRequested) || (transport == "rest" && c.HTTPStatus != http.StatusConflict) {
+					t.Errorf("the replay: %+v", c)
+				}
+			}
+			if replays != 1 {
+				t.Errorf("the attempt left sending was replayed %d times; want once", replays)
+			}
+			if p := w.waitProposal(core.AnswerKey(conv, msg, 2)); p.Revises != env.ActionID {
+				t.Errorf("the second attempt revises %q; want %s", p.Revises, env.ActionID)
+			}
+			if !strings.Contains(lastRequest(t, model).System, revisionSaid(note)) {
+				t.Errorf("the second attempt's prompt lacks what to change:\n%s", lastRequest(t, model).System)
+			}
+		})
+	}
+}
+
+// TestRevisesRefusedAnswersAnew: an attempt the store has as sent back for
+// changes, whose action Core does not have as one of the agent's sent back
+// (a rollback of Core made it a rejection, say), is named in revises by
+// the next attempt, which Core refuses (not_revisable), recording nothing;
+// the attempt after answers anew, naming none, rather than sending again
+// what Core refused, and the question is not left waiting.
+func TestRevisesRefusedAnswersAnew(t *testing.T) {
+	w := newWorld(t)
+	tu := w.tutor("cs101-tutor")
+	w.ok(w.fc.SetLevel(tu.seat.ID, "conversation_answer", "confirm_required"))
+	conv, msg := w.ask(0, tu, "Sent back, as the store has it.")
+	st := memstore.New()
+	gone := uuid.NewString()
+	k1 := core.AnswerKey(conv, msg, 1)
+	if _, err := st.PutAttempt(context.Background(), store.Attempt{Key: k1, AgentID: "cs101-tutor", MemberID: tu.seat.ID, CourseID: w.co.ID,
+		ConversationID: conv, MessageID: msg, No: 1, Tool: toolAnswer, Args: []byte(`{}`), Kind: kindModel, State: store.AttemptSending}); err != nil {
+		t.Fatal(err)
+	}
+	w.ok(st.FinishAttempt(context.Background(), "cs101-tutor", k1, store.Outcome{State: store.AttemptChangesRequested, ActionID: gone, Reason: "From before."}))
+	model := scripted.New(scripted.Reply("Naming what Core refuses."), scripted.Reply("Answered anew."))
+	wk := w.start(w.config(nil, w.agentDoc("cs101-tutor", "m1", nil, nil)), models{"m1": model}, workerOpts{store: st})
+	k2, k3 := core.AnswerKey(conv, msg, 2), core.AnswerKey(conv, msg, 3)
+	if at := wk.waitAttempt("cs101-tutor", k2, store.AttemptError); at.Reason != core.ReasonNotRevisable || at.ErrorCode != core.CodeInvalidArgument {
+		t.Errorf("the second attempt settled as %+v; want refused, not_revisable", at)
+	}
+	if p := w.waitProposal(k3); p.Revises != "" {
+		t.Errorf("the third attempt revises %q; want none", p.Revises)
+	}
+	if n := len(w.calls(tu.actor.ID, toolAnswer)); n != 2 {
+		t.Errorf("%d answers sent; want the refused one and the one anew", n)
 	}
 }
 

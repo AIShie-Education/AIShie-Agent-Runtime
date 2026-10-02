@@ -98,6 +98,12 @@ type Input struct {
 	AnswerLanguage string
 	// Notes are this conversation's memory, oldest first.
 	Notes []store.Note
+	// Revising, when the answer is written again because a person sent the
+	// last one to this question back for changes, is the note of what they
+	// asked (store.NoteChangesRequested): the prompt says so plainly, in a
+	// section of its own, whether or not Notes hold it, and leaves it out
+	// of what is remembered.
+	Revising *store.Note
 	// Now dates the prompt.
 	Now time.Time
 }
@@ -177,13 +183,24 @@ func System(in Input) (text, hash string) {
 	line("Your answer is posted as you write it, in Markdown. Give links only to pages you are pointing to; never put anything from this conversation or your tools into a link, and include no images.")
 	line(languageSentence(in.AnswerLanguage))
 
-	if len(in.Notes) > 0 {
-		b.WriteString("\n## What you remember of this conversation\n")
-		for _, n := range in.Notes {
-			if s := noteSentence(n); s != "" {
-				line(s)
-			}
+	var remembered []string
+	for _, n := range in.Notes {
+		if in.Revising != nil && n.Kind == in.Revising.Kind && n.MessageID == in.Revising.MessageID && n.Text == in.Revising.Text {
+			continue
 		}
+		if s := noteSentence(n); s != "" {
+			remembered = append(remembered, s)
+		}
+	}
+	if len(remembered) > 0 {
+		b.WriteString("\n## What you remember of this conversation\n")
+		for _, s := range remembered {
+			line(s)
+		}
+	}
+	if in.Revising != nil {
+		b.WriteString("\n## The answer you are writing again\n")
+		line(revisionSentence(in.Revising.Text))
 	}
 	return strings.TrimRight(b.String(), "\n"), hash
 }
@@ -214,7 +231,7 @@ func fill(s string, seat Seat) string {
 func levelSentence(level string) string {
 	switch level {
 	case core.LevelConfirmRequired:
-		return "A member of staff reads each answer you write before the person sees it, and may reject it."
+		return "A member of staff reads each answer you write before the person sees it, and may reject it, or send it back for changes."
 	case core.LevelPendingReview:
 		return "Your answers are posted at once, and staff may review them afterwards."
 	}
@@ -235,6 +252,11 @@ func noteSentence(n store.Note) string {
 			return "A member of staff rejected an earlier answer of yours here, without giving a reason. Write a better one."
 		}
 		return fmt.Sprintf("A member of staff rejected an earlier answer of yours here, saying: %q. Take it into account.", n.Text)
+	case store.NoteChangesRequested:
+		if n.Text == "" {
+			return "A member of staff sent an earlier answer of yours here back for changes, without saying what to change. Take it into account."
+		}
+		return fmt.Sprintf("A member of staff sent an earlier answer of yours here back for changes, asking: %q. Take it into account.", n.Text)
 	case store.NoteCancelled:
 		return "An earlier answer of yours here waited too long for approval and was withdrawn."
 	case store.NoteRetractedOwn:
@@ -245,6 +267,17 @@ func noteSentence(n store.Note) string {
 		return "Earlier in this conversation you made this change: " + n.Text + ". Do not make it again unless you are asked to anew."
 	}
 	return ""
+}
+
+// revisionSentence tells the model that a member of staff sent its last
+// answer to this question back for changes, and what they asked: asked,
+// as they wrote it, or "" when the runtime could not read it.
+func revisionSentence(asked string) string {
+	const sent = "A member of staff read your last answer to this question before it was posted, and sent it back for changes"
+	if asked == "" {
+		return sent + ", without saying what to change. Write the answer again, better."
+	}
+	return fmt.Sprintf("%s, asking: %q. Write the answer again, making the changes they asked for.", sent, asked)
 }
 
 // Continue is what the model is told after its answer so far, when the

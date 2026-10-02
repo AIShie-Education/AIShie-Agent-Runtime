@@ -169,6 +169,7 @@ type Event struct {
 const (
 	EventActionApproved               = "action.approved"
 	EventActionRejected               = "action.rejected"
+	EventActionChangesRequested       = "action.changes_requested" // sent back for changes, over as a rejection is
 	EventActionCancelled              = "action.cancelled"
 	EventConversationOpened           = "conversation.opened"
 	EventConversationMessagePosted    = "conversation.message_posted"
@@ -210,10 +211,12 @@ type Action struct {
 	ExecutedAt         *string         `json:"executed_at,omitempty"`
 	Result             json.RawMessage `json:"result,omitempty"`
 	CreatedAt          string          `json:"created_at"`
+	RevisesActionID    *string         `json:"revises_action_id,omitempty"`
 }
 
-// DecisionReason is a rejected proposal's reason, from its
-// result.decision.reason (§2.3), or "".
+// DecisionReason is a rejected proposal's reason, or what a proposal sent
+// back for changes asks to change, from its result.decision.reason
+// (§2.3), or "".
 func (a Action) DecisionReason() string {
 	var r struct {
 		Decision struct {
@@ -240,6 +243,11 @@ type AnswerArgs struct {
 	InReplyToMessageID string `json:"in_reply_to_message_id"`
 	Body               string `json:"body"`
 	IdempotencyKey     string `json:"idempotency_key"`
+	// Revises is, for an answer that proposes again one a person sent
+	// back for changes, that proposal's action id; left out otherwise,
+	// so that an answer revising nothing is the bytes it always was.
+	// Over REST it goes in the Revises header.
+	Revises string `json:"revises,omitempty"`
 }
 
 // CloseArgs are conversation_close's arguments.

@@ -52,6 +52,45 @@ func TestSystemFillsAndAlwaysAddsTheRules(t *testing.T) {
 	}
 }
 
+// An answer written again because a member of staff sent the last one back
+// for changes says so plainly, with what they asked, in a section of its
+// own and once, though memory notes it too; a request for changes made of
+// an earlier answer, remembered, is taken into account, as a rejection is;
+// and one the runtime could not read says it was sent back all the same.
+func TestSystemRevising(t *testing.T) {
+	asked := store.Note{Kind: store.NoteChangesRequested, MessageID: "q1", Text: "Say where the chapter starts."}
+	earlier := store.Note{Kind: store.NoteChangesRequested, MessageID: "q1", Text: "Name the kinds of graphs."}
+	in := Input{Base: Builtin(true), Seat: Seat{AskerName: "Yuki", AnswerLevel: core.LevelConfirmRequired},
+		Notes: []store.Note{earlier, asked}, Revising: &asked}
+	text, _ := System(in)
+	for _, want := range []string{
+		"may reject it, or send it back for changes.",
+		"## The answer you are writing again\n- A member of staff read your last answer to this question before it was posted, " +
+			`and sent it back for changes, asking: "Say where the chapter starts.". Write the answer again, making the changes they asked for.`,
+		`sent an earlier answer of yours here back for changes, asking: "Name the kinds of graphs.". Take it into account.`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the prompt lacks %q:\n%s", want, text)
+		}
+	}
+	if n := strings.Count(text, "Say where the chapter starts."); n != 1 {
+		t.Errorf("what to change is in the prompt %d times; want once:\n%s", n, text)
+	}
+	// Memory off: the request is in the prompt all the same.
+	in.Notes = nil
+	if text, _ := System(in); !strings.Contains(text, `asking: "Say where the chapter starts."`) || strings.Contains(text, "What you remember") {
+		t.Errorf("without memory:\n%s", text)
+	}
+	in.Revising = &store.Note{Kind: store.NoteChangesRequested, MessageID: "q1"}
+	if text, _ := System(in); !strings.Contains(text, "sent it back for changes, without saying what to change. Write the answer again, better.") {
+		t.Errorf("a request whose note was not read:\n%s", text)
+	}
+	// An answer that revises nothing has no such section.
+	if text, _ := System(Input{Base: Builtin(true), Notes: []store.Note{asked}}); strings.Contains(text, "writing again") {
+		t.Errorf("an answer that revises nothing:\n%s", text)
+	}
+}
+
 func TestSystemHashIsThePromptAsWritten(t *testing.T) {
 	a := Input{Base: "You are {{agent}}.", Seat: Seat{AgentName: "A", AskerName: "X"}}
 	b := Input{Base: "You are {{agent}}.", Seat: Seat{AgentName: "B", AskerName: "Y"},

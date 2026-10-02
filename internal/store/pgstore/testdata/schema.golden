@@ -280,7 +280,7 @@ agent_token agent_token_secret_id_fkey FOREIGN KEY (secret_id) REFERENCES secret
 agent_token agent_token_secret_id_key UNIQUE (secret_id)
 answer answer_pkey PRIMARY KEY (agent_id, id)
 attempt attempt_pkey PRIMARY KEY (agent_id, key)
-attempt attempt_state_known CHECK ((state = ANY (ARRAY['sending'::text, 'executed'::text, 'proposed'::text, 'failed'::text, 'denied'::text, 'error'::text, 'rejected'::text, 'cancelled'::text])))
+attempt attempt_state_known CHECK ((state = ANY (ARRAY['sending'::text, 'executed'::text, 'proposed'::text, 'failed'::text, 'denied'::text, 'error'::text, 'rejected'::text, 'cancelled'::text, 'changes_requested'::text]))) NOT VALID
 audit audit_detail_object CHECK ((jsonb_typeof(detail) = 'object'::text))
 audit audit_pkey PRIMARY KEY (id)
 cursor cursor_pkey PRIMARY KEY (agent_id, member_id, kind)

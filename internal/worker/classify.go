@@ -35,9 +35,11 @@ const (
 	// and post again under the next attempt number.
 	NextFix
 	// NextAttempt: nothing was posted under this key and nothing will be
-	// (a proposal rejected or expired, a key another body took, a failure
-	// the runtime has no better answer to). Regenerate under the next
-	// attempt number, if the conversation is still waiting.
+	// (a proposal rejected, sent back for changes or expired, a key
+	// another body took, a failure the runtime has no better answer to).
+	// Regenerate under the next attempt number, if the conversation is
+	// still waiting: one sent back names, in revises, the proposal it
+	// revises.
 	NextAttempt
 	// NextRetryLater: Core could not be reached, or asked the runtime to
 	// slow down. Nothing is known to have happened; send the same bytes
@@ -94,7 +96,7 @@ type Decision struct {
 // Classify reads what came back from conversation_answer. A replayed
 // envelope is taken as its stored status, which Core reports as it stands
 // now: a proposal approved since replays executed, one rejected replays
-// rejected.
+// rejected, one sent back for changes replays changes_requested.
 func Classify(env *core.Envelope, err error) Decision {
 	if err != nil {
 		return classifyError(err)
@@ -109,6 +111,8 @@ func Classify(env *core.Envelope, err error) Decision {
 		d.Next, d.State, d.Outcome = NextHoldSeat, store.AttemptDenied, store.OutcomeDenied
 	case core.StatusRejected:
 		d.Next, d.State, d.Outcome = NextAttempt, store.AttemptRejected, store.OutcomeFailed
+	case core.StatusChangesRequested:
+		d.Next, d.State, d.Outcome = NextAttempt, store.AttemptChangesRequested, store.OutcomeFailed
 	case core.StatusCancelled:
 		d.Next, d.State, d.Outcome = NextAttempt, store.AttemptCancelled, store.OutcomeFailed
 	case core.StatusFailed:
@@ -155,6 +159,14 @@ func classifyFailed(env *core.Envelope, d *Decision) {
 }
 
 func classifyNeverAttempted(env *core.Envelope, d *Decision) {
+	if d.Reason == core.ReasonNotRevisable {
+		// What the answer named in revises is no proposal of the agent's
+		// sent back for changes, as Core has it now (one a rollback of
+		// Core made a rejection, say): nothing was recorded, and the next
+		// attempt answers anew, naming none (revised).
+		d.Next, d.Outcome = NextAttempt, store.OutcomeFailed
+		return
+	}
 	switch d.Code {
 	case core.CodeIdempotencyConflict:
 		// Another body went under this key. Never regenerate under it.

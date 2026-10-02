@@ -111,6 +111,10 @@ type passResult struct {
 	// withdrawn: the question was withdrawn (questionWithdrawn), and
 	// nothing more is tried at it.
 	withdrawn bool
+	// revises is the proposal a person sent back for changes that this
+	// attempt proposes again (revised), "" for none; changes is what they
+	// asked to change.
+	revises, changes string
 }
 
 // answer answers one inbox row, holding its slot of the scheduler until it
@@ -215,6 +219,9 @@ func (c *claim) pass(ctx context.Context, msgID string, shorter bool) passResult
 			return c.exhausted(r)
 		}
 		r.no, r.key = n, core.AnswerKey(c.conv, msgID, n)
+		if at := revised(atts); at != nil {
+			r.revises, r.changes = at.ActionID, at.Reason
+		}
 		// 4. Quotas. One of the school's spent, the owner's own key
 		// answers, when the agent has one behind the school's.
 		q, err := c.quota(ctx)
@@ -250,6 +257,25 @@ func (c *claim) pass(ctx context.Context, msgID string, shorter bool) passResult
 	}
 }
 
+// revised is the attempt whose proposal the next attempt at a message
+// revises (§2.2): the newest a person sent back for changes, which a
+// revision of it sent back in turn replaces, so that the chain runs back
+// to the first. None when none was sent back, or when Core refused the
+// newest such revision as naming nothing the agent may revise
+// (not_revisable): the attempts after it answer anew, naming none.
+func revised(atts []store.Attempt) *store.Attempt {
+	var last *store.Attempt
+	for i := range atts {
+		switch at := &atts[i]; {
+		case at.State == store.AttemptChangesRequested && at.ActionID != "":
+			last = at
+		case at.Reason == core.ReasonNotRevisable:
+			last = nil
+		}
+	}
+	return last
+}
+
 // nextAttempt is the number of the next attempt at a message, one more than
 // those so far, all settled without posting; busy when one posted or waits
 // for a person.
@@ -277,7 +303,7 @@ func (c *claim) generate(ctx context.Context, r passResult, read *core.Messages,
 	if err != nil {
 		return c.failedHere(r, "the toolset could not be built", err)
 	}
-	sys, hash, err := c.system(ctx, read, shorter, set, files != nil)
+	sys, hash, err := c.system(ctx, read, shorter, set, files != nil, r)
 	if err != nil {
 		return c.failedHere(r, "the memory could not be read", err)
 	}
@@ -382,14 +408,22 @@ func (c *claim) toolset(m *model, access toolset.Access, files bool) (*toolset.S
 }
 
 // system is the system prompt for this answer, whose model is offered set,
-// and its hash; files is that the conversation's messages carry files.
-func (c *claim) system(ctx context.Context, read *core.Messages, shorter bool, set *toolset.Set, files bool) (string, string, error) {
+// and its hash; files is that the conversation's messages carry files. An
+// answer that revises one a person sent back for changes (r.revises) is
+// told what they asked, from the attempt it revises: whether memory keeps
+// the note, or has it yet, or not.
+func (c *claim) system(ctx context.Context, read *core.Messages, shorter bool, set *toolset.Set, files bool, r passResult) (string, string, error) {
 	var notes []store.Note
 	if c.eff.Memory.Enabled {
 		var err error
 		if notes, err = c.a.store().Notes(ctx, c.a.id, c.s.id, c.conv, memoryNotes); err != nil {
 			return "", "", err
 		}
+	}
+	var revising *store.Note
+	if r.revises != "" {
+		revising = &store.Note{AgentID: c.a.id, MemberID: c.s.id, ConversationID: c.conv, Kind: store.NoteChangesRequested,
+			MessageID: r.msg, Text: r.changes}
 	}
 	m := c.s.membership()
 	text, hash := prompt.System(prompt.Input{
@@ -399,7 +433,7 @@ func (c *claim) system(ctx context.Context, read *core.Messages, shorter bool, s
 			AskerName: read.Conversation.Opener.DisplayName, AnswerLevel: read.Conversation.Respondent.AnswerLevel,
 			Tools: set.Reads(), Writes: set.Writes(), Files: files, FileTool: fileTool(set), SearchTool: searchTool(set),
 		},
-		AnswerLanguage: c.eff.Prompt.AnswerLanguage, Notes: notes, Now: c.a.now(),
+		AnswerLanguage: c.eff.Prompt.AnswerLanguage, Notes: notes, Revising: revising, Now: c.a.now(),
 	})
 	if shorter {
 		text += fmt.Sprintf("\n- Your last answer here could not be posted as it was: it was too long, or held links that had to be removed. "+
@@ -449,7 +483,8 @@ func (c *claim) post(ctx context.Context, r passResult, body, kind string) passR
 			"links_removed", rep.LinksRemoved, "images_removed", rep.ImagesRemoved, "truncated", rep.Truncated)
 	}
 	r.kind = kind
-	args, err := json.Marshal(core.AnswerArgs{CourseID: c.s.course, ConversationID: c.conv, InReplyToMessageID: r.msg, Body: safe, IdempotencyKey: r.key})
+	args, err := json.Marshal(core.AnswerArgs{CourseID: c.s.course, ConversationID: c.conv, InReplyToMessageID: r.msg, Body: safe,
+		IdempotencyKey: r.key, Revises: r.revises})
 	if err != nil {
 		return c.failedHere(r, "the answer could not be written", err)
 	}
@@ -490,10 +525,11 @@ func (c *claim) send(ctx context.Context, r passResult, at store.Attempt, rep sa
 
 // settle records what became of an attempt, when anything is known to
 // have: a decision with no state leaves it sending, to be sent again. An
-// answer that comes back as a proposal rejected or cancelled (a replay: a
-// person decided while the attempt was left sending) leaves a note in the
-// conversation's memory, the rejection's reason for the next attempt's
-// prompt, as the events poller notes a decision it reads (§2.4).
+// answer that comes back as a proposal rejected, sent back for changes or
+// cancelled (a replay: a person decided while the attempt was left
+// sending) leaves a note in the conversation's memory, the rejection's
+// reason, or what to change, for the next attempt's prompt, as the events
+// poller notes a decision it reads (§2.4).
 func settle(a *Agent, eff *config.Effective, at store.Attempt, env *core.Envelope, d Decision) {
 	if d.State == "" {
 		return
@@ -502,8 +538,9 @@ func settle(a *Agent, eff *config.Effective, at store.Attempt, env *core.Envelop
 	if env != nil {
 		o.ActionID, o.PostedMessageID = env.ActionID, messageID(env)
 	}
-	if d.State == store.AttemptRejected && env != nil {
-		// A rejection's reason is the decision's, in the result.
+	if (d.State == store.AttemptRejected || d.State == store.AttemptChangesRequested) && env != nil {
+		// A rejection's reason, or what to change, is the decision's, in
+		// the result.
 		o.Reason = core.Action{Result: env.Result}.DecisionReason()
 	}
 	ctx, cancel := bookkeeping()
@@ -519,6 +556,8 @@ func settle(a *Agent, eff *config.Effective, at store.Attempt, env *core.Envelop
 	switch d.State {
 	case store.AttemptRejected:
 		n.Kind = store.NoteRejected
+	case store.AttemptChangesRequested:
+		n.Kind = store.NoteChangesRequested
 	case store.AttemptCancelled:
 		n.Kind = store.NoteCancelled
 	default:
@@ -776,7 +815,7 @@ func classifyClose(env *core.Envelope, err error) Decision {
 		if d.Code == core.CodeForbidden {
 			d.Next = NextDropReseat
 		}
-	case core.StatusRejected, core.StatusCancelled:
+	case core.StatusRejected, core.StatusChangesRequested, core.StatusCancelled:
 		d.Next, d.State, d.Outcome = NextDrop, store.AttemptState(env.Status), store.OutcomeDropped
 	default:
 		d.State = store.AttemptError
@@ -818,6 +857,9 @@ func (c *claim) record(r passResult) {
 		"outcome", r.outcome, "kind", r.kind, "turns", r.stats.Turns, "continuations", r.stats.Continuations, "truncated", r.stats.Truncated,
 		"tool_calls", r.stats.ToolCalls,
 		"writes", r.stats.Writes.Sent, "input_tokens", r.stats.In, "output_tokens", r.stats.Out, "cost_pusd", r.stats.Cost}
+	if r.revises != "" {
+		attrs = append(attrs, "revises", r.revises)
+	}
 	if !c.asked.IsZero() {
 		notice := c.claimedAt.Sub(c.asked)
 		m.AnswerLatency.WithLabelValues("notice").Observe(max(notice, 0).Seconds())
