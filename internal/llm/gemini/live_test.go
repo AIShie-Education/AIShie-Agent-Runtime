@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/livetest"
 )
 
 // liveAdapter is the adapter against the real Gemini API, for make live:
@@ -88,27 +89,20 @@ func TestLiveLoop(t *testing.T) {
 	}
 }
 
-// One request declaring every tool of Core's catalogue, at 16 output
-// tokens, so that the provider checks every schema (§8.2). These are Core's
-// own schemas, unsanitised: parametersJsonSchema must take them as they
-// are, and whatever the sanitiser makes of them is simpler still.
+// Every tool of Core's catalogue declared, in requests of at most
+// livetest.MaxTools, at 16 output tokens, so that the provider checks
+// every schema (§8.2). These are Core's own schemas, unsanitised:
+// parametersJsonSchema must take them as they are, and whatever the
+// sanitiser makes of them is simpler still.
 func TestLiveEveryToolDeclared(t *testing.T) {
 	a := liveAdapter(t, "")
-	var catalogue struct {
-		Tools []struct {
-			Name        string          `json:"name"`
-			Description string          `json:"description"`
-			InputSchema json.RawMessage `json:"input_schema"`
-		} `json:"tools"`
-	}
-	readJSON(t, filepath.Join("..", "..", "core", "testdata", "catalogue.json"), &catalogue)
-	req := &llm.Request{Messages: []llm.Message{llm.UserText("Say hello.")}, ToolMode: llm.ToolAuto, Limits: llm.Limits{MaxOutputTokens: 16}}
-	for _, tool := range catalogue.Tools {
-		req.Tools = append(req.Tools, llm.Tool{Name: strings.ReplaceAll(tool.Name, ".", "_"), Description: tool.Description, Schema: tool.InputSchema})
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	if _, err := a.Call(ctx, req); err != nil {
-		t.Fatalf("%d tools declared: %v", len(req.Tools), err)
+	for batch := range slices.Chunk(livetest.CatalogueTools(t, false), livetest.MaxTools) {
+		req := &llm.Request{Messages: []llm.Message{llm.UserText("Say hello.")}, Tools: batch, ToolMode: llm.ToolAuto,
+			Limits: llm.Limits{MaxOutputTokens: 16}}
+		if _, err := a.Call(ctx, req); err != nil {
+			t.Fatalf("%d tools declared, from %s: %v", len(batch), batch[0].Name, err)
+		}
 	}
 }

@@ -1,31 +1,30 @@
 package anthropic
 
 import (
+	"cmp"
 	"context"
-	"encoding/json"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/livetest"
 )
 
 // TestLive calls Anthropic's API when LIVE=1 and ANTHROPIC_API_KEY are
-// set (make live): a plain answer, one streamed, then one request declaring every tool
-// of Core's catalogue at 16 output tokens, so that the API itself checks
-// their schemas (§8.2). ANTHROPIC_LIVE_MODEL picks the model.
+// set (make live): a plain answer, one streamed, then every tool of Core's
+// catalogue declared, in requests of at most livetest.MaxTools, at 16
+// output tokens, so that the API itself checks their schemas (§8.2).
+// ANTHROPIC_MODEL picks the model, as the nightly live.yml names it (or
+// ANTHROPIC_LIVE_MODEL, its name before).
 func TestLive(t *testing.T) {
 	key := os.Getenv("ANTHROPIC_API_KEY")
 	if os.Getenv("LIVE") != "1" || key == "" {
 		t.Skip("LIVE=1 and ANTHROPIC_API_KEY run this against the real API")
 	}
-	model := os.Getenv("ANTHROPIC_LIVE_MODEL")
-	if model == "" {
-		model = "claude-haiku-4-5"
-	}
+	model := cmp.Or(os.Getenv("ANTHROPIC_MODEL"), os.Getenv("ANTHROPIC_LIVE_MODEL"), "claude-haiku-4-5")
 	a, err := New(llm.Config{Model: model, APIKey: key})
 	if err != nil {
 		t.Fatal(err)
@@ -60,60 +59,25 @@ func TestLive(t *testing.T) {
 		t.Errorf("streamed: told %q, text %q, usage %+v", told.String(), resp.Text(), resp.Usage)
 	}
 
-	resp, err = a.Call(ctx, &llm.Request{
-		System:   "You are a course tutor.",
-		Messages: []llm.Message{llm.UserText("Which tools do you have? Answer in one sentence.")},
-		Tools:    catalogueTools(t),
-		ToolMode: llm.ToolAuto,
-		Limits:   llm.Limits{MaxOutputTokens: 16},
-	})
-	if err != nil {
-		t.Fatalf("a call declaring every tool of the catalogue: %v", err)
-	}
-	t.Logf("every tool declared: stop %s (%s), usage %+v", resp.Stop, resp.RawStop, resp.Usage)
-}
-
-// catalogueTools are Core's tools with the arguments the runtime binds
-// (course_id, idempotency_key) removed, and their MCP names.
-func catalogueTools(t *testing.T) []llm.Tool {
-	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "..", "core", "testdata", "catalogue.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var cat struct {
-		Tools []struct {
-			Name        string         `json:"name"`
-			Description string         `json:"description"`
-			InputSchema map[string]any `json:"input_schema"`
-		} `json:"tools"`
-	}
-	if err := json.Unmarshal(raw, &cat); err != nil {
-		t.Fatal(err)
-	}
-	var tools []llm.Tool
-	for _, c := range cat.Tools {
-		s := c.InputSchema
-		if props, ok := s["properties"].(map[string]any); ok {
-			delete(props, "course_id")
-			delete(props, "idempotency_key")
-		}
-		if req, ok := s["required"].([]any); ok {
-			s["required"] = slices.DeleteFunc(req, func(v any) bool { return v == "course_id" || v == "idempotency_key" })
-		}
-		schema, err := json.Marshal(s)
+	for batch := range slices.Chunk(livetest.CatalogueTools(t, true), livetest.MaxTools) {
+		resp, err = a.Call(ctx, &llm.Request{
+			System:   "You are a course tutor.",
+			Messages: []llm.Message{llm.UserText("Which tools do you have? Answer in one sentence.")},
+			Tools:    batch,
+			ToolMode: llm.ToolAuto,
+			Limits:   llm.Limits{MaxOutputTokens: 16},
+		})
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("a call declaring %d tools of the catalogue, from %s: %v", len(batch), batch[0].Name, err)
 		}
-		tools = append(tools, llm.Tool{Name: strings.ReplaceAll(c.Name, ".", "_"), Description: c.Description, Schema: schema})
+		t.Logf("%d tools declared: stop %s (%s), usage %+v", len(batch), resp.Stop, resp.RawStop, resp.Usage)
 	}
-	return tools
 }
 
 // Every tool of Core's catalogue can be declared: a name the API takes, and
 // a schema that is an object.
 func TestCatalogueCanBeDeclared(t *testing.T) {
-	tools := catalogueTools(t)
+	tools := livetest.CatalogueTools(t, true)
 	if len(tools) != 168 {
 		t.Fatalf("%d tools in the catalogue, want 168", len(tools))
 	}

@@ -4,18 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/livetest"
 )
 
 // TestLive calls the real providers whose keys are set, with LIVE=1 (make
 // live, and the nightly workflow): a cheap call, a tool call's round trip,
-// an answer streamed, and, for OpenAI, one request declaring every tool of the pinned catalogue
-// at 16 output tokens, so that the provider itself checks the schemas.
+// an answer streamed, and, for OpenAI, every tool of the pinned catalogue
+// declared at 16 output tokens, so that the provider itself checks the
+// schemas.
 func TestLive(t *testing.T) {
 	if os.Getenv("LIVE") != "1" {
 		t.Skip("set LIVE=1 to call the real providers")
@@ -112,29 +114,15 @@ func liveStream(t *testing.T, a *Adapter) {
 	}
 }
 
+// liveEveryTool declares every tool of the pinned catalogue, in requests
+// of at most livetest.MaxTools: Core's schemas as they are, since OpenAI's
+// non-strict mode takes JSON Schema whole, so this checks the
+// declarations' shape, not the sanitiser.
 func liveEveryTool(t *testing.T, a *Adapter) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", "core", "testdata", "catalogue.json"))
-	if err != nil {
-		t.Fatal(err)
+	for batch := range slices.Chunk(livetest.CatalogueTools(t, false), livetest.MaxTools) {
+		liveCall(t, a, &llm.Request{
+			Messages: []llm.Message{llm.UserText("Say OK.")},
+			Tools:    batch, ToolMode: llm.ToolAuto, Limits: llm.Limits{MaxOutputTokens: 16},
+		})
 	}
-	var cat struct {
-		Tools []struct {
-			Name        string          `json:"name"`
-			Description string          `json:"description"`
-			InputSchema json.RawMessage `json:"input_schema"`
-		} `json:"tools"`
-	}
-	if err := json.Unmarshal(raw, &cat); err != nil {
-		t.Fatal(err)
-	}
-	// Core's schemas as they are: OpenAI's non-strict mode takes JSON Schema
-	// whole, so this checks the declarations' shape, not the sanitiser.
-	var tools []llm.Tool
-	for _, c := range cat.Tools {
-		tools = append(tools, llm.Tool{Name: strings.ReplaceAll(c.Name, ".", "_"), Description: c.Description, Schema: c.InputSchema})
-	}
-	liveCall(t, a, &llm.Request{
-		Messages: []llm.Message{llm.UserText("Say OK.")},
-		Tools:    tools, ToolMode: llm.ToolAuto, Limits: llm.Limits{MaxOutputTokens: 16},
-	})
 }

@@ -2,12 +2,17 @@ name: Live providers
 
 # The adapters against the real model APIs, nightly (Core's
 # docs/agent-runtime.md §8.2 item 4): each provider whose key is set gets a
-# cheap call, a tool call round trip, and one request declaring every tool
-# of the pinned catalogue at 16 output tokens, so that the provider itself
-# checks the schemas. A provider without a key is skipped, and says so.
+# cheap call, and each but Anthropic a tool call round trip; OpenAI's two
+# APIs, Anthropic and Gemini also get every tool of the pinned catalogue
+# declared at 16 output tokens, in requests of at most 128 tools (OpenAI's
+# most), so that the provider itself checks the schemas. A provider without a key is skipped,
+# and the log says so: a run with no key at all passes having tried
+# nothing. The live tests against a real Core are not run here: make
+# live-core (docs/design.md §10).
 #
-# Keys are repository secrets; the models are repository variables, so that
-# a cheaper model can be chosen without a commit.
+# Keys are repository secrets; the models, and Azure's endpoint and
+# deployment, are repository variables, so that a cheaper model can be
+# chosen without a commit.
 
 on:
   schedule:
@@ -34,6 +39,10 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_MODEL: ${{ vars.OPENAI_MODEL }}
+          OPENAI_RESPONSES_MODEL: ${{ vars.OPENAI_RESPONSES_MODEL }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          AZURE_OPENAI_BASE_URL: ${{ vars.AZURE_OPENAI_BASE_URL }}
+          AZURE_OPENAI_DEPLOYMENT: ${{ vars.AZURE_OPENAI_DEPLOYMENT }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -42,5 +51,6 @@ jobs:
           DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
           AWS_REGION: ${{ vars.AWS_REGION }}
           BEDROCK_MODEL: ${{ vars.BEDROCK_MODEL }}

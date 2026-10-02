@@ -208,7 +208,9 @@ Go 1.27 and PostgreSQL 13 or later. `make help` lists the targets:
   against it.
 - `make lint` runs gofmt, go mod tidy, actionlint, go vet and golangci-lint.
 - `make live` tries the adapters against the real providers whose keys are
-  set.
+  set, and `make live-core` tries Core's client and a seat's toolset
+  against a Core of their own. CI runs neither; `docs/design.md` §10 says
+  when to.
 
 [`CONTRIBUTING.md`](CONTRIBUTING.md) covers how changes, migrations and
 releases are made.

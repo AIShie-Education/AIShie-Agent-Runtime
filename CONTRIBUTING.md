@@ -3,10 +3,11 @@
 ## The loop
 
 ```
-make ci       # what CI runs: lint (gofmt, go mod tidy, the workflows, go vet, golangci-lint, shellcheck),
-              # the scripts' tests, the Go tests with the store on Postgres, the end to end against Core
-make live     # the adapters against the real providers whose keys are set
-make docker   # the image, as CI builds it; never pushed
+make ci        # what CI runs: lint (gofmt, go mod tidy, the workflows, go vet, golangci-lint, shellcheck),
+               # the scripts' tests, the Go tests with the store on Postgres, the end to end against Core
+make live      # the adapters against the real providers whose keys are set
+make live-core # Core's client and a seat's toolset against a throwaway Core, when the pin moves
+make docker    # the image, as CI builds it; never pushed
 ```
 
 `make test` wants a PostgreSQL whose role can create databases:
@@ -133,7 +134,9 @@ GHCR as `:sha-<commit>` and `:edge`, which edge servers pull within five
 minutes ([AIShie-Deploy](https://github.com/AIShie-Education/AIShie-Deploy)).
 When pushes come faster than they are published, one that a newer push
 overtakes while it waits is not published. A release is made by a tag, from
-`main`:
+`main`. Run `make live-core` on the commit to be tagged first, and
+`make live` where you have the providers' keys: the release re-runs CI,
+which runs neither (docs/design.md §10).
 
 ```
 git switch main && git pull
@@ -214,8 +217,9 @@ Before the first push to `main` after the CD workflows land, in GitHub:
   repository was private and GitHub Free gave it no environment variables
   or secrets.
   For `live.yml`, each provider's key as a secret (`OPENAI_API_KEY`, …) and
-  its model as a variable (`OPENAI_MODEL`, …); a provider without a key is
-  skipped.
+  its model as a variable (`OPENAI_MODEL`, …), and Azure's endpoint and
+  deployment as variables (`AZURE_OPENAI_BASE_URL`,
+  `AZURE_OPENAI_DEPLOYMENT`); a provider without a key is skipped.
 - **Minutes and storage**: the repository is public, so its Actions minutes
   on GitHub's standard runners cost nothing, and neither does a public
   package's storage. Every push to `main` runs the whole of CI, the end to
@@ -271,5 +275,7 @@ Move the three together, in one pull request:
    sanitiser's tests. A changed fixture is a change in Core's behaviour: the
    fake Core must follow it, and `make test` fails until it does.
 
-4. `make ci`, then push the three together. From then on, every pull
-   request's end to end, and every release's, runs against the new Core.
+4. `make ci` and `make live-core` (the live tests against a Core of their
+   own, which CI does not run: docs/design.md §10), then push the three
+   together. From then on, every pull request's end to end, and every
+   release's, runs against the new Core.

@@ -2198,8 +2198,8 @@ Chinese with a table, overran, and was cut off.
   naming its file, and read back file by file.
 - Adapters: golden translations both ways in `testdata/`, every stop reason
   and usage field; `LIVE=1` runs them against the real providers whose keys
-  are set, with one request declaring every tool at 16 output tokens, and
-  one answer streamed. `openai_chat`, `anthropic` and `gemini` have goldens
+  are set (the live tests, below), with every tool declared at 16 output
+  tokens, and one answer streamed. `openai_chat`, `anthropic` and `gemini` have goldens
   of streams written in their providers' SSE format (`testdata/stream`): text
   in pieces with keep-alives, reasoning streamed before the answer,
   parallel calls whose arguments are split and interleaved across chunks,
@@ -2541,6 +2541,53 @@ Chinese with a table, overran, and was cut off.
   put, completed), and Yuki's own agent, run where LibreOffice converts
   nothing, is given Core's PDF of it, page for page, with its notes, no
   download URL reaching the model or the runtime's log.
+- The live tests, which CI does not run: they need a provider's key or a
+  Core of their own, and say so when they skip.
+  - `make live`, the adapters against the real providers whose keys are
+    set: `OPENAI_API_KEY` (Chat Completions and Responses),
+    `ANTHROPIC_API_KEY`, `GEMINI_API_KEY` (its own API and its OpenAI
+    compatible one), `DEEPSEEK_API_KEY`, `BEDROCK_MODEL` with AWS's
+    credentials (or `AWS_BEARER_TOKEN_BEDROCK`), and Azure's three
+    (`AZURE_OPENAI_*`), each provider's model in `*_MODEL`
+    (`OPENAI_RESPONSES_MODEL` for Responses). Each gets a cheap call, and
+    each but Anthropic a tool call's round trip; Chat Completions and
+    Anthropic an answer streamed; and OpenAI's two APIs, Anthropic and
+    Gemini every tool of the pinned catalogue declared at 16 output
+    tokens, Core's own schemas, in requests of at most 128 tools
+    (`livetest.MaxTools`: OpenAI takes no more, and the catalogue has
+    168), so that the provider itself checks every schema. `live.yml` runs
+    it nightly with the repository's keys, and its log names each provider
+    tried or skipped; run it by hand when an adapter changes, or a
+    provider's API or the default models do.
+  - `make live-core`, Core's client and a seat's toolset against a
+    throwaway Core (`scripts/live-core.sh`: the pinned image, or `CORE_BIN`,
+    on a scratch database, started with a limit of 600 calls a minute), with
+    no model and no key. `TestLiveContract` has a course tutor hosted by
+    its id as the site's runtime hosts it (AIShie-Core #52): with a
+    credential of the `agent_runtime` service's own, issued for the test and
+    revoked after it, `agent_runtime_agent` and `check_owner` read it, its
+    owner is refused a token of it (`hosted_by_runtime`), a question to it
+    is refused (`agent_not_hosted`) until the runtime is issued its one
+    token, and again once the runtime revokes it, and an `mcp` agent is
+    never issued one (`not_runtime_hosted`) nor asked (`mcp_agent`); then
+    the calls a runtime makes over MCP and over REST give the same
+    envelopes (answers, replays, conflicts, a second answer refused, the
+    query string's forms, refusals word for word, 401s), `tools/list`
+    offers every tool of the catalogue but the site services' own, which
+    are REST's alone (the agent runtime's hosting and renditions, the
+    transcriber's queue), and the typed client reads through the worker's
+    stack. `TestLiveRateLimited` meets a real 429 over each transport and
+    sees `Retrying` wait it out. `TestLiveCore` runs a student's own agent,
+    hosted by its id, through its toolset: the live catalogue passes
+    `Check`, the delegate is offered its twelve reads, what a strict model
+    writes is executed in the conversation's course and nowhere else, the
+    files of three documents are given as text and as a file part, and a
+    Word file as its text, after the test has made its PDF rendition as
+    the renditions worker does (claimed, fetched, renewed, the PDF put,
+    done and replayed; no LibreOffice needed), and no URL, the
+    rendition's included, reaches the model. Run it whenever the Core pin
+    moves, with `make record-fixtures` (CONTRIBUTING.md, Moving the Core
+    pin), and before a release; it needs a Core since AIShie-Core #52.
 
 ## 11. Hosted agents
 

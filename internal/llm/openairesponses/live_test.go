@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/livetest"
 )
 
 // TestLive runs the adapter against the real APIs whose keys are set, when
@@ -112,43 +112,16 @@ func liveToolRoundTrip(t *testing.T, a *Adapter) {
 }
 
 // liveEveryTool declares every tool of the pinned catalogue, bound as the
-// runtime binds them, so that the provider checks every schema.
+// runtime binds them, in requests of at most livetest.MaxTools, so that
+// the provider checks every schema.
 func liveEveryTool(t *testing.T, a *Adapter) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "core", "testdata", "catalogue.json"))
-	if err != nil {
-		t.Fatal(err)
+	for batch := range slices.Chunk(livetest.CatalogueTools(t, true), livetest.MaxTools) {
+		liveCall(t, a, &llm.Request{
+			System:   "Say OK.",
+			Messages: []llm.Message{llm.UserText("OK?")},
+			Tools:    batch,
+			ToolMode: llm.ToolAuto,
+			Limits:   llm.Limits{MaxOutputTokens: 16},
+		})
 	}
-	var cat struct {
-		Tools []struct {
-			Name        string         `json:"name"`
-			Description string         `json:"description"`
-			InputSchema map[string]any `json:"input_schema"`
-		} `json:"tools"`
-	}
-	if err := json.Unmarshal(data, &cat); err != nil {
-		t.Fatal(err)
-	}
-	var tools []llm.Tool
-	for _, ct := range cat.Tools {
-		schema := ct.InputSchema
-		if props, ok := schema["properties"].(map[string]any); ok {
-			delete(props, "idempotency_key")
-			delete(props, "course_id")
-		}
-		if req, ok := schema["required"].([]any); ok {
-			schema["required"] = slices.DeleteFunc(req, func(v any) bool { return v == "idempotency_key" || v == "course_id" })
-		}
-		raw, err := json.Marshal(schema)
-		if err != nil {
-			t.Fatal(err)
-		}
-		tools = append(tools, llm.Tool{Name: strings.ReplaceAll(ct.Name, ".", "_"), Description: ct.Description, Schema: raw})
-	}
-	liveCall(t, a, &llm.Request{
-		System:   "Say OK.",
-		Messages: []llm.Message{llm.UserText("OK?")},
-		Tools:    tools,
-		ToolMode: llm.ToolAuto,
-		Limits:   llm.Limits{MaxOutputTokens: 16},
-	})
 }
