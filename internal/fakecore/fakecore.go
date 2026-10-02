@@ -102,6 +102,11 @@ type Options struct {
 	// no files, only the version's own fields of its one file; a claim,
 	// a text read and a text event name no file.
 	WithoutFiles bool
+	// WithoutSources answers as a Core from before an answer said what it
+	// relied on (AIShie-Core #71), as the runtime was pinned to before
+	// 81ad1fe (sources.go): conversation.answer takes no sources, which its
+	// schema refuses, and conversation.messages shows none.
+	WithoutSources bool
 	// WithdrawnWaits answers as a Core from before a question its opener
 	// withdrew waited for no answer, as b0eb848 and older do
 	// (conversation.go): with the opener's latest message retracted, the
@@ -245,14 +250,15 @@ var theCatalogue = sync.OnceValues(func() (*catalogue, error) {
 // before PDF renditions (Options.WithoutRenditions), before an agent's
 // hosting (Options.WithoutHosting, which had none either), before wait_s
 // (Options.WithoutWait), before conversation.draft (Options.WithoutDraft),
-// before several files to a version (Options.WithoutFiles), or any of them.
+// before several files to a version (Options.WithoutFiles), before an
+// answer's sources (Options.WithoutSources), or any of them.
 func catalogueOf(o Options) (*catalogue, error) {
 	raw := catalogueJSON
 	for _, older := range []struct {
 		is   bool
 		edit func([]byte) ([]byte, error)
 	}{{o.WithoutRenditions || o.WithoutHosting, withoutRenditions}, {o.WithoutHosting, withoutHosting}, {o.WithoutWait, withoutWait},
-		{o.WithoutDraft, withoutDraft}, {o.WithoutFiles, withoutFiles}} {
+		{o.WithoutDraft, withoutDraft}, {o.WithoutFiles, withoutFiles}, {o.WithoutSources, withoutSources}} {
 		if !older.is {
 			continue
 		}
@@ -282,7 +288,7 @@ func withImpls(raw []byte) (*catalogue, error) {
 // time, as the SDK panics on a tool it cannot register.
 func New(o Options) *Core {
 	load := theCatalogue
-	if o.WithoutHosting || o.WithoutRenditions || o.WithoutWait || o.WithoutDraft || o.WithoutFiles {
+	if o.WithoutHosting || o.WithoutRenditions || o.WithoutWait || o.WithoutDraft || o.WithoutFiles || o.WithoutSources {
 		load = func() (*catalogue, error) { return catalogueOf(o) }
 	}
 	cat, err := load()

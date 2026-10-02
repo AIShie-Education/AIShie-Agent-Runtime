@@ -1097,6 +1097,7 @@ var scenarios = []scenario{
 	attachments,
 	renditions,
 	transcriptionChecks,
+	sources,
 }
 
 // transcriptionChecks is what a transcription's completion says alone

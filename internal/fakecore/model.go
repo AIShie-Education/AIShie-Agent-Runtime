@@ -310,6 +310,10 @@ type message struct {
 	retraction *retraction
 	// attachments are the files it carries, in order (attachments.go).
 	attachments []*attachment
+	// sources are what an answer relied on, and sourcesStated that it said
+	// so, an empty list included (sources.go).
+	sources       []sourceIn
+	sourcesStated bool
 }
 
 type retraction struct {

@@ -172,6 +172,9 @@ type answerIn struct {
 	InReplyToMessageID uuid.UUID      `json:"in_reply_to_message_id"`
 	Body               string         `json:"body"`
 	Attachments        []attachmentIn `json:"attachments,omitempty"`
+	// Sources are what the answer relied on (sources.go): empty, it
+	// relied on none; nil, it does not say.
+	Sources []sourceIn `json:"sources,omitzero"`
 }
 
 // checkMessage is what a message's arguments say alone (Core's
@@ -213,8 +216,13 @@ func conversationAnswer() *impl {
 	// answer as far as they decide actions.
 	answers.ownerJudgedBy = []string{permActionDecide}
 	return define(spec[answerIn]{
-		gate:  answers,
-		check: func(in answerIn) error { return checkMessage(in.Body, in.Attachments) },
+		gate: answers,
+		check: func(in answerIn) error {
+			if err := checkMessage(in.Body, in.Attachments); err != nil {
+				return err
+			}
+			return checkSources(in.Sources)
+		},
 		resolve: func(c *Core, co *course, in answerIn) (target, error) {
 			return conversationTarget(c, co, in.ConversationID)
 		},
@@ -234,7 +242,10 @@ func conversationAnswer() *impl {
 			if err := c.newerQuestion(cv, in.InReplyToMessageID.String()); err != nil {
 				return err
 			}
-			return c.checkMessageFiles(m, cv, in.Attachments, false)
+			if err := c.checkMessageFiles(m, cv, in.Attachments, false); err != nil {
+				return err
+			}
+			return c.checkSourcesReadable(m, in.Sources)
 		},
 		pin: func(c *Core, m *member, in answerIn) error {
 			cv, err := c.findConversation(m.course, in.ConversationID)
@@ -266,11 +277,16 @@ func conversationAnswer() *impl {
 			if err != nil {
 				return nil, err
 			}
+			if err := c.checkSourcesReadable(ec.member, in.Sources); err != nil {
+				return nil, err
+			}
 			answered := in.InReplyToMessageID.String()
 			id, err := c.post(ec, cv, &answered, in.Body, func() error { return c.newerQuestion(cv, answered) }, files, names)
 			if err != nil {
 				return nil, err
 			}
+			msg := c.messages[id]
+			msg.sources, msg.sourcesStated = in.Sources, in.Sources != nil
 			// Posted, the answer takes its draft's place.
 			cv.clearDraft()
 			return map[string]string{"message_id": id}, nil
@@ -662,6 +678,10 @@ type messageView struct {
 	// Attachments are withheld with the body once the message is
 	// retracted.
 	Attachments []attachmentView `json:"attachments,omitempty"`
+	// Sources are an answer's, as the reader may read them now
+	// (sources.go): withheld with the body, and absent where the answer
+	// did not say.
+	Sources []sourceView `json:"sources,omitzero"`
 }
 
 // pageLimit is Core's page size: 50 by default, at most 200.
@@ -724,7 +744,11 @@ func conversationMessages() *impl {
 				Draft        json.RawMessage  `json:"draft,omitempty"`
 			}{Messages: make([]messageView, 0, len(rows)), More: len(rows) == limit}
 			for _, m := range rows {
-				out.Messages = append(out.Messages, viewMessage(m))
+				v := viewMessage(m)
+				if m.retraction == nil {
+					v.Sources = c.sourcesOf(rc.member, m)
+				}
+				out.Messages = append(out.Messages, v)
 			}
 			out.Conversation = c.view(cv)
 			out.Draft = c.draftFor(rc, cv)
