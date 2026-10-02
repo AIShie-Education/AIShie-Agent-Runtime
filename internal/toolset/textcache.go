@@ -72,8 +72,11 @@ type fileReading struct {
 	fam office.Family
 	of  office.Target
 	// text is the version's text version this is (textversion.go), nil
-	// for a reading of the file.
-	text *core.TextView
+	// for a reading of the file; coreEnds where each of the parts
+	// document_text gave of it ends in res.Text, nil where Core gave it
+	// whole beside the version.
+	text     *core.TextView
+	coreEnds []int
 }
 
 type cachedReading struct {

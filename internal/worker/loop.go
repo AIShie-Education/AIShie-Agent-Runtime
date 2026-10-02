@@ -59,8 +59,11 @@ type loop struct {
 	// search is what the seat may read of the course, as the answer's
 	// first search of its materials reads it, for its later ones.
 	search *toolset.SearchScope
-	set    *toolset.Set
-	decls  []llm.Tool
+	// sources are the course's materials the model was given, which the
+	// answer names as what it relied on (toolset.Sources).
+	sources *toolset.Sources
+	set     *toolset.Set
+	decls   []llm.Tool
 	// cap is the output tokens asked for on a turn.
 	cap int
 	// d is the conversation's drafter, which shows the asker what the
@@ -111,14 +114,16 @@ type loopStats struct {
 	KeySource string
 }
 
-// loopEnd is how a loop ended: a body to post and what wrote it; or every
-// provider failed, and nothing is posted; or the answer cannot go on
+// loopEnd is how a loop ended: a body to post, what wrote it, and, for the
+// model's, the course's materials it relied on (toolset.Sources.List); or
+// every provider failed, and nothing is posted; or the answer cannot go on
 // (Core refused the token, the claim's context ended).
 type loopEnd struct {
-	body   string
-	kind   string
-	failed bool
-	fatal  error
+	body    string
+	kind    string
+	sources []core.Source
+	failed  bool
+	fatal   error
 }
 
 // newLoop is the loop of attempt at answering msg. With access ReadWrite
@@ -131,6 +136,7 @@ func newLoop(c *claim, msg string, attempt int, access toolset.Access, guard too
 	l := &loop{
 		c: c, msg: msg, b: c.eff.Budgets.PerAnswer, start: c.a.now(), system: system, history: history,
 		m: m, fallback: fallback, access: access, guard: guard, d: c.d, files: files, search: &toolset.SearchScope{},
+		sources: &toolset.Sources{},
 	}
 	if access == toolset.ReadWrite {
 		conv := c.conv
@@ -268,8 +274,11 @@ func (l *loop) run(ctx context.Context) loopEnd {
 
 const maxInt = int(^uint(0) >> 1)
 
-// body is the model's own text as the answer.
-func (l *loop) body(text string) loopEnd { return loopEnd{body: text, kind: kindModel} }
+// body is the model's own text as the answer, relying on what the model
+// was given of the course's materials.
+func (l *loop) body(text string) loopEnd {
+	return loopEnd{body: text, kind: kindModel, sources: l.sources.List()}
+}
 
 // spent ends a loop whose budget is spent with no text of the model's:
 // on_budget_text.

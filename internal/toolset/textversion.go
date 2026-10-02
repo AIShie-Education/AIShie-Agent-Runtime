@@ -79,7 +79,7 @@ func (r Runner) giveTextVersion(ctx context.Context, g given, d *docFile) (given
 			FilePagesArg + ", such as \"3-5\"")
 	}
 	rec.Note = b.String()
-	g.text, g.sections = rd.res.Text, rd.res.Sections
+	g.text, g.sections, g.coreEnds = rd.res.Text, rd.res.Sections, rd.coreEnds
 	return g, true
 }
 
@@ -93,17 +93,18 @@ func (r Runner) textVersion(ctx context.Context, d *docFile) *fileReading {
 		return rd
 	}
 	body, view := "", tv
+	var ends []int
 	if tv.Body != nil {
 		v := *tv
 		body, v.Body = *tv.Body, nil
 		view = &v
 	} else {
 		var ok bool
-		if body, view, ok = r.readTextParts(ctx, d); !ok {
+		if body, view, ends, ok = r.readTextParts(ctx, d); !ok {
 			return nil
 		}
 	}
-	rd := &fileReading{mt: "text/markdown", size: int64(len(body)), text: view,
+	rd := &fileReading{mt: "text/markdown", size: int64(len(body)), text: view, coreEnds: ends,
 		res: &doctext.Result{Text: body, Sections: headingSections(body)}}
 	r.Texts.put(textVersionKey(d.textOf(), view.Revision), rd)
 	return rd
@@ -120,20 +121,21 @@ func (d *docFile) textOf() string {
 
 // readTextParts reads the file's text version a part at a time
 // (document_text, naming the file where Core named it), at one revision:
-// the text, and the text version it is.
-func (r Runner) readTextParts(ctx context.Context, d *docFile) (string, *core.TextView, bool) {
+// the text, the text version it is, and where each part ends in the text.
+func (r Runner) readTextParts(ctx context.Context, d *docFile) (string, *core.TextView, []int, bool) {
 	if r.Client == nil || d.courseID == "" || d.documentID == "" {
-		return "", nil, false
+		return "", nil, nil, false
 	}
 	for range 2 {
 		var b strings.Builder
 		var view *core.TextView
+		var ends []int
 		again := false
 		for part, parts := 1, 1; part <= parts; part++ {
 			tp, err := r.Client.TextPart(ctx, d.courseID, d.documentID, d.versionID, d.fileID, part)
 			if err != nil || tp.Text.Status != core.TextDone || tp.Parts < 1 || tp.Parts > maxTextParts ||
 				d.fileID != "" && tp.FileID != "" && !strings.EqualFold(tp.FileID, d.fileID) {
-				return "", nil, false
+				return "", nil, nil, false
 			}
 			if part == 1 {
 				parts, view = tp.Parts, &tp.Text
@@ -144,14 +146,15 @@ func (r Runner) readTextParts(ctx context.Context, d *docFile) (string, *core.Te
 			if tp.Text.Body != nil {
 				b.WriteString(*tp.Text.Body)
 			}
+			ends = append(ends, b.Len())
 		}
 		if !again {
 			v := *view
 			v.Body = nil
-			return b.String(), &v, true
+			return b.String(), &v, ends, true
 		}
 	}
-	return "", nil, false
+	return "", nil, nil, false
 }
 
 // textVersionKey is what a file's text version is kept under: apart from

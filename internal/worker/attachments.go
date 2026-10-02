@@ -129,7 +129,7 @@ func (l *loop) runner() toolset.Runner {
 		Client: l.c.a.client, Files: l.c.a.s.files, Texts: l.c.a.s.texts, OCR: l.c.a.s.o.OCR, MaxParallel: eff.Tools.MaxParallelTools,
 		FileInput: l.m.ad.Capabilities().FileInput, PDFLimits: pdf, Writes: l.writes, Guard: l.guard,
 		Office: l.c.a.s.o.Office, PartPages: l.c.a.s.o.Env.PDFPartPages, Conversation: l.c.conv,
-		Index: l.c.a.store(), Search: l.search, Searched: l.searched,
+		Index: l.c.a.store(), Search: l.search, Searched: l.searched, Sources: l.sources,
 	}
 	if l.d != nil {
 		r.Seen = l.d.seen

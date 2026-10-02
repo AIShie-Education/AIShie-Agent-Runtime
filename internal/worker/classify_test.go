@@ -72,6 +72,45 @@ func TestClassifyEveryRowOfTheHandout(t *testing.T) {
 	}
 }
 
+// Core's refusals of an answer's sources (§2.10) name the source, before
+// anything is posted (failed: one the seat may not read now, one purged)
+// or as the call is read (error: too many, one named twice, one not as
+// Core takes it): the answer is posted again without that source, or
+// without any, under the next attempt. Any other invalid_argument is the
+// body's.
+func TestClassifyARefusedSource(t *testing.T) {
+	refused := func(status core.Status, reason, field string) *core.Envelope {
+		return &core.Envelope{Status: status, Error: &core.Error{Code: core.CodeInvalidArgument,
+			Details: map[string]any{"reason": reason, "field": field, "index": float64(1)}}}
+	}
+	for _, c := range []struct {
+		name   string
+		env    *core.Envelope
+		next   Next
+		source int
+		state  store.AttemptState
+	}{
+		{"source_unreadable", refused(core.StatusFailed, reasonSourceUnreadable, "sources[1]"), NextDropSource, 1, store.AttemptFailed},
+		{"source_purged", refused(core.StatusFailed, reasonSourcePurged, "sources[12]"), NextDropSource, 12, store.AttemptFailed},
+		{"duplicate_source", refused(core.StatusError, "duplicate_source", "sources[1]"), NextDropSource, -1, store.AttemptError},
+		{"too_many_sources", refused(core.StatusError, "too_many_sources", "sources"), NextDropSource, -1, store.AttemptError},
+		{"a field that names no source", refused(core.StatusFailed, reasonSourceUnreadable, "sources[x]"), NextDropSource, -1, store.AttemptFailed},
+		{"the body", refused(core.StatusFailed, "", "body"), NextFix, 0, store.AttemptFailed},
+		{"a Core that takes no sources", &core.Envelope{Status: core.StatusError, Error: &core.Error{Code: core.CodeInvalidArgument,
+			Message: `the arguments do not match the tool's schema: unexpected additional properties ["sources"]`}}, NextDropSource, -1, store.AttemptError},
+		{"a Core that takes no other argument", &core.Envelope{Status: core.StatusError, Error: &core.Error{Code: core.CodeInvalidArgument,
+			Message: `unexpected additional properties ["mood"]`}}, NextFix, 0, store.AttemptError},
+		{"no field", failed(core.CodeInvalidArgument, reasonSourceUnreadable), NextFix, 0, store.AttemptFailed},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			d := Classify(c.env, nil)
+			if d.Next != c.next || d.Source != c.source || d.State != c.state || d.Outcome != store.OutcomeFailed {
+				t.Errorf("Classify = %s, source %d, %q, %q; want %s, source %d, %q", d.Next, d.Source, d.State, d.Outcome, c.next, c.source, c.state)
+			}
+		})
+	}
+}
+
 func TestClassifyMovedOnNamesTheNewestMessage(t *testing.T) {
 	d := Classify(failed(core.CodeConflict, core.ReasonMovedOn, "latest_opener_message_id", "m3"), nil)
 	if d.LatestMessageID != "m3" {

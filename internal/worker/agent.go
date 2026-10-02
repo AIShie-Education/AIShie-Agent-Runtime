@@ -46,6 +46,10 @@ type Agent struct {
 	// as the catalogue it serves says (Catalogue.Drafts): nothing is sent
 	// to a Core without conversation_draft.
 	drafts bool
+	// sources is whether Core keeps what an answer relied on, as the
+	// catalogue it serves says (conversation_answer takes sources): an
+	// answer to a Core from before them (AIShie-Core #71) names none.
+	sources bool
 
 	// drafters are the conversations' drafters sending now (draft.go),
 	// and draftCounts what came of their writes.
@@ -206,10 +210,12 @@ func (a *Agent) start(ctx context.Context) (err error) {
 	a.sched = newScheduler(a.cfg.Answer.MaxConcurrent)
 	a.inboxMaxWait, a.eventsMaxWait = cat.MaxWait("conversation_inbox"), cat.MaxWait("event_list")
 	a.drafts = cat.Drafts()
+	a.sources = cat.Takes(toolAnswer, "sources")
 	a.mu.Unlock()
 	a.log.Info("agent started", "actor", me.ID, "catalogue", cat.Hash(), "transport", a.cfg.Core.Transport,
 		"adapter", a.primary.ad.Name(), "provider", a.primary.ad.Provider(), "model", a.primary.ad.Model(),
-		"long_poll", longPollWait(a.cfg.Polling, a.inboxMaxWait) > 0 && a.cfg.Polling.LongPollMax > 0, "drafts", a.drafts)
+		"long_poll", longPollWait(a.cfg.Polling, a.inboxMaxWait) > 0 && a.cfg.Polling.LongPollMax > 0, "drafts", a.drafts,
+		"sources", a.sources)
 	return nil
 }
 

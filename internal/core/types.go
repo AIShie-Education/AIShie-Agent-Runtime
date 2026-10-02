@@ -138,6 +138,10 @@ type Message struct {
 	// Attachments are the files the message carries, in order
 	// (attachments.go).
 	Attachments []Attachment `json:"attachments,omitempty"`
+	// Sources are what an answer said it relied on, as the reader may
+	// read them now (§2.10): empty for an answer that relied on none, nil
+	// for one that did not say.
+	Sources []SourceView `json:"sources,omitzero"`
 }
 
 // Inbox is conversation_inbox's result: longest waiting first.
@@ -239,7 +243,49 @@ type AnswerArgs struct {
 	ConversationID     string `json:"conversation_id"`
 	InReplyToMessageID string `json:"in_reply_to_message_id"`
 	Body               string `json:"body"`
-	IdempotencyKey     string `json:"idempotency_key"`
+	// Sources are the course materials the answer relied on, in the order
+	// it read them (§2.10): empty, and sent as [], when it relied on none;
+	// nil, and left out, when the runtime cannot say.
+	Sources        []Source `json:"sources,omitzero"`
+	IdempotencyKey string   `json:"idempotency_key"`
+}
+
+// MaxSources is the most sources one answer names, as Core takes them.
+const MaxSources = 20
+
+// Source is one course material an answer relied on, as
+// conversation_answer takes it (§2.10): a version of a material,
+// instructions or a rubric, and, where the answer relied on one file of
+// it, that file, with a page or a slide of it and the part of its text
+// version as Core numbers them, each from 1, where known.
+type Source struct {
+	DocumentID string `json:"document_id"`
+	VersionID  string `json:"version_id"`
+	FileID     string `json:"file_id,omitempty"`
+	Page       int    `json:"page,omitempty"`
+	Slide      int    `json:"slide,omitempty"`
+	Part       int    `json:"part,omitempty"`
+}
+
+// SourceView is a source of an answer as one reader of
+// conversation_messages is shown it: whole where they may open its
+// version; Restricted, and nothing else, where they may not open its
+// document; OtherVersion, with its document alone, where they may open the
+// document but not that version.
+type SourceView struct {
+	Restricted   bool    `json:"restricted,omitempty"`
+	OtherVersion bool    `json:"other_version,omitempty"`
+	DocumentID   *string `json:"document_id,omitempty"`
+	Kind         *string `json:"kind,omitempty"`
+	Title        *string `json:"title,omitempty"`
+	VersionID    *string `json:"version_id,omitempty"`
+	Seq          *int    `json:"seq,omitempty"`
+	Published    *bool   `json:"published,omitempty"`
+	FileID       *string `json:"file_id,omitempty"`
+	Filename     *string `json:"filename,omitempty"`
+	Page         *int    `json:"page,omitempty"`
+	Slide        *int    `json:"slide,omitempty"`
+	Part         *int    `json:"part,omitempty"`
 }
 
 // CloseArgs are conversation_close's arguments.

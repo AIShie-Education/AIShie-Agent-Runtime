@@ -146,5 +146,5 @@ func (c *claim) outOfQuota(ctx context.Context, r passResult, q *spentQuota) pas
 	if q.school && !strings.HasPrefix(q.name, "tenant_") {
 		text = config.SchoolQuotaText(c.a.s.school().OnQuotaText, c.eff.Prompt.AnswerLanguage)
 	}
-	return c.post(ctx, r, text, kindQuota)
+	return c.post(ctx, r, text, kindQuota, nil)
 }

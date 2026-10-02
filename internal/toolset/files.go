@@ -493,6 +493,17 @@ type given struct {
 	// pages is the file's pages given as the model asked (FilePagesArg),
 	// or why none are.
 	pages bool
+	// unit is what the pages the model asked for are, page or slide (as
+	// doctext names them), where they are given as it asked: as a PDF of
+	// their own, or the text of them alone (pagesOfText); "" otherwise.
+	unit string
+	// coreEnds are where each part of the file's text version ends in
+	// text, as document_text gave them, where the runtime read it in
+	// Core's parts (readTextParts); and base where text begins in that
+	// text version, once it is the text of the pages asked for alone. The
+	// answer's sources name Core's part by them (corePart).
+	coreEnds []int
+	base     int
 }
 
 // giveFile fetches a document's file and says how the model gets it (rule

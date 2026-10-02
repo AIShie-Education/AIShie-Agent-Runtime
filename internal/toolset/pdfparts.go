@@ -160,7 +160,7 @@ func (r Runner) givePDFPages(ctx context.Context, g given, d *docFile, p pdfFile
 			g.pages = false
 			return g, false
 		}
-		rec.GivenAs = givenFile
+		rec.GivenAs, g.unit = givenFile, p.unit
 		b.WriteString("its pages cannot be cut here, so the whole PDF is given: see " + pageRange(p.unit, first, last) + " in it")
 		rec.Note = b.String()
 		g.file, g.filePages = &llm.File{Name: fileName(d.title, pdfMIME), MIME: pdfMIME, Data: p.data}, max(p.pages, 1)
@@ -179,7 +179,7 @@ func (r Runner) givePDFPages(ctx context.Context, g given, d *docFile, p pdfFile
 		rec.Note = notGiven + past + "; ask for fewer pages"
 		return g, true
 	}
-	rec.GivenAs = givenFile
+	rec.GivenAs, g.unit = givenFile, p.unit
 	g.file, g.filePages = &llm.File{Name: fileName(partName(d.title, rec.PartHolds), pdfMIME), MIME: pdfMIME, Data: data}, last-first+1
 	notesBeside(&g, p, first, last)
 	return g, true

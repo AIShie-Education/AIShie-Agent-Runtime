@@ -1597,6 +1597,7 @@ For an inbox row (conversation X, question M, opener P):
    short at the output cap does (step 7), and is counted with them.
 9. **Post**, written ahead: the attempt is stored (`sending`, the exact
    bytes) before `conversation_answer`, and finished with what came back.
+   The bytes name what the answer relied on (`sources`, below).
 10. **Outcome** (§2.4, `worker.Classify`):
 
 | Envelope | Done |
@@ -1608,6 +1609,7 @@ For an inbox row (conversation X, question M, opener P):
 | `failed conflict already_answered`, `answer_pending` | leave it |
 | `failed conflict closed` | drop it |
 | `failed forbidden not_addressable` | drop it; read memberships again |
+| `failed invalid_argument source_unreadable` or `source_purged` (`field` `sources[i]`), `error invalid_argument` of `sources` | the same body posted again at once without that source (without any, for the latter), written ahead under the next attempt: below |
 | `error invalid_argument` (a body Core refuses as it reads the arguments, since AIShie-Core #60), `failed invalid_argument` | if safety had cut or stripped the body, written again once, shorter and without links, under the next attempt; else failed |
 | `error idempotency_conflict` | never resend under that key; next attempt if X still waits on M and M is not retracted (its newest messages, `conversation_messages`), the newer message if the opener wrote again, else nothing |
 | `error not_found` | drop it |
@@ -1829,6 +1831,74 @@ model:
   reads them begins as soon as the inbox shows the question, which is at
   once where it long-polls, and a conversion started earlier would save
   little.
+
+**What the answer relied on** (`toolset/sources.go`; the handout's
+§2.10, AIShie-Core #69). `conversation_answer` takes `sources`, the
+course materials the answer relied on, which Core keeps with it and shows
+each of its readers as far as they may open them now, so that a student
+or a teacher can tell whether it rests on the course's materials. No model
+says what its answer rests on, and the runtime does not ask one: it names
+what the model was given in the answer's loop (step 7), by a rule it can
+keep, and keeps to what it knows.
+
+- *Relied on* is given, in this attempt's loop, by the model's own
+  `document_get`: a version of a material, instructions or a rubric whose
+  call gave the model some of what it holds, its own text (`body_md`) or a
+  file's text or pages. Each counts once, in the order the calls were made,
+  at most 20. Not counted: a document only listed; a call refused, of
+  another kind of document (a student's work, a grader's feedback), of a
+  version purged, or one that gave nothing of it (its file not given, and
+  no text of its own); the runtime's own reads (a search's scope, the parts
+  of a text version); anything read for another attempt, another question
+  or another conversation; and the question's own files.
+- *What a source names*: the `document_id` and `version.id` Core gave;
+  `file_id` where the call gave one file's content, the file it named
+  (`file_id`) or a version's one file (a version of several read whole
+  names none); `page` or `slide` where the call asked for that one page
+  (`file_pages`) and was given it alone, as a PDF of its own or the text
+  of it alone, or where the call is the `read` of search hits on that page
+  or slide alone; `part` only where it is Core's numbering: the runtime
+  read the file's text version in Core's parts itself (`document_text`)
+  and gave the model text that lies within one of them. The runtime's own
+  `file_part`, its cutting of a text or of a PDF's pages, is never a
+  `part`, and a text version Core gave whole beside the version names
+  none.
+- *A search's hits* are no source: an excerpt is cut, and the model is
+  told to read a passage before it relies on it. A hit counts when the
+  model makes the call it names, which then names the hit's page or slide
+  (hits on two pages read by one call name neither).
+- *None, or nothing said.* An answer that relied on none sends
+  `sources: []`, which Core keeps apart from one that does not say; so
+  does a text of the runtime's own (`on_budget_text`, `on_refusal_text`,
+  the quota's notice), which relies on no material whatever the model
+  read. An answer whose model was given search hits it did not read, and
+  nothing else of the course's materials, sends no `sources`: it cannot be
+  said to have relied on none.
+- *Refused.* Core takes a source only where the answering seat may read
+  it as it takes the answer, and refuses the whole answer otherwise,
+  naming it (`invalid_argument`, `source_unreadable` or `source_purged`,
+  `field` `sources[i]`): a material archived, withheld or purged since it
+  was read. The call is recorded as failed and its key spent, so the
+  runtime posts the same answer again at once, without that source, under
+  the next attempt's number, written ahead as any attempt is, each time
+  one fewer; the model is not asked again. An answer whose every source is
+  refused is posted saying nothing of them: it did rely on materials it
+  can no longer name. Core's refusals of the sources as it reads them (too
+  many, one named twice), which the runtime should never meet, post the
+  answer again with none. An answer waiting for approval is checked again
+  when it is approved; failing then, it is regenerated (§5.4), from what
+  that attempt reads.
+- *A Core from before them* (before AIShie-Core #71, 81ad1fe) is sent
+  none: the agent reads at start whether the catalogue Core serves has
+  `conversation_answer` take `sources` (`Catalogue.Takes`), and an answer
+  to one that does not says nothing of them, as every answer did before.
+  An older Core behind a newer catalogue refuses them as an argument its
+  schema does not name; the answer is posted again without them, as
+  above.
+- The pinned Core shows the sources in `conversation_messages` (the
+  runtime's `core.Message.Sources`); the runtime reads none of them back,
+  and the fake Core keeps them, checks them as Core does, and shows them;
+  with `WithoutSources`, it answers as a Core from before them.
 
 ### 5.4 Following proposals
 
@@ -2236,6 +2306,33 @@ Chinese with a table, overran, and was cut off.
   tutor's model, which takes files, given the PDF and LibreOffice's PDF of
   the Word file as files and the program as text, and a text-only model
   the text of each.
+- What an answer relied on (§5.3; AIShie-Core #69): the toolset's account
+  of what each `document_get` gave the model (`toolset/sources_test.go`):
+  the syllabus by its own text, a PDF by its file, once however often it
+  is read, a slide asked for alone, slides asked for together without
+  their numbers; nothing for a document listed, refused, of a student's
+  or a grader's, purged, or given nothing of; a version of several files
+  read whole with no file, and by its `file_id` with it; the runtime's
+  `file_part` never a part, and Core's part only where the runtime read
+  the text version in Core's parts and gave text within one of them,
+  page asked for alone included; a search's hits nothing, and nothing said
+  of an answer that only searched, a hit read naming its page or slide,
+  two hits on two pages read by one call neither; at most 20, each once.
+  The worker posts them in the order read, `[]` for an answer that read
+  nothing and for a refusal's notice, and no `sources` for one that only
+  searched; a source Core refuses as unreadable (the instructions of an
+  assignment unpublished meanwhile) or purged is dropped and the same
+  answer posted at once under the next attempt, saying nothing of its
+  sources once none is left; a Core from before them is sent none, and
+  one behind a newer catalogue has the answer posted again without them.
+  The fake Core checks them as Core does
+  (`sources`, recorded from the pinned Core: refused as read, refused
+  before anything is posted and recorded failed, posted, an empty list and
+  none read back), again when a proposal is approved, and shows each
+  reader them as they may open the documents now. The end to end
+  (`hosted-agent-from-the-registry`) has Sato read, in
+  `conversation.messages`, the slides' version and file as what the hosted
+  agent's answer relied on, and its first answer relying on none.
 - The transcriber (`internal/transcribe`) against `fakecore`, whose text
   versions, service credential and queue answer as Core #43's do (a
   claim's lease lost, the text edited by staff meanwhile, a credential
