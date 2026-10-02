@@ -2138,9 +2138,9 @@ The prompt's hash is kept per answer.
 | Table | Holds |
 |---|---|
 | `lease` | name, holder, expires_at |
-| `attempt` | (agent, key) → the exact bytes, state (`sending`, `executed`, `proposed`, `failed`, `denied`, `error`, `rejected`, `cancelled`, `changes_requested` since 0015), action id, posted message id, error code, reason |
+| `attempt` | (agent, key) → the exact bytes, state (`sending`, `executed`, `proposed`, `failed`, `denied`, `error`, `rejected`, `cancelled`, `changes_requested` since 0015, whose down makes them `rejected`, what was asked their reason), action id, posted message id, error code, reason |
 | `cursor` | (agent, member, kind) → value |
-| `note` | (agent, member, conversation) → kind, text, message id |
+| `note` | (agent, member, conversation) → kind, text, message id; 0015's down makes a `changes_requested` note a `rejected` one, the only kind through which the release before reads what was asked |
 | `seat` | (agent, member) → course, seen_at, gone_at, and the seat as `me_memberships` last showed it: course code, title and section, status, `answers_course`, principal, perms |
 | `llm_call`, `answer` | the ledger: ids and numbers; an answer's row counts the writes its model sent, and how many Core executed, proposed, denied and failed; a call's `kind` is `model_calls`, an answer's, or `transcription`, the transcriber's (§12), which has no agent, tenant, course or asker |
 | `agent_state` | the owner's page's state, and the version of a hosted agent's row it is of: never replaced by a state of an older version |
@@ -2666,7 +2666,9 @@ Chinese with a table, overran, and was cut off.
   takes none as its text, with the code OCR read from the screenshot's
   slide.
 - `storetest`: one suite, run against memstore and against Postgres
-  (`TEST_DATABASE_URL`).
+  (`TEST_DATABASE_URL`). `pgstore` takes 0015 down and up again: an
+  attempt sent back for changes, and its note, become a rejection's, as
+  the release before reads them, the other notes left as they are.
 - `vault`: a secret sealed and opened; every field and byte of it tampered
   with, and moved to another id, tenant or kind, fails to open; a key
   rotated (added, rewrapped, retired); keyrings that cannot be used are

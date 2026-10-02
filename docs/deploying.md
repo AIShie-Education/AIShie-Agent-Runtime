@@ -471,12 +471,20 @@ API).
 
 A person who decides an agent's answers may send one back for changes,
 with a note (Core since AIShie-Core #68): the runtime writes the answer
-again, told what to change, and proposes it naming the one it revises. A
-runtime from before this release never answers such a conversation again
-until its asker writes again, so deploy it before people are given the
-choice. Its store's migration 0015 lets an attempt be kept as sent back;
-the release before reads one as an attempt that posted nothing, and
-answers the question again without naming what it revises.
+again, told what to change and shown the answer they read, and proposes
+it naming the one it revises. A runtime from before this release never
+answers such a conversation again until its asker writes again, so
+deploy it before people are given the choice. Its store's migration 0015
+lets an attempt be kept as sent back; the release before reads one as an
+attempt that posted nothing, and answers the question again without
+naming what it revises. Rolling the runtime back, take 0015 down: it
+makes such attempts, and their notes in memory, rejections with what was
+asked as the reason, which is how the release before reads it. With
+Core rolled back to before AIShie-Core #68 after an answer was sent back,
+its revision, proposed over MCP, gives `revises`, an argument that Core
+no longer takes: Core refuses the call, and the attempt after is written
+again naming nothing, still told what was asked. Over REST, Core ignores
+the `Revises` header.
 
 ### The runtime's own credential in Core
 

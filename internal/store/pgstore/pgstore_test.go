@@ -573,14 +573,12 @@ func TestLedgerMigratesTheCallsBefore(t *testing.T) {
 	}
 }
 
-// The hosted agents from before 0013 hold the tokens their owners pasted:
-// read on the new schema as tokens not issued, which the worker replaces.
-// The release before reads every row that holds a token on it, an issued
-// token's among them; and 0013's down deletes the rows that hold none,
-// which only this release writes, and forgets the operator's tokens.
 // An attempt sent back for changes is one the release before reads as
 // posting nothing; 0015's down makes it one rejected, with what was asked
-// as its reason, and the old constraint holds again.
+// as its reason, and the old constraint holds again. Its note in memory,
+// of a kind the release before does not read, becomes a rejection's, with
+// what was asked as its text, through which that release reads a
+// rejection's reason; the conversation's other notes are left as they are.
 func TestChangesRequestedMigratesBack(t *testing.T) {
 	u := freshDatabase(t)
 	ctx := t.Context()
@@ -595,6 +593,16 @@ func TestChangesRequestedMigratesBack(t *testing.T) {
 	}
 	if err := s.FinishAttempt(ctx, "a1", a.Key, store.Outcome{State: store.AttemptChangesRequested, ActionID: "act-1", Reason: "Cite it."}); err != nil {
 		t.Fatal(err)
+	}
+	for _, n := range []store.Note{
+		{Kind: store.NoteRejected, Text: "Too terse.", MessageID: "q1"},
+		{Kind: store.NoteChangesRequested, Text: "Cite it.", MessageID: "q1"},
+		{Kind: store.NoteAnswered, Text: "You answered this question (message p2).", MessageID: "p2"},
+	} {
+		n.AgentID, n.MemberID, n.ConversationID = "a1", "m1", "x1"
+		if err := s.AddNote(ctx, n); err != nil {
+			t.Fatal(err)
+		}
 	}
 	_ = s.Close()
 	m, err := newMigrator(u)
@@ -617,6 +625,23 @@ func TestChangesRequestedMigratesBack(t *testing.T) {
 		state != "rejected" || action != "act-1" || reason != "Cite it." {
 		t.Fatalf("after the down: %s %s %q, %v; want rejected act-1 with its reason", state, action, reason, err)
 	}
+	// The notes as the release before reads them, oldest first.
+	rows, err := conn.Query(ctx, `SELECT kind, text FROM note WHERE agent_id = 'a1' AND member_id = 'm1' AND conversation_id = 'x1' ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var notes []string
+	for rows.Next() {
+		var kind, text string
+		if err := rows.Scan(&kind, &text); err != nil {
+			t.Fatal(err)
+		}
+		notes = append(notes, kind+": "+text)
+	}
+	if want := []string{"rejected: Too terse.", "rejected: Cite it.", "answered: You answered this question (message p2)."}; rows.Err() != nil ||
+		strings.Join(notes, " | ") != strings.Join(want, " | ") {
+		t.Errorf("the notes after the down: %q, %v; want %q", notes, rows.Err(), want)
+	}
 	if _, err := conn.Exec(ctx, `UPDATE attempt SET state = 'changes_requested' WHERE key = $1`, a.Key); err == nil {
 		t.Error("the release before's schema took an attempt in changes_requested")
 	}
@@ -625,6 +650,11 @@ func TestChangesRequestedMigratesBack(t *testing.T) {
 	}
 }
 
+// The hosted agents from before 0013 hold the tokens their owners pasted:
+// read on the new schema as tokens not issued, which the worker replaces.
+// The release before reads every row that holds a token on it, an issued
+// token's among them; and 0013's down deletes the rows that hold none,
+// which only this release writes, and forgets the operator's tokens.
 func TestHostingByIDMigratesTheRowsBefore(t *testing.T) {
 	u := freshDatabase(t)
 	ctx := t.Context()
