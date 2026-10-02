@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -381,7 +382,7 @@ func (c *claim) generate(ctx context.Context, r passResult, read *core.Messages,
 		return c.providersDown(ctx, r)
 	}
 	c.s.providerRecovered(r.msg)
-	r = c.post(ctx, r, end.body, end.kind)
+	r = c.post(ctx, r, end.body, end.kind, end.sources)
 	if r.withdrawn {
 		// Refused, its question withdrawn as it was sent: its draft went
 		// with the question.
@@ -490,8 +491,10 @@ func searchTool(set *toolset.Set) string {
 }
 
 // post makes body safe (step 8) and posts it written ahead (step 9) under
-// r.key, then acts on what came back (step 10).
-func (c *claim) post(ctx context.Context, r passResult, body, kind string) passResult {
+// r.key, with the course's materials it relied on (sources: nil says
+// nothing, and a text of the runtime's own relies on none), then acts on
+// what came back (step 10).
+func (c *claim) post(ctx context.Context, r passResult, body, kind string, sources []core.Source) passResult {
 	// The answer takes its draft's place: nothing more of the draft is
 	// sent, lest a write come after it.
 	c.d.hold()
@@ -512,8 +515,17 @@ func (c *claim) post(ctx context.Context, r passResult, body, kind string) passR
 			"links_removed", rep.LinksRemoved, "images_removed", rep.ImagesRemoved, "truncated", rep.Truncated)
 	}
 	r.kind = kind
+	switch {
+	case !c.a.sources:
+		// A Core from before sources refuses them.
+		sources = nil
+	case kind != kindModel:
+		// The notice of a spent budget or quota, or of a refusal: it
+		// relies on no course material, whatever the model read.
+		sources = []core.Source{}
+	}
 	args, err := json.Marshal(core.AnswerArgs{CourseID: c.s.course, ConversationID: c.conv, InReplyToMessageID: r.msg, Body: safe,
-		IdempotencyKey: r.key, Revises: r.revises})
+		Sources: sources, IdempotencyKey: r.key, Revises: r.revises})
 	if err != nil {
 		return c.failedHere(r, "the answer could not be written", err)
 	}
@@ -541,15 +553,70 @@ func (c *claim) resent(ctx context.Context, at store.Attempt, r passResult) pass
 }
 
 // send sends an attempt's bytes, settles the attempt with what came back,
-// and acts on it.
+// and acts on it. An answer Core refused for a source it names (§2.10) is
+// sent again without it, under the next attempt's key (withoutSource),
+// until Core takes it or refuses it otherwise: each time one source fewer.
 func (c *claim) send(ctx context.Context, r passResult, at store.Attempt, rep safety.Report) passResult {
-	over := c.s.sendBegins()
-	env, err := c.a.client.Send(ctx, at.Tool, at.Args)
-	d := Classify(env, err)
-	r.postAt, r.postedID = c.a.now(), messageID(env)
-	settle(c.a, c.eff, at, env, d)
-	over()
-	return c.act(ctx, r, d, rep)
+	for {
+		over := c.s.sendBegins()
+		env, err := c.a.client.Send(ctx, at.Tool, at.Args)
+		d := Classify(env, err)
+		r.postAt, r.postedID = c.a.now(), messageID(env)
+		settle(c.a, c.eff, at, env, d)
+		over()
+		if d.Next != NextDropSource {
+			return c.act(ctx, r, d, rep)
+		}
+		next, ok := c.withoutSource(ctx, at, d)
+		if !ok {
+			// Nothing to drop, or no attempt written ahead: another
+			// attempt, if the conversation still waits for one.
+			d.Next = NextAttempt
+			return c.act(ctx, r, d, rep)
+		}
+		c.s.log.Info("Core refused a source of the answer: it is posted again without it", "conversation", c.conv, "message", r.msg,
+			"key", at.Key, "next_key", next.Key, "source", d.Source, "code", d.Code, "reason", d.Reason)
+		at, r.no, r.key = next, next.No, next.Key
+	}
+}
+
+// withoutSource is the attempt that posts at's answer again without the
+// source Core refused, d.Source (all of them for -1), under the next
+// attempt's number and key, written ahead; or the one another worker
+// wrote under that key first. An answer that relied on sources it can no
+// longer name, every one of them refused, says nothing of its sources: it
+// did rely on course materials, and an empty list would say it relied on
+// none. ok is false when at named no sources, or the attempt could not be
+// written ahead.
+func (c *claim) withoutSource(ctx context.Context, at store.Attempt, d Decision) (store.Attempt, bool) {
+	var args core.AnswerArgs
+	if at.Tool != toolAnswer || json.Unmarshal(at.Args, &args) != nil || args.Sources == nil {
+		return at, false
+	}
+	if d.Source >= 0 && d.Source < len(args.Sources) && len(args.Sources) > 1 {
+		args.Sources = slices.Delete(slices.Clone(args.Sources), d.Source, d.Source+1)
+	} else {
+		args.Sources = nil
+	}
+	next := at
+	next.No = at.No + 1
+	next.Key = core.AnswerKey(at.ConversationID, at.MessageID, next.No)
+	next.State, next.ActionID, next.PostedMessageID, next.ErrorCode, next.Reason = store.AttemptSending, "", "", "", ""
+	args.IdempotencyKey = next.Key
+	b, err := json.Marshal(args)
+	if err != nil {
+		return at, false
+	}
+	next.Args = b
+	prev, err := c.a.store().PutAttempt(ctx, next)
+	switch {
+	case errors.Is(err, store.ErrExists):
+		return *prev, true
+	case err != nil:
+		c.s.log.Error("the answer without its refused source could not be written ahead", "conversation", c.conv, "key", next.Key, "err", err)
+		return at, false
+	}
+	return next, true
 }
 
 // settle records what became of an attempt, when anything is known to
@@ -807,7 +874,7 @@ func (c *claim) providersDown(ctx context.Context, r passResult) passResult {
 	if n >= maxProviderFailures {
 		c.s.providerRecovered(r.msg)
 		c.s.log.Warn("the providers failed again: the budget text is posted", "conversation", c.conv, "failures", n)
-		return c.post(ctx, r, c.eff.Prompt.OnBudgetText, kindBudget)
+		return c.post(ctx, r, c.eff.Prompt.OnBudgetText, kindBudget, nil)
 	}
 	c.s.holdBack(c.conv, c.a.now().Add(hold), "the model's providers could not be reached")
 	r.outcome = store.OutcomeError

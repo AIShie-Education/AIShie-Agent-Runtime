@@ -433,7 +433,10 @@ func (r Runner) pagesOfText(g *given, d *docFile, first, last int) (part int, wh
 		rec.Note = strings.TrimPrefix(rec.Note+"; ", "; ") + fmt.Sprintf("file_text is %s alone, as %s asked, of the file's text, "+
 			"since %s; call %s without %s for all of it", holds, FilePagesArg, r.noPages(rec), d.tool(), FilePagesArg)
 		rec.PartHolds = holds
-		g.text, g.sections = g.text[span.start:span.end], nil
+		if first == last {
+			g.unit = g.sections[slices.IndexFunc(g.sections, func(s doctext.Section) bool { return s.N == first })].Kind
+		}
+		g.text, g.sections, g.base = g.text[span.start:span.end], nil, g.base+span.start
 		return 0, ""
 	}
 	for i, p := range splitText(g.text, g.sections, r.partBudget()) {

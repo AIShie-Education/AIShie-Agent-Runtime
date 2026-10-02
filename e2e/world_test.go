@@ -244,13 +244,15 @@ func (w *world) captures() []capture {
 	return append([]capture(nil), w.logs...)
 }
 
-// message is a conversation's message as Core shows it.
+// message is a conversation's message as Core shows it: Sources nil
+// where an answer does not say what it relied on.
 type message struct {
-	ID             string  `json:"id"`
-	Seq            int64   `json:"seq"`
-	AuthorMemberID string  `json:"author_member_id"`
-	InReplyTo      *string `json:"in_reply_to_message_id"`
-	Body           *string `json:"body"`
+	ID             string             `json:"id"`
+	Seq            int64              `json:"seq"`
+	AuthorMemberID string             `json:"author_member_id"`
+	InReplyTo      *string            `json:"in_reply_to_message_id"`
+	Body           *string            `json:"body"`
+	Sources        *[]core.SourceView `json:"sources"`
 }
 
 // text is the message's body, "" once retracted.
@@ -388,12 +390,24 @@ func (w *world) decide(t testing.TB, actionID, decision, reason string) string {
 }
 
 // answerAs is the agent the runtime rt runs as id calling
-// conversation_answer itself, over REST, with the token rt holds for it,
-// under key: a replay, when the runtime sent the same under that key.
-func (w *world) answerAs(t testing.TB, rt *instance, id, conv, inReplyTo, body, key string) reply {
+// conversation_answer itself in conv, over REST, with the token rt holds
+// for it, under key, with the arguments the runtime wrote ahead under it
+// (its body and sources): a replay of what the runtime sent.
+func (w *world) answerAs(t testing.TB, rt *instance, id, conv, key string) reply {
 	t.Helper()
-	r, err := w.api.send(context.Background(), rt.token(id), "POST", w.path("/conversations/"+conv+"/answer"),
-		map[string]any{"in_reply_to_message_id": inReplyTo, "body": body}, key)
+	at := rt.attempt(id, key)
+	if at == nil {
+		t.Fatalf("the runtime wrote nothing ahead under %s", key)
+	}
+	var args map[string]any
+	if err := json.Unmarshal(at.Args, &args); err != nil {
+		t.Fatal(err)
+	}
+	// The course and the conversation are in the path, the key a header.
+	for _, k := range []string{"course_id", "conversation_id", "idempotency_key"} {
+		delete(args, k)
+	}
+	r, err := w.api.send(context.Background(), rt.token(id), "POST", w.path("/conversations/"+conv+"/answer"), args, key)
 	if err != nil {
 		t.Fatal(err)
 	}

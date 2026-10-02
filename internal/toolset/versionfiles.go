@@ -3,6 +3,7 @@ package toolset
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
@@ -45,10 +46,11 @@ const minEntryRoom = 1 << 10
 // renderVersion is the content of document_get's result for a version of
 // several files, c being Core's envelope, and the files to give beside it:
 // the files in order, each as much as fits (the package's comment above),
-// the rest named with the call that reads each. fa asked for a part or
-// pages without naming a file, which are of one file alone: they are not
-// given, and the note says to name it.
-func (r Runner) renderVersion(ctx context.Context, c content, ver *docVersion, fa fileArgs) (string, []*llm.File) {
+// the rest named with the call that reads each; and whether any of them
+// was given. fa asked for a part or pages without naming a file, which
+// are of one file alone: they are not given, and the note says to name
+// it.
+func (r Runner) renderVersion(ctx context.Context, c content, ver *docVersion, fa fileArgs) (string, []*llm.File, bool) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "the version holds %d files, in files in their order, each under its name: its text in file_text, or a file part "+
 		"that follows the results under its name, or why it is not given; what one call gives of the files is bounded, so a long "+
@@ -63,7 +65,7 @@ func (r Runner) renderVersion(ctx context.Context, c content, ver *docVersion, f
 		// Only a version whose own text is far longer than a file's part
 		// leaves no room: the result is cut as any other, and its files
 		// are read one by one.
-		return r.fit(c, nil, given{}, 0), nil
+		return r.fit(c, nil, given{}, 0), nil, false
 	}
 	textLeft, pagesLeft := versionResults*r.MaxResultBytes-envelope, r.partPages()
 	var files []*llm.File
@@ -91,7 +93,8 @@ func (r Runner) renderVersion(ctx context.Context, c content, ver *docVersion, f
 		c.Files = append(c.Files, e)
 		textLeft -= n
 	}
-	return encodeJSON(c), files
+	anyGiven := slices.ContainsFunc(c.Files, func(e fileEntry) bool { return e.GivenAs != givenNot })
+	return encodeJSON(c), files, anyGiven
 }
 
 // roomTaken is why a file of a version is not given with the others.

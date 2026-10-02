@@ -529,7 +529,9 @@ func TestSentBackWhileLeftSending(t *testing.T) {
 // rejection, say), is named in revises by the next attempt, which Core
 // refuses (failed_precondition, not_revisable), recording nothing; the
 // attempt after answers anew, naming none, rather than sending again what
-// Core refused, and the question is not left waiting.
+// Core refused, and the question is not left waiting. The refusal is not
+// one of the answer's sources: the answer after is written again by the
+// model, and says what its own loop relied on.
 func TestRevisesRefusedAnswersAnew(t *testing.T) {
 	w := newWorld(t)
 	tu := w.tutor("cs101-tutor")
@@ -552,14 +554,20 @@ func TestRevisesRefusedAnswersAnew(t *testing.T) {
 	}
 	w.ok(st.FinishAttempt(context.Background(), "cs101-tutor", k1, store.Outcome{State: store.AttemptChangesRequested, ActionID: env.ActionID,
 		Reason: "From before the rollback."}))
-	model := scripted.New(scripted.Reply("Naming what Core refuses."), scripted.Reply("Answered anew."))
+	syllabus := w.source(w.co.SyllabusID)
+	model := scripted.New(scripted.CallTools(getDoc(w.co.SyllabusID)), scripted.Reply("Naming what Core refuses."),
+		scripted.CallTools(getDoc(w.co.SyllabusID)), scripted.Reply("Answered anew."))
 	wk := w.start(w.config(nil, w.agentDoc("cs101-tutor", "m1", nil, nil)), models{"m1": model}, workerOpts{store: st})
 	k2, k3 := core.AnswerKey(conv, msg, 2), core.AnswerKey(conv, msg, 3)
-	if at := wk.waitAttempt("cs101-tutor", k2, store.AttemptError); at.Reason != core.ReasonNotRevisable || at.ErrorCode != core.CodeFailedPrecondition {
+	at := wk.waitAttempt("cs101-tutor", k2, store.AttemptError)
+	if at.Reason != core.ReasonNotRevisable || at.ErrorCode != core.CodeFailedPrecondition {
 		t.Errorf("the second attempt settled as %+v; want refused, failed_precondition, not_revisable", at)
 	}
-	if p := w.waitProposal(k3); p.Revises != "" {
-		t.Errorf("the third attempt revises %q; want none", p.Revises)
+	if !strings.Contains(string(at.Args), `"revises":"`+env.ActionID+`"`) || sentSources(t, at.Args) != syllabus {
+		t.Errorf("the second attempt was written ahead as %s; want it revising %s, relying on %s", at.Args, env.ActionID, syllabus)
+	}
+	if p := w.waitProposal(k3); p.Revises != "" || sentSources(t, p.Args) != syllabus {
+		t.Errorf("the third attempt revises %q, relying on %s; want none, relying on %s", p.Revises, sentSources(t, p.Args), syllabus)
 	}
 	sent := map[string]int{}
 	for _, c := range w.calls(tu.actor.ID, toolAnswer) {
@@ -567,6 +575,9 @@ func TestRevisesRefusedAnswersAnew(t *testing.T) {
 	}
 	if sent[k2] != 1 || sent[k3] != 1 {
 		t.Errorf("answers sent %v; want the refused one once, and the one anew", sent)
+	}
+	if n := len(model.Requests()); n != 4 {
+		t.Errorf("%d model calls; want 4: the answer after the refusal written anew", n)
 	}
 }
 

@@ -47,6 +47,16 @@ says what an agent may do and how. This repository meets it:
   it that seat, from an index the runtime builds in its own store as
   searches need it, and drops as it hears of a version's purge, or after
   30 days unused; no PostgreSQL extension is needed.
+- **Answers say what they relied on.** A posted answer names the course
+  materials its model was given while it wrote it, in the order it read
+  them: each version of a material, instructions or rubric that its
+  `document_get` gave it some of, with the file, the page or slide, and
+  the part of the text version as Core numbers it, where the runtime knows
+  them. An answer that read none says so, and one that only saw a search's
+  excerpts says nothing. Core keeps them with the answer and shows each
+  reader what they may open
+  ([`docs/design.md`](docs/design.md#53-one-answer), What the answer
+  relied on).
 - **Text versions of the course's files.** A module of its own, off until
   the site's administrators turn it on: one worker at a time claims the
   files waiting in Core's queue, has a model of the school's plan

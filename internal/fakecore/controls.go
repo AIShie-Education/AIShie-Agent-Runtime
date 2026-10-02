@@ -105,6 +105,11 @@ type MessageRecord struct {
 	ActionID       string
 	IdempotencyKey string
 	CreatedAt      time.Time
+	// Sources are what an answer said it relied on, in order, and
+	// SourcesStated that it said so: an answer that relied on none has
+	// none, and says so.
+	Sources       []SourceRecord
+	SourcesStated bool
 }
 
 // Proposal is an action waiting for a person's decision.
@@ -877,6 +882,26 @@ func (c *Core) ArchiveCourse(courseID string) error {
 	return nil
 }
 
+// UnpublishAssignment takes an assignment of the course back from its
+// students, as assignment.unpublish does: its instructions, which follow
+// it, are withheld from then on from every seat that does not write
+// assignments.
+func (c *Core) UnpublishAssignment(courseID, assignmentID string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	co := c.courses[courseID]
+	if co == nil {
+		return fmt.Errorf("fakecore: UnpublishAssignment: no course %s", courseID)
+	}
+	for _, a := range co.assignments {
+		if a.id == assignmentID {
+			a.publishedAt = nil
+			return nil
+		}
+	}
+	return fmt.Errorf("fakecore: UnpublishAssignment: no assignment %s in the course", assignmentID)
+}
+
 // judge is who decides or reviews an action: the first seat in the
 // course, in the order seated, that counts, decides actions, is not of the
 // actor's party, and passes also. Nobody judges their own action, their
@@ -1046,6 +1071,8 @@ func (c *Core) Members(courseID string) []MemberRecord {
 // assertions.
 type DocumentRecord struct {
 	ID, Kind, Title string
+	// VersionID is its version's, the one the fake holds.
+	VersionID string
 	// Draft is a document not published: every one document.create made.
 	Draft          bool
 	BodyMD         string
@@ -1063,7 +1090,7 @@ func (c *Core) Documents(courseID string) []DocumentRecord {
 	}
 	out := make([]DocumentRecord, 0, len(co.documents))
 	for _, d := range co.documents {
-		r := DocumentRecord{ID: d.id, Kind: d.kind, Title: d.title, Draft: d.draft, AuthorMemberID: d.authorMemberID}
+		r := DocumentRecord{ID: d.id, Kind: d.kind, Title: d.title, VersionID: d.versionID, Draft: d.draft, AuthorMemberID: d.authorMemberID}
 		if d.bodyMD != nil {
 			r.BodyMD = *d.bodyMD
 		}
@@ -1101,6 +1128,10 @@ func (c *Core) records(conversationID string, keep func(*message) bool) []Messag
 		}
 		if a := c.actions[m.actionID]; a != nil {
 			r.IdempotencyKey = a.key
+		}
+		r.SourcesStated = m.sourcesStated
+		for _, s := range m.sources {
+			r.Sources = append(r.Sources, recordOf(s))
 		}
 		out = append(out, r)
 	}

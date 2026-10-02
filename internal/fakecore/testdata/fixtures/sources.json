@@ -1,0 +1,763 @@
+{
+ "scenario": "sources",
+ "steps": [
+  {
+   "args": {
+    "body": "Variables and types (Syllabus; Lecture 2, page 1).",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<id:3>",
+    "sources": [
+     {
+      "document_id": "<id:4>",
+      "version_id": "<id:5>"
+     },
+     {
+      "document_id": "<id:6>",
+      "file_id": "<id:7>",
+      "page": 1,
+      "version_id": "<id:8>"
+     },
+     {
+      "document_id": "<id:4>",
+      "version_id": "<id:5>"
+     }
+    ]
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "details": {
+      "field": "sources[2]",
+      "index": 2,
+      "reason": "duplicate_source"
+     },
+     "message": "sources[2]: the same source as sources[0]"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "named_twice",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "Variables and types (Syllabus; Lecture 2, page 1).",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<id:3>",
+    "sources": [
+     {
+      "document_id": "<id:6>",
+      "page": 1,
+      "version_id": "<id:8>"
+     }
+    ]
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "details": {
+      "field": "sources[0]",
+      "index": 0,
+      "reason": "bad_source"
+     },
+     "message": "sources[0]: a page, a slide or a part is of a file: give file_id as well"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "page_of_no_file",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "Variables and types (Syllabus; Lecture 2, page 1).",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<id:3>",
+    "sources": [
+     {
+      "document_id": "<id:6>",
+      "file_id": "<id:7>",
+      "page": 1,
+      "version_id": "<id:8>"
+     },
+     {
+      "document_id": "<id:6>",
+      "file_id": "<id:7>",
+      "page": 2,
+      "version_id": "<id:8>"
+     },
+     {
+      "document_id": "<id:6>",
+      "file_id": "<id:7>",
+      "page": 3,
+      "version_id": "<id:8>"
+     },
+     {
+      "document_id": "<id:6>",
+      "file_id": "<id:7>",
+      "page": 4,
+      "version_id": "<id:8>"
+     },
+     {
+      "document_id": "<id:6>",
+      "file_id": "<id:7>",
+      "page": 5,
+      "version_id": "<id:8>"
+     },
+     {
+      "document_id": "<id:6>",
+      "file_id": "<id:7>",
+      "page": 6,
+      "version_id": "<id:8>"
+     },
+     {
+      "document_id": "<id:6>",
+      "file_id": "<id:7>",
+      "page": 7,
+      "version_id": "<id:8>"
+     },
+     {
+      "document_id": "<id:6>",
+      "file_id": "<id:7>",
+      "page": 8,
+      "version_id": "<id:8>"
+     },
+     {
+      "document_id": "<id:6>",
+      "file_id": "<id:7>",
+      "page": 9,
+      "version_id": "<id:8>"
+     },
+     {
+      "document_id": "<id:6>",
+      "file_id": "<id:7>",
+      "page": 10,
+      "version_id": "<id:8>"
+     },
+     {
+      "document_id": "<id:6>",
+      "file_id": "<id:7>",
+      "page": 11,
+      "version_id": "<id:8>"
+     },
+     {
+      "document_id": "<id:6>",
+      "file_id": "<id:7>",
+      "page": 12,
+      "version_id": "<id:8>"
+     },
+     {
+      "document_id": "<id:6>",
+      "file_id": "<id:7>",
+      "page": 13,
+      "version_id": "<id:8>"
+     },
+     {
+      "document_id": "<id:6>",
+      "file_id": "<id:7>",
+      "page": 14,
+      "version_id": "<id:8>"
+     },
+     {
+      "document_id": "<id:6>",
+      "file_id": "<id:7>",
+      "page": 15,
+      "version_id": "<id:8>"
+     },
+     {
+      "document_id": "<id:6>",
+      "file_id": "<id:7>",
+      "page": 16,
+      "version_id": "<id:8>"
+     },
+     {
+      "document_id": "<id:6>",
+      "file_id": "<id:7>",
+      "page": 17,
+      "version_id": "<id:8>"
+     },
+     {
+      "document_id": "<id:6>",
+      "file_id": "<id:7>",
+      "page": 18,
+      "version_id": "<id:8>"
+     },
+     {
+      "document_id": "<id:6>",
+      "file_id": "<id:7>",
+      "page": 19,
+      "version_id": "<id:8>"
+     },
+     {
+      "document_id": "<id:6>",
+      "file_id": "<id:7>",
+      "page": 20,
+      "version_id": "<id:8>"
+     },
+     {
+      "document_id": "<id:6>",
+      "file_id": "<id:7>",
+      "page": 21,
+      "version_id": "<id:8>"
+     }
+    ]
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "details": {
+      "field": "sources",
+      "max_sources": 20,
+      "reason": "too_many_sources"
+     },
+     "message": "an answer names at most 20 sources; this one names 21"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "too_many",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "Variables and types (Syllabus; Lecture 2, page 1).",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<id:3>",
+    "sources": [
+     {
+      "document_id": "<id:4>",
+      "version_id": "<id:5>"
+     },
+     {
+      "document_id": "<id:9>",
+      "version_id": "<id:10>"
+     }
+    ]
+   },
+   "envelope": {
+    "action_id": "<id:11>",
+    "error": {
+     "code": "invalid_argument",
+     "details": {
+      "field": "sources[1]",
+      "index": 1,
+      "reason": "source_unreadable"
+     },
+     "message": "sources[1]: names no version of a course material (a material, instructions or a rubric) that you may read"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "not_a_document",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "Variables and types (Syllabus; Lecture 2, page 1).",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:2",
+    "in_reply_to_message_id": "<id:3>",
+    "sources": [
+     {
+      "document_id": "<id:6>",
+      "file_id": "<id:12>",
+      "version_id": "<id:8>"
+     }
+    ]
+   },
+   "envelope": {
+    "action_id": "<id:13>",
+    "error": {
+     "code": "invalid_argument",
+     "details": {
+      "field": "sources[0]",
+      "index": 0,
+      "reason": "source_unreadable"
+     },
+     "message": "sources[0]: file_id names no file of that version"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "file_of_no_version",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "body": "Variables and types (Syllabus; Lecture 2, page 1).",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:3",
+    "in_reply_to_message_id": "<id:3>",
+    "sources": [
+     {
+      "document_id": "<id:4>",
+      "version_id": "<id:5>"
+     },
+     {
+      "document_id": "<id:6>",
+      "file_id": "<id:7>",
+      "page": 1,
+      "version_id": "<id:8>"
+     }
+    ]
+   },
+   "envelope": {
+    "action_id": "<id:14>",
+    "result": {
+     "message_id": "<id:15>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "posted",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "conversation": {
+      "created_at": "<time>",
+      "id": "<id:1>",
+      "last_author_member_id": "<id:16>",
+      "last_message_at": "<time>",
+      "latest_opener_message_id": "<id:3>",
+      "opener": {
+       "display_name": "Yuki",
+       "kind": "human",
+       "member_id": "<id:17>"
+      },
+      "respondent": {
+       "answer_level": "autonomous",
+       "display_name": "CS101 Tutor",
+       "is_delegate_of_opener": false,
+       "kind": "agent",
+       "last_seen_at": "<time>",
+       "member_id": "<id:16>",
+       "owner_name": "Sato",
+       "role": "assistant",
+       "seat_status": "active"
+      },
+      "state": "answered",
+      "status": "open"
+     },
+     "draft": null,
+     "messages": [
+      {
+       "author_member_id": "<id:17>",
+       "body": "What does week 2 cover?",
+       "created_at": "<time>",
+       "id": "<id:3>",
+       "seq": 1
+      },
+      {
+       "author_member_id": "<id:16>",
+       "body": "Variables and types (Syllabus; Lecture 2, page 1).",
+       "created_at": "<time>",
+       "id": "<id:15>",
+       "in_reply_to_message_id": "<id:3>",
+       "seq": 2,
+       "sources": [
+        {
+         "document_id": "<id:4>",
+         "kind": "material",
+         "published": true,
+         "seq": 1,
+         "title": "Syllabus",
+         "version_id": "<id:5>"
+        },
+        {
+         "document_id": "<id:6>",
+         "file_id": "<id:7>",
+         "filename": "week2.txt",
+         "kind": "material",
+         "page": 1,
+         "published": true,
+         "seq": 1,
+         "title": "Lecture 2",
+         "version_id": "<id:8>"
+        }
+       ]
+      }
+     ],
+     "more": false
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "read",
+   "text_is_envelope": true,
+   "tool": "conversation_messages"
+  },
+  {
+   "args": {
+    "body": "You are welcome.",
+    "conversation_id": "<id:18>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:18>:<id:19>:1",
+    "in_reply_to_message_id": "<id:19>",
+    "sources": []
+   },
+   "envelope": {
+    "action_id": "<id:20>",
+    "result": {
+     "message_id": "<id:21>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "relied_on_none",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:18>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "conversation": {
+      "created_at": "<time>",
+      "id": "<id:18>",
+      "last_author_member_id": "<id:16>",
+      "last_message_at": "<time>",
+      "latest_opener_message_id": "<id:19>",
+      "opener": {
+       "display_name": "Yuki",
+       "kind": "human",
+       "member_id": "<id:17>"
+      },
+      "respondent": {
+       "answer_level": "autonomous",
+       "display_name": "CS101 Tutor",
+       "is_delegate_of_opener": false,
+       "kind": "agent",
+       "last_seen_at": "<time>",
+       "member_id": "<id:16>",
+       "owner_name": "Sato",
+       "role": "assistant",
+       "seat_status": "active"
+      },
+      "state": "answered",
+      "status": "open"
+     },
+     "draft": null,
+     "messages": [
+      {
+       "author_member_id": "<id:17>",
+       "body": "Thank you!",
+       "created_at": "<time>",
+       "id": "<id:19>",
+       "seq": 1
+      },
+      {
+       "author_member_id": "<id:16>",
+       "body": "You are welcome.",
+       "created_at": "<time>",
+       "id": "<id:21>",
+       "in_reply_to_message_id": "<id:19>",
+       "seq": 2,
+       "sources": []
+      }
+     ],
+     "more": false
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "read_none",
+   "text_is_envelope": true,
+   "tool": "conversation_messages"
+  },
+  {
+   "args": {
+    "body": "Hello.",
+    "conversation_id": "<id:22>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:22>:<id:23>:1",
+    "in_reply_to_message_id": "<id:23>"
+   },
+   "envelope": {
+    "action_id": "<id:24>",
+    "result": {
+     "message_id": "<id:25>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "did_not_say",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "conversation_id": "<id:22>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "conversation": {
+      "created_at": "<time>",
+      "id": "<id:22>",
+      "last_author_member_id": "<id:16>",
+      "last_message_at": "<time>",
+      "latest_opener_message_id": "<id:23>",
+      "opener": {
+       "display_name": "Yuki",
+       "kind": "human",
+       "member_id": "<id:17>"
+      },
+      "respondent": {
+       "answer_level": "autonomous",
+       "display_name": "CS101 Tutor",
+       "is_delegate_of_opener": false,
+       "kind": "agent",
+       "last_seen_at": "<time>",
+       "member_id": "<id:16>",
+       "owner_name": "Sato",
+       "role": "assistant",
+       "seat_status": "active"
+      },
+      "state": "answered",
+      "status": "open"
+     },
+     "draft": null,
+     "messages": [
+      {
+       "author_member_id": "<id:17>",
+       "body": "Hello?",
+       "created_at": "<time>",
+       "id": "<id:23>",
+       "seq": 1
+      },
+      {
+       "author_member_id": "<id:16>",
+       "body": "Hello.",
+       "created_at": "<time>",
+       "id": "<id:25>",
+       "in_reply_to_message_id": "<id:23>",
+       "seq": 2
+      }
+     ],
+     "more": false
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "read_silent",
+   "text_is_envelope": true,
+   "tool": "conversation_messages"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "exclude_types": [
+     "conversation.ask",
+     "conversation.open"
+    ]
+   },
+   "envelope": {
+    "result": {
+     "actions": [
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:26>",
+       "authz_result": "autonomous",
+       "created_at": "<time>",
+       "id": "<id:11>",
+       "member_id": "<id:16>",
+       "payload": {
+        "body": "Variables and types (Syllabus; Lecture 2, page 1).",
+        "conversation_id": "<id:1>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:3>",
+        "sources": [
+         {
+          "document_id": "<id:4>",
+          "version_id": "<id:5>"
+         },
+         {
+          "document_id": "<id:9>",
+          "version_id": "<id:10>"
+         }
+        ]
+       },
+       "result": {
+        "error": {
+         "code": "invalid_argument",
+         "details": {
+          "field": "sources[1]",
+          "index": 1,
+          "reason": "source_unreadable"
+         },
+         "message": "sources[1]: names no version of a course material (a material, instructions or a rubric) that you may read"
+        }
+       },
+       "review_state": "none",
+       "status": "failed",
+       "target_id": "<id:1>",
+       "target_type": "conversation"
+      },
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:26>",
+       "authz_result": "autonomous",
+       "created_at": "<time>",
+       "id": "<id:13>",
+       "member_id": "<id:16>",
+       "payload": {
+        "body": "Variables and types (Syllabus; Lecture 2, page 1).",
+        "conversation_id": "<id:1>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:3>",
+        "sources": [
+         {
+          "document_id": "<id:6>",
+          "file_id": "<id:12>",
+          "version_id": "<id:8>"
+         }
+        ]
+       },
+       "result": {
+        "error": {
+         "code": "invalid_argument",
+         "details": {
+          "field": "sources[0]",
+          "index": 0,
+          "reason": "source_unreadable"
+         },
+         "message": "sources[0]: file_id names no file of that version"
+        }
+       },
+       "review_state": "none",
+       "status": "failed",
+       "target_id": "<id:1>",
+       "target_type": "conversation"
+      },
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:26>",
+       "authz_result": "autonomous",
+       "created_at": "<time>",
+       "executed_at": "<time>",
+       "id": "<id:14>",
+       "member_id": "<id:16>",
+       "payload": {
+        "body": "Variables and types (Syllabus; Lecture 2, page 1).",
+        "conversation_id": "<id:1>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:3>",
+        "sources": [
+         {
+          "document_id": "<id:4>",
+          "version_id": "<id:5>"
+         },
+         {
+          "document_id": "<id:6>",
+          "file_id": "<id:7>",
+          "page": 1,
+          "version_id": "<id:8>"
+         }
+        ]
+       },
+       "result": {
+        "message_id": "<id:15>"
+       },
+       "review_state": "none",
+       "status": "executed",
+       "target_id": "<id:1>",
+       "target_type": "conversation"
+      },
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:26>",
+       "authz_result": "autonomous",
+       "created_at": "<time>",
+       "executed_at": "<time>",
+       "id": "<id:20>",
+       "member_id": "<id:16>",
+       "payload": {
+        "body": "You are welcome.",
+        "conversation_id": "<id:18>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:19>",
+        "sources": []
+       },
+       "result": {
+        "message_id": "<id:21>"
+       },
+       "review_state": "none",
+       "status": "executed",
+       "target_id": "<id:18>",
+       "target_type": "conversation"
+      },
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:26>",
+       "authz_result": "autonomous",
+       "created_at": "<time>",
+       "executed_at": "<time>",
+       "id": "<id:24>",
+       "member_id": "<id:16>",
+       "payload": {
+        "body": "Hello.",
+        "conversation_id": "<id:22>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:23>"
+       },
+       "result": {
+        "message_id": "<id:25>"
+       },
+       "review_state": "none",
+       "status": "executed",
+       "target_id": "<id:22>",
+       "target_type": "conversation"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "mine",
+   "text_is_envelope": true,
+   "tool": "action_list_mine"
+  }
+ ]
+}

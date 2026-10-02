@@ -3,6 +3,8 @@ package worker
 import (
 	"context"
 	"errors"
+	"strconv"
+	"strings"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
@@ -48,6 +50,12 @@ const (
 	// NextStopAgent: the token was refused (401). Stop the agent until its
 	// owner gives it a new one.
 	NextStopAgent
+	// NextDropSource: Core refused a source of the answer (§2.10), one the
+	// seat may not read now or one purged (Decision.Source), or the
+	// answer's sources as they were given (Decision.Source -1). Post the
+	// same body again without it, under the next attempt number: the
+	// refused call is recorded, and its key spent.
+	NextDropSource
 )
 
 func (n Next) String() string {
@@ -74,6 +82,8 @@ func (n Next) String() string {
 		return "retry_later"
 	case NextStopAgent:
 		return "stop_agent"
+	case NextDropSource:
+		return "drop_source"
 	}
 	return "unknown"
 }
@@ -91,6 +101,9 @@ type Decision struct {
 	LatestMessageID string
 	// Code and Reason are Core's error code and details.reason, if any.
 	Code, Reason string
+	// Source is the source Core refused, by its place in the answer's
+	// sources, for NextDropSource; -1 for all of them.
+	Source int
 }
 
 // Classify reads what came back from conversation_answer. A replayed
@@ -147,6 +160,8 @@ func classifyFailed(env *core.Envelope, d *Decision) {
 		d.Next, d.Outcome = NextDrop, store.OutcomeDropped
 	case d.Code == core.CodeForbidden && d.Reason == core.ReasonNotAddressable:
 		d.Next, d.Outcome = NextDropReseat, store.OutcomeDropped
+	case d.Code == core.CodeInvalidArgument && refusedSource(env, d):
+		d.Next, d.Outcome = NextDropSource, store.OutcomeFailed
 	case d.Code == core.CodeInvalidArgument:
 		d.Next, d.Outcome = NextFix, store.OutcomeFailed
 	case d.Code == core.CodeForbidden, d.Code == core.CodeNotFound:
@@ -177,8 +192,11 @@ func classifyNeverAttempted(env *core.Envelope, d *Decision) {
 		// The arguments did not match the tool's schema, or Core's check
 		// of what they say alone refused them (AIShie-Core #60: an empty
 		// or overlong body, say); the body is the only part the model
-		// writes.
+		// writes, and the sources the only part the runtime gathers.
 		d.Next, d.Outcome = NextFix, store.OutcomeFailed
+		if refusedSource(env, d) {
+			d.Next = NextDropSource
+		}
 	case core.CodeForbidden:
 		d.Next, d.Outcome = NextDropReseat, store.OutcomeDropped
 	case core.CodeUnauthenticated:
@@ -188,6 +206,42 @@ func classifyNeverAttempted(env *core.Envelope, d *Decision) {
 		// runtime does not know: nothing was attempted.
 		d.Next, d.State, d.Outcome = NextRetryLater, "", store.OutcomeError
 	}
+}
+
+// Core's refusals of an answer's sources (§2.10): one the answering seat
+// may not read now, and one purged, each naming the source as
+// field sources[i]. Its other refusals of them name the field sources, or
+// a source of it, with another reason: too many, one named twice, one
+// that is not as Core takes it.
+const (
+	reasonSourceUnreadable = "source_unreadable"
+	reasonSourcePurged     = "source_purged"
+)
+
+// refusedSource reports whether env, an invalid_argument refusal of an
+// answer, refused its sources, and sets d.Source to the one it names
+// where it is one the seat cannot read now or one purged, and to -1 for
+// all of them otherwise. A Core older than the catalogue it served, which
+// takes no sources, refuses them as an argument its schema does not name,
+// naming no field.
+func refusedSource(env *core.Envelope, d *Decision) bool {
+	field := env.Detail("field")
+	switch {
+	case field == "" && env.Status == core.StatusError && env.Error != nil &&
+		strings.Contains(env.Error.Message, "unexpected additional properties") && strings.Contains(env.Error.Message, `"sources"`):
+		d.Source = -1
+		return true
+	case field != "sources" && !strings.HasPrefix(field, "sources["):
+		return false
+	}
+	d.Source = -1
+	if d.Reason != reasonSourceUnreadable && d.Reason != reasonSourcePurged {
+		return true
+	}
+	if i, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(field, "sources["), "]")); err == nil && i >= 0 {
+		d.Source = i
+	}
+	return true
 }
 
 func classifyError(err error) Decision {

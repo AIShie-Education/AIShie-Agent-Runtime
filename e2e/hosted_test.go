@@ -121,7 +121,7 @@ func hostedAgentAnswers(t *testing.T, w *world) {
 
 	// The lecture slides, a .pptx in Core: read by the runtime, never the
 	// model, and given to it as their text, slides and notes.
-	w.upload(t, w.sato, "Week 3 slides", doctexttest.PPTXType, weekThreeSlides)
+	slidesDoc := w.upload(t, w.sato, "Week 3 slides", doctexttest.PPTXType, weekThreeSlides)
 	slidesConv, slidesMsg := w.ask(t, w.yuki, w.own.member, slideQuestion)
 	slides := w.waitAnswer(t, w.yuki, slidesConv, w.own.member)
 	if want := "From the pptx: ## Slide 2: 排序的複雜度\n- 合併排序：O(n log n)\n  - 最壞情況也是 O(n log n)\nNotes: Ask who has seen quicksort."; slides.text() != want ||
@@ -134,6 +134,31 @@ func hostedAgentAnswers(t *testing.T, w *world) {
 				t.Error("a model request holds the slides' download URL")
 			}
 		}
+	}
+
+	// What each answer relied on, as Sato, who teaches the course, reads
+	// it (conversation.messages): the answer about the slides, the
+	// version of them it read, and their one file; the first, which read
+	// nothing, none.
+	version := result[struct {
+		Version struct {
+			ID    string `json:"id"`
+			Files []struct {
+				ID string `json:"id"`
+			} `json:"files"`
+		} `json:"version"`
+	}](t, w.api, w.sato.token, "GET", w.path("/documents/"+slidesDoc), nil).Version
+	read := w.answers(t, w.sato, slidesConv, w.own.member)
+	if len(read) != 1 || read[0].Sources == nil || len(*read[0].Sources) != 1 {
+		t.Fatalf("Sato reads the answer about the slides relying on %s", sourcesJSON(read))
+	}
+	if s := (*read[0].Sources)[0]; s.Restricted || s.OtherVersion || deref(s.DocumentID) != slidesDoc || deref(s.Title) != "Week 3 slides" ||
+		deref(s.Kind) != "material" || deref(s.VersionID) != version.ID || len(version.Files) != 1 || deref(s.FileID) != version.Files[0].ID ||
+		deref(s.Filename) != "Week 3 slides.pptx" || s.Published == nil || !*s.Published || s.Page != nil || s.Slide != nil || s.Part != nil {
+		t.Errorf("Sato reads the answer about the slides relying on %s; want the slides' version %s and its file", sourcesJSON(read), version.ID)
+	}
+	if first := w.answers(t, w.sato, conv, w.own.member); len(first) != 1 || first[0].Sources == nil || len(*first[0].Sources) != 0 {
+		t.Errorf("Sato reads the first answer relying on %s; want none", sourcesJSON(first))
 	}
 
 	// Core named Yuki as its owner, as its row does: the row is marked
@@ -228,6 +253,24 @@ func hostedAgentAnswers(t *testing.T, w *world) {
 			}
 		}
 	}
+}
+
+// sourcesJSON is what messages say they relied on, for a failure to show.
+func sourcesJSON(msgs []message) string {
+	var out []any
+	for _, m := range msgs {
+		out = append(out, m.Sources)
+	}
+	b, _ := json.Marshal(out)
+	return string(b)
+}
+
+// deref is *p, or "" for nil.
+func deref(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 // dumpDatabase is every row of every table of the database at dbURL, as

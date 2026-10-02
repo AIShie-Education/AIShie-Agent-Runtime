@@ -1,7 +1,6 @@
 package e2e
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -120,13 +119,7 @@ func changesRequested(t *testing.T, w *world) {
 		// Core holds the first under answer:{x}:{m}:1: the runtime's stored
 		// bytes, sent again, replay Mori's request for changes.
 		key1 := answerKey(conv, msg, 1)
-		var args struct {
-			Body string `json:"body"`
-		}
-		if err := json.Unmarshal(rt.attempt("tutor", key1).Args, &args); err != nil {
-			t.Fatal(err)
-		}
-		r := w.answerAs(t, rt, "tutor", conv, msg, args.Body, key1)
+		r := w.answerAs(t, rt, "tutor", conv, key1)
 		if r.HTTP != http.StatusConflict || r.Status != "changes_requested" || !r.Replayed || r.ActionID != proposals[0] {
 			t.Errorf("the first attempt sent again under its key: %s; want the request for changes replayed", r)
 		}

@@ -153,8 +153,8 @@ func ownAgentAnswers(t *testing.T, w *world) {
 		t.Errorf("assignment_list was called %v times as executed; want at least 1", n)
 	}
 
-	// The action log, as the agent reads it, holds the answer; the same
-	// body under answer:{x}:{m1}:1 replays that action.
+	// The action log, as the agent reads it, holds the answer; what the
+	// runtime sent under answer:{x}:{m1}:1, sent again, replays that action.
 	var posted string
 	for _, a := range w.actionsMine(t, rt, "yuki-helper") {
 		var res struct {
@@ -167,7 +167,7 @@ func ownAgentAnswers(t *testing.T, w *world) {
 	if posted == "" {
 		t.Fatal("the agent's action log holds no executed conversation.answer that made the answer")
 	}
-	r := w.answerAs(t, rt, "yuki-helper", conv, m1, answer.text(), answerKey(conv, m1, 1))
+	r := w.answerAs(t, rt, "yuki-helper", conv, answerKey(conv, m1, 1))
 	res := decodeMessage(t, r)
 	if r.HTTP != http.StatusOK || r.Status != "executed" || !r.Replayed || r.ActionID != posted || res != answer.ID {
 		t.Errorf("the answer sent again under answer:{x}:{m1}:1: %s; want the action %s replayed, executed, making %s", r, posted, answer.ID)
@@ -300,11 +300,11 @@ func movedOn(t *testing.T, w *world) {
 
 	// Core holds both keys: the first answer's, refused as moved_on, and
 	// the follow-up's, posted. Each replays as it stands.
-	r := w.answerAs(t, rt, "yuki-helper", conv, m2, secondReply, answerKey(conv, m2, 1))
+	r := w.answerAs(t, rt, "yuki-helper", conv, answerKey(conv, m2, 1))
 	if r.HTTP != http.StatusOK || !r.Replayed || r.Status != "executed" || decodeMessage(t, r) != answer.ID {
 		t.Errorf("the follow-up's answer sent again under answer:{x}:{m2}:1: %s; want a replay making %s", r, answer.ID)
 	}
-	r = w.answerAs(t, rt, "yuki-helper", conv, m1, firstReply, answerKey(conv, m1, 1))
+	r = w.answerAs(t, rt, "yuki-helper", conv, answerKey(conv, m1, 1))
 	if !r.Replayed || r.Status != "failed" || r.Error == nil || r.Error.Details["reason"] != "moved_on" {
 		t.Errorf("the first answer sent again under answer:{x}:{m1}:1: %s; want the moved_on refusal replayed", r)
 	}
@@ -538,14 +538,7 @@ func proposals(t *testing.T, w *world) {
 
 	// Core holds the second proposal under answer:{x}:{m}:2: the runtime's
 	// stored bytes, sent again, replay it.
-	at := rt.attempt("tutor", key2)
-	var args struct {
-		Body string `json:"body"`
-	}
-	if err := json.Unmarshal(at.Args, &args); err != nil {
-		t.Fatal(err)
-	}
-	r := w.answerAs(t, rt, "tutor", convK, mK, args.Body, key2)
+	r := w.answerAs(t, rt, "tutor", convK, key2)
 	if r.HTTP != http.StatusAccepted || r.Status != "proposed" || !r.Replayed || r.ActionID != again {
 		t.Errorf("the second attempt sent again under answer:{x}:{m}:2: %s; want the proposal %s replayed", r, again)
 	}

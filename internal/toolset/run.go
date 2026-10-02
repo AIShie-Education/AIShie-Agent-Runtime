@@ -82,6 +82,10 @@ type Runner struct {
 	// Searched, when set, is told what each search did, in counts, on the
 	// goroutine that made it.
 	Searched func(SearchStats)
+	// Sources is the answer's account of the course's materials its model
+	// was given (sources.go), which Run adds to in call order; nil keeps
+	// none.
+	Sources *Sources
 
 	// tags are what the readings kept while a message's file is given are
 	// tagged with (keep): the file's id and its message's.
@@ -316,6 +320,7 @@ func (s *Set) Run(ctx context.Context, r Runner, courseID string, calls []llm.Pa
 		part  llm.Part
 		files []*llm.File
 		env   *core.Envelope
+		read  *materialGiven
 		err   error
 	}
 	outs := make([]outcome, len(preps))
@@ -334,13 +339,13 @@ func (s *Set) Run(ctx context.Context, r Runner, courseID string, calls []llm.Pa
 				return
 			}
 			defer func() { <-sem }()
-			part, files, env, err := s.send(ctx, r, p)
+			part, files, env, read, err := s.send(ctx, r, p)
 			if err != nil {
 				cancel()
 			} else if r.Seen != nil {
 				r.Seen(toolCalls[i], env)
 			}
-			outs[i] = outcome{part, files, env, err}
+			outs[i] = outcome{part, files, env, read, err}
 		})
 	}
 	wg.Wait()
@@ -368,6 +373,9 @@ func (s *Set) Run(ctx context.Context, r Runner, courseID string, calls []llm.Pa
 		parts = append(parts, o.part)
 		if p := preps[i]; !p.done && p.write {
 			r.Writes.Records = append(r.Writes.Records, record(p, o.env))
+		}
+		if o.read != nil {
+			r.Sources.add(callKey(preps[i].args, preps[i].file), o.read)
 		}
 	}
 	for _, o := range outs {
@@ -506,37 +514,38 @@ func bindKey(args json.RawMessage, key string) (json.RawMessage, error) {
 }
 
 // send sends one prepared call. Its error is fatal to the answer;
-// everything else is in the result, and the files given with it.
-func (s *Set) send(ctx context.Context, r Runner, p prepared) (llm.Part, []*llm.File, *core.Envelope, error) {
+// everything else is in the result, the files given with it, and what it
+// gave the model of the course's materials (Sources).
+func (s *Set) send(ctx context.Context, r Runner, p prepared) (llm.Part, []*llm.File, *core.Envelope, *materialGiven, error) {
 	if p.attach != nil {
 		res, file, env, err := s.sendAttachment(ctx, r, p)
 		if file == nil {
-			return res, nil, env, err
+			return res, nil, env, nil, err
 		}
-		return res, []*llm.File{file}, env, err
+		return res, []*llm.File{file}, env, nil, err
 	}
 	if p.search != nil {
-		res, env, err := s.sendSearch(ctx, r, p)
-		return res, nil, env, err
+		res, env, read, err := s.sendSearch(ctx, r, p)
+		return res, nil, env, read, err
 	}
 	res := p.res
 	env, err := r.Client.Call(ctx, res.Name, p.args)
 	switch {
 	case errors.Is(err, core.ErrUnauthenticated):
-		return res, nil, nil, err
+		return res, nil, nil, nil, err
 	case ctx.Err() != nil:
-		return res, nil, nil, ctx.Err()
+		return res, nil, nil, nil, ctx.Err()
 	case (err != nil || env == nil) && p.write:
 		return refuse(res, codeUnavailable, "Core could not be reached for this change, and it may or may not have been made. "+
-			"Call it again with exactly the same arguments to find out: it goes under the same key, and is never made twice"), nil, nil, nil
+			"Call it again with exactly the same arguments to find out: it goes under the same key, and is never made twice"), nil, nil, nil, nil
 	case err != nil, env == nil:
 		return refuse(res, codeUnavailable,
-			"Core could not be reached for this call; answer without it, or try it once more"), nil, nil, nil
+			"Core could not be reached for this call; answer without it, or try it once more"), nil, nil, nil, nil
 	}
-	content, files := r.render(ctx, res.Name, env, p.file)
+	content, files, read := r.render(ctx, res.Name, env, p.file)
 	res.Content = content
 	res.IsError = env.Status != core.StatusExecuted && env.Status != core.StatusProposed
-	return res, files, env, nil
+	return res, files, env, read, nil
 }
 
 // record is what came of a write sent: env nil when Core did not answer.
@@ -683,23 +692,26 @@ type truncated struct {
 	ResultTruncated string      `json:"result_truncated"`
 }
 
-// render is the content of Core's answer to a call, and the files to give
-// the model beside it, if any; fa is what the model asked of a document's
-// file by the runtime's own arguments. A document_get result is given
-// without its URLs or its files' text bodies, which the runtime gives
-// itself: a version of one file (or the one file of several fa names)
-// with its file's record and text, and one of several as renderVersion
-// gives it.
-func (r Runner) render(ctx context.Context, tool string, env *core.Envelope, fa fileArgs) (string, []*llm.File) {
+// render is the content of Core's answer to a call, the files to give
+// the model beside it, if any, and what it gave the model of a course's
+// material (Sources); fa is what the model asked of a document's file by
+// the runtime's own arguments. A document_get result is given without its
+// URLs or its files' text bodies, which the runtime gives itself: a
+// version of one file (or the one file of several fa names) with its
+// file's record and text, and one of several as renderVersion gives it.
+func (r Runner) render(ctx context.Context, tool string, env *core.Envelope, fa fileArgs) (string, []*llm.File, *materialGiven) {
 	c := content{Status: env.Status, ActionID: env.ActionID, ReviewState: env.ReviewState,
 		Replayed: env.Replayed, Note: env.Note, Error: env.Error}
 	var ver *docVersion
+	var src *core.Source
+	var body, unnamed bool
 	if len(env.Result) > 0 {
 		// A result that does not read cannot be searched for URLs, so none
 		// of it goes to the model.
 		if v, err := decodeJSON(env.Result); err == nil {
 			if tool == FilePartTool && env.Status == core.StatusExecuted {
 				ver = documentVersion(v)
+				src, body, unnamed = materialOf(v)
 				stripTextBodies(v)
 			}
 			stripDownloadURLs(v)
@@ -710,7 +722,7 @@ func (r Runner) render(ctx context.Context, tool string, env *core.Envelope, fa 
 		if ver != nil && fa.fileID != "" {
 			c.FilesNote = FileIDArg + " does not apply: the version holds no files"
 		}
-		return r.fit(c, nil, given{}, 0), nil
+		return r.fit(c, nil, given{}, 0), nil, versionRead(src, body, unnamed)
 	}
 	doc := ver.files[0]
 	switch {
@@ -718,10 +730,11 @@ func (r Runner) render(ctx context.Context, tool string, env *core.Envelope, fa 
 		if doc = ver.byID(fa.fileID); doc == nil {
 			c.FilesNote = fmt.Sprintf("no file of this version has %s %s: result.version.files lists the version's files, "+
 				"by their ids; call %s again with one of them", FileIDArg, fa.fileID, FilePartTool)
-			return r.fit(c, nil, given{}, 0), nil
+			return r.fit(c, nil, given{}, 0), nil, versionRead(src, body, unnamed)
 		}
 	case len(ver.files) > 1:
-		return r.renderVersion(ctx, c, ver, fa)
+		content, files, anyGiven := r.renderVersion(ctx, c, ver, fa)
+		return content, files, versionRead(src, body || anyGiven, unnamed)
 	}
 	doc.courseID, doc.first, doc.last = fa.courseID, fa.first, fa.last
 	g := r.giveFile(ctx, doc, fa.part)
@@ -737,10 +750,11 @@ func (r Runner) render(ctx context.Context, tool string, env *core.Envelope, fa 
 		}
 	}
 	content := r.fit(c, doc, g, part)
+	read := r.fileRead(src, body, unnamed, doc, g, fa)
 	if g.file == nil {
-		return content, nil
+		return content, nil, read
 	}
-	return content, []*llm.File{g.file}
+	return content, []*llm.File{g.file}, read
 }
 
 // fit makes c at most MaxResultBytes: the envelope, then a file's text, whole
