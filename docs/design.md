@@ -2200,8 +2200,10 @@ Chinese with a table, overran, and was cut off.
 - `fakecore`: the MCP surface and envelope of Core, scriptable: questions,
   follow-ups written during generation, levels changed, seats paused or
   removed, proposals approved, rejected, sent back for changes or expired,
-  and revisions naming them (`revises`, the `Revises` header), retractions, 429s and
-  401s; reads that wait for news (`wait_s`), woken by the news Core's
+  and revisions naming them (`revises`, the `Revises` header), and a Core
+  from before them, which refuses `revises` as any argument its schemas do
+  not name and reads no `Revises` header (`WithoutRevises`), retractions,
+  429s and 401s; reads that wait for news (`wait_s`), woken by the news Core's
   filters let through, within Core's bounds on calls waiting, and a Core
   from before them (`WithoutWait`); the drafts of answers
   (`conversation_draft`, an ephemeral write) and the views that show them,
