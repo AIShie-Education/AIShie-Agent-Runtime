@@ -338,6 +338,30 @@ func (rt *instance) metric(name string, labels map[string]string) float64 {
 	return sum
 }
 
+// counters are the counter name's values by the value of their label,
+// summed over the other labels, all read at once.
+func (rt *instance) counters(name, label string) map[string]float64 {
+	rt.t.Helper()
+	mfs, err := rt.reg.Gather()
+	if err != nil {
+		rt.t.Fatal(err)
+	}
+	out := map[string]float64{}
+	for _, mf := range mfs {
+		if mf.GetName() != name {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			for _, lp := range m.GetLabel() {
+				if lp.GetName() == label {
+					out[lp.GetValue()] += m.GetCounter().GetValue()
+				}
+			}
+		}
+	}
+	return out
+}
+
 // inboxPolls is how often the agent has asked conversation_inbox.
 func (rt *instance) inboxPolls(agent string) float64 {
 	return rt.metric("inbox_polls_total", map[string]string{"agent": agent})
