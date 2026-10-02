@@ -2224,8 +2224,8 @@ Chinese with a table, overran, and was cut off.
   naming its file, and read back file by file.
 - Adapters: golden translations both ways in `testdata/`, every stop reason
   and usage field; `LIVE=1` runs them against the real providers whose keys
-  are set (the live tests, below), with every tool declared at 16 output
-  tokens, and one answer streamed. `openai_chat`, `anthropic` and `gemini` have goldens
+  are set (the live tests, below, say which providers declare every tool
+  and which stream an answer). `openai_chat`, `anthropic` and `gemini` have goldens
   of streams written in their providers' SSE format (`testdata/stream`): text
   in pieces with keep-alives, reasoning streamed before the answer,
   parallel calls whose arguments are split and interleaved across chunks,

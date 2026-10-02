@@ -5,10 +5,10 @@ name: Live providers
 # cheap call, and each but Anthropic a tool call round trip; OpenAI's two
 # APIs, Anthropic and Gemini also get every tool of the pinned catalogue
 # declared at 16 output tokens, in requests of at most 128 tools (OpenAI's
-# most), so that the provider itself checks the schemas. A provider without a key is skipped,
-# and the log says so: a run with no key at all passes having tried
-# nothing. The live tests against a real Core are not run here: make
-# live-core (docs/design.md §10).
+# most), so that the provider itself checks the schemas. A provider
+# without a key is skipped, and the log says so: a run with no key at all
+# passes having tried nothing. The live tests against a real Core are not
+# run here: make live-core (docs/design.md §10).
 #
 # Keys are repository secrets; the models, and Azure's endpoint and
 # deployment, are repository variables, so that a cheaper model can be
