@@ -473,6 +473,46 @@ func TestRepostsCountTowardNoMaxAttempts(t *testing.T) {
 	}
 }
 
+// A follow-up drawn from an earlier answer in the conversation, reading
+// none of the course's materials itself, says nothing of its sources: the
+// earlier answer it was given relied on the syllabus, read for another
+// question, which it may rest on and cannot name. One after an answer
+// that relied on none says it relies on none.
+func TestAFollowUpOnAnAnswerThatReliedOnMaterialsSaysNothing(t *testing.T) {
+	w := newWorld(t)
+	tut := w.tutor("tutor")
+	m := scripted.New(
+		scripted.CallTools(getDoc(w.co.SyllabusID)),
+		scripted.Reply("Lectures are weekly, on Mondays."),
+		scripted.Reply("Again: weekly, on Mondays."),
+		scripted.Reply("Hello."),
+		scripted.Reply("Hello again."),
+	)
+	w.start(w.config(nil, w.agentDoc("tutor", "m", nil, nil)), models{"m": m}, workerOpts{})
+	conv, _ := w.ask(0, tut, "How often are the lectures?")
+	if a := w.waitAnswers(conv, 1)[0]; sourcesOf(a) != w.source(w.co.SyllabusID) {
+		t.Fatalf("the first answer relied on %s", sourcesOf(a))
+	}
+	_, err := w.fc.FollowUp(conv, "Say that again?")
+	w.ok(err)
+	if a := w.waitAnswers(conv, 2)[1]; a.Body != "Again: weekly, on Mondays." || sourcesOf(a) != "unsaid" {
+		t.Errorf("the follow-up %q relied on %s; want it to say nothing", a.Body, sourcesOf(a))
+	}
+
+	conv2, _ := w.ask(1, tut, "Hi!")
+	if a := w.waitAnswers(conv2, 1)[0]; sourcesOf(a) != "none" {
+		t.Fatalf("the greeting relied on %s", sourcesOf(a))
+	}
+	_, err = w.fc.FollowUp(conv2, "Hi again!")
+	w.ok(err)
+	if a := w.waitAnswers(conv2, 2)[1]; a.Body != "Hello again." || sourcesOf(a) != "none" {
+		t.Errorf("the follow-up %q relied on %s; want none", a.Body, sourcesOf(a))
+	}
+	if err := m.Err(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // The runtime's own notices rely on no course material, whatever the
 // model read first: on_budget_text, after the syllabus was read and the
 // turns ran out; and the quota's notice, with no model call, once the

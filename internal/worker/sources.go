@@ -62,3 +62,35 @@ func answerApart(args []byte) (rest []byte, sources int, ok bool) {
 	rest, err := json.Marshal(m)
 	return rest, sources, err == nil
 }
+
+// saidOf is what an answer to question, whose model was given the
+// conversation read up to it, posts as what it relied on, from sources,
+// what its own loop gave it of the course's materials
+// (toolset.Sources.List). An answer given none of them would say it relied
+// on none; but one given, in the conversation, an earlier answer that
+// relied on some, or did not say (earlierRelied), may rest on what that
+// answer read ("repeat question 2 of HW1"), which it may not name: Core
+// takes what an answer read for its own question, not another's. It says
+// nothing of its sources.
+func saidOf(sources []core.Source, read *core.Messages, self, question string) []core.Source {
+	if sources == nil || len(sources) > 0 || !earlierRelied(read.Messages, self, question) {
+		return sources
+	}
+	return nil
+}
+
+// earlierRelied reports whether msgs, up to question, hold an answer
+// that names course materials it relied on, or one of the agent's own
+// (self) that says nothing of them; a retracted message gives the model
+// nothing.
+func earlierRelied(msgs []core.Message, self, question string) bool {
+	for _, m := range msgs {
+		if m.ID == question {
+			return false
+		}
+		if m.Retracted == nil && (len(m.Sources) > 0 || (m.Sources == nil && m.AuthorMemberID == self)) {
+			return true
+		}
+	}
+	return false
+}

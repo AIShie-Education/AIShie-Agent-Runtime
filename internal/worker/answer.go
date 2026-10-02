@@ -382,7 +382,7 @@ func (c *claim) generate(ctx context.Context, r passResult, read *core.Messages,
 		return c.providersDown(ctx, r)
 	}
 	c.s.providerRecovered(r.msg)
-	r = c.post(ctx, r, end.body, end.kind, end.sources)
+	r = c.post(ctx, r, end.body, end.kind, saidOf(end.sources, read, c.s.id, r.msg))
 	if r.withdrawn {
 		// Refused, its question withdrawn as it was sent: its draft went
 		// with the question.
