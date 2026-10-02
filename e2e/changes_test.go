@@ -117,11 +117,17 @@ func changesRequested(t *testing.T, w *world) {
 		})
 
 		// Core holds the first under answer:{x}:{m}:1: the runtime's stored
-		// bytes, sent again, replay Mori's request for changes.
-		key1 := answerKey(conv, msg, 1)
+		// bytes, sent again, replay Mori's request for changes; and the
+		// second, a revision, sent again naming what it revises in the
+		// Revises header, his second request.
+		key1, key2 := answerKey(conv, msg, 1), answerKey(conv, msg, 2)
 		r := w.answerAs(t, rt, "tutor", conv, key1)
 		if r.HTTP != http.StatusConflict || r.Status != "changes_requested" || !r.Replayed || r.ActionID != proposals[0] {
 			t.Errorf("the first attempt sent again under its key: %s; want the request for changes replayed", r)
+		}
+		r = w.answerAs(t, rt, "tutor", conv, key2)
+		if r.HTTP != http.StatusConflict || r.Status != "changes_requested" || !r.Replayed || r.ActionID != proposals[1] {
+			t.Errorf("the revision sent again under its key: %s; want the second request for changes replayed", r)
 		}
 		rt.settle("tutor", 3)
 		if n := len(w.answers(t, w.yuki, conv, w.tutor.member)); n != 1 {

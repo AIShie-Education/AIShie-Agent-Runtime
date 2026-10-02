@@ -141,6 +141,13 @@ func (r reply) String() string {
 // Idempotency-Key, a fresh one when key is empty, and body as JSON. A 429
 // is waited out as its Retry-After says, while ctx lasts.
 func (c *coreAPI) send(ctx context.Context, token, method, path string, body any, key string) (reply, error) {
+	return c.sendRevising(ctx, token, method, path, body, key, "")
+}
+
+// sendRevising is send for a write that proposes again revises, a
+// proposal sent back for changes, which a POST names in its Revises
+// header; none for "".
+func (c *coreAPI) sendRevising(ctx context.Context, token, method, path string, body any, key, revises string) (reply, error) {
 	var payload []byte
 	if method == http.MethodPost {
 		if body == nil {
@@ -155,7 +162,7 @@ func (c *coreAPI) send(ctx context.Context, token, method, path string, body any
 		}
 	}
 	for {
-		r, retryAfter, err := c.once(ctx, token, method, path, payload, key)
+		r, retryAfter, err := c.once(ctx, token, method, path, payload, key, revises)
 		if err != nil || r.HTTP != http.StatusTooManyRequests {
 			return r, err
 		}
@@ -169,7 +176,7 @@ func (c *coreAPI) send(ctx context.Context, token, method, path string, body any
 	}
 }
 
-func (c *coreAPI) once(ctx context.Context, token, method, path string, payload []byte, key string) (reply, time.Duration, error) {
+func (c *coreAPI) once(ctx context.Context, token, method, path string, payload []byte, key, revises string) (reply, time.Duration, error) {
 	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
 	var rd io.Reader
@@ -184,6 +191,9 @@ func (c *coreAPI) once(ctx context.Context, token, method, path string, payload 
 	if payload != nil {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Idempotency-Key", key)
+		if revises != "" {
+			req.Header.Set("Revises", revises)
+		}
 	}
 	resp, err := c.hc.Do(req)
 	if err != nil {
