@@ -1108,10 +1108,15 @@ course never says it".
   reads drafts) and its files, each with its text version's status and
   revision. Those files, each at that revision, are all the store
   searches: a passage of another version (a draft, a newer version than
-  the published one), of a document Core does not give the seat now
-  (withheld since it was listed: said so in the result), or of another
-  revision of a file's text is never a candidate, whoever read it into
-  the index. What one answer's seat may read is read at its first search
+  the published one), of a document Core does not give the seat now, or
+  of another revision of a file's text is never a candidate, whoever read
+  it into the index. The result says which documents listed were not
+  searched, and why: those Core gives the seat no version of now (the
+  version or the document purged, none it may read, or the document
+  refused it, withheld since it was listed), which a search again will not
+  find, apart from those Core could not be asked of just now (not reached,
+  or its answer not read), which the model is told to search again for in
+  a minute. What one answer's seat may read is read at its first search
   and used by its later ones (`toolset.SearchScope`): once an answer, a
   list and a `document_get` a document, at most four at once, within the
   agent's rate limit like any call, which in a course of 100 documents is
@@ -2136,7 +2141,9 @@ Chinese with a table, overran, and was cut off.
   finds its words; a text file holding NUL, which no store keeps, is kept
   with a space for each, found, and read once; a version Core gives as
   purged leaves the index (and a document listed as purged, which today's
-  Core does not list); hits a
+  Core does not list); a purged version and a document refused the seat
+  said to have no version it may read now, and one Core could not answer
+  for said not read just now and found by the next search; hits a
   page at a time to the last, a long text version's hit naming the part
   that `document_get`, called as it is, gives it in; in a long text of no
   pages, a text file's and a text version's, every one of 200 words found

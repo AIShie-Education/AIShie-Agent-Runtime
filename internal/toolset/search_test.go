@@ -105,6 +105,9 @@ type searchCore struct {
 	// first.
 	texts    map[string]string
 	failText int
+	// failGet are the documents whose document_get Core cannot answer
+	// just now (an internal error).
+	failGet map[string]bool
 }
 
 func newSearchCore(t *testing.T, docs ...*sdoc) *searchCore {
@@ -145,7 +148,7 @@ func newSearchCore(t *testing.T, docs ...*sdoc) *searchCore {
 func (c *searchCore) as(staff bool) *searchCore {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return &searchCore{t: c.t, staff: staff, srv: c.srv, docs: c.docs, calls: c.calls, hits: c.hits, files: c.files}
+	return &searchCore{t: c.t, staff: staff, srv: c.srv, docs: c.docs, calls: c.calls, hits: c.hits, files: c.files, failGet: c.failGet}
 }
 
 func (c *searchCore) count(tool string) int {
@@ -196,6 +199,9 @@ func (c *searchCore) respond(_ context.Context, tool string, args json.RawMessag
 		}
 		return executed(`{"documents":[` + strings.Join(docs, ",") + `]}`), nil
 	case "document_get":
+		if c.failGet[a.DocumentID] {
+			return &core.Envelope{Status: core.StatusError, Error: &core.Error{Code: core.CodeInternal, Message: "try again"}}, nil
+		}
 		for _, d := range c.docs {
 			v := c.readable(d)
 			if d.id != a.DocumentID || v == nil || d.withheld && !c.staff {
@@ -514,8 +520,9 @@ func TestSearchKeepsToWhatTheSeatMayRead(t *testing.T) {
 				t.Errorf("a student's %s found what it may not read: %+v", q, h)
 			}
 		}
-		if !strings.Contains(res.Note, "1 document listed could not be read just now") {
-			t.Errorf("a student's %s does not say the withheld document was not read: %s", q, part.Content)
+		if !strings.Contains(res.Note, "1 document listed has no version this seat may read now") ||
+			strings.Contains(res.Note, "could not be read just now") {
+			t.Errorf("a student's %s does not say the withheld document is not given it: %s", q, part.Content)
 		}
 	}
 	res, _ := searchFor(t, student, `{"query":"merge sort"}`)
@@ -669,6 +676,35 @@ func TestSearchDropsWhatCoreSaysIsPurged(t *testing.T) {
 	}
 	if have, err := index.UseSearchFiles(context.Background(), courseID, keys, time.Time{}); err != nil || len(have) != 0 {
 		t.Errorf("the index after the purges: %v %v\n%s", have, err, part.Content)
+	}
+}
+
+// TestSearchSaysWhatIsGoneAndWhatIsNotReadYet: of the documents listed,
+// one whose version Core gives as purged, and one Core refuses the seat
+// (withheld since it was listed), are said to have no version the seat
+// may read now, not to be unread for a while; one Core could not answer
+// for just now is said so, to be searched again, and is searched by the
+// next answer's search once Core answers.
+func TestSearchSaysWhatIsGoneAndWhatIsNotReadYet(t *testing.T) {
+	docs := course()
+	docs[1].published.purged = true
+	c := newSearchCore(t, docs...)
+	c.failGet = map[string]bool{docSyllabus: true}
+	index := memstore.New()
+	res, part := searchFor(t, searchRunner(c.as(false), index, nil, false), `{"query":"final exam"}`)
+	if !strings.Contains(res.Note, "2 documents listed have no version this seat may read now (purged, or withheld from it since the list)") {
+		t.Errorf("the purged and the withheld documents are not said to be gone: %s", part.Content)
+	}
+	if !strings.Contains(res.Note, "1 document listed could not be read just now, and not searched; search again in a minute") {
+		t.Errorf("the document Core did not answer for is not said to be unread: %s", part.Content)
+	}
+	if len(res.Result.Hits) != 0 || res.Result.Searched.Documents != 2 {
+		t.Errorf("searched: %+v", res.Result)
+	}
+	delete(c.failGet, docSyllabus)
+	res, part = searchFor(t, searchRunner(c.as(false), index, nil, false), `{"query":"final exam"}`)
+	if len(res.Result.Hits) != 1 || res.Result.Hits[0].DocumentID != docSyllabus || strings.Contains(res.Note, "could not be read just now") {
+		t.Errorf("the next search, Core answering: %s", part.Content)
 	}
 }
 
