@@ -1522,7 +1522,7 @@
      "description_sha256": "f48a4d37b3eb5b650def6098ad1321f4f017123861e73107f45c599800d03589",
      "input_schema_sha256": "98141bba3ea753807364faf3650ad4370fbd2e7556e37536097f1d12852c304f",
      "name": "sso_create",
-     "output_schema_sha256": "0e131a530c2bfcffaf13edcc1c6fc42330cb04233b6a6b27a0248165e8593cd9"
+     "output_schema_sha256": "afa767e80ef0a19363911060a3b37cd7e98395b989f28974f7c2a16b0c19feaa"
     },
     {
      "annotations": {
@@ -1544,7 +1544,7 @@
      "description_sha256": "797daadadf3867154c1411d3364c9c0455d11e43847e4d7403874119ea3f2550",
      "input_schema_sha256": "0d68e760bcefa29636ec737b853de101b456e49b53780c6ba274d7cfae030733",
      "name": "sso_get",
-     "output_schema_sha256": "0e131a530c2bfcffaf13edcc1c6fc42330cb04233b6a6b27a0248165e8593cd9"
+     "output_schema_sha256": "afa767e80ef0a19363911060a3b37cd7e98395b989f28974f7c2a16b0c19feaa"
     },
     {
      "annotations": {
@@ -1555,7 +1555,7 @@
      "description_sha256": "c709a5730f97a1032bdf17021c2bf0278c1b3ad441963372c29ad4261b3ab6f2",
      "input_schema_sha256": "cd1a463c46d6264134447db17a8c3c7abe5b9a2488c6d759fea66da1f96b133e",
      "name": "sso_list",
-     "output_schema_sha256": "bf17345e5e06c6a0766fd6f47d74e92c4f38db3e0e36d59d18ec5d557557a405"
+     "output_schema_sha256": "bffd862dc14ef3aebe26a19f8113aa3890d86b488f7931aa6532fcbce905f6c9"
     },
     {
      "annotations": {
@@ -1563,10 +1563,10 @@
       "openWorldHint": false,
       "readOnlyHint": false
      },
-     "description_sha256": "680b37d4aa4ed4c8947cdb4eecf64c6bdb40ed06f40feddddf0bee87f8a4b012",
-     "input_schema_sha256": "ceedcdf10e1a917e06db6f2f9f1642f3fb5f80078cd07d273b3c35b4719a62b8",
+     "description_sha256": "a2e3689d30f3b4a6d64047ece9891645cfae159d1cd3b585e999d724152fe107",
+     "input_schema_sha256": "3ce593fc25ee6eff137f6104787b03e08fde36964390e874aec1cdccd36b7d63",
      "name": "sso_set_enabled",
-     "output_schema_sha256": "0e131a530c2bfcffaf13edcc1c6fc42330cb04233b6a6b27a0248165e8593cd9"
+     "output_schema_sha256": "afa767e80ef0a19363911060a3b37cd7e98395b989f28974f7c2a16b0c19feaa"
     },
     {
      "annotations": {
@@ -1588,7 +1588,7 @@
      "description_sha256": "7ace254c8f301d805f47b3938fdb65c7c1c489734c204a55ae9acff9e8e4ef6f",
      "input_schema_sha256": "aaf4088a4a5c8afe718873373fc0851c1e8299db2c0929275246e9ffbc6a0249",
      "name": "sso_update",
-     "output_schema_sha256": "0e131a530c2bfcffaf13edcc1c6fc42330cb04233b6a6b27a0248165e8593cd9"
+     "output_schema_sha256": "afa767e80ef0a19363911060a3b37cd7e98395b989f28974f7c2a16b0c19feaa"
     },
     {
      "annotations": {
