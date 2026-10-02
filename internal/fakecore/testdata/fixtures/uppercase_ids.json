@@ -11,7 +11,7 @@
    },
    "envelope": {
     "action_id": "<id:4>",
-    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed.",
+    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected, action.changes_requested or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed. After action.changes_requested, read what to change in its result.decision.reason and propose again under a new key, with revises = this action_id.",
     "review_state": "none",
     "status": "proposed"
    },
