@@ -481,8 +481,10 @@ func (s *Set) prepare(r Runner, courseID string, call llm.Part) prepared {
 	bound := map[string]any{"course_id": courseID}
 	if write {
 		// The model's key, if it wrote one, goes: bindKey gives the
-		// runtime's once the write is numbered.
-		bound["idempotency_key"] = ""
+		// runtime's once the write is numbered. So does any proposal it
+		// named as one its write revises: a model's write revises
+		// nothing, the runtime naming what its own answers revise.
+		bound["idempotency_key"], bound["revises"] = "", nil
 	}
 	args, err := toolschema.Reverse(t.input, callArgs, bound)
 	if err == nil {

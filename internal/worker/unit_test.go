@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -59,6 +60,7 @@ func TestNextAttempt(t *testing.T) {
 		{"none", nil, 1, false},
 		{"one failed", []store.Attempt{at(1, store.AttemptFailed)}, 2, false},
 		{"rejected and cancelled", []store.Attempt{at(1, store.AttemptRejected), at(2, store.AttemptCancelled)}, 3, false},
+		{"sent back for changes", []store.Attempt{at(1, store.AttemptChangesRequested)}, 2, false},
 		{"a key taken by another body", []store.Attempt{at(1, store.AttemptError)}, 2, false},
 		{"posted", []store.Attempt{at(1, store.AttemptFailed), at(2, store.AttemptExecuted)}, 0, true},
 		{"waiting for a person", []store.Attempt{at(1, store.AttemptProposed)}, 0, true},
@@ -66,6 +68,73 @@ func TestNextAttempt(t *testing.T) {
 		n, busy := nextAttempt(c.atts)
 		if n != c.n || busy != c.busy {
 			t.Errorf("%s: %d %v, want %d %v", c.name, n, busy, c.n, c.busy)
+		}
+	}
+}
+
+// TestRevised: the next attempt at a message revises the newest attempt a
+// person sent back for changes, and a revision sent back in turn is the
+// one revised next; one that failed, or was rejected, after it names the
+// same; one Core refused for what it named (not_revisable) has the
+// attempts after it name none, until another is sent back.
+func TestRevised(t *testing.T) {
+	sent := func(no int, action string) store.Attempt {
+		return store.Attempt{No: no, State: store.AttemptChangesRequested, ActionID: action, Reason: fmt.Sprintf("change %d", no)}
+	}
+	other := func(no int, st store.AttemptState, reason string) store.Attempt {
+		return store.Attempt{No: no, State: st, ActionID: fmt.Sprintf("act-%d", no), Reason: reason}
+	}
+	for _, c := range []struct {
+		name string
+		atts []store.Attempt
+		want string
+	}{
+		{"none", nil, ""},
+		{"rejected, not sent back", []store.Attempt{other(1, store.AttemptRejected, "Too terse.")}, ""},
+		{"sent back", []store.Attempt{sent(1, "act-1")}, "act-1"},
+		{"a chain of two", []store.Attempt{sent(1, "act-1"), sent(2, "act-2")}, "act-2"},
+		{"a revision that failed, then", []store.Attempt{sent(1, "act-1"), other(2, store.AttemptFailed, "")}, "act-1"},
+		{"a revision rejected", []store.Attempt{sent(1, "act-1"), other(2, store.AttemptRejected, "No.")}, "act-1"},
+		{"refused for what it named", []store.Attempt{sent(1, "act-1"), other(2, store.AttemptError, core.ReasonNotRevisable)}, ""},
+		{"refused, then sent back again", []store.Attempt{sent(1, "act-1"), other(2, store.AttemptError, core.ReasonNotRevisable),
+			sent(3, "act-3")}, "act-3"},
+		{"sent back with no action known", []store.Attempt{sent(1, "")}, ""},
+	} {
+		got := ""
+		if at := revised(c.atts); at != nil {
+			got = at.ActionID
+			if at.Reason != "change "+strings.TrimPrefix(at.ActionID, "act-") {
+				t.Errorf("%s: the attempt revised is %+v", c.name, at)
+			}
+		}
+		if got != c.want {
+			t.Errorf("%s: revises %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// TestStanding: what a person asked of the attempt revised is told while
+// no person has decided an answer to the message since, as of an earlier
+// answer when one was written after it; a revision rejected or sent back
+// since leaves it to memory.
+func TestStanding(t *testing.T) {
+	at := func(no int, st store.AttemptState) store.Attempt { return store.Attempt{No: no, State: st} }
+	for _, c := range []struct {
+		name        string
+		atts        []store.Attempt
+		revised     int // the index in atts of the attempt revised
+		told, since bool
+	}{
+		{"the last written", []store.Attempt{at(1, store.AttemptRejected), at(2, store.AttemptChangesRequested)}, 1, true, false},
+		{"a revision that failed since", []store.Attempt{at(1, store.AttemptChangesRequested), at(2, store.AttemptFailed)}, 0, true, true},
+		{"a revision expired since", []store.Attempt{at(1, store.AttemptChangesRequested), at(2, store.AttemptCancelled)}, 0, true, true},
+		{"a revision rejected since", []store.Attempt{at(1, store.AttemptChangesRequested), at(2, store.AttemptRejected)}, 0, false, true},
+		{"rejected after one that failed", []store.Attempt{at(1, store.AttemptChangesRequested), at(2, store.AttemptFailed),
+			at(3, store.AttemptRejected)}, 0, false, true},
+		{"sent back since, no action known", []store.Attempt{at(1, store.AttemptChangesRequested), at(2, store.AttemptChangesRequested)}, 0, false, true},
+	} {
+		if told, since := standing(c.atts, &c.atts[c.revised]); told != c.told || since != c.since {
+			t.Errorf("%s: told %v, since %v; want %v, %v", c.name, told, since, c.told, c.since)
 		}
 	}
 }

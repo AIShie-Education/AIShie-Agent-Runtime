@@ -34,7 +34,8 @@ type RESTOptions struct {
 // RESTCaller is a Caller over Core's REST API (transport: rest): each tool
 // at its catalogue route, path parameters taken from the arguments, a GET's
 // other arguments in the query string, a POST's in a JSON body with the
-// idempotency key in the Idempotency-Key header (§1.2). Core's REST answer
+// idempotency key in the Idempotency-Key header (§1.2), and the proposal
+// it revises, if it names one, in the Revises header (§2.2). Core's REST answer
 // holds the envelope's fields whatever its status, so the envelope comes
 // from the body; the errors are Caller's, as over MCP.
 //
@@ -67,6 +68,10 @@ func NewRESTCaller(o RESTOptions) *RESTCaller {
 // and the Idempotency-Key header over REST.
 const idempotencyKeyArg = "idempotency_key"
 
+// revisesArg is the argument that names, over MCP, the proposal sent back
+// for changes that a write proposes again; the Revises header over REST.
+const revisesArg = "revises"
+
 // Call makes tool's call at its REST route.
 func (c *RESTCaller) Call(ctx context.Context, tool string, args json.RawMessage) (*Envelope, error) {
 	if c.cat == nil {
@@ -85,10 +90,11 @@ func (c *RESTCaller) Call(ctx context.Context, tool string, args json.RawMessage
 
 // restRequest is one call as REST carries it.
 type restRequest struct {
-	method string
-	path   string // escaped, with the query
-	body   []byte // nil for a GET
-	key    string
+	method  string
+	path    string // escaped, with the query
+	body    []byte // nil for a GET
+	key     string
+	revises string
 }
 
 // field is one top-level argument, as written.
@@ -108,8 +114,9 @@ func buildRequest(t CatalogueTool, args json.RawMessage) (restRequest, error) {
 		return restRequest{}, &ProtocolError{Message: fmt.Sprintf("%s: the arguments: %v", t.MCPName, err)}
 	}
 	var r restRequest
-	// Over MCP, Core takes the key out of a write's arguments; a read's
-	// stays in them, and the schema refuses it. REST does the same.
+	// Over MCP, Core takes the key, and what a call revises, out of a
+	// write's arguments; a read's stay in them, and the schema refuses
+	// them. REST does the same.
 	if t.Kind == KindWrite {
 		if i := indexOf(fields, idempotencyKeyArg); i >= 0 {
 			var key string
@@ -120,6 +127,23 @@ func buildRequest(t CatalogueTool, args json.RawMessage) (restRequest, error) {
 					return restRequest{}, &ProtocolError{Message: t.MCPName + ": the idempotency key cannot be sent in a header as it is"}
 				}
 				r.key = key
+				fields = slices.Delete(fields, i, i+1)
+			}
+		}
+		if i := indexOf(fields, revisesArg); i >= 0 {
+			// null, or a string of blanks, names nothing over MCP, as no
+			// header does over REST. A value that is not a string stays in
+			// the body, which Core refuses, as it refuses it over MCP.
+			var revises *string
+			if json.Unmarshal(fields[i].raw, &revises) == nil {
+				if revises != nil && strings.TrimSpace(*revises) != "" {
+					// Blanks around it would go on the way, as a key's do,
+					// and Core refuses them over MCP.
+					if !validHeaderValue(*revises) || strings.Trim(*revises, " \t") != *revises {
+						return restRequest{}, &ProtocolError{Message: t.MCPName + ": revises cannot be sent in a header as it is"}
+					}
+					r.revises = *revises
+				}
 				fields = slices.Delete(fields, i, i+1)
 			}
 		}
@@ -382,6 +406,9 @@ func (c *RESTCaller) send(ctx context.Context, r restRequest) (*Envelope, error)
 	}
 	if r.key != "" {
 		req.Header.Set("Idempotency-Key", r.key)
+	}
+	if r.revises != "" {
+		req.Header.Set("Revises", r.revises)
 	}
 	resp, err := forCall(ctx, c.client).Do(req)
 	if err != nil {

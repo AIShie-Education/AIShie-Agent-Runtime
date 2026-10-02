@@ -120,6 +120,9 @@ type Proposal struct {
 	IdempotencyKey string
 	// Args are the call's arguments, without the key.
 	Args json.RawMessage
+	// Revises is the proposal sent back for changes that this one revises,
+	// "" for none.
+	Revises string
 }
 
 // Work is a student's submission to a course's assignment, and its posted
@@ -667,7 +670,7 @@ func (c *Core) actAs(m *member, name string, args map[string]any) (json.RawMessa
 	}
 	c.nextKey++
 	key := "fakecore:" + name + ":" + strconv.Itoa(c.nextKey)
-	out := c.invoke(m.actor, c.cat.byName[name], raw, key, c.opts.BaseURL)
+	out := c.invoke(m.actor, c.cat.byName[name], raw, key, "", c.opts.BaseURL)
 	if out.Status != actExecuted {
 		return nil, refused(mcpName(name), out)
 	}
@@ -969,6 +972,15 @@ func (c *Core) Reject(actionID, reason string) error {
 	return err
 }
 
+// RequestChanges sends a proposal back for changes, with a note of what to
+// change, which its proposer reads in the proposal's
+// result.decision.reason (action_list_mine), and proposes again naming it
+// (revises). Nothing of it is carried out.
+func (c *Core) RequestChanges(actionID, note string) error {
+	_, err := c.decideAs("RequestChanges", actionID, decisionRequestChanges, &note)
+	return err
+}
+
 // Review records a person's look at an action that executed pending
 // review, as action.review does: outcome reviewed or escalated. It is done
 // by someone who may: the first seat that decides actions, is not of the
@@ -1018,7 +1030,8 @@ func (c *Core) Proposals(courseID string) []Proposal {
 	var out []Proposal
 	for _, a := range c.actionList {
 		if a.course != nil && a.course.id == courseID && a.status == actProposed {
-			p := Proposal{ActionID: a.id, ActionType: a.actionType, IdempotencyKey: a.key, Args: append(json.RawMessage(nil), a.payload...)}
+			p := Proposal{ActionID: a.id, ActionType: a.actionType, IdempotencyKey: a.key, Args: append(json.RawMessage(nil), a.payload...),
+				Revises: a.revises}
 			if a.member != nil {
 				p.MemberID = a.member.id
 			}

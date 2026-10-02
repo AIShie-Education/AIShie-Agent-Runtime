@@ -421,6 +421,9 @@ type action struct {
 	Status     string          `json:"status"`
 	Payload    json.RawMessage `json:"payload"`
 	Result     json.RawMessage `json:"result"`
+	// RevisesActionID is, on a revision, the proposal sent back for
+	// changes that it revises.
+	RevisesActionID string `json:"revises_action_id"`
 }
 
 // actionsMine are the actions in the course of the agent the runtime rt

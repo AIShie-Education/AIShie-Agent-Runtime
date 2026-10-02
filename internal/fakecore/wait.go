@@ -51,7 +51,7 @@ type waits struct {
 
 // inboxNews is the news that can put a conversation in its respondent's
 // inbox (Core's inboxNews): a message, and a proposed answer decided.
-var inboxNews = []string{"conversation.message_posted", "action.approved", "action.rejected", "action.cancelled"}
+var inboxNews = []string{"conversation.message_posted", "action.approved", "action.rejected", "action.changes_requested", "action.cancelled"}
 
 // waitingTools are the reads that can wait, by registry name.
 var waitingTools = map[string]waits{
@@ -362,7 +362,7 @@ func (c *Core) waitForNews(ctx context.Context, caller *actor, t *toolDef, args 
 		if stop == cancelled {
 			return last
 		}
-		out := c.invoke(caller, t, args, "", base)
+		out := c.invoke(caller, t, args, "", "", base)
 		if out.Status != actExecuted || stop != woken || !wt.Nothing(in, first.Result, out.Result) || !time.Now().Before(until) {
 			return out
 		}

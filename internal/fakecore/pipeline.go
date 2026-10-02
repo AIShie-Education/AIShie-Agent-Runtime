@@ -319,12 +319,17 @@ func hasNUL(v any) bool {
 }
 
 // invoke runs one call as caller, whatever door it came in by. raw is the
-// tool's own arguments (the key taken out); key is the idempotency key.
-// The lock is held.
-func (c *Core) invoke(caller *actor, t *toolDef, raw []byte, key, base string) outcome {
+// tool's own arguments (the key and revises taken out); key is the
+// idempotency key, and revises the proposal the call revises, "" for none
+// (Core's InvokeRevising). The lock is held.
+func (c *Core) invoke(caller *actor, t *toolDef, raw []byte, key, revises, base string) outcome {
 	in, err := t.decodeArgs(raw)
 	if err != nil {
 		return c.failure(err)
+	}
+	if revises != "" && !t.write {
+		// Only a call that is recorded revises anything.
+		return c.failure(invalid("%s is recorded nowhere, so it revises no proposal", t.Name).with("reason", "not_revisable"))
 	}
 	if t.impl == nil {
 		if t.write {
@@ -337,7 +342,7 @@ func (c *Core) invoke(caller *actor, t *toolDef, raw []byte, key, base string) o
 	var out outcome
 	switch {
 	case t.write:
-		out, err = c.invokeWrite(caller, t, in, raw, key)
+		out, err = c.invokeWrite(caller, t, in, raw, key, revises)
 	case t.ephemeral:
 		out, err = c.invokeEphemeral(caller, t, in)
 	default:
@@ -586,10 +591,10 @@ func storedError(result json.RawMessage) *apiError {
 }
 
 // invokeWrite is Core's pipeline for a write: the key checked, a replay
-// answered from the stored outcome, then authorization, the action row
-// written before anything happens (denials included), a proposal pinned,
-// or the tool executed.
-func (c *Core) invokeWrite(caller *actor, t *toolDef, in any, raw []byte, key string) (outcome, error) {
+// answered from the stored outcome, then authorization and the proposal it
+// revises, if it names one, the action row written before anything happens
+// (denials included), a proposal pinned, or the tool executed.
+func (c *Core) invokeWrite(caller *actor, t *toolDef, in any, raw []byte, key, revises string) (outcome, error) {
 	if err := checkKey(t, key); err != nil {
 		return outcome{}, err
 	}
@@ -599,12 +604,17 @@ func (c *Core) invokeWrite(caller *actor, t *toolDef, in any, raw []byte, key st
 	}
 	hash := payloadHash(t.Name, canonical)
 	if existing := c.keys[actorKey{caller.id, key}]; existing != nil {
-		return replay(existing, hash)
+		return replay(existing, hash, revises)
 	}
 
 	a, err := c.authorize(t, in, caller, nil)
 	if err != nil {
 		return outcome{}, err
+	}
+	if revises != "" {
+		if err := c.revisable(caller, a.course, revises); err != nil {
+			return outcome{}, err
+		}
 	}
 	lvl := a.decision.level
 	status := initialStatus(lvl)
@@ -642,7 +652,7 @@ func (c *Core) invokeWrite(caller *actor, t *toolDef, in any, raw []byte, key st
 	act := &action{
 		id: newID(), actor: caller, member: a.decision.member, course: a.course, actionType: t.Name,
 		targetType: a.target.typ, targetID: a.target.id, payload: canonical, hash: hash, key: key,
-		authz: lvl, status: status, reviewState: reviewNone, createdAt: now,
+		authz: lvl, status: status, reviewState: reviewNone, createdAt: now, revises: revises,
 	}
 	if failure != nil {
 		act.result = errorResult(failure)
@@ -656,6 +666,9 @@ func (c *Core) invokeWrite(caller *actor, t *toolDef, in any, raw []byte, key st
 	case actProposed:
 		id := act.id
 		payload := map[string]any{"action_type": t.Name, "target_type": act.targetType, "target_id": act.targetID}
+		if revises != "" {
+			payload["revises_action_id"] = revises
+		}
 		c.flush([]*event{{typ: "action.proposed", course: a.course, actionID: &id, subjectType: "action", subjectID: &id,
 			payload: mustJSON(payload)}})
 		return out, nil
@@ -709,10 +722,29 @@ func checkKey(t *toolDef, key string) error {
 	return nil
 }
 
+// revisable says why actor may not revise proposal id in course co, or nil
+// when they may (Core's revisable): it is their own, in the same course,
+// and its decider sent it back for changes. Any other action, of the
+// course's or of none, is no proposal of theirs to revise; one of theirs
+// still waiting, or decided otherwise, is not one sent back.
+func (c *Core) revisable(act *actor, co *course, id string) error {
+	prop := c.actions[id]
+	if co == nil || prop == nil || prop.course != co || prop.actor != act {
+		return invalid("revises names no proposal of yours in this course").with("reason", "not_revisable")
+	}
+	if prop.status != actChangesRequested {
+		return precondition("the proposal it revises is %s: only one sent back for changes is revised", prop.status).
+			with("reason", "not_revisable")
+	}
+	return nil
+}
+
 // replay answers a call whose key was used before: the stored outcome as it
-// stands now, or a conflict if the arguments differ.
-func replay(a *action, hash string) (outcome, error) {
-	if a.hash != hash {
+// stands now, or a conflict if the arguments differ, or if it revises
+// another proposal than the first did, or one where the first revised none,
+// or none where the first did.
+func replay(a *action, hash, revises string) (outcome, error) {
+	if a.hash != hash || a.revises != revises {
 		return outcome{}, newErr(codeIdempotencyConflict,
 			"this idempotency key was already used for a different %s call; use a new key for a new request", a.actionType).
 			with("action_id", a.id)

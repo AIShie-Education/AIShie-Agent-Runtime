@@ -586,13 +586,15 @@ func keys(attempt, maxWrites int) *Writes {
 
 func createDoc(id, title string) llm.Part {
 	return call(id, "document_create", `{"kind":"material","title":"`+title+`","body_md":"# `+title+`","idempotency_key":"the-models-own",`+
+		`"revises":"0192f3c1-0000-7000-8000-00000000abcd",`+
 		`"course_id":"0192f3c1-0000-7000-8000-000000000000","grade_id":null,"submission_id":null,"sort_order":null,"upload_token":null}`)
 }
 
 // TestRunWrites: a write is bound to the conversation's course and to the
-// runtime's key, whatever the model wrote; Core's envelope comes back as
-// it is, a proposal not as an error; and what came of it is recorded, ids
-// and codes alone.
+// runtime's key, whatever the model wrote, and revises no proposal,
+// though the model named one; Core's envelope comes back as it is, a
+// proposal not as an error; and what came of it is recorded, ids and
+// codes alone.
 func TestRunWrites(t *testing.T) {
 	f := &fakeCore{respond: func(_ context.Context, tool string, args json.RawMessage) (*core.Envelope, error) {
 		var a struct {
@@ -648,6 +650,9 @@ func TestRunWrites(t *testing.T) {
 		if c.tool != "document_create" || c.args["course_id"] != courseID || c.args["idempotency_key"] != title || c.priority != core.PriorityAnswer {
 			t.Errorf("Core was called with %s %v at %v; want the conversation's course and the key %s", c.tool, c.args, c.priority, title)
 		}
+		if _, has := c.args["revises"]; has {
+			t.Errorf("the proposal the model named in revises reached Core: %v", c.args)
+		}
 		if _, has := c.args["sort_order"]; has {
 			t.Error("sort_order: null, which Core refuses, reached Core")
 		}
@@ -664,6 +669,59 @@ func TestRunWrites(t *testing.T) {
 	}
 	if fmt.Sprint(w.Records) != fmt.Sprint(want) || w.Sent() != 4 || len(w.Refused) != 0 {
 		t.Errorf("records %+v, sent %d, refused %v\nwant    %+v", w.Records, w.Sent(), w.Refused, want)
+	}
+}
+
+// TestRevisesIsNeverTheModels: a schema that offers revises beside a
+// write's own arguments, as Core's tools/list does over MCP, is shown to
+// the model without it, under every dialect; and a write the model makes
+// names no proposal it revises, though the model named one and the schema
+// has a place for it. The runtime names what its own answers revise, and
+// nothing a model writes.
+func TestRevisesIsNeverTheModels(t *testing.T) {
+	cat := snapshot(t)
+	tool := cat.Tools["document_create"]
+	var schema map[string]any
+	if err := json.Unmarshal(tool.InputSchema, &schema); err != nil {
+		t.Fatal(err)
+	}
+	schema["properties"].(map[string]any)["revises"] = map[string]any{"type": "string", "format": "uuid",
+		"description": "Only when this call proposes again what a person sent back for changes: the action_id of your proposal."}
+	raw, err := json.Marshal(schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool.InputSchema = raw
+	cat.Tools["document_create"], cat.Hash = tool, "with-revises"
+	var s *Set
+	for _, d := range toolschema.Dialects {
+		if s, err = cat.Build(ownerPerms, config.Tools{Writes: true}, ReadWrite, d, nil); err != nil {
+			t.Fatal(err)
+		}
+		for _, decl := range s.Declarations() {
+			if decl.Name == "document_create" && strings.Contains(string(decl.Schema), "revises") {
+				t.Errorf("%s: document_create is shown with revises: %s", d, decl.Schema)
+			}
+		}
+	}
+	f := &fakeCore{respond: func(context.Context, string, json.RawMessage) (*core.Envelope, error) {
+		return &core.Envelope{Status: core.StatusProposed, ActionID: "a-1", ReviewState: "none"}, nil
+	}}
+	r := runner(f)
+	r.Writes = keys(2, 10)
+	parts, err := s.Run(context.Background(), r, courseID, []llm.Part{createDoc("c1", "Revised")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parts[0].IsError {
+		t.Fatalf("the write was refused: %s", parts[0].Content)
+	}
+	calls := f.recorded()
+	if len(calls) != 1 {
+		t.Fatalf("%d calls to Core, want 1", len(calls))
+	}
+	if _, has := calls[0].args["revises"]; has || calls[0].args["idempotency_key"] != core.ToolKey("x", "m", 2, 1) {
+		t.Errorf("Core was called with %v; want the runtime's key, and no revises", calls[0].args)
 	}
 }
 

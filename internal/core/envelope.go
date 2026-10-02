@@ -17,10 +17,12 @@ const (
 	StatusProposed Status = "proposed"
 	StatusDenied   Status = "denied"
 	StatusFailed   Status = "failed"
-	// StatusRejected and StatusCancelled come only on the replay of an old
-	// proposal.
-	StatusRejected  Status = "rejected"
-	StatusCancelled Status = "cancelled"
+	// StatusRejected, StatusChangesRequested and StatusCancelled come only
+	// on the replay of an old proposal: rejected, sent back for changes
+	// (AIShie-Core #68), or expired or withdrawn.
+	StatusRejected         Status = "rejected"
+	StatusChangesRequested Status = "changes_requested"
+	StatusCancelled        Status = "cancelled"
 	// StatusError is a call never attempted: bad arguments, no such tool or
 	// target, a reused key, a fault of Core's. Nothing was recorded.
 	StatusError Status = "error"
@@ -47,6 +49,11 @@ const (
 	ReasonAnswerPending   = "answer_pending"
 	ReasonClosed          = "closed"
 	ReasonNotAddressable  = "not_addressable"
+	// ReasonNotRevisable refuses a write that names in revises what is
+	// not the caller's own proposal in the course sent back for changes
+	// (§2.2): invalid_argument, or failed_precondition when it is theirs
+	// but was decided otherwise or still waits. Nothing was recorded.
+	ReasonNotRevisable = "not_revisable"
 )
 
 // Review states. executed with pending is done, and a person looks at it

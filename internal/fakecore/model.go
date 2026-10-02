@@ -344,6 +344,9 @@ type action struct {
 	reviewedAt  *time.Time
 	executedAt  *time.Time
 	createdAt   time.Time
+	// revises is the proposal sent back for changes this one revises
+	// (revises_action_id), "" for none.
+	revises string
 }
 
 // event is one entry of a course's feed.
@@ -367,4 +370,7 @@ const (
 	actRejected  = "rejected"
 	actCancelled = "cancelled"
 	actApproved  = "approved"
+	// actChangesRequested is a proposal sent back for changes: over, as a
+	// rejected one is, for its proposer to propose again naming it.
+	actChangesRequested = "changes_requested"
 )

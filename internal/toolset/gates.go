@@ -346,9 +346,10 @@ func gateOf(name string) (Gate, string, bool) {
 }
 
 // Bound are the arguments the runtime sets and the model never sees: the
-// course is always the conversation's, and keys are the runtime's (§2.2,
-// §3.8 step 1).
-var Bound = []string{"course_id", "idempotency_key"}
+// course is always the conversation's, keys are the runtime's, and so is
+// what a write revises, which the runtime names for its own answers alone
+// and never for a model's write (§2.2, §3.8 step 1).
+var Bound = []string{"course_id", "idempotency_key", "revises"}
 
 // Kinds of tool, as the catalogue names them.
 const (

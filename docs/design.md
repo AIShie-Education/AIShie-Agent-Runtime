@@ -503,8 +503,9 @@ by `Run`; each entry has its reason beside it in the code:
 
 `deny` entries ending in `*` cover every tool they begin. The model sees
 each tool through `toolschema`: bound arguments removed (`course_id`,
-`idempotency_key`), the common transform, the adapter's dialect; cached per
-catalogue hash and dialect.
+`idempotency_key`, and `revises`, which Core's tools take over MCP), the
+common transform, the adapter's dialect; cached per catalogue hash and
+dialect.
 
 Running a call (`toolset.Set.Run`): the name must be offered, and not on the
 built-in list; a write needs the answer's account of its writes; the
@@ -517,7 +518,9 @@ before any is sent. A write is then bound to its key,
 `tool:{conversation}:{message}:{attempt}:{n}` (`core.ToolKey`), n its number
 among the writes the answer sent, from 1 in the order the model made them;
 a key longer than Core's 200 characters is `tool:` and the sha256 of it.
-Whatever key the model wrote goes. The same attempt tried again (its model
+Whatever key the model wrote goes, and so does any proposal it named in
+`revises`: a model's write revises nothing, the runtime naming what its
+own answers revise (§5.3). The same attempt tried again (its model
 or its worker failed before it posted) numbers its writes the same, and Core
 replays what it did the first time; a new attempt's keys are new, and its
 prompt remembers what the earlier one did (§6). A write the answer has
@@ -1476,7 +1479,8 @@ Per seat (§7.2):
   step 7), for a retraction of its question, which stops it (§5.3, A
   question withdrawn). The background read every `events_s` stays at
   45 s: the inbox's long poll sees the decisions that put a question back
-  (rejected, cancelled, failed), but only the feed tells a proposal
+  (rejected, sent back for changes, cancelled, failed), but only the feed
+  tells a proposal
   approved and posted after the window, and a message retracted, whose
   memory is to be forgotten promptly (§6.3). The cursor
   (`next_seq`) is kept in the store per seat, and moves past a page only
@@ -1598,6 +1602,15 @@ For an inbox row (conversation X, question M, opener P):
 9. **Post**, written ahead: the attempt is stored (`sending`, the exact
    bytes) before `conversation_answer`, and finished with what came back.
    The bytes name what the answer relied on (`sources`, below).
+   An attempt after one a person sent back for changes (AIShie-Core #68)
+   names that proposal in `revises` (the `Revises` header over REST), so
+   that whoever decides it sees what it revises: the newest attempt at M
+   sent back, so that a revision sent back is revised in turn, and the
+   chain runs back to the first (`worker.revised`). What it revises is
+   part of the bytes written ahead, and of the call under its key. Core
+   refusing it (`not_revisable`, nothing recorded: a proposal its
+   rollback made a rejection, say) has the next attempt answer anew,
+   naming none, with the sources of what that attempt reads.
 10. **Outcome** (§2.4, `worker.Classify`):
 
 | Envelope | Done |
@@ -1615,6 +1628,8 @@ For an inbox row (conversation X, question M, opener P):
 | `error not_found` | drop it |
 | replayed | treated as its stored status |
 | replayed `rejected`, `cancelled` | next attempt, with the reason in the prompt |
+| replayed `changes_requested` (409 over REST) | settled `changes_requested` with what to change; next attempt, told it plainly, naming the proposal in `revises` |
+| `error invalid_argument` or `failed_precondition`, `not_revisable` | nothing recorded; next attempt at once, naming nothing it revises |
 
 11. **Ledger**: a row per model call and one per answer, with the writes
     the model made counted by what Core said of them; metrics; release the
@@ -1881,7 +1896,9 @@ keep, and keeps to what it knows.
   was read. The call is recorded as failed and its key spent, so the
   runtime posts the same answer again at once, without that source, under
   the next attempt's number, written ahead as any attempt is, each time
-  one fewer; the model is not asked again. An answer whose every source is
+  one fewer; the model is not asked again. Only `sources` and the key
+  change: a revision posted again still names, in `revises`, the proposal
+  it revises (step 9). An answer whose every source is
   refused is posted saying nothing of them: it did rely on materials it
   can no longer name. Core's refusals of the sources as it reads them (too
   many, one named twice), which the runtime should never meet, post the
@@ -1910,6 +1927,21 @@ The events poller reads `event_list` from the seat's cursor:
 - `action.rejected`: settled as rejected; the reason is read from
   `action_list_mine` (the proposal's `result.decision.reason`, paged from the
   seat's `actions` cursor) into X's memory, for the next attempt's prompt.
+- `action.changes_requested` (AIShie-Core #68): a person sent the answer
+  back for changes. Settled as `changes_requested`, with what they asked,
+  read from `action_list_mine` as a rejection's reason is, kept on the
+  attempt and in X's memory. The conversation is back in the inbox, and
+  the next attempt is told plainly that the answer was sent back and what
+  to change, from the attempt it revises whether or not memory keeps it,
+  and names that proposal in `revises` (§5.3). A revision is sent back
+  and revised in turn; `max_attempts` bounds them as it bounds any
+  attempts. A revision rejected overrules what was asked: the attempt
+  after names the same proposal, but is not told to make the changes,
+  and memory, when on, notes the request and the rejection in turn
+  (`worker.standing`); one that failed, or expired undecided, leaves the
+  request standing, told as made of an earlier answer. A runtime from
+  before this never settled one, and left the conversation unanswered
+  until its opener wrote again.
 - `action.cancelled`: settled as cancelled, `payload.reason` noted.
 - `conversation.message_retracted`: the answer being written to that
   message, the opener's question withdrawn, stops (§5.3); notes about it
@@ -1930,7 +1962,8 @@ read too soon would be passed over for good, and the attempt left
 `action_list_mine` is also read at start for proposals the store still has
 as `proposed`, so that a decision made while the runtime was down is found,
 and attempts left `sending` are sent again; a replay that comes back
-`rejected` is settled with its reason, as the events path does. The
+`rejected`, or `changes_requested`, is settled with its reason, or what to
+change, as the events path does. The
 `actions` cursor moves only over settled actions, stopping before the first
 proposal still waiting; a lookup reads at most 50 pages of 200.
 
@@ -1992,7 +2025,11 @@ prompt says:
   instructions, and that `attachment_get` reads more of them, or, where it
   is not offered, that the model cannot read more than it is given;
 - the answer's language (`answer_language`);
-- the memory of this conversation: rejection reasons, retracted answers,
+- for an answer written again because a person sent one back for changes,
+  and has decided none since, that they did and what they asked, plainly,
+  in a section of its own (`prompt.Input.Revising`);
+- the memory of this conversation: rejection reasons, what was asked of
+  answers sent back for changes, retracted answers,
   and the changes it made here (a write Core executed or proposed: its tool,
   status, action and the ids it made, never its arguments), not to be made
   again unless it is asked anew.
@@ -2002,9 +2039,10 @@ The prompt's hash is kept per answer.
 ## 7. Safety
 
 - The model writes only the body. The runtime sets `course_id`,
-  `conversation_id`, `in_reply_to_message_id` and the key; for a tool call it
-  sets `course_id` to the conversation's course, and for a write its
-  `idempotency_key` (§4): a model never chooses a key.
+  `conversation_id`, `in_reply_to_message_id`, the key, and the proposal an
+  answer revises; for a tool call it sets `course_id` to the conversation's
+  course, and for a write its `idempotency_key` (§4), and takes out any
+  `revises`: a model never chooses a key, nor what it revises.
 - The worker answering X has no conversation tool; the runtime reads X
   itself; memory is per conversation. The toolset is the seat's perms', less
   the built-in deny list at every stage (§4), with no rule of the runtime's
@@ -2067,7 +2105,7 @@ The prompt's hash is kept per answer.
 | Table | Holds |
 |---|---|
 | `lease` | name, holder, expires_at |
-| `attempt` | (agent, key) → the exact bytes, state, action id, posted message id |
+| `attempt` | (agent, key) → the exact bytes, state (`sending`, `executed`, `proposed`, `failed`, `denied`, `error`, `rejected`, `cancelled`, `changes_requested` since 0015), action id, posted message id, error code, reason |
 | `cursor` | (agent, member, kind) → value |
 | `note` | (agent, member, conversation) → kind, text, message id |
 | `seat` | (agent, member) → course, seen_at, gone_at, and the seat as `me_memberships` last showed it: course code, title and section, status, `answers_course`, principal, perms |
@@ -2161,7 +2199,8 @@ Chinese with a table, overran, and was cut off.
 
 - `fakecore`: the MCP surface and envelope of Core, scriptable: questions,
   follow-ups written during generation, levels changed, seats paused or
-  removed, proposals approved, rejected or expired, retractions, 429s and
+  removed, proposals approved, rejected, sent back for changes or expired,
+  and revisions naming them (`revises`, the `Revises` header), retractions, 429s and
   401s; reads that wait for news (`wait_s`), woken by the news Core's
   filters let through, within Core's bounds on calls waiting, and a Core
   from before them (`WithoutWait`); the drafts of answers
@@ -2325,6 +2364,12 @@ Chinese with a table, overran, and was cut off.
   answer posted at once under the next attempt, saying nothing of its
   sources once none is left; a Core from before them is sent none, and
   one behind a newer catalogue has the answer posted again without them.
+  A revision of an answer sent back for changes names its own sources
+  and the proposal it revises in one call, both written ahead, over MCP
+  and over REST; one whose source Core refuses is posted again without
+  it, still naming what it revises; and the attempt after Core refuses
+  what one names (`not_revisable`) is written anew, naming none, with
+  the sources of what it read.
   The fake Core checks them as Core does
   (`sources`, recorded from the pinned Core: refused as read, refused
   before anything is posted and recorded failed, posted, an empty list and
@@ -2668,7 +2713,9 @@ Chinese with a table, overran, and was cut off.
   workers that share no store are given the one token); a seat set to
   `denied` stops polling and answers again
   when restored; a proposal approved is recorded, and a rejection's reason
-  reaches the next attempt; no token or key in any log, before or after
+  reaches the next attempt; an answer Mori sends back for changes with a
+  note is revised, told the note, and proposed naming it, then sent back
+  and revised in turn, and approved; no token or key in any log, before or after
   redaction; the binary's `catalogue --check` and `check --live`; and
   writes: Sato asks his own agent, which holds `document_write`, to create a
   document, which at `confirm_required` is proposed, as the answer says, and

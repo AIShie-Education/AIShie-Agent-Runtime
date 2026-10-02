@@ -578,6 +578,53 @@ func TestLedgerMigratesTheCallsBefore(t *testing.T) {
 // The release before reads every row that holds a token on it, an issued
 // token's among them; and 0013's down deletes the rows that hold none,
 // which only this release writes, and forgets the operator's tokens.
+// An attempt sent back for changes is one the release before reads as
+// posting nothing; 0015's down makes it one rejected, with what was asked
+// as its reason, and the old constraint holds again.
+func TestChangesRequestedMigratesBack(t *testing.T) {
+	u := freshDatabase(t)
+	ctx := t.Context()
+	if err := Migrate(u, Up); err != nil {
+		t.Fatal(err)
+	}
+	s := openOn(t, u)
+	a := store.Attempt{Key: "answer:x1:q1:1", AgentID: "a1", MemberID: "m1", CourseID: "c1", ConversationID: "x1", MessageID: "q1",
+		No: 1, Tool: "conversation_answer", Args: []byte(`{"body":"b"}`), Kind: "model"}
+	if _, err := s.PutAttempt(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.FinishAttempt(ctx, "a1", a.Key, store.Outcome{State: store.AttemptChangesRequested, ActionID: "act-1", Reason: "Cite it."}); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+	m, err := newMigrator(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Migrate(14); err != nil {
+		t.Fatalf("0015 down: %v", err)
+	}
+	if _, err := m.Close(); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := pgx.Connect(ctx, u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(context.Background()) }()
+	var state, action, reason string
+	if err := conn.QueryRow(ctx, `SELECT state, action_id, reason FROM attempt WHERE key = $1`, a.Key).Scan(&state, &action, &reason); err != nil ||
+		state != "rejected" || action != "act-1" || reason != "Cite it." {
+		t.Fatalf("after the down: %s %s %q, %v; want rejected act-1 with its reason", state, action, reason, err)
+	}
+	if _, err := conn.Exec(ctx, `UPDATE attempt SET state = 'changes_requested' WHERE key = $1`, a.Key); err == nil {
+		t.Error("the release before's schema took an attempt in changes_requested")
+	}
+	if err := Migrate(u, Up); err != nil {
+		t.Fatalf("up again: %v", err)
+	}
+}
+
 func TestHostingByIDMigratesTheRowsBefore(t *testing.T) {
 	u := freshDatabase(t)
 	ctx := t.Context()

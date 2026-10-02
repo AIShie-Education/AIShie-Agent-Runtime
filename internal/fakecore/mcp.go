@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -155,13 +156,13 @@ func (c *Core) toolHandler(t *toolDef) mcp.ToolHandler {
 			return nil, errors.New("no authenticated caller")
 		}
 		raw := req.Params.Arguments
-		args, key, err := splitKey(raw, t.write)
+		args, key, revises, err := splitKey(raw, t.write)
 		var out outcome
 		if err != nil {
 			out = errorOutcome(invalid("%v", err))
 			c.logCall(Call{ActorID: req.Extra.TokenInfo.UserID, Transport: "mcp", Tool: t.mcpName, Args: raw, IdempotencyKey: key}, out, http.StatusOK)
 		} else {
-			out = c.serve(requestOf(ctx), req.Extra.TokenInfo.UserID, "mcp", t, raw, args, key, req.Extra.Header.Get(baseHeader))
+			out = c.serve(requestOf(ctx), req.Extra.TokenInfo.UserID, "mcp", t, raw, args, key, revises, req.Extra.Header.Get(baseHeader))
 		}
 		env := envelope{outcome: out}
 		if out.Status == actProposed {
@@ -174,7 +175,9 @@ func (c *Core) toolHandler(t *toolDef) mcp.ToolHandler {
 // serve runs one call that reached a tool, from either door: the hook
 // first, outside the lock, then the pipeline, then the log. ctx is the HTTP
 // request's: a call that waits for news stops waiting when it ends.
-func (c *Core) serve(ctx context.Context, actorID, transport string, t *toolDef, sent, args []byte, key, base string) outcome {
+// revises is the proposal the call names as the one it revises, "" for
+// none.
+func (c *Core) serve(ctx context.Context, actorID, transport string, t *toolDef, sent, args []byte, key, revises, base string) outcome {
 	c.hooks.RLock()
 	hook := c.onCall
 	c.hooks.RUnlock()
@@ -191,11 +194,14 @@ func (c *Core) serve(ctx context.Context, actorID, transport string, t *toolDef,
 		out = errorOutcome(newErr(codeUnauthenticated, "actor %s does not exist", actorID))
 	case serviceRefusal(caller, t) != nil:
 		out = outcome{Status: actDenied, Error: serviceRefusal(caller, t)}
+	case t.restOnly && revises != "":
+		// A service's call is in no course: it revises no proposal.
+		out = errorOutcome(invalid("revises names no proposal of yours in this course").with("reason", "not_revisable"))
 	case t.restOnly:
 		again := func() outcome { return c.invokeService(caller, cred, t, args, key, base) }
 		out = c.waitForQueue(ctx, t, args, again(), again)
 	default:
-		out = c.waitForNews(ctx, caller, t, args, base, c.invoke(caller, t, args, key, base))
+		out = c.waitForNews(ctx, caller, t, args, base, c.invoke(caller, t, args, key, revises, base))
 	}
 	if t.ephemeral && out.Status == actExecuted {
 		// Carried out, an ephemeral write is not what the limit counts: it
@@ -203,7 +209,7 @@ func (c *Core) serve(ctx context.Context, actorID, transport string, t *toolDef,
 		c.limiter.refund(actorID)
 	}
 	c.calls = append(c.calls, Call{ActorID: actorID, Transport: transport, Tool: t.mcpName, Args: append(json.RawMessage(nil), sent...),
-		IdempotencyKey: key, Status: out.Status, Code: codeOf(out), ActionID: out.ActionID, Replayed: out.Replayed,
+		IdempotencyKey: key, Revises: revises, Status: out.Status, Code: codeOf(out), ActionID: out.ActionID, Replayed: out.Replayed,
 		HTTPStatus: httpStatusOf(transport, out), At: c.now()})
 	return out
 }
@@ -222,31 +228,47 @@ func httpStatusOf(transport string, out outcome) int {
 	return outcomeStatus(out)
 }
 
-// splitKey takes the idempotency key out of a write's arguments, which then
-// match the tool's own schema exactly as a REST body would.
-func splitKey(raw json.RawMessage, write bool) ([]byte, string, error) {
+// splitKey takes the idempotency key, and the proposal the call revises if
+// it names one, out of a write's arguments, which then match the tool's own
+// schema exactly as a REST body would.
+func splitKey(raw json.RawMessage, write bool) ([]byte, string, string, error) {
 	if trimmed := bytes.TrimSpace(raw); len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 		raw = json.RawMessage("{}")
 	}
 	if !write {
-		return raw, "", nil
+		return raw, "", "", nil
 	}
 	if err := jsonstrict.Check(raw); err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 	var args map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &args); err != nil {
-		return nil, "", errors.New("arguments must be a JSON object")
+		return nil, "", "", errors.New("arguments must be a JSON object")
 	}
 	var key string
 	if k, ok := args[idempotencyKey]; ok {
 		if err := json.Unmarshal(k, &key); err != nil {
-			return nil, "", fmt.Errorf("%s must be a string", idempotencyKey)
+			return nil, "", "", fmt.Errorf("%s must be a string", idempotencyKey)
 		}
 		delete(args, idempotencyKey)
 	}
+	var revises string
+	if r, ok := args[revisesArg]; ok {
+		// null or an empty string is leaving it out, as a model may write
+		// it, and as an empty Revises header is over REST.
+		var blank string
+		if !bytes.Equal(bytes.TrimSpace(r), []byte("null")) &&
+			(json.Unmarshal(r, &blank) != nil || strings.TrimSpace(blank) != "") {
+			var id uuid.UUID
+			if err := json.Unmarshal(r, &id); err != nil {
+				return nil, "", "", fmt.Errorf("%s must be the action_id of the proposal the call revises", revisesArg)
+			}
+			revises = id.String()
+		}
+		delete(args, revisesArg)
+	}
 	rest, err := json.Marshal(args)
-	return rest, key, err
+	return rest, key, revises, err
 }
 
 // result carries the envelope twice, as the protocol asks: structured, and

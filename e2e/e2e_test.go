@@ -25,6 +25,7 @@ var scenarios = []scenario{
 	{"duplicates", duplicates},
 	{"denied", denied},
 	{"proposals", proposals},
+	{"changes-requested", changesRequested},
 	{"owner-writes", ownerWrites},
 	{"member-writes", memberWrites},
 	{"binary", theBinary},

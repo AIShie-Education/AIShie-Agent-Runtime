@@ -39,8 +39,9 @@ type CatalogueTool struct {
 	// /v1/courses/{course_id}/conversations/{conversation_id}/answer.
 	Method string `json:"method"`
 	Path   string `json:"path"`
-	// InputSchema is the tool's own, without idempotency_key, which a write
-	// takes beside it (in the Idempotency-Key header over REST).
+	// InputSchema is the tool's own, without idempotency_key and revises,
+	// which a write takes beside it (in the Idempotency-Key and Revises
+	// headers over REST).
 	InputSchema json.RawMessage `json:"input_schema"`
 	// OutputSchema is the result's, inside the envelope.
 	OutputSchema json.RawMessage `json:"output_schema"`

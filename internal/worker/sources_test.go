@@ -241,3 +241,122 @@ func TestAnOlderCoreIsSentNoSources(t *testing.T) {
 		})
 	}
 }
+
+// sentSources is what an answer's arguments, as written ahead or as the
+// fake keeps a proposal's, say it relied on, as sourcesOf names it.
+func sentSources(t *testing.T, args json.RawMessage) string {
+	t.Helper()
+	var a struct {
+		Sources *[]core.Source `json:"sources"`
+	}
+	if err := json.Unmarshal(args, &a); err != nil {
+		t.Fatal(err)
+	}
+	m := fakecore.MessageRecord{SourcesStated: a.Sources != nil}
+	if a.Sources != nil {
+		for _, s := range *a.Sources {
+			m.Sources = append(m.Sources, fakecore.SourceRecord{DocumentID: s.DocumentID, VersionID: s.VersionID, FileID: s.FileID,
+				Page: s.Page, Slide: s.Slide, Part: s.Part})
+		}
+	}
+	return sourcesOf(m)
+}
+
+// A revision says what it relied on, and what it revises, in one call: the
+// answer a person sent back for changes named the syllabus it read; the
+// revision names the instructions and the syllabus it read in its own
+// loop, and the proposal it revises (revises over MCP, the Revises header
+// over REST), both in the bytes written ahead. A source of the revision
+// Core refuses (the HW1 instructions, withheld as HW1 is unpublished while
+// it is written) is dropped, and the revision posted again at once under
+// the next attempt's key, still naming the proposal it revises, the model
+// not asked again. Approved, the revision is posted with its sources.
+func TestARevisionSaysWhatItReliedOn(t *testing.T) {
+	for _, c := range []struct {
+		name, transport string
+		withheld        bool
+	}{
+		{"over MCP", "mcp", false},
+		{"over REST", "rest", false},
+		{"a source refused, over MCP", "mcp", true},
+		{"a source refused, over REST", "rest", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			w := newWorld(t)
+			syllabus, instructions := w.source(w.co.SyllabusID), w.source(w.co.InstructionsID)
+			const note = "Say what HW1 asks, not only where it is."
+			const body = "HW1 is three questions on chapter 1; show your working."
+			revision := scripted.Reply(body)
+			if c.withheld {
+				revision = revision.Then(func(*llm.Request) { w.ok(w.fc.UnpublishAssignment(w.co.ID, w.co.AssignmentID)) })
+			}
+			model := scripted.New(
+				scripted.CallTools(getDoc(w.co.SyllabusID)), scripted.Reply("HW1 is in chapter 1."),
+				scripted.CallTools(getDoc(w.co.InstructionsID), getDoc(w.co.SyllabusID)), revision,
+			)
+			tu, wk := confirmedTutor(t, w, model, map[string]any{"core": map[string]any{"transport": c.transport}})
+			conv, msg := w.ask(0, tu, "What is HW1?")
+			k1 := core.AnswerKey(conv, msg, 1)
+			p1 := w.waitProposal(k1)
+			if got := sentSources(t, p1.Args); got != syllabus {
+				t.Errorf("the first answer relied on %s; want %s", got, syllabus)
+			}
+			wk.waitAttempt("cs101-tutor", k1, store.AttemptProposed)
+			w.ok(w.fc.RequestChanges(p1.ActionID, note))
+
+			n, want := 2, instructions+", "+syllabus
+			if c.withheld {
+				n, want = 3, syllabus
+			}
+			key := core.AnswerKey(conv, msg, n)
+			p := w.waitProposal(key)
+			if got := sentSources(t, p.Args); p.Revises != p1.ActionID || got != want {
+				t.Errorf("the revision under %s revises %q, relying on %s; want %s, relying on %s", key, p.Revises, got, p1.ActionID, want)
+			}
+			at := wk.waitAttempt("cs101-tutor", key, store.AttemptProposed)
+			var ahead core.AnswerArgs
+			w.ok(json.Unmarshal(at.Args, &ahead))
+			if got := sentSources(t, at.Args); ahead.Revises != p1.ActionID || ahead.IdempotencyKey != key || got != want || ahead.Body != body {
+				t.Errorf("the revision written ahead: %s", at.Args)
+			}
+			if c.withheld {
+				k2 := core.AnswerKey(conv, msg, 2)
+				refused, err := wk.st.Attempt(context.Background(), "cs101-tutor", k2)
+				w.ok(err)
+				if refused.State != store.AttemptFailed || refused.Reason != reasonSourceUnreadable ||
+					!strings.Contains(string(refused.Args), `"revises":"`+p1.ActionID+`"`) || sentSources(t, refused.Args) != instructions+", "+syllabus {
+					t.Errorf("the revision Core refused for its source: %+v, %s", refused, refused.Args)
+				}
+			}
+			sent := map[string]int{}
+			for _, call := range w.calls(tu.actor.ID, toolAnswer) {
+				sent[call.IdempotencyKey]++
+				if call.IdempotencyKey == k1 {
+					continue
+				}
+				if call.Revises != p1.ActionID || call.Transport != c.transport || !strings.Contains(string(call.Args), `"sources":[{`) {
+					t.Errorf("a revision was sent as %+v: %s", call, call.Args)
+				}
+			}
+			if len(sent) != n || sent[k1] != 1 || sent[key] != 1 {
+				t.Errorf("answers sent %v; want each of %d attempts once", sent, n)
+			}
+
+			outcome, err := w.fc.Approve(p.ActionID)
+			w.ok(err)
+			if outcome != "executed" {
+				t.Fatalf("approval: %s", outcome)
+			}
+			if a := w.waitAnswers(conv, 1)[0]; a.Body != body || sourcesOf(a) != want {
+				t.Errorf("the revision posted: %q, relying on %s; want %s", a.Body, sourcesOf(a), want)
+			}
+			reqs := model.Requests()
+			if len(reqs) != 4 || !strings.Contains(reqs[2].System, revisionSaid(note)) {
+				t.Errorf("%d model calls; want 4, the revision told what to change", len(reqs))
+			}
+			if err := model.Err(); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}

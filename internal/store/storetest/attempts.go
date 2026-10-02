@@ -162,6 +162,23 @@ func testAttempts(t *testing.T, open Opener) {
 		sameAttempt(t, got, b)
 	})
 
+	t.Run("sent back for changes: settled, with its action and what to change", func(t *testing.T) {
+		s := open(t)
+		a := answer("a1", "m1", "x1", "q1", 1, base)
+		put(t, s, a)
+		finish(t, s, "a1", a.Key, store.Outcome{State: store.AttemptProposed, ActionID: "act-1"})
+		finish(t, s, "a1", a.Key, store.Outcome{State: store.AttemptChangesRequested, ActionID: "act-1", Reason: "Cite the syllabus."})
+		got := get(t, s, "a1", a.Key)
+		a.State, a.ActionID, a.Reason, a.UpdatedAt = store.AttemptChangesRequested, "act-1", "Cite the syllabus.", got.UpdatedAt
+		sameAttempt(t, got, a)
+		if !got.State.Settled() || got.State.Posted() {
+			t.Errorf("an attempt sent back for changes: settled %v, posted %v; want settled, not posted", got.State.Settled(), got.State.Posted())
+		}
+		if un, err := s.Unsettled(t.Context(), "a1", "m1"); err != nil || len(un) != 0 {
+			t.Errorf("Unsettled = %v, %v; want none", keys(un), err)
+		}
+	})
+
 	t.Run("finishing an unknown key is ErrNotFound; an unknown state is refused", func(t *testing.T) {
 		s, ctx := open(t), t.Context()
 		err := s.FinishAttempt(ctx, "a1", "answer:x1:q1:1", store.Outcome{State: store.AttemptExecuted})

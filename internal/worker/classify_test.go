@@ -24,6 +24,13 @@ func notAttempted(code string) *core.Envelope {
 	return &core.Envelope{Status: core.StatusError, Error: &core.Error{Code: code}}
 }
 
+// notRevisable is Core refusing what an answer named in revises, nothing
+// recorded: code says whether it was no proposal of the agent's
+// (invalid_argument) or one not sent back for changes (failed_precondition).
+func notRevisable(code string) *core.Envelope {
+	return &core.Envelope{Status: core.StatusError, Error: &core.Error{Code: code, Details: map[string]any{"reason": core.ReasonNotRevisable}}}
+}
+
 // TestClassifyEveryRowOfTheHandout walks §2.4's table, row by row.
 func TestClassifyEveryRowOfTheHandout(t *testing.T) {
 	for _, c := range []struct {
@@ -50,6 +57,11 @@ func TestClassifyEveryRowOfTheHandout(t *testing.T) {
 		{"replayed executed", &core.Envelope{Status: core.StatusExecuted, Replayed: true}, nil, NextDone, store.AttemptExecuted},
 		{"replayed proposed", &core.Envelope{Status: core.StatusProposed, Replayed: true}, nil, NextProposed, store.AttemptProposed},
 		{"replayed rejected", &core.Envelope{Status: core.StatusRejected, Replayed: true}, nil, NextAttempt, store.AttemptRejected},
+		{"replayed changes_requested", &core.Envelope{Status: core.StatusChangesRequested, Replayed: true}, nil, NextAttempt, store.AttemptChangesRequested},
+		// What the answer named in revises refused: the next attempt
+		// names none, not the same body fixed or sent again.
+		{"not_revisable, no proposal of the agent's", notRevisable(core.CodeInvalidArgument), nil, NextAttempt, store.AttemptError},
+		{"not_revisable, not sent back", notRevisable(core.CodeFailedPrecondition), nil, NextAttempt, store.AttemptError},
 		{"replayed cancelled", &core.Envelope{Status: core.StatusCancelled, Replayed: true}, nil, NextAttempt, store.AttemptCancelled},
 		// What came back was not an envelope at all.
 		{"401", nil, core.ErrUnauthenticated, NextStopAgent, ""},
@@ -126,7 +138,8 @@ func TestClassifyMovedOnNamesTheNewestMessage(t *testing.T) {
 // TestNothingPostedIsSettledAsPosted holds the one line that matters most:
 // only an executed answer counts as posted.
 func TestNothingPostedIsSettledAsPosted(t *testing.T) {
-	for _, s := range []core.Status{core.StatusProposed, core.StatusDenied, core.StatusFailed, core.StatusRejected, core.StatusCancelled, core.StatusError, "something new"} {
+	for _, s := range []core.Status{core.StatusProposed, core.StatusDenied, core.StatusFailed, core.StatusRejected, core.StatusChangesRequested,
+		core.StatusCancelled, core.StatusError, "something new"} {
 		d := Classify(&core.Envelope{Status: s, Error: &core.Error{Code: "x"}}, nil)
 		if d.State.Posted() || d.Outcome == store.OutcomePosted {
 			t.Errorf("%s settles as posted", s)

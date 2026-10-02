@@ -51,6 +51,9 @@ type world interface {
 	archiveCourse()
 	approve(actionID string)
 	reject(actionID, reason string)
+	// requestChanges is Mori sending a proposal back for changes, with a
+	// note of what to change.
+	requestChanges(actionID, note string)
 	// expire waits for, or makes, the proposal's expiry; false when this
 	// world cannot.
 	expire(actionID string) bool
@@ -555,6 +558,112 @@ var scenarios = []scenario{
 		call(t, w, s, "events", "event_list", inCourseArgs(w, "since_seq", 0))
 		call(t, w, s, "mine", "action_list_mine", inCourseArgs(w))
 		wantStatus(t, call(t, w, s, "next_attempt", "conversation_answer", answer(w, conv, m1, "Chapter 3 argues that every set has a size.", 2)), "proposed")
+	}},
+	{name: "replayed_changes_requested", about: "§2.4 replayed changes_requested: a person sent the proposal back for changes, with a note action_list_mine shows trimmed; the conversation back in the inbox; the next attempt naming it in revises, proposed and replayed, and its key without revises a conflict", run: func(t *testing.T, w world, s *steps) {
+		w.setTutorLevel("confirm_required")
+		conv, m1 := w.ask(0, "What does chapter 4 cover?")
+		args := answer(w, conv, m1, "Graphs.", 1)
+		a := call(t, w, s, "answer", "conversation_answer", args)
+		wantStatus(t, a, "proposed")
+		w.requestChanges(a.str("action_id"), "  Say which kinds of graphs, and where the chapter starts.  ")
+		call(t, w, s, "replay", "conversation_answer", args)
+		call(t, w, s, "inbox", "conversation_inbox", inCourseArgs(w))
+		call(t, w, s, "get", "conversation_get", inCourseArgs(w, "conversation_id", conv))
+		call(t, w, s, "events", "event_list", inCourseArgs(w, "since_seq", 0))
+		call(t, w, s, "mine", "action_list_mine", inCourseArgs(w))
+		const body = "Chapter 4 covers directed and undirected graphs, from page 61."
+		revision := answer(w, conv, m1, body, 2)
+		revision["revises"] = a.str("action_id")
+		wantStatus(t, call(t, w, s, "revision", "conversation_answer", revision), "proposed")
+		call(t, w, s, "revision_replay", "conversation_answer", revision)
+		call(t, w, s, "revision_without_revises", "conversation_answer", answer(w, conv, m1, body, 2))
+		call(t, w, s, "events_after", "event_list", inCourseArgs(w, "since_seq", 0))
+		call(t, w, s, "mine_after", "action_list_mine", inCourseArgs(w))
+	}},
+	{name: "revises", about: "revises, the proposal sent back that a call proposes again: refused not_revisable, nothing recorded, naming one still waiting, one rejected, another's action, no action, or given to a read over REST; null and empty naming nothing; a revision sent back and revised in turn, then approved; over REST, the Revises header, its replay, a conflict without it, and one that is no id", run: func(t *testing.T, w world, s *steps) {
+		ctx := context.Background()
+		w.setTutorLevel("confirm_required")
+		conv, m1 := w.ask(0, "When is the midterm?")
+		first := call(t, w, s, "answer", "conversation_answer", answer(w, conv, m1, "Soon.", 1))
+		wantStatus(t, first, "proposed")
+		a1 := first.str("action_id")
+		revising := func(name string, attempt int, body string, revises any) toolAnswer {
+			t.Helper()
+			args := answer(w, conv, m1, body, attempt)
+			args["revises"] = revises
+			return call(t, w, s, name, "conversation_answer", args)
+		}
+		revising("revises_waiting", 2, "In week 7.", a1)
+		revising("revises_no_action", 2, "In week 7.", uuid.NewString())
+
+		w.requestChanges(a1, "Give the date.")
+		mine := call(t, w, s, "mine", "action_list_mine", inCourseArgs(w))
+		var decision string
+		if acts, ok := resultOf(mine, "actions").([]any); ok {
+			for _, x := range acts {
+				if act, ok := x.(map[string]any); ok && act["id"] == a1 {
+					res, _ := act["result"].(map[string]any)
+					d, _ := res["decision"].(map[string]any)
+					decision, _ = d["by_action_id"].(string)
+				}
+			}
+		}
+		if decision == "" {
+			t.Fatalf("no decision on %s in action_list_mine: %s", a1, mine.Body)
+		}
+		revising("revises_others", 2, "On 14 March.", decision)
+		second := revising("revision", 2, "On 14 March.", a1)
+		wantStatus(t, second, "proposed")
+		a2 := second.str("action_id")
+		w.requestChanges(a2, "And the room.")
+		third := revising("revision_of_revision", 3, "On 14 March, in room B12.", a2)
+		wantStatus(t, third, "proposed")
+		w.approve(third.str("action_id"))
+		revising("revision_of_revision_replay", 3, "On 14 March, in room B12.", a2)
+		call(t, w, s, "chain", "action_list_mine", inCourseArgs(w))
+
+		kconv, k1 := w.ask(1, "Is there a resit?")
+		null, empty := answer(w, kconv, k1, "Yes.", 1), answer(w, kconv, k1, "Yes.", 1)
+		null["revises"], empty["revises"] = nil, ""
+		wantStatus(t, call(t, w, s, "revises_null", "conversation_answer", null), "proposed")
+		rejected := call(t, w, s, "revises_empty", "conversation_answer", empty)
+		w.reject(rejected.str("action_id"), "Say when.")
+		kagain := answer(w, kconv, k1, "Yes, in August.", 2)
+		kagain["revises"] = rejected.str("action_id")
+		call(t, w, s, "revises_rejected", "conversation_answer", kagain)
+
+		r := w.rest()
+		do := func(name, method, path string, body any, key, revises string) httpAnswer {
+			t.Helper()
+			a, err := r.doRevising(ctx, method, path, body, key, revises)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.rest(name, method, path, body, a)
+			s.list[len(s.list)-1]["revises_header"] = revises
+			return a
+		}
+		c := "/v1/courses/" + w.course()
+		do("rest_read", "GET", c+"/conversations/"+kconv, nil, "", a1)
+		rconv, r1 := w.ask(1, "Where do I collect my marked work?")
+		path := c + "/conversations/" + rconv + "/answer"
+		body := map[string]any{"in_reply_to_message_id": r1, "body": "At the office."}
+		key := "answer:" + rconv + ":" + r1 + ":1"
+		a := do("rest_answer", "POST", path, body, key, "")
+		var prop struct {
+			ActionID string `json:"action_id"`
+		}
+		if err := json.Unmarshal(a.Body, &prop); err != nil || prop.ActionID == "" {
+			t.Fatalf("no action_id in %s", a.Body)
+		}
+		w.requestChanges(prop.ActionID, "Which office, and when it is open.")
+		do("rest_replayed_changes_requested", "POST", path, body, key, "")
+		rbody := map[string]any{"in_reply_to_message_id": r1, "body": "At the department office, room A3, 9 to 5."}
+		rkey := "answer:" + rconv + ":" + r1 + ":2"
+		do("rest_revision", "POST", path, rbody, rkey, prop.ActionID)
+		do("rest_revision_replay", "POST", path, rbody, rkey, prop.ActionID)
+		do("rest_revision_without_revises", "POST", path, rbody, rkey, "")
+		do("rest_revises_no_id", "POST", path, rbody, "answer:"+rconv+":"+r1+":3", "the one before")
 	}},
 	{name: "replayed_cancelled", about: "§2.4 replayed cancelled: the proposal expired (payload.reason proposal_expired)", run: func(t *testing.T, w world, s *steps) {
 		w.setTutorLevel("confirm_required")

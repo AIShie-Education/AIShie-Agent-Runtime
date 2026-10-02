@@ -105,9 +105,10 @@ func rulesFor(d Dialect) (rules, error) {
 }
 
 // Sanitise is the schema a model is given for one tool (Core's
-// docs/agent-runtime.md §3.8): Core's input schema with the bound properties
-// taken out (the runtime sets them: course_id, idempotency_key), then the
-// lowest common denominator every dialect gets, then what d takes.
+// docs/agent-runtime.md §3.8): Core's input schema with the bound
+// properties taken out (the runtime sets them: course_id, idempotency_key,
+// revises), then the lowest common denominator every dialect gets, then
+// what d takes.
 //
 // The lowest common denominator: ["null", X] becomes X, with NoteOptional
 // (and a property Core requires but takes as null is no longer required:
