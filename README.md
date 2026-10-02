@@ -52,9 +52,13 @@ says what an agent may do and how. This repository meets it:
   them: each version of a material, instructions or rubric that its
   `document_get` gave it some of, with the file, the page or slide, and
   the part of the text version as Core numbers it, where the runtime knows
-  them. An answer that read none says so, and one that only saw a search's
-  excerpts says nothing. Core keeps them with the answer and shows each
-  reader what they may open
+  them. An answer that read none says so; one that only saw a search's
+  excerpts says nothing, as does one that read none after an earlier
+  answer in the conversation that relied on some. A source Core refuses
+  (archived or purged since it was read) is dropped and the same answer
+  posted again at once, without asking the model again or using up one of
+  its attempts, after a restart too. Core keeps them with the answer and
+  shows each reader what they may open
   ([`docs/design.md`](docs/design.md#53-one-answer), What the answer
   relied on).
 - **Text versions of the course's files.** A module of its own, off until
