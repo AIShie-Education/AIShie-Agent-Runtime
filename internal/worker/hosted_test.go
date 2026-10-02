@@ -241,14 +241,7 @@ func TestHostedAgentsRunBesideYAML(t *testing.T) {
 	// over ten calls the YAML agent, still running, begins meanwhile, not
 	// over a time, in which a busy machine would poll less.
 	eventually(t, "the hosted agent stopped", func() bool { return !wk.statusOf("agt_yuki").Running })
-	n, other := began.Load(), yamlBegan.Load()
-	if n == 0 {
-		t.Fatal("none of the hosted agent's calls was counted")
-	}
-	eventually(t, "ten calls more by the YAML agent", func() bool { return yamlBegan.Load() >= other+10 })
-	if more := began.Load() - n; more != 0 {
-		t.Errorf("%d calls to Core begun by the paused agent", more)
-	}
+	noMoreOver(t, "the paused agent", begun(&began), "calls by the YAML agent", begun(&yamlBegan))
 	if w.fc.SiteChat(own.actor.ID) {
 		t.Error("a paused agent is asked in the site")
 	}
@@ -501,7 +494,10 @@ func TestHostedOwnerSuspended(t *testing.T) {
 // runtime (its owner, an administrator) stops, unauthorized, and stays
 // stopped through changes to the registry that are not its own, issued
 // nothing; its owner asking for a new token (its row's dropped) has it
-// issued another, and it runs again.
+// issued another, and it runs again. Its calls are counted as it begins
+// them, on its connection to Core, and "no more" after the change to
+// another is over ten of its lease ticks (leaseTicks), at each of which it
+// would have been started again, not over a time.
 func TestHostedRevokedElsewhere(t *testing.T) {
 	w := newWorld(t)
 	own := w.ownAgent("agt_yuki", 0)
@@ -510,7 +506,13 @@ func TestHostedRevokedElsewhere(t *testing.T) {
 	h.host("agt_yuki", own, hostedSettings("m1"))
 	h.host("agt_ken", other, hostedSettings("m1"))
 	yaml := &config.Config{}
-	wk := h.start(h.build(yaml), models{"m1": scripted.New(scripted.Reply("Back again."))})
+	ticks := &leaseTicks{Store: h.st}
+	var began atomic.Int32
+	wk := w.start(h.build(yaml), models{"m1": scripted.New(scripted.Reply("Back again."))},
+		workerOpts{store: ticks, edit: func(o *Options) {
+			h.options(o)
+			countCalls("agt_yuki", &began)(o)
+		}})
 	wk.waitState("agt_yuki", store.AgentRunning)
 	wk.waitState("agt_ken", store.AgentRunning)
 
@@ -520,16 +522,21 @@ func TestHostedRevokedElsewhere(t *testing.T) {
 	if st.Reason != store.ReasonTokenRefused || !strings.Contains(st.Detail, "revoked in Core") || strings.Contains(st.Detail, "token_ref") {
 		t.Errorf("the unauthorized hosted agent's state: %q (%s)", st.Detail, st.Reason)
 	}
-	time.Sleep(50 * time.Millisecond)
-	n, issued := len(w.calls(own.actor.ID, "")), w.fc.RuntimeIssues(own.actor.ID)
+	// The state is written once the agent has stopped, its calls returned:
+	// whatever it calls after this, it began after.
+	n, issued := began.Load(), w.fc.RuntimeIssues(own.actor.ID)
 	// Another agent's change: this one is not tried again.
 	_, err = h.st.SetHostedAgentPaused(context.Background(), "agt_ken", true, 0)
 	w.ok(err)
 	h.update(wk, yaml)
 	wk.waitState("agt_ken", store.AgentPaused)
-	time.Sleep(200 * time.Millisecond)
-	if more := len(w.calls(own.actor.ID, "")) - n; more != 0 || w.fc.RuntimeIssues(own.actor.ID) != issued {
-		t.Errorf("%d calls, and %d tokens issued, for the unauthorized agent after a change to another", more,
+	if n == 0 {
+		t.Fatal("none of the unauthorized agent's calls was counted")
+	}
+	from := ticks.of("agt_yuki")
+	eventually(t, "ten lease ticks more", func() bool { return ticks.of("agt_yuki") >= from+10 })
+	if more := began.Load() - n; more != 0 || w.fc.RuntimeIssues(own.actor.ID) != issued {
+		t.Errorf("%d calls begun, and %d tokens issued, for the unauthorized agent after a change to another", more,
 			w.fc.RuntimeIssues(own.actor.ID)-issued)
 	}
 

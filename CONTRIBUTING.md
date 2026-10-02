@@ -75,11 +75,13 @@ and a test that passed alone then fails.
   another is made to: a scripted model that waits on a channel the fake
   Core closes, not one that waits long enough.
 - "Nothing more happens" is held over events that keep happening (lease
-  ticks a store counts, calls another agent begins), and counts what was
-  begun after, not what landed after (`countCalls` in the worker's
-  tests): a call cancelled in flight is logged by the fake Core when it
-  ends. Likewise what is counted when it ends is read once it has ended,
-  not once the test has stopped it.
+  ticks a store counts, calls another agent begins, reads the agent
+  itself goes on making), and counts what was begun after, not what
+  landed after (`countCalls` and `noMoreOver` in the worker's tests): a
+  call cancelled in flight is logged by the fake Core when it ends. An
+  agent Core stopped keeps its lease, and each of its ticks (`leaseTicks`)
+  is a time it was not started again. Likewise what is counted when it
+  ends is read once it has ended, not once the test has stopped it.
 - Where a time bound is itself the point, it is generous (seconds, for a
   program the sandbox runs below the runtime's priority), tied to what it
   bounds (an agent whose lease renewal hangs stops before the lease would

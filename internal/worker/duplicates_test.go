@@ -261,14 +261,8 @@ func TestLeaseLostStopsTheAgentAtOnce(t *testing.T) {
 		s := wk.sup.Status()
 		return len(s) == 1 && !s[0].Running && !s[0].Leased
 	})
-	n, ticks := began.Load(), st.refused.Load()
-	if n == 0 {
-		t.Fatal("none of the agent's calls was counted")
-	}
-	eventually(t, "ten lease ticks more", func() bool { return st.refused.Load() >= ticks+10 })
-	if more := began.Load() - n; more != 0 {
-		t.Errorf("%d calls to Core begun after the lease was lost", more)
-	}
+	noMoreOver(t, "the agent whose lease was lost", begun(&began), "lease ticks that find the lease lost",
+		func() int { return int(st.refused.Load()) })
 
 	st.taken.Store(false)
 	conv, _ := w.ask(0, own, "Are you back?")
