@@ -136,8 +136,9 @@ func (r Runner) givePDFFile(ctx context.Context, g given, d *docFile, p pdfFile,
 // givePDFPages gives the pages of p the model asked for (FilePagesArg),
 // d.first to d.last, as a PDF of their own, with a deck's speaker notes of
 // them beside it; the whole PDF where the runner cuts none, and it is
-// within what the model's provider takes. ok is false when they are not
-// given as a file (the caller gives its text).
+// within what the model's provider takes, which names no page for the
+// answer's sources (given.unit), every page being given. ok is false when
+// they are not given as a file (the caller gives its text).
 func (r Runner) givePDFPages(ctx context.Context, g given, d *docFile, p pdfFile) (given, bool) {
 	rec := g.rec
 	g.pages = true
@@ -160,7 +161,7 @@ func (r Runner) givePDFPages(ctx context.Context, g given, d *docFile, p pdfFile
 			g.pages = false
 			return g, false
 		}
-		rec.GivenAs, g.unit = givenFile, p.unit
+		rec.GivenAs = givenFile
 		b.WriteString("its pages cannot be cut here, so the whole PDF is given: see " + pageRange(p.unit, first, last) + " in it")
 		rec.Note = b.String()
 		g.file, g.filePages = &llm.File{Name: fileName(d.title, pdfMIME), MIME: pdfMIME, Data: p.data}, max(p.pages, 1)
