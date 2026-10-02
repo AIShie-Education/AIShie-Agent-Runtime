@@ -302,7 +302,8 @@ func TestCheckReadsTheRegistry(t *testing.T) {
 // TestCheckLiveHostedAgents: check --live reads each hosted agent as Core
 // hosts it, as run does at the agent's start, and is issued nothing: one
 // whose row holds the token the runtime was issued connects with it, its
-// seats shown; one whose owner in Core is not the person who hosted it
+// seats shown, with the tools the worker offers each, the runtime's own
+// among them; one whose owner in Core is not the person who hosted it
 // fails, as owner_changed, naming no one; an mcp agent fails. Nothing is
 // called with the token of an agent that fails.
 func TestCheckLiveHostedAgents(t *testing.T) {
@@ -345,6 +346,10 @@ func TestCheckLiveHostedAgents(t *testing.T) {
 		"  owner: Core names the person who hosted it",
 		"  connected with the token the runtime holds",
 		"Delegate of member ",
+		// The tools as the worker offers them, the runtime's own with
+		// Core's.
+		"course_materials_search, document_get, document_list",
+		"; and attachment_get, where a conversation's messages carry files",
 		"model openai_chat fake-model (openai_compatible): the key works",
 		"agent agt_kens: FAILED: owner_changed: the agent's owner in Core is not the person who hosted it here",
 		"agent agt_tools: FAILED: hosting: an mcp agent",

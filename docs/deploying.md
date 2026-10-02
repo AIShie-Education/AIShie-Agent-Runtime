@@ -166,9 +166,11 @@ aishie-runtime check --live
 resolves the secrets, reads each agent in Core with the runtime's own
 credential (how Core hosts it, its live seats, whether people may ask it
 now), connects with the token the runtime holds for it, if any, to show
-its seats and what its model is offered (its reads, and the writes its
-owner's conversations are offered besides), and tries each model key with
-one call. It is issued no token itself: that would revoke the one a
+its seats and what its model is offered (its reads, with the runtime's
+own `course_materials_search`, and `attachment_get` where a
+conversation's messages carry files; and the writes its owner's
+conversations are offered besides), and tries each model key with one
+call. It is issued no token itself: that would revoke the one a
 running runtime holds. A `core.base_url` must be within
 `CORE_BASE_URL_ALLOWLIST`.
 
@@ -1032,10 +1034,12 @@ machine's loopback, should `HTTP_ADDR` listen wider).
   database (migration 0014, tables `search_file` and `search_passage`):
   the text of the course's files the models read, kept per version,
   dropped as the runtime hears that Core purged the version (by the events
-  of a seat that reads drafts, or as a search reads its tombstone) and
-  otherwise after 30 days unused: a whole document purged in a course
-  where no agent here reads drafts stays stored, though never searched,
-  for up to those 30 days. It needs no extension, so the stack's
+  of a seat that reads drafts, `document.purged`, or of one that writes
+  assignments, `document.purged_unreleased`, for instructions or a rubric
+  not yet released; or as a search reads its tombstone) and otherwise
+  after 30 days unused: a whole document purged in a course where no
+  agent here sees those events stays stored, though never searched, for
+  up to those 30 days. It needs no extension, so the stack's
   `postgres:18` serves it as it is. Scans and older Office and OpenDocument
   files are searchable only by their text versions, which the transcriber
   makes where it is on. Each answer's first search asks Core what its seat

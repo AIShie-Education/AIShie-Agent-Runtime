@@ -106,6 +106,13 @@ in zsh or bash; `go test`'s `-timeout` bounds it, interrupted or not:
 )
 ```
 
+A test that skips passes without having run: read `-v`'s `SKIP` lines
+before giving a count of runs. The OCR engine's tests
+(`TestEnginePageTimeout` among them) and the real LibreOffice, poppler
+and OCR tests run their programs under prlimit, which macOS has not, so
+they skip there: try those under load on Linux, as CI's runners run
+them.
+
 ## Migrations
 
 `NNNN_name.up.sql` and `NNNN_name.down.sql`, both required, each one

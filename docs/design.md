@@ -1083,12 +1083,13 @@ each hit the document (its id, title and kind), the version and the file
 it is (`text_source`), an excerpt of at most 200 characters around the
 words, and `read`, the `document_get` call that gives the passage itself,
 which the model makes as it is (and `read_note` where it gives the file
-from its start instead: The pointer, below). A page holds 5 hits (`limit`, at most 10);
-`more` and `next` give the next page. The result says how many documents
-and files were searched, how many files have no text the search can read,
-and how many were not read yet; a search that finds nothing says what it
-could not search, so that the model does not take "not found" for "the
-course never says it".
+from its start instead, and `passage`, the passage itself, where it would
+give it cut short: The pointer, below). A page holds 5 hits (`limit`, at
+most 10); `more` and `next` give the next page. The result says how many
+documents and files were searched, how many files have no text the search
+can read, and how many were not read yet; a search that finds nothing says
+what it could not search, so that the model does not take "not found" for
+"the course never says it".
 
 - *Offered* (`Set.WithSearch`) to every seat's model whose set offers
   `document_list` and `document_get`, through which it reads (a seat that
@@ -1102,22 +1103,31 @@ course never says it".
   asks Core, with the asking seat's own token, what it may read, by the
   very calls a model reads with: `document_list` (the first 100 documents
   it lists, by their ids, which are made in time order, so the oldest
-  first; archived ones aside: what Core lists the seat,
-  its drafts only to a seat that reads drafts, instructions and rubrics
-  only as their assignments are released to it, no submission or feedback
-  file), and `document_get` of each, of no version, which gives the
-  version the seat reads (the published one, or the latest to a seat that
-  reads drafts) and its files, each with its text version's status and
-  revision. Those files, each at that revision, are all the store
-  searches: a passage of another version (a draft, a newer version than
-  the published one), of a document Core does not give the seat now
-  (withheld since it was listed: said so in the result), or of another
-  revision of a file's text is never a candidate, whoever read it into
-  the index. What one answer's seat may read is read at its first search
-  and used by its later ones (`toolset.SearchScope`): once an answer, a
-  list and a `document_get` a document, at most four at once, within the
-  agent's rate limit like any call, which in a course of 100 documents is
-  some 100 calls an answer that searches (§2.2).
+  first, asked for 101, since Core names a next page whenever a page is
+  full, and a course of exactly 100 has none more; archived ones aside:
+  what Core lists the seat, its drafts only to a seat that reads drafts,
+  instructions and rubrics only as their assignments are released to it,
+  no submission or feedback file), and `document_get` of each, of no
+  version, which gives the version the seat reads (the published one, or
+  the latest to a seat that reads drafts) and its files, each with its
+  text version's status and revision. Those files, each at that revision,
+  are all the store searches: a passage of another version (a draft, a
+  newer version than the published one), of a document Core does not give
+  the seat now, or of another revision of a file's text is never a
+  candidate, whoever read it into the index. The result says which
+  documents listed were not searched, and why: those Core gives the seat
+  no version of now (the version or the document purged, none it may read,
+  or the document refused it, withheld since it was listed), which a
+  search again will not find, apart from those Core could not be asked of
+  just now (not reached, or its answer not read), which the model is told
+  to search again for in a minute. What one answer's seat may read is read
+  at its first search and used by its later ones (`toolset.SearchScope`),
+  but for the documents Core could not be asked of, which each later
+  search of the answer asks of again, so that searching again finds them
+  once Core answers: once an answer, a list and a `document_get` a
+  document, at most four at once, within the agent's rate limit like any
+  call, which in a course of 100 documents is some 100 calls an answer
+  that searches (§2.2).
 - *What it searches*: the text a model given the file as text reads, from
   the same pipeline (`giveFile`): Core's text version where it is done
   (staff's or an AI transcription), otherwise the runtime's own reading of
@@ -1212,6 +1222,27 @@ course never says it".
   holds all the few words the index has of it.) Of the version's own
   text, the version. A version of several files names the file
   (`file_id`).
+  `document_get` gives a result of at most `MaxResultBytes` (32 KiB), the
+  version's own text in its envelope, and cuts the envelope as one string
+  where it passes that: the version's own text far into a long `body_md`
+  is not given, and a long `body_md` (or a long list of files) leaves a
+  file's part too little room beside it. As it reads a version, the search
+  reckons how much of its own text that call gives, and the room it leaves
+  a file's text (`readRoom`, keeping 2 KiB for what the runtime adds, so
+  that it may say less is given than is, never more). A hit the call would
+  cut short gives the passage itself (`passage`, about 1,500 bytes) with a
+  `read_note` saying why, beside the same `read`. For a file's hit that is
+  decided by the hit (`fileCutShort`): none where the room holds a whole
+  part (24 KiB of text at 32 KiB, so a version whose result, files' text
+  aside, is under about 6 KB); where it does not, none for a passage of a
+  text the read gives as the index read it (a text version, a text file)
+  that ends within the room even if every byte before it took six written
+  (a control character's `\u00XX`), so that a short file, or a passage
+  near a file's start, is read by its `read`; and one for every other
+  passage, of a later part far into its text, of a PDF's page or a deck's
+  slide, whose text a model may be given otherwise than the index read it.
+  A passage given as pages of a file is given whatever the envelope, and
+  gets none.
 - *Who wrote it does not weigh.* Staff's text, an AI transcription and the
   runtime's reading of a file are ranked by how well they match alone: a
   file has one text at a time (the text version where it is done, which a
@@ -2132,24 +2163,34 @@ Chinese with a table, overran, and was cut off.
   order, dropped by version, by document and unused), and `pgstore` runs a
   Traditional Chinese and an English search in a database whose ctype is
   C. Against a Core of the test's own: a student's search finds a deck's
-  slide by a Chinese question, a PDF's page, a text version's page and
-  the syllabus's own text by English ones, each hit naming where it is,
-  whose its text is and the call that reads it; once staff have searched,
-  so that the shared index holds a draft, a draft version newer than the
+  slide by a Chinese question, a PDF's page, a text version's page and the
+  syllabus's own text by English ones, each hit naming where it is, whose
+  its text is and the call that reads it; once staff have searched, so
+  that the shared index holds a draft, a draft version newer than the
   published one and instructions withheld from students, a student's
   searches find none of them and say what they could not read; each file
-  is read once, a text version in place of its scan, one answer's
-  searches ask Core once and a later answer's again without reading a
-  file, and a text edited is read again and found as edited alone; a scan
-  without a text version is said to have no text, and kept so, and files
-  the time ran out for are said not to be read yet; a text version Core
-  could not give just now is not kept in its place, and the next search
-  finds its words; a text file holding NUL, which no store keeps, is kept
-  with a space for each, found, and read once; a version Core gives as
-  purged leaves the index (and a document listed as purged, which today's
-  Core does not list); hits a
-  page at a time to the last, a long text version's hit naming the part
-  that `document_get`, called as it is, gives it in; in a long text of no
+  is read once, a text version in place of its scan, one answer's searches
+  ask Core once and a later answer's again without reading a file, and a
+  text edited is read again and found as edited alone; a scan without a
+  text version is said to have no text, and kept so, and files the time
+  ran out for are said not to be read yet; a text version Core could not
+  give just now is not kept in its place, and the next search finds its
+  words; a text file holding NUL, which no store keeps, is kept with a
+  space for each, found, and read once; a version Core gives as purged
+  leaves the index (and a document listed as purged, which today's Core
+  does not list); a purged version and a document refused the seat said to
+  have no version it may read now, and one Core could not answer for said
+  not read just now, asked of again by the answer's next search, alone,
+  and found by it once Core answers; a course of 99 or exactly 100
+  documents said to have none more, and one of 101 to have more, its first
+  100 searched; in a version's own text of some 50 KB, of characters JSON
+  escapes once or twice (quotes, backslashes, control characters, U+2028),
+  at results of 32 KiB and of 4 to 8 KiB, every paragraph's hit that gives
+  no `passage` read whole by its read and those past the cut given their
+  passage, and so in a long file whose version's own text leaves its part
+  too little room, while a short file there gives none; hits a page at a
+  time to the last, a long text version's hit naming the part that
+  `document_get`, called as it is, gives it in; in a long text of no
   pages, a text file's and a text version's, every one of 200 words found
   in the part its hit's read gives; a deck of pictures, to a model that
   takes no files on a runtime with LibreOffice and OCR, whose parts are
@@ -2158,21 +2199,20 @@ Chinese with a table, overran, and was cut off.
   given as its PDF's pages saying its page is not known, and given as text
   read by its part; a deck and a Word file whose PDF Core made, where
   LibreOffice does not convert, pointed into Core's PDF as into
-  LibreOffice's; arguments refused before anything is read; and the
-  tool offered with `document_list` and `document_get` alone, never where
+  LibreOffice's; arguments refused before anything is read; and the tool
+  offered with `document_list` and `document_get` alone, never where
   denied. Against the fake Core, Yuki's agent and Sato's, which reads
-  drafts, sharing the worker's index, find the published slide, and
-  Sato's alone the draft, though Sato's searches first, so that the index
-  holds the draft when Yuki's does, counted and logged without the query;
-  the draft
-  purged, it leaves the index as Sato's seat reads the news; a version
-  purged (`document.purged` or `_unreleased`) leaves the index, a whole
-  document purged every version of it, and housekeeping drops the files
-  unused for 30 days. `storetest` also holds the candidates past the limit
-  to the shortest of those tied, and a file's use marked once a day. The
-  end to end (`search-of-the-materials`) does the same against the pinned
-  Core, Sato's searching first there too, the first hit read with the call
-  it names, and an administrator's purge of the draft's version.
+  drafts, sharing the worker's index, find the published slide, and Sato's
+  alone the draft, though Sato's searches first, so that the index holds
+  the draft when Yuki's does, counted and logged without the query; the
+  draft purged, it leaves the index as Sato's seat reads the news; a
+  version purged (`document.purged` or `_unreleased`) leaves the index, a
+  whole document purged every version of it, and housekeeping drops the
+  files unused for 30 days. `storetest` also holds the candidates past the
+  limit to the shortest of those tied, and a file's use marked once a day.
+  The end to end (`search-of-the-materials`) does the same against the
+  pinned Core, Sato's searching first there too, the first hit read with
+  the call it names, and an administrator's purge of the draft's version.
 - A version's files (§4, A version's files; AIShie-Core #49): a version of
   a PDF, a Word file and notes given file by file, in order, under their
   names, to a model that takes files and to one that takes none, no URL in
@@ -2207,17 +2247,18 @@ Chinese with a table, overran, and was cut off.
   to end (`transcription`) against the pinned Core, where a lecture of
   three files in one version is transcribed file by file too, each job
   naming its file, and read back file by file.
-- Adapters: golden translations both ways in `testdata/`, every stop reason
-  and usage field; `LIVE=1` runs them against the real providers whose keys
-  are set (the live tests, below), with every tool declared at 16 output
-  tokens, and one answer streamed. `openai_chat`, `anthropic` and `gemini` have goldens
-  of streams written in their providers' SSE format (`testdata/stream`): text
-  in pieces with keep-alives, reasoning streamed before the answer,
-  parallel calls whose arguments are split and interleaved across chunks,
-  the usage alone in the last chunk and in its choice, a refusal with CRLF
-  endings, a stream ending at its finish reason without `[DONE]`, an error
-  part way and one cut off; for each answer also written whole, `Stream`
-  must make exactly what `Call` makes of it.
+- Adapters: golden translations both ways in `testdata/`, every stop
+  reason and usage field; `LIVE=1` runs them against the real providers
+  whose keys are set (the live tests, below, say which providers declare
+  every tool and which stream an answer). `openai_chat`, `anthropic` and
+  `gemini` have goldens of streams written in their providers' SSE format
+  (`testdata/stream`): text in pieces with keep-alives, reasoning streamed
+  before the answer, parallel calls whose arguments are split and
+  interleaved across chunks, the usage alone in the last chunk and in its
+  choice, a refusal with CRLF endings, a stream ending at its finish
+  reason without `[DONE]`, an error part way and one cut off; for each
+  answer also written whole, `Stream` must make exactly what `Call` makes
+  of it.
 - Drafts: the drafter coalesces (fewer writes than changes, each the whole
   state, versions rising, one in flight, spaced), keeps its steps, ends an
   attempt with `done` unless its answer went in, drops a 429 and sends
@@ -2384,19 +2425,20 @@ Chinese with a table, overran, and was cut off.
   `submission_roster` and `document_versions`, held to `roster_reads`; and
   serves the files `AddFile` puts in a course.
 - `ocr`: the engine against programs of the test's own (shell scripts
-  standing in for pdftoppm and tesseract) under the real prlimit: the
-  pages read, their headings, the pages past `MaxPages` left out and said
-  so, a page that fails or passes its time marked and the rest read, a
-  program that sleeps killed with its whole process group at its timeout,
-  one that allocates past its memory limit refused it, the environment
-  each sees (nothing of the runtime's), its niceness and working
-  directory, an image refused by its header's size before any program
-  runs, and the private directory removed. The service: a file recognized
-  once, in the background, and fetched once, the first question told its
-  progress, a question meanwhile waiting as the first did, then the text
-  read from the store; the wait never past half an answer's time left;
-  turns and a full queue; a file another worker holds; failures kept and
-  tried again; nothing kept when the process stops. With the real
+  standing in for pdftoppm and tesseract) under the real prlimit, so
+  skipped where there is none, as on macOS (CI's Linux runners run them):
+  the pages read, their headings, the pages past `MaxPages` left out and
+  said so, a page that fails or passes its time marked and the rest read,
+  a program that sleeps killed with its whole process group at its
+  timeout, one that allocates past its memory limit refused it, the
+  environment each sees (nothing of the runtime's), its niceness and
+  working directory, an image refused by its header's size before any
+  program runs, and the private directory removed. The service: a file
+  recognized once, in the background, and fetched once, the first question
+  told its progress, a question meanwhile waiting as the first did, then
+  the text read from the store; the wait never past half an answer's time
+  left; turns and a full queue; a file another worker holds; failures kept
+  and tried again; nothing kept when the process stops. With the real
   programs (`TestRecognizeScannedCJK`, skipped only where they are not
   installed, and never with `OCR_REQUIRED=1`): a scanned notice drawn in
   Unifont's glyphs, in traditional and simplified Chinese and in English,
@@ -2773,8 +2815,11 @@ document a YAML file would hold, and runs it beside the YAML agents:
   passes: they keep no other from running. A registry it cannot read (a
   schema older than the binary's, before a deploy's `migrate up`) is said,
   and passes too. `check --live` reads the hosted agents in Core as well,
-  and connects those whose rows hold the token the runtime was issued; it
-  is issued none itself.
+  and connects those whose rows hold the token the runtime was issued,
+  showing each seat's tools as the worker offers them
+  (`toolset.ForSeat`), `course_materials_search` among them, and
+  `attachment_get` where a conversation's messages carry files; it is
+  issued none itself.
 
 ### 11.3 Where M2 departs from the handout
 

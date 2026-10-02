@@ -473,20 +473,36 @@ func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, res
 			line += "; does not answer now: " + why
 		}
 		p("%s", line)
-		set, err := toolset.Build(cat, m.Perms, e.Tools, toolset.ReadOnly, dialectOf(e.Model), nil)
+		// The tools as the worker offers them: the seat's, with the
+		// runtime's own search, and its attachment_get where a
+		// conversation's messages carry files.
+		set, err := toolset.ForSeat(cat, m.Perms, e.Tools, toolset.ReadOnly, dialectOf(e.Model), nil)
+		var withFiles *toolset.Set
+		if err == nil {
+			withFiles, err = set.WithAttachments(e.Tools, dialectOf(e.Model), nil)
+		}
 		if err != nil {
 			p("    tools: %v", err)
 			ok = false
 			continue
 		}
-		if names := set.Names(); len(names) > 0 {
+		attach := ""
+		if withFiles.Has(toolset.AttachmentTool) && !set.Has(toolset.AttachmentTool) {
+			attach = toolset.AttachmentTool + ", where a conversation's messages carry files"
+		}
+		switch names := set.Names(); {
+		case len(names) > 0 && attach != "":
+			p("    tools: %s; and %s", strings.Join(names, ", "), attach)
+		case len(names) > 0:
 			p("    tools: %s", strings.Join(names, ", "))
-		} else {
+		case attach != "":
+			p("    tools: none but %s", attach)
+		default:
 			p("    tools: none; it answers from the conversation alone")
 		}
 		// The writes a conversation its owner opens is offered besides
 		// (design §4): none with tools.writes off.
-		owner, err := toolset.Build(cat, m.Perms, e.Tools, toolset.ReadWrite, dialectOf(e.Model), nil)
+		owner, err := toolset.ForSeat(cat, m.Perms, e.Tools, toolset.ReadWrite, dialectOf(e.Model), nil)
 		if err != nil {
 			p("    writes: %v", err)
 			ok = false

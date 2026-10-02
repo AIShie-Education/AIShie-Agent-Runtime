@@ -1,6 +1,7 @@
 package toolset
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -105,6 +106,9 @@ type searchCore struct {
 	// first.
 	texts    map[string]string
 	failText int
+	// failGet are the documents whose document_get Core cannot answer
+	// just now (an internal error).
+	failGet map[string]bool
 }
 
 func newSearchCore(t *testing.T, docs ...*sdoc) *searchCore {
@@ -145,7 +149,7 @@ func newSearchCore(t *testing.T, docs ...*sdoc) *searchCore {
 func (c *searchCore) as(staff bool) *searchCore {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return &searchCore{t: c.t, staff: staff, srv: c.srv, docs: c.docs, calls: c.calls, hits: c.hits, files: c.files}
+	return &searchCore{t: c.t, staff: staff, srv: c.srv, docs: c.docs, calls: c.calls, hits: c.hits, files: c.files, failGet: c.failGet}
 }
 
 func (c *searchCore) count(tool string) int {
@@ -172,6 +176,7 @@ func (c *searchCore) respond(_ context.Context, tool string, args json.RawMessag
 	var a struct {
 		DocumentID string `json:"document_id"`
 		VersionID  string `json:"version_id"`
+		Limit      int    `json:"limit"`
 	}
 	_ = json.Unmarshal(args, &a)
 	c.mu.Lock()
@@ -182,10 +187,16 @@ func (c *searchCore) respond(_ context.Context, tool string, args json.RawMessag
 		if c.refuseList != "" {
 			return &core.Envelope{Status: core.StatusDenied, Error: &core.Error{Code: c.refuseList, Message: "no"}}, nil
 		}
+		// A page of at most limit (50 if not given), the next named
+		// whenever it is full, as Core does.
+		limit, next := cmp.Or(a.Limit, 50), ""
 		var docs []string
 		for _, d := range c.docs {
 			if c.readable(d) == nil && !d.purged {
 				continue
+			}
+			if len(docs) == limit {
+				break
 			}
 			purged := "null"
 			if d.purged {
@@ -193,9 +204,16 @@ func (c *searchCore) respond(_ context.Context, tool string, args json.RawMessag
 			}
 			docs = append(docs, fmt.Sprintf(`{"id":%q,"kind":%q,"title":%q,"sort_order":%d,"status":"active","created_at":"2026-09-01T00:00:00Z","purged_at":%s}`,
 				d.id, d.kind, d.title, d.sortOrder, purged))
+			next = fmt.Sprintf(`,"next":%q`, d.id)
 		}
-		return executed(`{"documents":[` + strings.Join(docs, ",") + `]}`), nil
+		if len(docs) < limit {
+			next = ""
+		}
+		return executed(`{"documents":[` + strings.Join(docs, ",") + `]` + next + `}`), nil
 	case "document_get":
+		if c.failGet[a.DocumentID] {
+			return &core.Envelope{Status: core.StatusError, Error: &core.Error{Code: core.CodeInternal, Message: "try again"}}, nil
+		}
 		for _, d := range c.docs {
 			v := c.readable(d)
 			if d.id != a.DocumentID || v == nil || d.withheld && !c.staff {
@@ -364,6 +382,7 @@ type searchResultOf struct {
 			Excerpt    string    `json:"excerpt"`
 			Read       *nextPart `json:"read"`
 			ReadNote   string    `json:"read_note"`
+			Passage    string    `json:"passage"`
 		} `json:"hits"`
 		Page     int       `json:"page"`
 		More     bool      `json:"more"`
@@ -514,8 +533,9 @@ func TestSearchKeepsToWhatTheSeatMayRead(t *testing.T) {
 				t.Errorf("a student's %s found what it may not read: %+v", q, h)
 			}
 		}
-		if !strings.Contains(res.Note, "1 document listed could not be read just now") {
-			t.Errorf("a student's %s does not say the withheld document was not read: %s", q, part.Content)
+		if !strings.Contains(res.Note, "1 document listed has no version this seat may read now") ||
+			strings.Contains(res.Note, "could not be read just now") {
+			t.Errorf("a student's %s does not say the withheld document is not given it: %s", q, part.Content)
 		}
 	}
 	res, _ := searchFor(t, student, `{"query":"merge sort"}`)
@@ -669,6 +689,163 @@ func TestSearchDropsWhatCoreSaysIsPurged(t *testing.T) {
 	}
 	if have, err := index.UseSearchFiles(context.Background(), courseID, keys, time.Time{}); err != nil || len(have) != 0 {
 		t.Errorf("the index after the purges: %v %v\n%s", have, err, part.Content)
+	}
+}
+
+// TestSearchSaysWhatIsGoneAndWhatIsNotReadYet: of the documents listed,
+// one whose version Core gives as purged, and one Core refuses the seat
+// (withheld since it was listed), are said to have no version the seat
+// may read now, not to be unread for a while; one Core could not answer
+// for just now is said so, to be searched again, and is searched by the
+// answer's next search once Core answers, the answer's scope kept for
+// the rest, and by the next answer's.
+func TestSearchSaysWhatIsGoneAndWhatIsNotReadYet(t *testing.T) {
+	for _, scope := range []*SearchScope{{}, nil} {
+		docs := course()
+		docs[1].published.purged = true
+		c := newSearchCore(t, docs...)
+		c.failGet = map[string]bool{docSyllabus: true}
+		r := searchRunner(c.as(false), memstore.New(), scope, false)
+		res, part := searchFor(t, r, `{"query":"final exam"}`)
+		if !strings.Contains(res.Note, "2 documents listed have no version this seat may read now (purged, or withheld from it since the list)") {
+			t.Errorf("the purged and the withheld documents are not said to be gone: %s", part.Content)
+		}
+		if !strings.Contains(res.Note, "1 document listed could not be read just now, and not searched; search again in a minute") {
+			t.Errorf("the document Core did not answer for is not said to be unread: %s", part.Content)
+		}
+		if len(res.Result.Hits) != 0 || res.Result.Searched.Documents != 2 {
+			t.Errorf("searched: %+v", res.Result)
+		}
+		res, _ = searchFor(t, r, `{"query":"final exam"}`)
+		if len(res.Result.Hits) != 0 || !strings.Contains(res.Note, "1 document listed could not be read just now") {
+			t.Errorf("searched again, Core still not answering: %+v", res)
+		}
+		delete(c.failGet, docSyllabus)
+		lists, gets := c.count("document_list"), c.count("document_get")
+		res, part = searchFor(t, r, `{"query":"final exam"}`)
+		if len(res.Result.Hits) != 1 || res.Result.Hits[0].DocumentID != docSyllabus || strings.Contains(res.Note, "could not be read just now") ||
+			!strings.Contains(res.Note, "2 documents listed have no version") || res.Result.Searched.Documents != 3 {
+			t.Errorf("searched again, Core answering (scope %v): %s", scope != nil, part.Content)
+		}
+		if scope != nil && (c.count("document_list") != lists || c.count("document_get") != gets+1) {
+			t.Errorf("the answer's scope is read again whole: %d lists, %d gets more", c.count("document_list")-lists, c.count("document_get")-gets)
+		}
+		if scope != nil {
+			gets = c.count("document_get")
+			res, _ = searchFor(t, r, `{"query":"final exam"}`)
+			if len(res.Result.Hits) != 1 || c.count("document_get") != gets {
+				t.Errorf("once all are read, the answer's scope is not kept: %d gets more, %+v", c.count("document_get")-gets, res.Result.Hits)
+			}
+		}
+	}
+}
+
+// TestSearchSaysWhenTheCourseHasMore: a course of exactly as many
+// documents as a search reads has none more, and its search says none;
+// one of one more is said to have more, and its first are searched.
+func TestSearchSaysWhenTheCourseHasMore(t *testing.T) {
+	for _, n := range []int{MaxSearchDocuments - 1, MaxSearchDocuments, MaxSearchDocuments + 1} {
+		var docs []*sdoc
+		for i := range n {
+			docs = append(docs, &sdoc{id: fmt.Sprintf("0192f3c1-%04x-7b4a-9c3d-2e1f0a9b8c7d", 0xe000+i), title: fmt.Sprintf("Week %d", i+1),
+				kind: "material", published: &sversion{id: fmt.Sprintf("0192f3c1-%04x-7b4a-9c3d-2e1f0a9b8c7d", 0xf000+i),
+					body: fmt.Sprintf("Week %d: merge sort, part %d.", i+1, i+1)}})
+		}
+		res, part := searchFor(t, searchRunner(newSearchCore(t, docs...), memstore.New(), nil, false), `{"query":"merge sort"}`)
+		more := strings.Contains(res.Note, "the course lists more documents than a search reads")
+		if more != (n > MaxSearchDocuments) || res.Result.Searched.Documents != min(n, MaxSearchDocuments) {
+			t.Errorf("%d documents: more %v, %d searched\n%s", n, more, res.Result.Searched.Documents, part.Content)
+		}
+	}
+}
+
+// TestSearchGivesThePassageItsReadCutsShort: a version's own text far
+// longer than a result is given by document_get cut short; a hit in it
+// past the cut gives the passage itself, saying why, and every hit that
+// gives none is read whole by its read: every paragraph's, of a text
+// whose characters JSON escapes, and escapes again in a result cut
+// short, as a quote, a backslash, a control character and U+2028, at
+// results of 32 KiB and of 4 to 8 KiB. A file of a version whose own text
+// leaves its part too little room, likewise; a short file there, and a
+// short text, give no passage.
+func TestSearchGivesThePassageItsReadCutsShort(t *testing.T) {
+	fillers := map[string]string{
+		"quotes":   strings.Repeat(`Sorting puts "things" in \order\, "step" by "step". `, 8),
+		"controls": strings.Repeat("Sorting puts\x01things\u2028in order,\tstep by\x1fstep. ", 8),
+	}
+	for name, filler := range fillers {
+		for _, size := range []int{DefaultMaxResultBytes, 4 << 10, 6 << 10, 8 << 10} {
+			t.Run(fmt.Sprintf("%s %d", name, size), func(t *testing.T) {
+				paragraphs := func(n int, prefix string) string {
+					var b strings.Builder
+					for i := range n {
+						fmt.Fprintf(&b, "Paragraph %d. %s %s%03dx\n\n", i, filler, prefix, i)
+					}
+					return strings.TrimSpace(b.String())
+				}
+				bodyParagraphs, labParagraphs, fileParagraphs := 120, 20, 150
+				if size < DefaultMaxResultBytes {
+					bodyParagraphs, labParagraphs, fileParagraphs = 40, 1, 50
+				}
+				docs := course()
+				docs = append(docs,
+					&sdoc{id: "0192f3c1-d007-7b4a-9c3d-2e1f0a9b8c7d", title: "Long notes", kind: "material",
+						published: &sversion{id: "0192f3c1-a008-7b4a-9c3d-2e1f0a9b8c7d", body: paragraphs(bodyParagraphs, "zb")}},
+					&sdoc{id: "0192f3c1-d008-7b4a-9c3d-2e1f0a9b8c7d", title: "Lab", kind: "material",
+						published: &sversion{id: "0192f3c1-a009-7b4a-9c3d-2e1f0a9b8c7d", body: paragraphs(labParagraphs, "zl"),
+							files: []sfile{
+								{id: "0192f3c1-b007-7b4a-9c3d-2e1f0a9b8c7d", name: "lab.md", ct: "text/markdown", data: []byte(paragraphs(fileParagraphs, "zf"))},
+								{id: "0192f3c1-b008-7b4a-9c3d-2e1f0a9b8c7d", name: "checklist.md", ct: "text/markdown", data: []byte("Bring zshortx to the lab.")},
+							}}},
+				)
+				c := newSearchCore(t, docs...)
+				r := searchRunner(c, memstore.New(), &SearchScope{}, false)
+				r.MaxResultBytes = size
+				words := []string{"zshortx"}
+				for i := range bodyParagraphs {
+					words = append(words, fmt.Sprintf("zb%03dx", i))
+				}
+				for i := range labParagraphs {
+					words = append(words, fmt.Sprintf("zl%03dx", i))
+				}
+				for i := range fileParagraphs {
+					words = append(words, fmt.Sprintf("zf%03dx", i))
+				}
+				given, passages := 0, 0
+				for _, word := range words {
+					res, part := searchFor(t, r, `{"query":"`+word+`","limit":1}`)
+					if len(res.Result.Hits) != 1 {
+						t.Fatalf("%s: %s", word, part.Content)
+					}
+					h := res.Result.Hits[0]
+					args, _ := json.Marshal(h.Read.Arguments)
+					parts, err := searchSet(t).Run(context.Background(), r, courseID, []llm.Part{call("g", h.Read.Tool, string(args))})
+					if err != nil {
+						t.Fatal(err)
+					}
+					read := strings.Contains(parts[0].Content, word)
+					switch {
+					case h.Passage == "" && !read:
+						t.Errorf("%s: its read %v does not give it, and the hit gives no passage: %+v", word, h.Read.Arguments, h)
+					case h.Passage == "":
+						given++
+					case h.ReadNote == "" || size == DefaultMaxResultBytes && !strings.Contains(h.Passage, word):
+						t.Errorf("%s: the passage given: %+v", word, h)
+					case word == "zshortx":
+						t.Errorf("a short file whose read gives it whole is given its passage: %+v", h)
+					default:
+						passages++
+					}
+				}
+				if given == 0 || passages == 0 {
+					t.Errorf("%d hits read by their read, %d given their passage: the test wants both", given, passages)
+				}
+				res, _ := searchFor(t, r, `{"query":"final exam"}`)
+				if len(res.Result.Hits) == 0 || res.Result.Hits[0].DocumentID != docSyllabus || res.Result.Hits[0].Passage != "" {
+					t.Errorf("a short text's hit: %+v", res.Result.Hits)
+				}
+			})
+		}
 	}
 }
 
