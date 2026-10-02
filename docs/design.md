@@ -1220,17 +1220,27 @@ course never says it".
   holds all the few words the index has of it.) Of the version's own
   text, the version. A version of several files names the file
   (`file_id`).
-  `document_get` gives a result of at most `MaxResultBytes` (32 KiB),
-  the version's own text in its envelope, and cuts the envelope as one
-  string where it passes that: the version's own text far into a long
-  `body_md` is not given, and a long `body_md` (or a long list of files)
-  leaves a file's part too little room beside it. As it reads a version, the search reckons how
-  much of its own text that call gives (`readRoom`, keeping 2 KiB for
-  what the runtime adds, so that it may say less is given than is, never
-  more), and whether a file's part fits beside it whole; a hit the call
-  would cut short gives the passage itself (`passage`, about 1,500 bytes)
-  with a `read_note` saying why, beside the same `read`. A passage given
-  as pages of a file is given whatever the envelope, and gets none.
+  `document_get` gives a result of at most `MaxResultBytes` (32 KiB), the
+  version's own text in its envelope, and cuts the envelope as one string
+  where it passes that: the version's own text far into a long `body_md`
+  is not given, and a long `body_md` (or a long list of files) leaves a
+  file's part too little room beside it. As it reads a version, the search
+  reckons how much of its own text that call gives, and the room it leaves
+  a file's text (`readRoom`, keeping 2 KiB for what the runtime adds, so
+  that it may say less is given than is, never more). A hit the call would
+  cut short gives the passage itself (`passage`, about 1,500 bytes) with a
+  `read_note` saying why, beside the same `read`. For a file's hit that is
+  decided by the hit (`fileCutShort`): none where the room holds a whole
+  part (24 KiB of text at 32 KiB, so a version whose result, files' text
+  aside, is under about 6 KB); where it does not, none for a passage of a
+  text the read gives as the index read it (a text version, a text file)
+  that ends within the room even if every byte before it took six written
+  (a control character's `\u00XX`), so that a short file, or a passage
+  near a file's start, is read by its `read`; and one for every other
+  passage, of a later part far into its text, of a PDF's page or a deck's
+  slide, whose text a model may be given otherwise than the index read it.
+  A passage given as pages of a file is given whatever the envelope, and
+  gets none.
 - *Who wrote it does not weigh.* Staff's text, an AI transcription and the
   runtime's reading of a file are ranked by how well they match alone: a
   file has one text at a time (the text version where it is done, which a
@@ -2142,31 +2152,34 @@ Chinese with a table, overran, and was cut off.
   order, dropped by version, by document and unused), and `pgstore` runs a
   Traditional Chinese and an English search in a database whose ctype is
   C. Against a Core of the test's own: a student's search finds a deck's
-  slide by a Chinese question, a PDF's page, a text version's page and
-  the syllabus's own text by English ones, each hit naming where it is,
-  whose its text is and the call that reads it; once staff have searched,
-  so that the shared index holds a draft, a draft version newer than the
+  slide by a Chinese question, a PDF's page, a text version's page and the
+  syllabus's own text by English ones, each hit naming where it is, whose
+  its text is and the call that reads it; once staff have searched, so
+  that the shared index holds a draft, a draft version newer than the
   published one and instructions withheld from students, a student's
   searches find none of them and say what they could not read; each file
-  is read once, a text version in place of its scan, one answer's
-  searches ask Core once and a later answer's again without reading a
-  file, and a text edited is read again and found as edited alone; a scan
-  without a text version is said to have no text, and kept so, and files
-  the time ran out for are said not to be read yet; a text version Core
-  could not give just now is not kept in its place, and the next search
-  finds its words; a text file holding NUL, which no store keeps, is kept
-  with a space for each, found, and read once; a version Core gives as
-  purged leaves the index (and a document listed as purged, which today's
-  Core does not list); a purged version and a document refused the seat
-  said to have no version it may read now, and one Core could not answer
-  for said not read just now and found by the next search; a course of
-  99 or exactly 100 documents said to have none more, and one of 101 to
-  have more, its first 100 searched; in a version's own text of some
-  100 KB, every hit that gives no `passage` read whole by its read and
-  those past the cut given their passage, and so in a file whose
-  version's own text leaves its part too little room; hits a
-  page at a time to the last, a long text version's hit naming the part
-  that `document_get`, called as it is, gives it in; in a long text of no
+  is read once, a text version in place of its scan, one answer's searches
+  ask Core once and a later answer's again without reading a file, and a
+  text edited is read again and found as edited alone; a scan without a
+  text version is said to have no text, and kept so, and files the time
+  ran out for are said not to be read yet; a text version Core could not
+  give just now is not kept in its place, and the next search finds its
+  words; a text file holding NUL, which no store keeps, is kept with a
+  space for each, found, and read once; a version Core gives as purged
+  leaves the index (and a document listed as purged, which today's Core
+  does not list); a purged version and a document refused the seat said to
+  have no version it may read now, and one Core could not answer for said
+  not read just now, asked of again by the answer's next search, alone,
+  and found by it once Core answers; a course of 99 or exactly 100
+  documents said to have none more, and one of 101 to have more, its first
+  100 searched; in a version's own text of some 50 KB, of characters JSON
+  escapes once or twice (quotes, backslashes, control characters, U+2028),
+  at results of 32 KiB and of 4 to 8 KiB, every paragraph's hit that gives
+  no `passage` read whole by its read and those past the cut given their
+  passage, and so in a long file whose version's own text leaves its part
+  too little room, while a short file there gives none; hits a page at a
+  time to the last, a long text version's hit naming the part that
+  `document_get`, called as it is, gives it in; in a long text of no
   pages, a text file's and a text version's, every one of 200 words found
   in the part its hit's read gives; a deck of pictures, to a model that
   takes no files on a runtime with LibreOffice and OCR, whose parts are
@@ -2175,21 +2188,20 @@ Chinese with a table, overran, and was cut off.
   given as its PDF's pages saying its page is not known, and given as text
   read by its part; a deck and a Word file whose PDF Core made, where
   LibreOffice does not convert, pointed into Core's PDF as into
-  LibreOffice's; arguments refused before anything is read; and the
-  tool offered with `document_list` and `document_get` alone, never where
+  LibreOffice's; arguments refused before anything is read; and the tool
+  offered with `document_list` and `document_get` alone, never where
   denied. Against the fake Core, Yuki's agent and Sato's, which reads
-  drafts, sharing the worker's index, find the published slide, and
-  Sato's alone the draft, though Sato's searches first, so that the index
-  holds the draft when Yuki's does, counted and logged without the query;
-  the draft
-  purged, it leaves the index as Sato's seat reads the news; a version
-  purged (`document.purged` or `_unreleased`) leaves the index, a whole
-  document purged every version of it, and housekeeping drops the files
-  unused for 30 days. `storetest` also holds the candidates past the limit
-  to the shortest of those tied, and a file's use marked once a day. The
-  end to end (`search-of-the-materials`) does the same against the pinned
-  Core, Sato's searching first there too, the first hit read with the call
-  it names, and an administrator's purge of the draft's version.
+  drafts, sharing the worker's index, find the published slide, and Sato's
+  alone the draft, though Sato's searches first, so that the index holds
+  the draft when Yuki's does, counted and logged without the query; the
+  draft purged, it leaves the index as Sato's seat reads the news; a
+  version purged (`document.purged` or `_unreleased`) leaves the index, a
+  whole document purged every version of it, and housekeeping drops the
+  files unused for 30 days. `storetest` also holds the candidates past the
+  limit to the shortest of those tied, and a file's use marked once a day.
+  The end to end (`search-of-the-materials`) does the same against the
+  pinned Core, Sato's searching first there too, the first hit read with
+  the call it names, and an administrator's purge of the draft's version.
 - A version's files (§4, A version's files; AIShie-Core #49): a version of
   a PDF, a Word file and notes given file by file, in order, under their
   names, to a model that takes files and to one that takes none, no URL in
