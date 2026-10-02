@@ -79,9 +79,12 @@ and a test that passed alone then fails.
   itself goes on making), and counts what was begun after, not what
   landed after (`countCalls` and `noMoreOver` in the worker's tests): a
   call cancelled in flight is logged by the fake Core when it ends. An
-  agent Core stopped keeps its lease, and each of its ticks (`leaseTicks`)
-  is a time it was not started again. Likewise what is counted when it
-  ends is read once it has ended, not once the test has stopped it.
+  agent Core stopped keeps its lease, and its ticks go on (`leaseTicks`);
+  over them its starts are counted too, and its state read after
+  (`staysStopped`): an instance started again fetches the catalogue and
+  has its token before its first call, which may come only after the
+  ticks. Likewise what is counted when it ends is read once it has ended,
+  not once the test has stopped it.
 - Where a time bound is itself the point, it is generous (seconds, for a
   program the sandbox runs below the runtime's priority), tied to what it
   bounds (an agent whose lease renewal hangs stops before the lease would

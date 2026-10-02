@@ -263,6 +263,9 @@ func TestLeaseLostStopsTheAgentAtOnce(t *testing.T) {
 	})
 	noMoreOver(t, "the agent whose lease was lost", begun(&began), "lease ticks that find the lease lost",
 		func() int { return int(st.refused.Load()) })
+	if s := wk.sup.Status(); len(s) != 1 || s[0].Running || s[0].Leased {
+		t.Errorf("the agent whose lease was lost: %+v", s)
+	}
 
 	st.taken.Store(false)
 	conv, _ := w.ask(0, own, "Are you back?")

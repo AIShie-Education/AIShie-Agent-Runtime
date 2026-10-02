@@ -62,17 +62,24 @@ func countCalls(id string, began *atomic.Int32) func(*Options) {
 	}
 }
 
-// leaseTicks is a store that counts each agent's lease ticks: the
-// supervisor takes or renews the lease of every agent it has a runner
+// leaseTicks is a store that counts each agent's lease ticks and starts.
+// The supervisor takes or renews the lease of every agent it has a runner
 // for, every Timing.LeaseEvery, and starts the agent then if it is not
 // running and may be. An agent Core stopped (a refused token) keeps its
-// runner and its lease, so its ticks go on, each one a time it was not
-// started again: "nothing more" for it is held over ten of them, which a
-// busy machine makes later, not fewer.
+// runner and its lease, so its ticks go on: "nothing more" for it is held
+// over ten of them, which a busy machine makes later, not fewer.
+//
+// A start is counted as it writes the agent's state starting, before the
+// agent calls Core: an instance started again first fetches the catalogue
+// (apply drops it) and has its token before it begins a call countCalls
+// sees, so a start the calls alone would miss is counted at once
+// (stoppedAgent). Every start writes it but one tried again after a
+// failure (startRunner), which an agent Core stopped is not.
 type leaseTicks struct {
 	store.Store
-	mu    sync.Mutex
-	ticks map[string]int
+	mu     sync.Mutex
+	ticks  map[string]int
+	starts map[string]int
 }
 
 func (s *leaseTicks) AcquireLease(ctx context.Context, name, holder string, ttl time.Duration) (bool, error) {
@@ -87,11 +94,76 @@ func (s *leaseTicks) AcquireLease(ctx context.Context, name, holder string, ttl 
 	return s.Store.AcquireLease(ctx, name, holder, ttl)
 }
 
+func (s *leaseTicks) SetAgentState(ctx context.Context, st store.AgentState) error {
+	if st.State == store.AgentStarting {
+		s.mu.Lock()
+		if s.starts == nil {
+			s.starts = map[string]int{}
+		}
+		s.starts[st.AgentID]++
+		s.mu.Unlock()
+	}
+	return s.Store.SetAgentState(ctx, st)
+}
+
 // of is how many lease ticks the agent id has had.
 func (s *leaseTicks) of(id string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.ticks[id]
+}
+
+// started is how many times the agent id was started.
+func (s *leaseTicks) started(id string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.starts[id]
+}
+
+// stoppedAgent is what an agent Core stopped had done when it was taken:
+// the calls it had begun on its connection to Core (as countCalls counts),
+// its starts and its state.
+type stoppedAgent struct {
+	wk            *worker
+	st            *leaseTicks
+	id            string
+	began         func() int
+	calls, starts int
+	state         string
+}
+
+// stopped takes what the agent id Core stopped has done. It is taken once
+// the agent's state says it stopped, which is written once its calls have
+// returned; it fails the test if none of its calls was counted.
+func (s *leaseTicks) stopped(t *testing.T, wk *worker, id string, began func() int) *stoppedAgent {
+	t.Helper()
+	a := &stoppedAgent{wk: wk, st: s, id: id, began: began, calls: began(), starts: s.started(id), state: wk.state(id).State}
+	if a.calls == 0 {
+		t.Fatalf("none of the calls of %s was counted", id)
+	}
+	return a
+}
+
+// staysStopped waits ten more of the agent's lease ticks, at each of which
+// it would have been started had it not been stopped for good, then fails
+// the test if, since it was taken, it began a call to Core, was started,
+// runs, or its state changed.
+func (a *stoppedAgent) staysStopped(t *testing.T) {
+	t.Helper()
+	from := a.st.of(a.id)
+	eventually(t, "ten lease ticks more", func() bool { return a.st.of(a.id) >= from+10 })
+	if more := a.began() - a.calls; more != 0 {
+		t.Errorf("%d calls to Core begun by the stopped agent %s", more, a.id)
+	}
+	if more := a.st.started(a.id) - a.starts; more != 0 {
+		t.Errorf("the stopped agent %s was started %d times", a.id, more)
+	}
+	if st := a.wk.statusOf(a.id); st.Running {
+		t.Errorf("the stopped agent %s runs: %+v", a.id, st)
+	}
+	if st := a.wk.state(a.id); st.State != a.state {
+		t.Errorf("the stopped agent %s's state: %s; it was %s", a.id, st.State, a.state)
+	}
 }
 
 // begun reads the sum of counters, as countCalls counts.
@@ -136,6 +208,12 @@ func noMoreOver(t *testing.T, what string, began func() int, events string, coun
 // the seat begins them, on its connection to Core, and "no more" is over
 // ten reads of me_memberships the agent, still running, begins after the
 // denial, not over a time, in which a busy machine would poll less.
+//
+// What it holds is that the seat polls no more, not why: the first of
+// those reads shows the seat denied, which stops it as well, so a seat
+// that ignored Core's denial would most often pass. The hold alone is
+// TestHoldLiftsWhenTheSeatChanges's, where me_memberships goes on showing
+// the seat answering.
 func TestDeniedStopsPolling(t *testing.T) {
 	w := newWorld(t)
 	own := w.ownAgent("yuki-helper", 0)
@@ -291,7 +369,7 @@ func TestUnauthorizedStopsTheAgent(t *testing.T) {
 	if !strings.Contains(state.Detail, "token") || !strings.Contains(state.Detail, "SIGHUP") {
 		t.Errorf("detail %q", state.Detail)
 	}
-	noMoreOver(t, "the stopped agent", begun(&began), "lease ticks", func() int { return st.of("yuki-helper") })
+	st.stopped(t, wk, "yuki-helper", begun(&began)).staysStopped(t)
 	if got := counter(t, wk.reg, "agents", map[string]string{"state": store.AgentUnauthorized}); got != 1 {
 		t.Errorf("agents{state=unauthorized} = %v", got)
 	}
@@ -332,7 +410,7 @@ func TestUnauthenticatedEnvelopeStopsTheAgent(t *testing.T) {
 	wk.waitState("yuki-helper", store.AgentRunning)
 	gone.Store(true)
 	wk.waitState("yuki-helper", store.AgentUnauthorized)
-	noMoreOver(t, "the stopped agent", begun(&after), "lease ticks", func() int { return st.of("yuki-helper") })
+	st.stopped(t, wk, "yuki-helper", begun(&after)).staysStopped(t)
 }
 
 // TestRateLimitedSlowsTheAgent: Core says 429 with Retry-After 7; the call
@@ -421,7 +499,7 @@ func TestUnauthorizedAtStart(t *testing.T) {
 	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", nil, nil)), models{"m1": scripted.New()},
 		workerOpts{store: st, edit: countCalls("yuki-helper", &began)})
 	wk.waitState("yuki-helper", store.AgentUnauthorized)
-	noMoreOver(t, "the agent refused", begun(&began), "lease ticks", func() int { return st.of("yuki-helper") })
+	st.stopped(t, wk, "yuki-helper", begun(&began)).staysStopped(t)
 	if n := began.Load(); n != 1 {
 		t.Errorf("the agent began %d calls to Core; it should have stopped at the first", n)
 	}
