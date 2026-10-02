@@ -12,8 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
-
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/fakecore"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/scripted"
@@ -527,35 +525,48 @@ func TestSentBackWhileLeftSending(t *testing.T) {
 }
 
 // TestRevisesRefusedAnswersAnew: an attempt the store has as sent back for
-// changes, whose action Core does not have as one of the agent's sent back
-// (a rollback of Core made it a rejection, say), is named in revises by
-// the next attempt, which Core refuses (not_revisable), recording nothing;
-// the attempt after answers anew, naming none, rather than sending again
-// what Core refused, and the question is not left waiting.
+// changes, whose action Core has as rejected (a rollback of Core made it a
+// rejection, say), is named in revises by the next attempt, which Core
+// refuses (failed_precondition, not_revisable), recording nothing; the
+// attempt after answers anew, naming none, rather than sending again what
+// Core refused, and the question is not left waiting.
 func TestRevisesRefusedAnswersAnew(t *testing.T) {
 	w := newWorld(t)
 	tu := w.tutor("cs101-tutor")
 	w.ok(w.fc.SetLevel(tu.seat.ID, "conversation_answer", "confirm_required"))
 	conv, msg := w.ask(0, tu, "Sent back, as the store has it.")
-	st := memstore.New()
-	gone := uuid.NewString()
 	k1 := core.AnswerKey(conv, msg, 1)
+	args, err := json.Marshal(core.AnswerArgs{CourseID: w.co.ID, ConversationID: conv, InReplyToMessageID: msg,
+		Body: "Proposed before the rollback.", IdempotencyKey: k1})
+	w.ok(err)
+	caller := core.NewMCPCaller(core.MCPOptions{BaseURL: w.srv.URL, Token: tu.actor.Token, HTTPClient: &http.Client{Timeout: 5 * time.Second}})
+	env, err := caller.Call(context.Background(), toolAnswer, args)
+	if err != nil || env.Status != core.StatusProposed {
+		t.Fatalf("the first answer: %+v, %v", env, err)
+	}
+	w.ok(w.fc.Reject(env.ActionID, "Rejected, as Core has it now."))
+	st := memstore.New()
 	if _, err := st.PutAttempt(context.Background(), store.Attempt{Key: k1, AgentID: "cs101-tutor", MemberID: tu.seat.ID, CourseID: w.co.ID,
-		ConversationID: conv, MessageID: msg, No: 1, Tool: toolAnswer, Args: []byte(`{}`), Kind: kindModel, State: store.AttemptSending}); err != nil {
+		ConversationID: conv, MessageID: msg, No: 1, Tool: toolAnswer, Args: args, Kind: kindModel, State: store.AttemptSending}); err != nil {
 		t.Fatal(err)
 	}
-	w.ok(st.FinishAttempt(context.Background(), "cs101-tutor", k1, store.Outcome{State: store.AttemptChangesRequested, ActionID: gone, Reason: "From before."}))
+	w.ok(st.FinishAttempt(context.Background(), "cs101-tutor", k1, store.Outcome{State: store.AttemptChangesRequested, ActionID: env.ActionID,
+		Reason: "From before the rollback."}))
 	model := scripted.New(scripted.Reply("Naming what Core refuses."), scripted.Reply("Answered anew."))
 	wk := w.start(w.config(nil, w.agentDoc("cs101-tutor", "m1", nil, nil)), models{"m1": model}, workerOpts{store: st})
 	k2, k3 := core.AnswerKey(conv, msg, 2), core.AnswerKey(conv, msg, 3)
-	if at := wk.waitAttempt("cs101-tutor", k2, store.AttemptError); at.Reason != core.ReasonNotRevisable || at.ErrorCode != core.CodeInvalidArgument {
-		t.Errorf("the second attempt settled as %+v; want refused, not_revisable", at)
+	if at := wk.waitAttempt("cs101-tutor", k2, store.AttemptError); at.Reason != core.ReasonNotRevisable || at.ErrorCode != core.CodeFailedPrecondition {
+		t.Errorf("the second attempt settled as %+v; want refused, failed_precondition, not_revisable", at)
 	}
 	if p := w.waitProposal(k3); p.Revises != "" {
 		t.Errorf("the third attempt revises %q; want none", p.Revises)
 	}
-	if n := len(w.calls(tu.actor.ID, toolAnswer)); n != 2 {
-		t.Errorf("%d answers sent; want the refused one and the one anew", n)
+	sent := map[string]int{}
+	for _, c := range w.calls(tu.actor.ID, toolAnswer) {
+		sent[c.IdempotencyKey]++
+	}
+	if sent[k2] != 1 || sent[k3] != 1 {
+		t.Errorf("answers sent %v; want the refused one once, and the one anew", sent)
 	}
 }
 
