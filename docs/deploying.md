@@ -1023,6 +1023,29 @@ machine's loopback, should `HTTP_ADDR` listen wider).
   `failed` (after one retry, or refused);
   a steady `failed` is Core refusing them, which `/status` also shows per
   agent (`drafts`, `draft_writes`). They never hold an answer back.
+  `search_requests_total{result}` counts the models' searches of a course's
+  materials (`hits`, `none`, `refused`, `unavailable`), and
+  `search_files_total{outcome}` the files read into the search's index as
+  searches needed them (`text`, `empty`: no text to search, such as a scan
+  whose text version is not done, `failed`, `not_yet`: the search's 20 s
+  ran out first, left to the next search). The index is in the runtime's
+  database (migration 0014, tables `search_file` and `search_passage`):
+  the text of the course's files the models read, kept per version,
+  dropped as the runtime hears that Core purged the version (by the events
+  of a seat that reads drafts, or as a search reads its tombstone) and
+  otherwise after 30 days unused: a whole document purged in a course
+  where no agent here reads drafts stays stored, though never searched,
+  for up to those 30 days. It needs no extension, so the stack's
+  `postgres:18` serves it as it is. Scans and older Office and OpenDocument
+  files are searchable only by their text versions, which the transcriber
+  makes where it is on. Each answer's first search asks Core what its seat
+  may read: one `document_list` and a `document_get` for each document
+  listed, at most 100, within the agent's rate limit, at the answers'
+  priority. An agent answering many students of courses of many documents
+  with the search spends some 100 calls an answer, about five such answers a
+  minute at Core's default `RATE_LIMIT_PER_MINUTE` of 600; raise it in Core,
+  and `polling.assumed_core_rate_per_min` here, where that is too few
+  (`docs/design.md` §2.2).
   `budget_exhausted_total{budget}` counts the budgets answers ran into, and
   `truncated` the answers posted cut short, with `on_truncated_text` after
   them: many of those call for a higher `budgets.per_answer.output_tokens`

@@ -56,6 +56,9 @@ type loop struct {
 	access toolset.Access
 	writes *toolset.Writes
 	guard  toolset.SeatGuard
+	// search is what the seat may read of the course, as the answer's
+	// first search of its materials reads it, for its later ones.
+	search *toolset.SearchScope
 	set    *toolset.Set
 	decls  []llm.Tool
 	// cap is the output tokens asked for on a turn.
@@ -127,7 +130,7 @@ func newLoop(c *claim, msg string, attempt int, access toolset.Access, guard too
 	m, fallback := c.models()
 	l := &loop{
 		c: c, msg: msg, b: c.eff.Budgets.PerAnswer, start: c.a.now(), system: system, history: history,
-		m: m, fallback: fallback, access: access, guard: guard, d: c.d, files: files,
+		m: m, fallback: fallback, access: access, guard: guard, d: c.d, files: files, search: &toolset.SearchScope{},
 	}
 	if access == toolset.ReadWrite {
 		conv := c.conv

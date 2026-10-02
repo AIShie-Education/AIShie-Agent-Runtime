@@ -26,7 +26,7 @@ var update = flag.Bool("update", false, "rewrite testdata/schema.golden from the
 // them.
 var tables = []string{"lease", "attempt", "cursor", "note", "seat", "llm_call", "answer", "agent_state", "secret",
 	"person", "hosted_agent", "hosted_course", "audit", "ocr_text", "site_setting", "school_offer", "site_price", "site_tenant_quota",
-	"transcription_credential", "transcription_job", "agent_token"}
+	"transcription_credential", "transcription_job", "agent_token", "search_passage", "search_file"}
 
 // newest is the newest migration the binary carries.
 func newest(t *testing.T) uint {

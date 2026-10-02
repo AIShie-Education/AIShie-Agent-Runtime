@@ -168,6 +168,28 @@ school_offer.created_by text not null
 school_offer.created_at timestamp with time zone not null
 school_offer.updated_by text not null
 school_offer.updated_at timestamp with time zone not null
+search_file.version_id text not null
+search_file.file_key text not null
+search_file.course_id text not null
+search_file.document_id text not null
+search_file.revision text not null
+search_file.source text not null
+search_file.name text not null default ''::text
+search_file.position integer not null default 0
+search_file.passages integer not null default 0
+search_file.length bigint not null default 0
+search_file.indexed_at timestamp with time zone not null default now()
+search_file.used_at timestamp with time zone not null default now()
+search_passage.version_id text not null
+search_passage.file_key text not null
+search_passage.seq integer not null
+search_passage.section_kind text not null default ''::text
+search_passage.section_n integer not null default 0
+search_passage.start_offset integer not null
+search_passage.part integer not null
+search_passage.text text not null
+search_passage.terms ARRAY not null
+search_passage.length integer not null
 seat.agent_id text not null
 seat.member_id text not null
 seat.course_id text not null
@@ -292,6 +314,18 @@ school_offer school_offer_key_secret_id_fkey FOREIGN KEY (key_secret_id) REFEREN
 school_offer school_offer_key_secret_id_key UNIQUE (key_secret_id)
 school_offer school_offer_output_bound CHECK ((max_output_tokens >= 0))
 school_offer school_offer_pkey PRIMARY KEY (id)
+search_file search_file_length_check CHECK ((length >= 0))
+search_file search_file_passages_check CHECK ((passages >= 0))
+search_file search_file_pkey PRIMARY KEY (version_id, file_key)
+search_file search_file_position_check CHECK (("position" >= 0))
+search_file search_file_source_check CHECK ((source = ANY (ARRAY['staff'::text, 'ai'::text, 'runtime'::text, 'body'::text])))
+search_passage search_passage_length_check CHECK ((length >= 0))
+search_passage search_passage_part_check CHECK ((part >= 1))
+search_passage search_passage_pkey PRIMARY KEY (version_id, file_key, seq)
+search_passage search_passage_section_n_check CHECK ((section_n >= 0))
+search_passage search_passage_seq_check CHECK ((seq >= 0))
+search_passage search_passage_start_offset_check CHECK ((start_offset >= 0))
+search_passage search_passage_version_id_file_key_fkey FOREIGN KEY (version_id, file_key) REFERENCES search_file(version_id, file_key) ON DELETE CASCADE
 seat seat_pkey PRIMARY KEY (agent_id, member_id)
 secret secret_id_shape CHECK ((id ~ '^sec_[A-Za-z0-9_-]{1,60}$'::text))
 secret secret_kind_known CHECK ((kind = ANY (ARRAY['core_token'::text, 'model_key'::text])))
@@ -358,6 +392,12 @@ CREATE UNIQUE INDEX person_pkey ON public.person USING btree (core_actor_id)
 CREATE UNIQUE INDEX registry_rev_pkey ON public.registry_rev USING btree (one)
 CREATE UNIQUE INDEX school_offer_key_secret_id_key ON public.school_offer USING btree (key_secret_id)
 CREATE UNIQUE INDEX school_offer_pkey ON public.school_offer USING btree (id)
+CREATE INDEX search_file_by_course ON public.search_file USING btree (course_id)
+CREATE INDEX search_file_by_document ON public.search_file USING btree (document_id)
+CREATE INDEX search_file_by_use ON public.search_file USING btree (used_at)
+CREATE UNIQUE INDEX search_file_pkey ON public.search_file USING btree (version_id, file_key)
+CREATE UNIQUE INDEX search_passage_pkey ON public.search_passage USING btree (version_id, file_key, seq)
+CREATE INDEX search_passage_terms ON public.search_passage USING gin (terms)
 CREATE INDEX seat_gone_idx ON public.seat USING btree (gone_at) WHERE (gone_at IS NOT NULL)
 CREATE UNIQUE INDEX seat_pkey ON public.seat USING btree (agent_id, member_id)
 CREATE INDEX secret_kek_idx ON public.secret USING btree (kek_id)

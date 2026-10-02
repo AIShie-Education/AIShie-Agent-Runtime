@@ -50,6 +50,7 @@ type Store struct {
 	audit    []store.AuditEvent
 	auditID  int64
 	ocr      map[string]store.OCRText
+	search   map[store.SearchFileKey]store.SearchFile
 	settings map[string]store.SiteSetting
 	offers   map[string]store.SchoolOffer
 	prices   map[string]store.SitePrice
@@ -111,6 +112,7 @@ func New() *Store {
 		hosted:   map[string]store.HostedAgent{},
 		courses:  map[seatKey]store.HostedCourse{},
 		ocr:      map[string]store.OCRText{},
+		search:   map[store.SearchFileKey]store.SearchFile{},
 		settings: map[string]store.SiteSetting{},
 		offers:   map[string]store.SchoolOffer{},
 		prices:   map[string]store.SitePrice{},

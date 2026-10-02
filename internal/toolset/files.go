@@ -468,6 +468,10 @@ const (
 	noteUnmapped  = "the PDF's text cannot be read: its fonts do not map to text"
 	askSelectable = "; ask for a version with selectable text"
 	noteMalformed = notGiven + "it could not be read: it is damaged, or not the kind of file it says it is"
+	// noteNotFetched and noteTooSlow say why a file was not given this
+	// time, which another time may: the search reads it again (search.go).
+	noteNotFetched = notGiven + "it could not be fetched"
+	noteTooSlow    = notGiven + "reading it took longer than the runtime allows"
 )
 
 // given is what the model is given of a document's file: the record the
@@ -543,7 +547,7 @@ func (r Runner) giveFile(ctx context.Context, d *docFile, part int) given {
 		rec.Note = r.tooLarge()
 		return g
 	case err != nil:
-		rec.Note = notGiven + "it could not be fetched"
+		rec.Note = noteNotFetched
 		return g
 	}
 	rec.ByteSize = int64(len(f.Data))
@@ -896,7 +900,7 @@ func extractNote(err error) string {
 		return notGiven + "it is larger or more complex than the runtime reads (" +
 			strings.TrimPrefix(err.Error(), doctext.ErrLimit.Error()+": ") + ")"
 	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled):
-		return notGiven + "reading it took longer than the runtime allows"
+		return noteTooSlow
 	}
 	return noteMalformed
 }

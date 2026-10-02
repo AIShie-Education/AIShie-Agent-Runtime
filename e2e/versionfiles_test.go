@@ -26,6 +26,16 @@ import (
 // the document's id and its files', in order.
 func (w *world) uploadFiles(t *testing.T, p person, title, body string, files ...attachedFile) (string, []string) {
 	t.Helper()
+	doc, version, ids := w.uploadDraft(t, p, title, body, files...)
+	w.api.call(t, http.StatusOK, p.token, "POST", w.path("/documents/"+doc+"/publish"), map[string]any{"version_id": version})
+	return doc, ids
+}
+
+// uploadDraft is uploadFiles but for the publishing: the document is a
+// draft, which only members who read drafts see. It returns the
+// document's id, its version's and its files', in order.
+func (w *world) uploadDraft(t *testing.T, p person, title, body string, files ...attachedFile) (string, string, []string) {
+	t.Helper()
 	var named []map[string]any
 	for _, f := range files {
 		q := url.Values{"kind": {"material"}, "content_type": {f.contentType}, "filename": {f.name}}
@@ -63,8 +73,7 @@ func (w *world) uploadFiles(t *testing.T, p person, title, body string, files ..
 	if len(doc.FileIDs) != len(files) {
 		t.Fatalf("Core made %d files of %d", len(doc.FileIDs), len(files))
 	}
-	w.api.call(t, http.StatusOK, p.token, "POST", w.path("/documents/"+doc.DocumentID+"/publish"), map[string]any{"version_id": doc.VersionID})
-	return doc.DocumentID, doc.FileIDs
+	return doc.DocumentID, doc.VersionID, doc.FileIDs
 }
 
 // hasFiles reports whether the Core under test holds several files to a

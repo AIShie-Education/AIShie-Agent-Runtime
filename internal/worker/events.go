@@ -212,9 +212,10 @@ var errSendUnderWay = errors.New("a decision on an action not yet stored, while 
 // onEvent acts on one event. Only what concerns an attempt the store
 // holds, the agent's own conversations, or its answers is acted on, so
 // that a seat reading its whole history on its first read does no harm;
-// and a version's text changed drops what the worker keeps of it. Its
-// error is the store failing, or errSendUnderWay, when the event must be
-// read again.
+// a version's text changed drops what the worker keeps of it, and a
+// document or a version purged what the search keeps of it. Its error is
+// the store failing, or errSendUnderWay, when the event must be read
+// again.
 func (s *Seat) onEvent(ctx context.Context, ev core.Event, acts *actionLookup) error {
 	if core.IsTextEvent(ev.Type) {
 		// A file's text is kept by the file (a Core since #49 names it),
@@ -227,6 +228,8 @@ func (s *Seat) onEvent(ctx context.Context, ev core.Event, acts *actionLookup) e
 		return nil
 	}
 	switch ev.Type {
+	case core.EventDocumentPurged, core.EventDocumentPurgedUnreleased:
+		return s.purged(ctx, ev)
 	case core.EventActionApproved, core.EventActionRejected, core.EventActionCancelled:
 		if ev.ActionID == nil {
 			return nil
@@ -274,6 +277,34 @@ func (s *Seat) onEvent(ctx context.Context, ev core.Event, acts *actionLookup) e
 			s.a.now().Sub(at) < config.Seconds(s.polling().HotWindowS) {
 			s.markHot()
 		}
+	}
+	return nil
+}
+
+// purged drops from the search's index what it keeps of a version, or of
+// every version of a document, Core says was purged (design §4, Search):
+// the payload's version_id, or else the event's document. Its error is
+// the store failing, when the event is read again.
+func (s *Seat) purged(ctx context.Context, ev core.Event) error {
+	var p struct {
+		VersionID string `json:"version_id"`
+	}
+	_ = json.Unmarshal(ev.Payload, &p)
+	var n int64
+	var err error
+	switch {
+	case p.VersionID != "":
+		n, err = s.a.store().DropSearchVersions(ctx, []string{p.VersionID})
+	case ev.SubjectID != nil && *ev.SubjectID != "":
+		n, err = s.a.store().DropSearchDocuments(ctx, []string{*ev.SubjectID})
+	default:
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		s.log.Info("the search dropped what it kept of a document purged", "document", deref(ev.SubjectID), "version", p.VersionID, "files", n)
 	}
 	return nil
 }

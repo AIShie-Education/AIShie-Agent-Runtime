@@ -229,6 +229,17 @@ func (c *Core) AddFile(courseID, title, contentType string, data []byte) (string
 // transcription service to claim. It returns the document's id and its
 // files' ids, in order.
 func (c *Core) AddFiles(courseID, title, body string, files ...File) (string, []string, error) {
+	return c.addDocument(courseID, title, body, false, files)
+}
+
+// AddDraftFiles adds a material to the course as AddFiles does, but not
+// published: a draft, which Core shows only to members who can read
+// drafts (document_read_draft), and to nobody else, listed or read.
+func (c *Core) AddDraftFiles(courseID, title, body string, files ...File) (string, []string, error) {
+	return c.addDocument(courseID, title, body, true, files)
+}
+
+func (c *Core) addDocument(courseID, title, body string, draft bool, files []File) (string, []string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	co := c.courses[courseID]
@@ -240,7 +251,7 @@ func (c *Core) AddFiles(courseID, title, body string, files ...File) (string, []
 	}
 	now := c.now()
 	d := &document{id: newID(), kind: kindMaterial, title: title, course: co, sortOrder: len(co.documents), createdAt: now,
-		versionID: newID(), authorMemberID: newID(), versionCreatedAt: now}
+		versionID: newID(), authorMemberID: newID(), versionCreatedAt: now, draft: draft}
 	if body != "" {
 		d.bodyMD = &body
 	}
@@ -251,6 +262,29 @@ func (c *Core) AddFiles(courseID, title, body string, files ...File) (string, []
 		ids[i] = f.id
 	}
 	return d.id, ids, nil
+}
+
+// PurgeVersion purges the version of the document, as an administrator
+// does with document.purge naming it: its text and files are gone,
+// document_get gives its tombstone, and the course's feed says so
+// (document.purged, naming the version), to whoever reads drafts.
+func (c *Core) PurgeVersion(documentID string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, co := range c.courses {
+		for _, d := range co.documents {
+			if d.id != documentID {
+				continue
+			}
+			now := c.now()
+			d.purgedAt, d.files = &now, nil
+			id := d.id
+			c.flushStamped([]*event{{typ: "document.purged", course: co, subjectType: "document", subjectID: &id,
+				payload: mustJSON(map[string]any{"versions": 1, "version_id": d.versionID, "kind": d.kind})}})
+			return nil
+		}
+	}
+	return fmt.Errorf("fakecore: PurgeVersion: no document %s", documentID)
 }
 
 func ptr[T any](v T) *T { return &v }

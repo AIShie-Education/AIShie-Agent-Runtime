@@ -2,8 +2,8 @@
 // §8.1): polls, answers and their latency, model calls, tokens and cost,
 // Core calls, the models' writes, the drafts of answers being written,
 // budgets spent, lease takeovers, each agent's presence gap, the OCR of
-// documents, their conversion to PDF, the transcriber's work and the PDF
-// renditions. Labels hold ids, names and codes, never text: a write's
+// documents, their conversion to PDF, the transcriber's work, the PDF
+// renditions and the searches of courses' materials. Labels hold ids, names and codes, never text: a write's
 // arguments are never a label, nor a draft's text.
 package metrics
 
@@ -87,6 +87,13 @@ type Metrics struct {
 	RenditionSeconds     prometheus.Histogram
 	RenditionInflight    prometheus.Gauge
 	RenditionClaimErrors *prometheus.CounterVec
+	// Search: the searches of courses' materials models made
+	// (docs/design.md §4, Search), by what each found (hits, none,
+	// refused, unavailable); and the files read for the search's index,
+	// by what came of each (text, empty: no text to search, failed: not
+	// read now, not_yet: the search's time ran out first).
+	SearchRequests *prometheus.CounterVec
+	SearchFiles    *prometheus.CounterVec
 
 	presence *presence
 }
@@ -235,6 +242,14 @@ func New(reg prometheus.Registerer) *Metrics {
 			Name: "rendition_claim_errors_total",
 			Help: "Calls to Core's queue of renditions that failed, by reason: no_credential, credential_rejected, rate_limited, unreachable, refused.",
 		}, []string{"reason"}),
+		SearchRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "search_requests_total",
+			Help: "Searches of a course's materials, by what they found: hits, none, refused (Core refused the list), unavailable.",
+		}, []string{"result"}),
+		SearchFiles: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "search_files_total",
+			Help: "Files read for the search's index, by outcome: text, empty (no text to search), failed (not read now), not_yet (no time left).",
+		}, []string{"outcome"}),
 		presence: &presence{last: map[string]time.Time{}},
 	}
 	reg.MustRegister(m.InboxPolls, m.AnswerLatency, m.Answers, m.LLMCalls, m.LLMTokens, m.LLMCost,
@@ -242,7 +257,7 @@ func New(reg prometheus.Registerer) *Metrics {
 		m.DraftWrites, m.OCRRequests, m.OCRJobs, m.OCRPages, m.OCRJobSeconds, m.OCRPageSeconds, m.OCRRunning, m.OCRWaiting,
 		m.OfficeRequests, m.OfficeJobs, m.OfficeJobSeconds, m.OfficeCuts, m.OfficeCutSeconds, m.OfficeRunning, m.OfficeWaiting,
 		m.TranscribeJobs, m.TranscribePages, m.TranscribeInflight, m.TranscribeClaimErrors,
-		m.RenditionJobs, m.RenditionSeconds, m.RenditionInflight, m.RenditionClaimErrors)
+		m.RenditionJobs, m.RenditionSeconds, m.RenditionInflight, m.RenditionClaimErrors, m.SearchRequests, m.SearchFiles)
 	return m
 }
 

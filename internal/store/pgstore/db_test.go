@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,8 +88,15 @@ func needDB(t *testing.T) {
 // ends.
 func freshDatabase(t *testing.T) string {
 	t.Helper()
+	return freshDatabaseWith(t, "")
+}
+
+// freshDatabaseWith is freshDatabase made with options, CREATE DATABASE's
+// after its name: its template, encoding and locale.
+func freshDatabaseWith(t *testing.T, options string) string {
+	t.Helper()
 	needDB(t)
-	name, u, err := createDatabase()
+	name, u, err := createDatabaseWith(options)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +106,10 @@ func freshDatabase(t *testing.T) string {
 
 // createDatabase makes an empty scratch database and returns its name and
 // URL.
-func createDatabase() (name, dbURL string, err error) {
+func createDatabase() (name, dbURL string, err error) { return createDatabaseWith("") }
+
+// createDatabaseWith is createDatabase made with options (freshDatabaseWith).
+func createDatabaseWith(options string) (name, dbURL string, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	admin, err := pgx.Connect(ctx, adminURL)
@@ -108,7 +119,7 @@ func createDatabase() (name, dbURL string, err error) {
 	defer func() { _ = admin.Close(context.Background()) }()
 
 	name = "aishie_store_t_" + randomSuffix()
-	if _, err := admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{name}.Sanitize()); err != nil {
+	if _, err := admin.Exec(ctx, strings.TrimSpace("CREATE DATABASE "+pgx.Identifier{name}.Sanitize()+" "+options)); err != nil {
 		return "", "", fmt.Errorf("create a scratch database: %w", err)
 	}
 	dbURL, err = withDatabase(adminURL, name)

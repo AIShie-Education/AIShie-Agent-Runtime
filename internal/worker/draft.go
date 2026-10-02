@@ -560,7 +560,7 @@ func stepKind(tool string) string {
 	switch tool {
 	case "document_get", toolset.AttachmentTool:
 		return core.StepReadingDocument
-	case "document_list":
+	case "document_list", toolset.SearchTool:
 		return core.StepListingDocuments
 	case "assignment_get":
 		return core.StepReadingAssignment

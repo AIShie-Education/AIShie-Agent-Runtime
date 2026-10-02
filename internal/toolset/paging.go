@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,7 +35,8 @@ const FilePartArg = "file_part"
 
 // FilePagesArg is the runtime's other argument of FilePartTool: pages of
 // the file itself to give, as a PDF of their own, where the version's text
-// version is what the model reads (textversion.go).
+// version is what the model reads (textversion.go); to a model given the
+// file as text, the text of those pages or slides (pagesOfText).
 const FilePagesArg = "file_pages"
 
 // FileIDArg is the runtime's third argument of FilePartTool: which file of
@@ -66,7 +68,8 @@ var filePagesProperty = map[string]any{
 	"type": []any{"null", "string"},
 	"description": "pages of the file itself to see, as a PDF of their own, such as \"3\" or \"3-5\" (at most " +
 		strconv.Itoa(maxFilePages) + " at a time): where file.text_source says file_text is the file's text version, to check a " +
-		"page, a figure or a formula against the file; omit it to read the text",
+		"page, a figure or a formula against the file; where the file is given as its text, those pages' or slides' text alone; " +
+		"omit it to read the text",
 }
 
 // maxFilePages bounds the pages FilePagesArg asks for at once; so does
@@ -407,6 +410,62 @@ func (r Runner) pageText(rec *fileRecord, d *docFile, text string, sections []do
 	}
 	rec.Note += b.String()
 	return text[p.start:p.end]
+}
+
+// pagesOfText gives, of a file given as text where the model asked for
+// pages of it (FilePagesArg, first to last) that it is not given, the text
+// of those pages, slides or sheets, where its text says where they begin:
+// whole, where it fits a part, and otherwise the part of the text that
+// holds their start, which is returned (0 for none). A text with no such
+// pages, or not given, is given as it would be, and why says why the pages
+// were not.
+func (r Runner) pagesOfText(g *given, d *docFile, first, last int) (part int, why string) {
+	span, ok := sectionSpan(g.sections, len(g.text), first, last)
+	switch {
+	case g.text == "" || g.aside || len(g.sections) == 0:
+		return 0, r.noPages(g.rec)
+	case !ok:
+		return 0, fmt.Sprintf("the file's text has no %s %d", g.sections[0].Kind, first)
+	}
+	rec := g.rec
+	holds := partHolds(span, g.sections, len(g.text))
+	if escapedLenOf(g.text[span.start:span.end]) <= r.partBudget() {
+		rec.Note = strings.TrimPrefix(rec.Note+"; ", "; ") + fmt.Sprintf("file_text is %s alone, as %s asked, of the file's text, "+
+			"since %s; call %s without %s for all of it", holds, FilePagesArg, r.noPages(rec), d.tool(), FilePagesArg)
+		rec.PartHolds = holds
+		g.text, g.sections = g.text[span.start:span.end], nil
+		return 0, ""
+	}
+	for i, p := range splitText(g.text, g.sections, r.partBudget()) {
+		if span.start >= p.start && span.start < p.end {
+			part = i + 1
+			break
+		}
+	}
+	rec.Note = strings.TrimPrefix(rec.Note+"; ", "; ") + fmt.Sprintf("%s, which %s asked for, is longer than one result: the part of the "+
+		"file's text that holds its start is given, since %s", holds, FilePagesArg, r.noPages(rec))
+	return part, ""
+}
+
+// sectionSpan is the text of the sections of a text numbered first to
+// last: from where the first of them begins to where the next section after
+// them does (the text's end, after the last); ok is false when the text has
+// none of them.
+func sectionSpan(sections []doctext.Section, textLen, first, last int) (span textPart, ok bool) {
+	in := func(s doctext.Section) bool { return s.N >= first && s.N <= last }
+	i := slices.IndexFunc(sections, in)
+	if i < 0 {
+		return textPart{}, false
+	}
+	j := i
+	for j+1 < len(sections) && in(sections[j+1]) {
+		j++
+	}
+	end := textLen
+	if j+1 < len(sections) {
+		end = sections[j+1].Offset
+	}
+	return textPart{sections[i].Offset, end}, true
 }
 
 // maxPartsListed bounds the parts the first part lists by what they hold.

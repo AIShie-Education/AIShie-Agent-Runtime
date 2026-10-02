@@ -7,6 +7,7 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolset"
 )
 
 // defaultRetentionDays is how long a seat's memory is kept after it left,
@@ -28,7 +29,8 @@ const OrphanAge = 10 * time.Minute
 // seat's row. The ledger's ids and numbers stay. It also destroys the
 // audit's events older than AuditRetention, the texts OCR recognized
 // older than ocr.TextRetention and its failures older than
-// ocr.FailedRetention, and purges hosted agents that are gone
+// ocr.FailedRetention, the search's files no search has needed for
+// toolset.SearchRetention, and purges hosted agents that are gone
 // (purgeGone). Any worker may do it; it is the same work done twice at
 // worst.
 func (s *Supervisor) housekeep(ctx context.Context) {
@@ -45,6 +47,13 @@ func (s *Supervisor) housekeep(ctx context.Context) {
 		}
 	} else if n > 0 {
 		s.log.Info("housekeeping: the oldest texts OCR recognized were destroyed, and its failures tried again when next asked", "texts", n)
+	}
+	if n, err := s.o.Store.PurgeSearchFiles(ctx, s.o.Now().Add(-toolset.SearchRetention)); err != nil {
+		if ctx.Err() == nil {
+			s.log.Warn("housekeeping: the search's files no search needs not purged", "err", err)
+		}
+	} else if n > 0 {
+		s.log.Info("housekeeping: the files no search of a course's materials has needed for 30 days were dropped from its index", "files", n)
 	}
 	cfg := s.config()
 	if cfg == nil {

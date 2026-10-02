@@ -194,7 +194,10 @@ type Tools struct {
 	Mode  string   `yaml:"mode"`
 	Allow []string `yaml:"allow"`
 	// Deny is beside the built-in list, which always applies; an entry
-	// ending in * denies every tool whose name begins so (design §4).
+	// ending in * denies every tool whose name begins so (design §4). It
+	// takes the runtime's own tools away too: attachment_get, and
+	// course_materials_search, which is otherwise offered wherever
+	// document_list and document_get are.
 	Deny []string `yaml:"deny"`
 	// Writes lets the model be offered the writes the seat's perms allow,
 	// in a conversation the agent's owner opened (design §4): off by

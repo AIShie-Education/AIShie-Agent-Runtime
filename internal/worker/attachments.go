@@ -115,7 +115,8 @@ func (l *loop) giveFiles(ctx context.Context) {
 
 // runner is what the model's tool calls, and the question's files, are
 // run with: the agent's Core client, the worker's fetcher, caches, OCR and
-// conversions, and the model's capabilities.
+// conversions, the store's search index and the answer's scope of it, and
+// the model's capabilities.
 func (l *loop) runner() toolset.Runner {
 	eff := l.c.eff
 	// A PDF past what the model's provider takes as a file is given as
@@ -128,11 +129,27 @@ func (l *loop) runner() toolset.Runner {
 		Client: l.c.a.client, Files: l.c.a.s.files, Texts: l.c.a.s.texts, OCR: l.c.a.s.o.OCR, MaxParallel: eff.Tools.MaxParallelTools,
 		FileInput: l.m.ad.Capabilities().FileInput, PDFLimits: pdf, Writes: l.writes, Guard: l.guard,
 		Office: l.c.a.s.o.Office, PartPages: l.c.a.s.o.Env.PDFPartPages, Conversation: l.c.conv,
+		Index: l.c.a.store(), Search: l.search, Searched: l.searched,
 	}
 	if l.d != nil {
 		r.Seen = l.d.seen
 	}
 	return r
+}
+
+// searched counts and logs one search of the course's materials: in ids,
+// counts and timings, never its query.
+func (l *loop) searched(st toolset.SearchStats) {
+	m := l.c.a.s.o.Metrics
+	m.SearchRequests.WithLabelValues(st.Outcome).Inc()
+	for outcome, n := range map[string]int{"text": st.Indexed, "empty": st.Empty, "failed": st.Failed, "not_yet": st.NotYet} {
+		if n > 0 {
+			m.SearchFiles.WithLabelValues(outcome).Add(float64(n))
+		}
+	}
+	l.c.s.log.Info("the course's materials were searched", "conversation", l.c.conv, "message", l.msg, "outcome", st.Outcome,
+		"documents", st.Documents, "files", st.Files, "without_text", st.WithoutText, "indexed", st.Indexed, "empty", st.Empty, "failed", st.Failed,
+		"not_yet", st.NotYet, "hits", st.Hits, "scope_read", st.ScopeRead, "took_ms", st.Took.Milliseconds())
 }
 
 // takesFilesAs reports whether two models are given files alike: both take

@@ -14,6 +14,7 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolschema"
 )
 
@@ -71,6 +72,16 @@ type Runner struct {
 	// Conversation is the conversation the answer is written in: the only
 	// one whose files AttachmentTool reads (attachments.go).
 	Conversation string
+	// Index keeps the search of the course's materials (SearchTool,
+	// search.go); nil searches nothing, and the model is told so.
+	Index store.SearchIndex
+	// Search is what the answer's seat may read of the course, read at its
+	// first search and used by its later ones; nil reads it at every
+	// search.
+	Search *SearchScope
+	// Searched, when set, is told what each search did, in counts, on the
+	// goroutine that made it.
+	Searched func(SearchStats)
 
 	// tags are what the readings kept while a message's file is given are
 	// tagged with (keep): the file's id and its message's.
@@ -404,6 +415,8 @@ type prepared struct {
 	// attach is a call of the runtime's own AttachmentTool, which reaches
 	// Core only for the file's URL (attachments.go).
 	attach *attachmentCall
+	// search is a call of the runtime's own SearchTool (search.go).
+	search *searchCall
 }
 
 func refusedCall(res llm.Part, code, msg string) prepared {
@@ -419,6 +432,9 @@ func (s *Set) prepare(r Runner, courseID string, call llm.Part) prepared {
 	}
 	if t.kind == KindRuntime && call.Name == AttachmentTool {
 		return prepareAttachment(r, courseID, call, res, t)
+	}
+	if t.kind == KindRuntime && call.Name == SearchTool {
+		return prepareSearch(courseID, call, res, t)
 	}
 	// The deny list holds at every stage (§6.1), whatever built this set,
 	// and before anything of the call is looked at; so does a write's
@@ -496,6 +512,10 @@ func (s *Set) send(ctx context.Context, r Runner, p prepared) (llm.Part, []*llm.
 			return res, nil, env, err
 		}
 		return res, []*llm.File{file}, env, err
+	}
+	if p.search != nil {
+		res, env, err := s.sendSearch(ctx, r, p)
+		return res, nil, env, err
 	}
 	res := p.res
 	env, err := r.Client.Call(ctx, res.Name, p.args)
@@ -707,10 +727,14 @@ func (r Runner) render(ctx context.Context, tool string, env *core.Envelope, fa 
 	if fa.part > 1 && g.rec.GivenAs == givenFile && g.rec.Part == 0 {
 		g.rec.Note = strings.TrimPrefix(g.rec.Note+"; ", "; ") + FilePartArg + " does not apply: the file itself is given, whole"
 	}
+	part := fa.part
 	if fa.first > 0 && !g.pages {
-		g.rec.Note = strings.TrimPrefix(g.rec.Note+"; ", "; ") + FilePagesArg + " does not apply: " + r.noPages(g.rec)
+		var why string
+		if part, why = r.pagesOfText(&g, doc, fa.first, fa.last); why != "" {
+			g.rec.Note = strings.TrimPrefix(g.rec.Note+"; ", "; ") + FilePagesArg + " does not apply: " + why
+		}
 	}
-	content := r.fit(c, doc, g, fa.part)
+	content := r.fit(c, doc, g, part)
 	if g.file == nil {
 		return content, nil
 	}

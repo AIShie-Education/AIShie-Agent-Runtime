@@ -32,7 +32,9 @@ agent:
   tools:
     mode: derived                  # the seat's perms ∩ allow − deny
     allow: [course_get, document_list, document_get, assignment_list, assignment_get]
-    deny: []                       # beside the built-in list (§6.1)
+    deny: []                       # beside the built-in list (§6.1); course_materials_search, the
+                                   # runtime's search, is offered with document_list and document_get
+                                   # unless denied here
     # The writes its seat allows, only ever in a conversation its owner
     # opened: never for the students it answers. Off unless turned on.
     writes: false
