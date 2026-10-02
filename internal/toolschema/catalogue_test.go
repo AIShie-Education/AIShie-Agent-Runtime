@@ -11,7 +11,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 )
 
-var testBound = []string{"course_id", "idempotency_key"}
+var testBound = []string{"course_id", "idempotency_key", "revises"}
 
 // TestCatalogueEveryDialect puts every tool of Core's catalogue through every
 // dialect and checks what each dialect promises (§3.8, §8.2 item 4).

@@ -119,6 +119,13 @@ func TestReverseBound(t *testing.T) {
 			bound:  map[string]any{"course_id": testUUID, "idempotency_key": "tool:m1:abc"},
 			want:   `{"body":"hi","course_id":"` + testUUID + `","idempotency_key":"tool:m1:abc"}`,
 		},
+		{
+			name:   "a bound value of nil takes the model's out, though the schema has a place for it",
+			schema: `{"type":"object","properties":{"body":{"type":"string"},"revises":{"type":"string","format":"uuid"}},"additionalProperties":false}`,
+			args:   `{"body":"hi","revises":"` + testUUID + `"}`,
+			bound:  map[string]any{"revises": nil},
+			want:   `{"body":"hi"}`,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
