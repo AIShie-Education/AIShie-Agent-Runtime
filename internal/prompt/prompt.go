@@ -286,6 +286,10 @@ func noteSentence(n store.Note) string {
 			return "A member of staff rejected an earlier answer of yours here, without giving a reason. Write a better one."
 		}
 		return fmt.Sprintf("A member of staff rejected an earlier answer of yours here, saying: %q. Take it into account.", n.Text)
+	case store.NoteRejectedUnread:
+		// Core takes a rejection with a reason or without one: whether
+		// this one had a reason is not known.
+		return "A member of staff rejected an earlier answer of yours here; whether they gave a reason could not be read. Write a better one."
 	case store.NoteChangesRequested:
 		if n.Text == "" {
 			// Core always has a note of what to change: this one was not

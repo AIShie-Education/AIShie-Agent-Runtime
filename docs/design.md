@@ -1991,6 +1991,10 @@ The events poller reads `event_list` from the seat's cursor:
 - `action.rejected`: settled as rejected; the reason is read from
   `action_list_mine` (the proposal's `result.decision.reason`, paged from the
   seat's `actions` cursor) into X's memory, for the next attempt's prompt.
+  Core takes a rejection with no reason, and the event carries none: one
+  settled from the event (below) is noted as a rejection whose reason
+  could not be read (`rejected_unread`), and the next attempt is told
+  that whether a reason was given could not be read, never that none was.
 - `action.changes_requested` (AIShie-Core #68): a person sent the answer
   back for changes. Settled as `changes_requested`, with what they asked,
   read from `action_list_mine` as a rejection's reason is, kept on the
@@ -2007,14 +2011,24 @@ The events poller reads `event_list` from the seat's cursor:
   in turn (`worker.revised`); one that failed, or expired undecided,
   leaves the request standing, told as made of an earlier answer, which
   is shown and named. Core requires a note (1 to 2000 characters), but
-  the event carries none: one `action_list_mine` does not give (an error
-  the client does not retry, the read cut short, the proposal more than
-  the lookup's 50 pages on) is settled from the event all the same, and
-  the next attempt is told that what was asked could not be read, never
-  that nothing was. Leaving the event to be read again would read the
-  same pages again, fail the same way, and hold up every event after it.
-  A runtime from before this never settled one, and left the
-  conversation unanswered until its opener wrote again.
+  the event carries none: one `action_list_mine` does not give, for a
+  reason the next read would meet again (an error the client does not
+  retry, the proposal more than the lookup's 50 pages on), is settled
+  from the event all the same, and the next attempt is told that what
+  was asked could not be read, never that nothing was. Leaving that
+  event to be read again would read the same pages again, fail the same
+  way, and hold up every event after it. A lookup cut short by the
+  seat's end (a stop, a restart, a deploy: until then, Core's client
+  sends a read that fails transiently again) or by a 401, which stops
+  the agent until it is issued another token, ends with the seat: its
+  decision is not settled, the cursor stays before its event's page,
+  and the event is read again when the seat starts again, the proposal
+  then settled as `action_list_mine` has it, by the seat's start or
+  from the event (`actionLookup.cut`). Settled from the event, what was
+  asked would be lost for good: the attempt would no longer be proposed
+  when the event was read again. A runtime from before this never
+  settled one, and left the conversation unanswered until its opener
+  wrote again.
 - `action.cancelled`: settled as cancelled, `payload.reason` noted.
 - `conversation.message_retracted`: the answer being written to that
   message, the opener's question withdrawn, stops (§5.3); notes about it
@@ -2106,8 +2120,9 @@ prompt says:
   (`prompt.Input.Revising`), with the answer they read, whole and as it
   was sent, in a block of its own, with no word on what to keep of it
   beyond what they asked;
-- the memory of this conversation: rejection reasons, what was asked of
-  answers sent back for changes, retracted answers,
+- the memory of this conversation: rejection reasons (none given, or
+  whether one was given could not be read), what was asked of answers
+  sent back for changes, retracted answers,
   and the changes it made here (a write Core executed or proposed: its tool,
   status, action and the ids it made, never its arguments), not to be made
   again unless it is asked anew.
@@ -2185,7 +2200,7 @@ The prompt's hash is kept per answer.
 | `lease` | name, holder, expires_at |
 | `attempt` | (agent, key) → the exact bytes, state (`sending`, `executed`, `proposed`, `failed`, `denied`, `error`, `rejected`, `cancelled`, `changes_requested` since 0015, whose down makes them `rejected`, what was asked their reason), action id, posted message id, error code, reason |
 | `cursor` | (agent, member, kind) → value |
-| `note` | (agent, member, conversation) → kind, text, message id; a `changes_requested` note, which the release before has no sentence for, is made a `rejected` one by 0015's down, but a rollback leaves the schema as it is, and what was asked is lost to that release (`docs/deploying.md`) |
+| `note` | (agent, member, conversation) → kind, text, message id; a `changes_requested` note, which the release before has no sentence for, is made a `rejected` one by 0015's down, but one whose request was not read (its text empty) is left as it is, for that release to pass over: made a rejection's, it would be read as one given no reason; a rollback leaves the schema as it is, and what was asked is lost to that release (`docs/deploying.md`). That release passes over a `rejected_unread` note too, a rejection whose reason was not read (a kind with no migration of its own: kinds are free text) |
 | `seat` | (agent, member) → course, seen_at, gone_at, and the seat as `me_memberships` last showed it: course code, title and section, status, `answers_course`, principal, perms |
 | `llm_call`, `answer` | the ledger: ids and numbers; an answer's row counts the writes its model sent, and how many Core executed, proposed, denied and failed; a call's `kind` is `model_calls`, an answer's, or `transcription`, the transcriber's (§12), which has no agent, tenant, course or asker |
 | `agent_state` | the owner's page's state, and the version of a hosted agent's row it is of: never replaced by a state of an older version |
@@ -2728,9 +2743,12 @@ Chinese with a table, overran, and was cut off.
   slide.
 - `storetest`: one suite, run against memstore and against Postgres
   (`TEST_DATABASE_URL`). `pgstore` takes 0015 down and up again: an
-  attempt sent back for changes, and its note, become a rejection's, the
-  other notes left as they are. `aishie-runtime migrate down` takes no
-  count of migrations: it takes them all down, or, refused, none.
+  attempt sent back for changes, and its note, become a rejection's, but
+  not a note whose request was not read, and the other notes are left as
+  they are.
+- `cmd/aishie-runtime`, the binary, among its tests: `migrate up`,
+  `version` and `down` on Postgres, and `migrate down` takes no count of
+  migrations: it takes them all down, or, refused, none.
 - `vault`: a secret sealed and opened; every field and byte of it tampered
   with, and moved to another id, tenant or kind, fails to open; a key
   rotated (added, rewrapped, retired); keyrings that cannot be used are
@@ -2759,9 +2777,13 @@ Chinese with a table, overran, and was cut off.
   of its database, or in its status.
 - `worker`: the fake Core and the scripted model: every row of §5.3's table,
   moved on, duplicates across two workers, denied, 401, 429, quotas,
-  budgets, proposals followed, retractions; answers sent back for changes
+  budgets, proposals followed, a rejection whose reason
+  `action_list_mine` did not give told that whether one was given could
+  not be read, retractions; answers sent back for changes
   revised, told what was asked, or that it could not be read when
-  `action_list_mine` fails, and shown the answer read, in a chain of
+  `action_list_mine` fails, or, after a stop or a 401 cut that read
+  short, told it once the seat starts again, and shown the answer read,
+  in a chain of
   revisions with memory on and off, the one after a revision rejected
   naming nothing, and the one after Core refuses `revises`
   (`not_revisable`, or a Core from before it) naming nothing, still told

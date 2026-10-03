@@ -578,7 +578,10 @@ func TestLedgerMigratesTheCallsBefore(t *testing.T) {
 // as its reason, and the old constraint holds again. Its note in memory,
 // of a kind the release before does not read, becomes a rejection's, with
 // what was asked as its text, through which that release reads a
-// rejection's reason; the conversation's other notes are left as they are.
+// rejection's reason. A note whose request was not read stays as it is,
+// passed over by that release, which would read it, made a rejection's,
+// as one given no reason; the conversation's other notes are left as they
+// are, a rejection whose reason was not read among them.
 func TestChangesRequestedMigratesBack(t *testing.T) {
 	u := freshDatabase(t)
 	ctx := t.Context()
@@ -594,9 +597,20 @@ func TestChangesRequestedMigratesBack(t *testing.T) {
 	if err := s.FinishAttempt(ctx, "a1", a.Key, store.Outcome{State: store.AttemptChangesRequested, ActionID: "act-1", Reason: "Cite it."}); err != nil {
 		t.Fatal(err)
 	}
+	// The second attempt, sent back in turn, its note not read.
+	a2 := a
+	a2.Key, a2.No = "answer:x1:q1:2", 2
+	if _, err := s.PutAttempt(ctx, a2); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.FinishAttempt(ctx, "a1", a2.Key, store.Outcome{State: store.AttemptChangesRequested, ActionID: "act-2"}); err != nil {
+		t.Fatal(err)
+	}
 	for _, n := range []store.Note{
 		{Kind: store.NoteRejected, Text: "Too terse.", MessageID: "q1"},
 		{Kind: store.NoteChangesRequested, Text: "Cite it.", MessageID: "q1"},
+		{Kind: store.NoteChangesRequested, Text: "", MessageID: "q1"},
+		{Kind: store.NoteRejectedUnread, Text: "", MessageID: "q1"},
 		{Kind: store.NoteAnswered, Text: "You answered this question (message p2).", MessageID: "p2"},
 	} {
 		n.AgentID, n.MemberID, n.ConversationID = "a1", "m1", "x1"
@@ -638,7 +652,8 @@ func TestChangesRequestedMigratesBack(t *testing.T) {
 		}
 		notes = append(notes, kind+": "+text)
 	}
-	if want := []string{"rejected: Too terse.", "rejected: Cite it.", "answered: You answered this question (message p2)."}; rows.Err() != nil ||
+	if want := []string{"rejected: Too terse.", "rejected: Cite it.", "changes_requested: ", "rejected_unread: ",
+		"answered: You answered this question (message p2)."}; rows.Err() != nil ||
 		strings.Join(notes, " | ") != strings.Join(want, " | ") {
 		t.Errorf("the notes after the down: %q, %v; want %q", notes, rows.Err(), want)
 	}

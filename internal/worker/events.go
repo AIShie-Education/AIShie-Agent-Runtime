@@ -212,13 +212,19 @@ func (s *Seat) markEventsRead() {
 // store knows once the send is over.
 var errSendUnderWay = errors.New("a decision on an action not yet stored, while an attempt is being sent")
 
+// errLookupCut is a decision on a proposal whose action the lookup of the
+// agent's actions stopped short of, the seat ending or Core refusing the
+// agent's token (actionLookup.cut): the event is read again when the seat
+// starts again, and the decision settled as action_list_mine has it.
+var errLookupCut = errors.New("a decision on a proposal not looked up: the seat ended, or Core refused the agent's token")
+
 // onEvent acts on one event. Only what concerns an attempt the store
 // holds, the agent's own conversations, or its answers is acted on, so
 // that a seat reading its whole history on its first read does no harm;
 // a version's text changed drops what the worker keeps of it, and a
 // document or a version purged what the search keeps of it. Its error is
-// the store failing, or errSendUnderWay, when the event must be read
-// again.
+// the store failing, errSendUnderWay or errLookupCut, when the event must
+// be read again.
 func (s *Seat) onEvent(ctx context.Context, ev core.Event, acts *actionLookup) error {
 	if core.IsTextEvent(ev.Type) {
 		// A file's text is kept by the file (a Core since #49 names it),
@@ -255,10 +261,18 @@ func (s *Seat) onEvent(ctx context.Context, ev core.Event, acts *actionLookup) e
 		case at.State != store.AttemptProposed:
 			return nil
 		}
-		if act, ok := acts.find(ctx, *ev.ActionID); ok && act.Status != actionProposed {
-			return s.settleProposal(at, act)
+		act, ok := acts.find(ctx, *ev.ActionID)
+		switch {
+		case ok && act.Status != actionProposed:
+			return s.settleProposal(at, act, false)
+		case !ok && acts.cut(ctx):
+			// Settled from the event, the proposal would lose for good
+			// what action_list_mine has of its decision (a rejection's
+			// reason, what to change): the attempt would no longer be
+			// proposed when the event is read again.
+			return errLookupCut
 		}
-		return s.settleProposal(at, actionFromEvent(ev))
+		return s.settleProposal(at, actionFromEvent(ev), true)
 	case core.EventConversationMessageRetracted:
 		var p struct {
 			ConversationID string `json:"conversation_id"`
@@ -324,10 +338,13 @@ func mayBeRuntimes(ev core.Event) bool {
 }
 
 // actionFromEvent is what an event says of a proposal's fate, for when
-// action_list_mine does not show it: an error the client does not retry,
-// the read cut short, or the action further than the lookup reads. The
-// event is acted on all the same, not left to be read again: what fails
-// so would fail again, and hold up every event after it.
+// action_list_mine does not show it, for a reason the next read would meet
+// again: an error the client does not retry (Core refusing or denying the
+// read, say), or the action further than the lookup reads. The event is
+// acted on all the same, not left to be read again: what fails so would
+// fail again, and hold up every event after it. A lookup cut short by the
+// seat's end or by a 401, which the next start does not meet, leaves the
+// event to be read again instead (actionLookup.cut).
 func actionFromEvent(ev core.Event) core.Action {
 	var p struct {
 		Outcome string `json:"outcome"`
@@ -343,6 +360,10 @@ func actionFromEvent(ev core.Event) core.Action {
 			act.Result, _ = json.Marshal(map[string]any{"error": map[string]string{"code": p.Error}})
 		}
 	case core.EventActionRejected:
+		// Core takes a rejection with a reason or without one, and the
+		// event carries neither: the next attempt is told that whether
+		// one was given could not be read (settleProposal), not that
+		// none was.
 		act.Status = actionRejected
 	case core.EventActionChangesRequested:
 		// What to change is not in the event: action_list_mine has it.
@@ -358,13 +379,15 @@ func actionFromEvent(ev core.Event) core.Action {
 
 // settleProposal settles a proposed attempt as its action stands (§2.4):
 // executed, it posted (the course is hot, and memory notes it); rejected,
-// the reason goes into the conversation's memory for the next attempt;
-// sent back for changes, so does what to change, and the attempt keeps
-// it, for the next attempt, which revises it, to be told; cancelled
-// (expired, most often), memory notes why; failed, nothing was posted.
-// Whatever did not post puts the conversation back in the inbox, for the
-// next attempt. Its error is the store failing to record it.
-func (s *Seat) settleProposal(at *store.Attempt, act core.Action) error {
+// the reason goes into the conversation's memory for the next attempt, or,
+// fromEvent (act is what the event says, actionFromEvent), that whether
+// one was given could not be read; sent back for changes, so does what to
+// change, and the attempt keeps it, for the next attempt, which revises
+// it, to be told; cancelled (expired, most often), memory notes why;
+// failed, nothing was posted. Whatever did not post puts the conversation
+// back in the inbox, for the next attempt. Its error is the store failing
+// to record it.
+func (s *Seat) settleProposal(at *store.Attempt, act core.Action, fromEvent bool) error {
 	o := store.Outcome{ActionID: act.ID}
 	var note *store.Note
 	base := store.Note{AgentID: s.a.id, MemberID: s.id, ConversationID: at.ConversationID, MessageID: at.MessageID}
@@ -381,6 +404,9 @@ func (s *Seat) settleProposal(at *store.Attempt, act core.Action) error {
 		o.State, o.Reason = store.AttemptRejected, act.DecisionReason()
 		n := base
 		n.Kind, n.Text = store.NoteRejected, o.Reason
+		if fromEvent {
+			n.Kind = store.NoteRejectedUnread
+		}
 		note = &n
 	case actionChangesRequested:
 		o.State, o.Reason = store.AttemptChangesRequested, act.DecisionReason()
@@ -508,6 +534,8 @@ type actionLookup struct {
 	done               bool
 	pages              int
 	acts               map[string]core.Action
+	// err is why the lookup stopped short: the cursor or a page not read.
+	err error
 }
 
 // find is the action id, reading pages until it is found or there are no
@@ -517,7 +545,7 @@ func (l *actionLookup) find(ctx context.Context, id string) (core.Action, bool) 
 		l.begun, l.acts = true, map[string]core.Action{}
 		cur, err := l.s.a.store().Cursor(ctx, l.s.a.id, l.s.id, store.CursorActions)
 		if err != nil {
-			l.done = true
+			l.done, l.err = true, err
 		}
 		l.start, l.after, l.keep = cur, cur, cur
 	}
@@ -541,7 +569,7 @@ func (l *actionLookup) more(ctx context.Context) bool {
 	page, err := l.s.a.client.ActionsMine(core.WithPriority(ctx, core.PriorityBackground), l.s.course, l.after, nil, actionsPage)
 	if err != nil {
 		l.s.readFailed(ctx, "action_list_mine", err)
-		l.done = true
+		l.done, l.err = true, err
 		return false
 	}
 	for _, act := range page.Actions {
@@ -559,6 +587,15 @@ func (l *actionLookup) more(ctx context.Context) bool {
 		l.after = page.Actions[len(page.Actions)-1].ID
 	}
 	return true
+}
+
+// cut reports whether the lookup stopped short for a reason that ends with
+// the seat, and that the seat, started again, does not meet: its context
+// ended (a stop, a restart, a deploy; until then, Core's client sends a
+// read that fails transiently again), or Core refused the agent's token,
+// which stops the agent until it is issued another.
+func (l *actionLookup) cut(ctx context.Context) bool {
+	return ctx.Err() != nil || isUnauthenticated(l.err)
 }
 
 // runtimesOwn reports whether an action of this type is one the runtime
@@ -605,7 +642,7 @@ func (s *Seat) recover(ctx context.Context) {
 	defer acts.save(ctx)
 	for _, at := range proposed {
 		if act, ok := acts.find(ctx, at.ActionID); ok && act.Status != actionProposed {
-			_ = s.settleProposal(&at, act) // logged; the event, or the next start, settles it
+			_ = s.settleProposal(&at, act, false) // logged; the event, or the next start, settles it
 		}
 	}
 }

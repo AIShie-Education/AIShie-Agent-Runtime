@@ -219,10 +219,17 @@ type Cursors interface {
 
 // Note kinds.
 const (
-	// NoteRejected: a person rejected an answer; Text is their reason.
+	// NoteRejected: a person rejected an answer; Text is their reason, ""
+	// when they gave none.
 	NoteRejected = "rejected"
+	// NoteRejectedUnread: a person rejected an answer, and whether they
+	// gave a reason could not be read (the rejection read from its event
+	// alone, which carries none); Text is "". A release before this kind
+	// has no sentence for it, and passes it over.
+	NoteRejectedUnread = "rejected_unread"
 	// NoteChangesRequested: a person sent an answer back for changes; Text
-	// is what they asked to change.
+	// is what they asked to change, "" when it could not be read (Core
+	// always has it).
 	NoteChangesRequested = "changes_requested"
 	// NoteCancelled: a proposed answer expired or was cancelled.
 	NoteCancelled = "cancelled"

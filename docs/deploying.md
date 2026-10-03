@@ -484,9 +484,12 @@ question again without what was asked, naming nothing it revises.
 Whoever decides that answer can reject it, saying again what they asked:
 v0.1.0 gives a rejection's reason to the attempt after when the agent's
 memory is on (`memory.enabled`). Sent back instead, it waits for its
-asker to write again, as above. Do not take 0015 down to keep what was
-asked: `migrate down` takes every migration down, not one, and all of the
-runtime's state with them. With Core rolled back to before
+asker to write again, as above. v0.1.0 has no sentence either for a
+rejection whose reason this release could not read (a note of kind
+`rejected_unread`), and does not tell the attempt after it of that
+rejection. Do not take 0015 down to keep what was asked: `migrate down`
+takes every migration down, not one, and all of the runtime's state with
+them. With Core rolled back to before
 AIShie-Core #68 after an answer was sent back, its revision, proposed
 over MCP, gives `revises`, an argument that Core no longer takes: Core
 refuses the call, and the attempt after is written again naming nothing,
