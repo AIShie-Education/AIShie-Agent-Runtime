@@ -403,6 +403,55 @@ func proposedStill(t *testing.T, wk *worker, key, why string) {
 	}
 }
 
+// TestRejectionReasonNotRead: an answer is rejected while action_list_mine,
+// which alone holds the rejection's reason, fails in a way the client does
+// not retry (HTTP 400). Core takes a rejection with no reason, so the next
+// attempt is told that whether one was given could not be read, never that
+// none was; a rejection read as having none is told as given none.
+func TestRejectionReasonNotRead(t *testing.T) {
+	w := newWorld(t)
+	model := scripted.New(scripted.Reply("Graphs."), scripted.Reply("Graphs and trees."), scripted.Reply("Graphs, trees and heaps."))
+	tu, wk := confirmedTutor(t, w, model, map[string]any{"answer": map[string]any{"max_attempts": 3}})
+	conv, msg := w.ask(0, tu, "What does chapter 4 cover?")
+	k1, k2, k3 := core.AnswerKey(conv, msg, 1), core.AnswerKey(conv, msg, 2), core.AnswerKey(conv, msg, 3)
+	p1 := w.waitProposal(k1)
+	var refused atomic.Int32
+	w.fc.Inject(func(c fakecore.InjectedCall) *fakecore.Injection {
+		if c.Tool != "action_list_mine" {
+			return nil
+		}
+		refused.Add(1)
+		return &fakecore.Injection{Status: http.StatusBadRequest}
+	})
+	const reason = "Cite the syllabus."
+	w.ok(w.fc.Reject(p1.ActionID, reason))
+	if at := wk.waitAttempt("cs101-tutor", k1, store.AttemptRejected); at.Reason != "" {
+		t.Errorf("the first attempt settled with %q; want no reason read", at.Reason)
+	}
+	if refused.Load() == 0 {
+		t.Fatal("action_list_mine was not called, and not refused")
+	}
+	w.fc.Inject(nil)
+	unread := "- A member of staff rejected an earlier answer of yours here; whether they gave a reason could not be read. Write a better one."
+	p2 := w.waitProposal(k2)
+	if s := lastRequest(t, model).System; !strings.Contains(s, unread) || strings.Contains(s, "without giving a reason") || strings.Contains(s, reason) {
+		t.Errorf("the second attempt's prompt:\n%s", s)
+	}
+	// Rejected with no reason, read as such.
+	w.ok(w.fc.Reject(p2.ActionID, ""))
+	wk.waitAttempt("cs101-tutor", k2, store.AttemptRejected)
+	w.waitProposal(k3)
+	if s := lastRequest(t, model).System; !strings.Contains(s, unread+"\n"+
+		"- A member of staff rejected an earlier answer of yours here, without giving a reason. Write a better one.") {
+		t.Errorf("the third attempt's prompt:\n%s", s)
+	}
+	notes, err := wk.st.Notes(context.Background(), "cs101-tutor", tu.seat.ID, conv, 10)
+	w.ok(err)
+	if len(notes) != 2 || notes[0].Kind != store.NoteRejectedUnread || notes[0].Text != "" || notes[1].Kind != store.NoteRejected || notes[1].Text != "" {
+		t.Errorf("memory keeps %+v; want a rejection whose reason was not read, then one given none", notes)
+	}
+}
+
 // TestRevisionDecidedSince: once a person rejects a revision, what they
 // asked of the answer it revised no longer stands: the next attempt answers
 // the rejection as any attempt after one does, naming nothing in revises,

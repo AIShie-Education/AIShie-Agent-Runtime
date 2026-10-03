@@ -52,6 +52,23 @@ func TestSystemFillsAndAlwaysAddsTheRules(t *testing.T) {
 	}
 }
 
+// A rejection remembered is told with its reason, as given none when it
+// was read and had none, and, when whether it had one could not be read,
+// as that: Core takes a rejection without a reason, but the runtime may
+// not have read one that was given.
+func TestSystemRejections(t *testing.T) {
+	text, _ := System(Input{Base: Builtin(true), Notes: []store.Note{
+		{Kind: store.NoteRejected, Text: "Too terse."}, {Kind: store.NoteRejected}, {Kind: store.NoteRejectedUnread},
+	}})
+	want := "## What you remember of this conversation\n" +
+		`- A member of staff rejected an earlier answer of yours here, saying: "Too terse.". Take it into account.` + "\n" +
+		"- A member of staff rejected an earlier answer of yours here, without giving a reason. Write a better one.\n" +
+		"- A member of staff rejected an earlier answer of yours here; whether they gave a reason could not be read. Write a better one."
+	if !strings.Contains(text, want) || strings.Count(text, "without giving a reason") != 1 {
+		t.Errorf("the rejections remembered:\n%s", text)
+	}
+}
+
 // An answer written again because a member of staff sent the last one back
 // for changes says so plainly, with what they asked, in a section of its
 // own and once, though memory notes it too; a request for changes made of

@@ -1948,6 +1948,10 @@ The events poller reads `event_list` from the seat's cursor:
 - `action.rejected`: settled as rejected; the reason is read from
   `action_list_mine` (the proposal's `result.decision.reason`, paged from the
   seat's `actions` cursor) into X's memory, for the next attempt's prompt.
+  Core takes a rejection with no reason, and the event carries none: one
+  settled from the event (below) is noted as a rejection whose reason
+  could not be read (`rejected_unread`), and the next attempt is told
+  that whether a reason was given could not be read, never that none was.
 - `action.changes_requested` (AIShie-Core #68): a person sent the answer
   back for changes. Settled as `changes_requested`, with what they asked,
   read from `action_list_mine` as a rejection's reason is, kept on the
@@ -2071,8 +2075,9 @@ prompt says:
   (`prompt.Input.Revising`), with the answer they read, whole and as it
   was sent, in a block of its own, with no word on what to keep of it
   beyond what they asked;
-- the memory of this conversation: rejection reasons, what was asked of
-  answers sent back for changes, retracted answers,
+- the memory of this conversation: rejection reasons (none given, or
+  whether one was given could not be read), what was asked of answers
+  sent back for changes, retracted answers,
   and the changes it made here (a write Core executed or proposed: its tool,
   status, action and the ids it made, never its arguments), not to be made
   again unless it is asked anew.
@@ -2150,7 +2155,7 @@ The prompt's hash is kept per answer.
 | `lease` | name, holder, expires_at |
 | `attempt` | (agent, key) → the exact bytes, state (`sending`, `executed`, `proposed`, `failed`, `denied`, `error`, `rejected`, `cancelled`, `changes_requested` since 0015, whose down makes them `rejected`, what was asked their reason), action id, posted message id, error code, reason |
 | `cursor` | (agent, member, kind) → value |
-| `note` | (agent, member, conversation) → kind, text, message id; a `changes_requested` note, which the release before has no sentence for, is made a `rejected` one by 0015's down, but a rollback leaves the schema as it is, and what was asked is lost to that release (`docs/deploying.md`) |
+| `note` | (agent, member, conversation) → kind, text, message id; a `changes_requested` note, which the release before has no sentence for, is made a `rejected` one by 0015's down, but a rollback leaves the schema as it is, and what was asked is lost to that release (`docs/deploying.md`). That release passes over a `rejected_unread` note too, a rejection whose reason was not read (a kind with no migration of its own: kinds are free text) |
 | `seat` | (agent, member) → course, seen_at, gone_at, and the seat as `me_memberships` last showed it: course code, title and section, status, `answers_course`, principal, perms |
 | `llm_call`, `answer` | the ledger: ids and numbers; an answer's row counts the writes its model sent, and how many Core executed, proposed, denied and failed; a call's `kind` is `model_calls`, an answer's, or `transcription`, the transcriber's (§12), which has no agent, tenant, course or asker |
 | `agent_state` | the owner's page's state, and the version of a hosted agent's row it is of: never replaced by a state of an older version |
@@ -2708,7 +2713,9 @@ Chinese with a table, overran, and was cut off.
   of its database, or in its status.
 - `worker`: the fake Core and the scripted model: every row of §5.3's table,
   moved on, duplicates across two workers, denied, 401, 429, quotas,
-  budgets, proposals followed, retractions; answers sent back for changes
+  budgets, proposals followed, a rejection whose reason
+  `action_list_mine` did not give told that whether one was given could
+  not be read, retractions; answers sent back for changes
   revised, told what was asked, or that it could not be read when
   `action_list_mine` fails, or, after a stop or a 401 cut that read
   short, told it once the seat starts again, and shown the answer read,

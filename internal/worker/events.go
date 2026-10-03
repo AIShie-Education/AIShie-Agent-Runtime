@@ -264,7 +264,7 @@ func (s *Seat) onEvent(ctx context.Context, ev core.Event, acts *actionLookup) e
 		act, ok := acts.find(ctx, *ev.ActionID)
 		switch {
 		case ok && act.Status != actionProposed:
-			return s.settleProposal(at, act)
+			return s.settleProposal(at, act, false)
 		case !ok && acts.cut(ctx):
 			// Settled from the event, the proposal would lose for good
 			// what action_list_mine has of its decision (a rejection's
@@ -272,7 +272,7 @@ func (s *Seat) onEvent(ctx context.Context, ev core.Event, acts *actionLookup) e
 			// proposed when the event is read again.
 			return errLookupCut
 		}
-		return s.settleProposal(at, actionFromEvent(ev))
+		return s.settleProposal(at, actionFromEvent(ev), true)
 	case core.EventConversationMessageRetracted:
 		var p struct {
 			ConversationID string `json:"conversation_id"`
@@ -360,6 +360,10 @@ func actionFromEvent(ev core.Event) core.Action {
 			act.Result, _ = json.Marshal(map[string]any{"error": map[string]string{"code": p.Error}})
 		}
 	case core.EventActionRejected:
+		// Core takes a rejection with a reason or without one, and the
+		// event carries neither: the next attempt is told that whether
+		// one was given could not be read (settleProposal), not that
+		// none was.
 		act.Status = actionRejected
 	case core.EventActionChangesRequested:
 		// What to change is not in the event: action_list_mine has it.
@@ -375,13 +379,15 @@ func actionFromEvent(ev core.Event) core.Action {
 
 // settleProposal settles a proposed attempt as its action stands (§2.4):
 // executed, it posted (the course is hot, and memory notes it); rejected,
-// the reason goes into the conversation's memory for the next attempt;
-// sent back for changes, so does what to change, and the attempt keeps
-// it, for the next attempt, which revises it, to be told; cancelled
-// (expired, most often), memory notes why; failed, nothing was posted.
-// Whatever did not post puts the conversation back in the inbox, for the
-// next attempt. Its error is the store failing to record it.
-func (s *Seat) settleProposal(at *store.Attempt, act core.Action) error {
+// the reason goes into the conversation's memory for the next attempt, or,
+// fromEvent (act is what the event says, actionFromEvent), that whether
+// one was given could not be read; sent back for changes, so does what to
+// change, and the attempt keeps it, for the next attempt, which revises
+// it, to be told; cancelled (expired, most often), memory notes why;
+// failed, nothing was posted. Whatever did not post puts the conversation
+// back in the inbox, for the next attempt. Its error is the store failing
+// to record it.
+func (s *Seat) settleProposal(at *store.Attempt, act core.Action, fromEvent bool) error {
 	o := store.Outcome{ActionID: act.ID}
 	var note *store.Note
 	base := store.Note{AgentID: s.a.id, MemberID: s.id, ConversationID: at.ConversationID, MessageID: at.MessageID}
@@ -398,6 +404,9 @@ func (s *Seat) settleProposal(at *store.Attempt, act core.Action) error {
 		o.State, o.Reason = store.AttemptRejected, act.DecisionReason()
 		n := base
 		n.Kind, n.Text = store.NoteRejected, o.Reason
+		if fromEvent {
+			n.Kind = store.NoteRejectedUnread
+		}
 		note = &n
 	case actionChangesRequested:
 		o.State, o.Reason = store.AttemptChangesRequested, act.DecisionReason()
@@ -633,7 +642,7 @@ func (s *Seat) recover(ctx context.Context) {
 	defer acts.save(ctx)
 	for _, at := range proposed {
 		if act, ok := acts.find(ctx, at.ActionID); ok && act.Status != actionProposed {
-			_ = s.settleProposal(&at, act) // logged; the event, or the next start, settles it
+			_ = s.settleProposal(&at, act, false) // logged; the event, or the next start, settles it
 		}
 	}
 }
