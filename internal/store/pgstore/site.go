@@ -2,11 +2,13 @@ package pgstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/openrouter"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
@@ -78,18 +80,35 @@ func (s *Store) DeleteSiteSetting(ctx context.Context, name string) error {
 
 // offerColumns are what scanOffer reads, in its order.
 const offerColumns = `id, label, adapter, provider, model, base_url, region, max_output_tokens, reasoning_effort, enabled,
-	key_secret_id, key_hint, key_tested, version, created_by, created_at, updated_by, updated_at`
+	key_secret_id, key_hint, key_tested, version, created_by, created_at, updated_by, updated_at, openrouter`
 
 func scanOffer(row pgx.Row) (*store.SchoolOffer, error) {
 	var o store.SchoolOffer
+	var routing []byte
 	if err := row.Scan(&o.ID, &o.Label, &o.Adapter, &o.Provider, &o.Model, &o.BaseURL, &o.Region, &o.MaxOutputTokens,
 		&o.ReasoningEffort, &o.Enabled, &o.KeySecretID, &o.KeyHint, &o.KeyTested, &o.Version, &o.CreatedBy, &o.CreatedAt,
-		&o.UpdatedBy, &o.UpdatedAt); err != nil {
+		&o.UpdatedBy, &o.UpdatedAt, &routing); err != nil {
 		return nil, err
+	}
+	if routing != nil {
+		var r openrouter.Routing
+		if err := json.Unmarshal(routing, &r); err != nil {
+			return nil, fmt.Errorf("school offer %s: its upstream routing does not read: %w", o.ID, err)
+		}
+		o.OpenRouter = r.Canonical()
 	}
 	utc(&o.CreatedAt)
 	utc(&o.UpdatedAt)
 	return &o, nil
+}
+
+// routingColumn is an offer's upstream routing as its column keeps it:
+// the canonical JSON, NULL for none.
+func routingColumn(r *openrouter.Routing) []byte {
+	if r.Canonical() == nil {
+		return nil
+	}
+	return r.JSON()
 }
 
 // SchoolOffers lists the offers, by id.
@@ -148,12 +167,12 @@ func (s *Store) CreateSchoolOffer(ctx context.Context, o store.SchoolOffer, key 
 		out, err = scanOffer(tx.QueryRow(ctx, `
 			INSERT INTO school_offer (id, label, adapter, provider, model, base_url, region, max_output_tokens, reasoning_effort,
 			                          enabled, key_secret_id, key_hint, key_tested, version, created_by, created_at, updated_by,
-			                          updated_at)
+			                          updated_at, openrouter)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 1, $14, COALESCE($15::timestamptz, now()),
-			        CASE WHEN $16::text = '' THEN $14 ELSE $16::text END, COALESCE($15::timestamptz, now()))
+			        CASE WHEN $16::text = '' THEN $14 ELSE $16::text END, COALESCE($15::timestamptz, now()), $17::jsonb)
 			RETURNING `+offerColumns,
 			o.ID, o.Label, o.Adapter, o.Provider, o.Model, o.BaseURL, o.Region, o.MaxOutputTokens, o.ReasoningEffort, o.Enabled,
-			o.KeySecretID, o.KeyHint, o.KeyTested, o.CreatedBy, orNow(o.CreatedAt), o.UpdatedBy))
+			o.KeySecretID, o.KeyHint, o.KeyTested, o.CreatedBy, orNow(o.CreatedAt), o.UpdatedBy, routingColumn(o.OpenRouter)))
 		if isUniqueViolation(err) {
 			return fmt.Errorf("school offer %s: %w", o.ID, store.ErrExists)
 		}
@@ -197,11 +216,11 @@ func (s *Store) UpdateSchoolOffer(ctx context.Context, o store.SchoolOffer, key 
 			UPDATE school_offer
 			   SET label = $2, adapter = $3, provider = $4, model = $5, base_url = $6, region = $7, max_output_tokens = $8,
 			       reasoning_effort = $9, enabled = $10, key_secret_id = $11, key_hint = $12, key_tested = $13,
-			       version = version + 1, updated_by = $14, updated_at = now()
+			       version = version + 1, updated_by = $14, updated_at = now(), openrouter = $15::jsonb
 			 WHERE id = $1
 			RETURNING `+offerColumns,
 			o.ID, o.Label, o.Adapter, o.Provider, o.Model, o.BaseURL, o.Region, o.MaxOutputTokens, o.ReasoningEffort, o.Enabled,
-			o.KeySecretID, o.KeyHint, o.KeyTested, o.UpdatedBy))
+			o.KeySecretID, o.KeyHint, o.KeyTested, o.UpdatedBy, routingColumn(o.OpenRouter)))
 		if err != nil {
 			return err
 		}

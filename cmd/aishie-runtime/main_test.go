@@ -100,6 +100,10 @@ func TestCheckExamples(t *testing.T) {
 		"prices: ../../examples/prices.example.yaml (version example-2026-09-27)",
 		`school plan: offer standard, "School AI (Claude Haiku)": anthropic claude-haiku-4-5 (anthropic)`,
 		`school plan: offer deepseek, "School AI (DeepSeek)": openai_chat deepseek-chat (deepseek)`,
+		`school plan: offer llama, "School AI (Llama 3.3 70B)": openai_chat meta-llama/llama-3.3-70b-instruct (openrouter)`,
+		`school plan: offer llama's upstream routing, sent to OpenRouter with every call: {"order":["groq"],"allow_fallbacks":true,` +
+			`"require_parameters":true,"data_collection":"deny","only":["groq","deepinfra","together"],"quantizations":["fp8","fp16","bf16","unknown"],` +
+			`"max_price":{"prompt":"1.04","completion":"1.04"}}`,
 		"school plan: per owner 100 answers a day; per asker 20 answers a day; across the school 5000 answers a day (UTC days)",
 		"the configuration passes: 2 agents",
 	} {

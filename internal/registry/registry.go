@@ -192,11 +192,12 @@ func PriceRow(p store.SitePrice) pricing.Row {
 }
 
 // SiteOffer is the site's offer o as the school's plan holds it: a model
-// section on its sealed key, marked as the site's.
+// section on its sealed key, with its upstream routing, marked as the
+// site's.
 func SiteOffer(o store.SchoolOffer) config.SchoolOffer {
 	return config.SchoolOffer{ID: o.ID, Label: o.Label, Adapter: o.Adapter, Model: o.Model, Provider: o.Provider, BaseURL: o.BaseURL,
 		Region: o.Region, KeyRef: secrets.SchemeSealed + o.KeySecretID, Params: config.ModelParams{MaxOutputTokens: o.MaxOutputTokens},
-		Reasoning: config.Reasoning{Effort: o.ReasoningEffort}, Site: true}
+		Reasoning: config.Reasoning{Effort: o.ReasoningEffort}, OpenRouter: o.OpenRouter.Canonical(), Site: true}
 }
 
 // WithSite is yaml with the site's settings in force (config.Runtime.WithSite):

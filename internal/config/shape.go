@@ -39,6 +39,7 @@ type shape struct {
 
 var (
 	agentType   = reflect.TypeFor[Agent]()
+	modelType   = reflect.TypeFor[Model]()
 	runtimeType = reflect.TypeFor[Runtime]()
 	boolType    = reflect.TypeFor[bool]()
 	stringType  = reflect.TypeFor[string]()
@@ -57,8 +58,39 @@ var courseShape = shape{
 }
 
 // defaultsShape is what runtime.defaults may hold: any agent setting but
-// an id.
-var defaultsShape = shape{forbid: map[string]string{"id": "every agent has its own id"}}
+// an id and upstream routing (model.openrouter, and its fallback's), which
+// would reach every agent's model, whatever its provider.
+func (w *walker) defaultsShape() shape {
+	return shape{
+		forbid:  map[string]string{"id": "every agent has its own id"},
+		special: map[string]func(*yaml.Node, string) any{"model": w.defaultsModel(true)},
+	}
+}
+
+// defaultsModel walks runtime.defaults' model, or, withFallback false,
+// its fallback: a model's settings, but its upstream routing.
+func (w *walker) defaultsModel(withFallback bool) func(*yaml.Node, string) any {
+	return func(n *yaml.Node, path string) any {
+		if n = resolve(n); isNull(n) {
+			return nil
+		}
+		sh := shape{special: map[string]func(*yaml.Node, string) any{
+			"openrouter": func(v *yaml.Node, p string) any {
+				if v = resolve(v); !isNull(v) && (v.Kind != yaml.MappingNode || len(v.Content) > 0) {
+					w.problem(v, p, "%s", msgRoutingInDefaults)
+				}
+				return nil
+			},
+		}}
+		if withFallback {
+			sh.special["fallback"] = w.defaultsModel(false)
+		}
+		return w.mapping(n, modelType, path, sh)
+	}
+}
+
+// msgRoutingInDefaults refuses upstream routing in runtime.defaults.
+const msgRoutingInDefaults = "set upstream routing on the model or the offer that calls OpenRouter: the defaults reach every model"
 
 func (w *walker) problem(n *yaml.Node, path, format string, args ...any) {
 	line := 0
@@ -78,7 +110,7 @@ func (w *walker) value(n *yaml.Node, t reflect.Type, path string) any {
 	case reflect.Pointer:
 		return w.value(n, t.Elem(), path)
 	case reflect.Struct:
-		return w.mapping(n, t, path, shape{})
+		return w.mapping(n, t, path, w.shapeOf(t))
 	case reflect.Map:
 		if n.Kind != yaml.MappingNode {
 			w.problem(n, path, "must be a mapping")

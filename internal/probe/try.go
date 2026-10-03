@@ -69,11 +69,14 @@ var modelNotFoundCodes = []string{"model_not_found", "model_not_exist", "NotFoun
 // refusal of it. client carries the call (for a hosted model, the netguard
 // client, which follows no redirect); newAdapter builds the adapter
 // (providers.New when nil). The error is an adapter that could not be
-// built; whatever the call came to is in the Trial.
+// built; whatever the call came to is in the Trial. It sends no upstream
+// routing (OpenRouter's): a trial refused for the routing would read as a
+// key refused, or a model not found.
 func TryModel(ctx context.Context, m config.Model, key string, client *http.Client, newAdapter func(llm.Config) (llm.Adapter, error)) (Trial, error) {
 	if newAdapter == nil {
 		newAdapter = providers.New
 	}
+	m.OpenRouter = nil
 	ad, err := newAdapter(providers.Config(m, key, client))
 	if err != nil {
 		return Trial{}, err

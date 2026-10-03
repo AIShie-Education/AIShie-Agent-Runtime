@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/openrouter"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/storetest"
 )
@@ -769,5 +770,78 @@ func TestHostingByIDMigratesTheRowsBefore(t *testing.T) {
 	}
 	if err := Migrate(u, Up); err != nil {
 		t.Fatalf("up again: %v", err)
+	}
+}
+
+// 0016 gives an offer its upstream routing, an object, of an offer of
+// OpenRouter's alone, which the schema holds as the store does; its down
+// takes the column away, leaving the offers as a release before reads
+// them, and up again gives it back, empty.
+func TestOfferRoutingMigrates(t *testing.T) {
+	u := freshDatabase(t)
+	ctx := t.Context()
+	if err := Migrate(u, Up); err != nil {
+		t.Fatal(err)
+	}
+	s := openOn(t, u)
+	zdr := true
+	key := func(id string) store.Secret {
+		return store.Secret{ID: id, TenantID: store.SchoolTenantID, Kind: store.SecretModelKey, KEKID: "local:v1", WrappedDEK: []byte{1},
+			Nonce: []byte{2}, Ciphertext: []byte{3}}
+	}
+	if _, err := s.CreateSchoolOffer(ctx, store.SchoolOffer{ID: "llama", Label: "Llama", Adapter: "openai_chat", Provider: "openrouter",
+		Model: "meta-llama/llama-3.3-70b-instruct", BaseURL: "https://openrouter.ai/api/v1", KeySecretID: "sec_or", Enabled: true,
+		CreatedBy: "admin", OpenRouter: &openrouter.Routing{ZDR: &zdr}}, key("sec_or")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateSchoolOffer(ctx, store.SchoolOffer{ID: "ds", Label: "DS", Adapter: "openai_chat", Provider: "deepseek",
+		Model: "deepseek-chat", KeySecretID: "sec_ds", Enabled: true, CreatedBy: "admin"}, key("sec_ds")); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+	conn, err := pgx.Connect(ctx, u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close(context.Background()) }()
+	var routing string
+	if err := conn.QueryRow(ctx, `SELECT openrouter::text FROM school_offer WHERE id = 'llama'`).Scan(&routing); err != nil || routing != `{"zdr": true}` {
+		t.Fatalf("the column: %q, %v", routing, err)
+	}
+	for what, stmt := range map[string]string{
+		"routing on an offer of DeepSeek's": `UPDATE school_offer SET openrouter = '{"zdr": true}' WHERE id = 'ds'`,
+		"routing that is not an object":     `UPDATE school_offer SET openrouter = '["groq"]' WHERE id = 'llama'`,
+		"a move that keeps the routing":     `UPDATE school_offer SET provider = 'deepseek' WHERE id = 'llama'`,
+	} {
+		if _, err := conn.Exec(ctx, stmt); err == nil {
+			t.Errorf("%s was taken", what)
+		}
+	}
+
+	m, err := newMigrator(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Migrate(15); err != nil {
+		t.Fatalf("0016 down: %v", err)
+	}
+	if _, err := m.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var columns int
+	if err := conn.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns WHERE table_name = 'school_offer' AND column_name = 'openrouter'`).
+		Scan(&columns); err != nil || columns != 0 {
+		t.Fatalf("the column after the down: %d, %v", columns, err)
+	}
+	var offers int
+	if err := conn.QueryRow(ctx, `SELECT count(*) FROM school_offer`).Scan(&offers); err != nil || offers != 2 {
+		t.Errorf("the offers after the down: %d, %v", offers, err)
+	}
+	if err := Migrate(u, Up); err != nil {
+		t.Fatalf("up again: %v", err)
+	}
+	s = openOn(t, u)
+	if o, err := s.SchoolOffer(ctx, "llama"); err != nil || o.OpenRouter != nil {
+		t.Errorf("up again: %+v, %v", o, err)
 	}
 }

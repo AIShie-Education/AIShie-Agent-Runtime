@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/openrouter"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolschema"
 )
 
@@ -26,7 +27,9 @@ type chatRequest struct {
 	ReasoningEffort     string          `json:"reasoning_effort,omitempty"`
 	Reasoning           *reasoningParam `json:"reasoning,omitempty"`
 	Store               *bool           `json:"store,omitempty"`
-	Stream              bool            `json:"stream"`
+	// Provider is OpenRouter's upstream routing, to OpenRouter alone.
+	Provider *openrouter.Routing `json:"provider,omitempty"`
+	Stream   bool                `json:"stream"`
 	// StreamOptions asks a streamed answer's last chunk to carry the
 	// call's usage (stream.go).
 	StreamOptions *streamOptions `json:"stream_options,omitempty"`
@@ -231,6 +234,13 @@ func (a *Adapter) request(req *llm.Request) *chatRequest {
 	if a.provider == llm.ProviderOpenAI {
 		f := false
 		out.Store = &f
+	}
+
+	// OpenRouter's upstream routing goes to OpenRouter alone, on every
+	// call, ForceAnswer's and a stream's alike: New keeps none for another
+	// provider, and this holds it there whatever it was given.
+	if a.provider == llm.ProviderOpenRouter {
+		out.Provider = a.routing
 	}
 	return out
 }

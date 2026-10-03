@@ -298,7 +298,7 @@ func (w *walker) document(root *yaml.Node) *document {
 			return nil
 		}
 		d.runtime = w.mapping(rn, runtimeType, "runtime", shape{special: map[string]func(*yaml.Node, string) any{
-			"defaults": func(n *yaml.Node, path string) any { return w.mapping(n, agentType, path, defaultsShape) },
+			"defaults": func(n *yaml.Node, path string) any { return w.mapping(n, agentType, path, w.defaultsShape()) },
 		}})
 		if d.runtime == nil {
 			d.runtime = map[string]any{}

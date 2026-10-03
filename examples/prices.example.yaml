@@ -41,6 +41,15 @@ prices:
     model: gemini-2.5-flash
     from: 2025-06-17
     usd_per_mtok: {input: 0.30, cache_read: 0.03, output: 2.50}
+  # OpenRouter charges what the upstream provider that answered charges,
+  # which differs by upstream; the runtime counts every call at this row,
+  # whichever answered. Price the model at the highest its upstream
+  # routing allows: here, the max_price the example's offer caps it at.
+  - provider: openrouter
+    model: meta-llama/llama-3.3-70b-instruct
+    from: 2025-10-01
+    id: openrouter-llama-3.3-70b
+    usd_per_mtok: {input: "1.04", output: "1.04"}
   # Models on the operator's own hardware cost nothing per token.
   - provider: ollama
     model: "*"

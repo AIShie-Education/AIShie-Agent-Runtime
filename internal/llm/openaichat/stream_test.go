@@ -36,6 +36,8 @@ func streamCases() []streamCase {
 	withTools := &llm.Request{System: system, Messages: []llm.Message{question()}, Tools: tools, ToolMode: llm.ToolAuto}
 	openrouter := cfg(openrouterBase, "anthropic/claude-sonnet-4.5")
 	openrouter.Reasoning = llm.Reasoning{Effort: "medium"}
+	routed := cfg(openrouterBase, "anthropic/claude-sonnet-4.5")
+	routed.OpenRouter = testRouting()
 	return []streamCase{
 		// Text in pieces, a keep-alive comment, the usage in the chunk that
 		// finishes, a piece escaped as <.
@@ -51,6 +53,8 @@ func streamCases() []streamCase {
 		// OpenRouter's comments, and reasoning_details in pieces joined into
 		// the one detail the whole answer holds.
 		{name: "openrouter_reasoning_details", fixture: "openrouter_reasoning_details", cfg: openrouter, req: simple},
+		// The upstream routing in a stream's body too.
+		{name: "openrouter_routing", fixture: "openrouter_reasoning_details", cfg: routed, req: simple},
 		// A call whole in one chunk, with Gemini's thought signature.
 		{name: "gemini_thought_signature", fixture: "gemini_thought_signature", cfg: cfg(geminiBase, "gemini-2.5-flash"), req: withTools},
 		// A refusal streamed, with CRLF line endings and no blank line after

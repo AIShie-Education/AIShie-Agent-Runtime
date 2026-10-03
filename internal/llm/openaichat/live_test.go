@@ -11,6 +11,7 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/livetest"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/openrouter"
 )
 
 // TestLive calls the real providers whose keys are set, with LIVE=1 (make
@@ -125,4 +126,44 @@ func liveEveryTool(t *testing.T, a *Adapter) {
 			Tools:    batch, ToolMode: llm.ToolAuto, Limits: llm.Limits{MaxOutputTokens: 16},
 		})
 	}
+}
+
+// TestLiveOpenRouterRouting makes one call to OpenRouter with an upstream
+// routing that sets every member, max_price's as strings and sort as a
+// mapping, with LIVE=1 and OPENROUTER_API_KEY: OpenRouter's taking it
+// settles that the wire's form is OpenRouter's. sort beside order is
+// refused by the configuration (a no-op), but is sent here to have
+// OpenRouter take every member at once.
+func TestLiveOpenRouterRouting(t *testing.T) {
+	if os.Getenv("LIVE") != "1" {
+		t.Skip("set LIVE=1 to call the real providers")
+	}
+	key := os.Getenv("OPENROUTER_API_KEY")
+	if key == "" {
+		t.Skip("OPENROUTER_API_KEY is not set")
+	}
+	model := os.Getenv("OPENROUTER_MODEL")
+	if model == "" {
+		model = "meta-llama/llama-3.3-70b-instruct"
+	}
+	r, p := openrouter.Parse(json.RawMessage(`{"allow_fallbacks":true,"require_parameters":true,"data_collection":"deny","zdr":false,` +
+		`"enforce_distillable_text":false,"only":["groq","deepinfra","together","google-vertex"],"ignore":["novita"],` +
+		`"quantizations":["int4","int8","fp4","mxfp4","nvfp4","fp6","fp8","mxfp8","fp16","bf16","fp32","unknown"],` +
+		`"preferred_min_throughput":{"p50":1,"p90":1},"preferred_max_latency":60,` +
+		`"max_price":{"prompt":"100","completion":"100","request":"1","image":"1"}}`))
+	if p != nil {
+		t.Fatal(p)
+	}
+	r.Order = []string{"deepinfra/turbo", "groq"}
+	r.Sort = &openrouter.Sort{By: "price", Partition: "none"}
+	a, err := New(llm.Config{Model: model, BaseURL: openrouterBase, APIKey: key, OpenRouter: r})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body, err := marshal(a.request(&llm.Request{Messages: []llm.Message{llm.UserText("Say OK.")}})); err != nil ||
+		!strings.Contains(string(body), `"max_price":{"prompt":"100","completion":"100","request":"1","image":"1"}`) ||
+		!strings.Contains(string(body), `"sort":{"by":"price","partition":"none"}`) {
+		t.Fatalf("the body: %s, %v", body, err)
+	}
+	liveCall(t, a, &llm.Request{Messages: []llm.Message{llm.UserText("Say OK.")}, Limits: llm.Limits{MaxOutputTokens: 16}})
 }

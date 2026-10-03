@@ -1,0 +1,281 @@
+{
+ "data": {
+  "id": "meta-llama/llama-3.3-70b-instruct",
+  "name": "Meta: Llama 3.3 70B Instruct",
+  "created": 1733506137,
+  "description": "The Meta Llama 3.3 multilingual large language model (LLM) is a pretrained and i",
+  "architecture": {
+   "tokenizer": "Llama3",
+   "instruct_type": "llama3",
+   "modality": "text->text",
+   "input_modalities": [
+    "text"
+   ],
+   "output_modalities": [
+    "text"
+   ]
+  },
+  "endpoints": [
+   {
+    "name": "DeepInfra | meta-llama/llama-3.3-70b-instruct",
+    "model_id": "meta-llama/llama-3.3-70b-instruct",
+    "model_name": "Meta: Llama 3.3 70B Instruct",
+    "context_length": 131072,
+    "pricing": {
+     "prompt": "0.0000001",
+     "completion": "0.00000032",
+     "discount": 0
+    },
+    "provider_name": "DeepInfra",
+    "tag": "deepinfra/turbo",
+    "quantization": "fp8",
+    "max_completion_tokens": 16384,
+    "max_prompt_tokens": null,
+    "supported_parameters": [
+     "max_tokens",
+     "temperature",
+     "tools",
+     "tool_choice",
+     "response_format"
+    ],
+    "supports_tool_choice": {
+     "none": true,
+     "auto": true,
+     "required": false,
+     "function": false
+    },
+    "status": 0,
+    "uptime_last_30m": 98.59366707942685,
+    "uptime_last_5m": 99.40150923757481,
+    "uptime_last_1d": 98.48357814367765,
+    "latency_last_30m": null,
+    "throughput_last_30m": null
+   },
+   {
+    "name": "Novita | meta-llama/llama-3.3-70b-instruct",
+    "model_id": "meta-llama/llama-3.3-70b-instruct",
+    "model_name": "Meta: Llama 3.3 70B Instruct",
+    "context_length": 12288,
+    "pricing": {
+     "prompt": "0.000000135",
+     "completion": "0.0000004",
+     "input_cache_write": "-1",
+     "request": "0.0005",
+     "image": "0.0000025",
+     "discount": 0,
+     "overrides": [
+      {
+       "prompt": "0.00000027"
+      },
+      {
+       "min_prompt_tokens": 128000,
+       "prompt": "0.00000027",
+       "completion": "0.0000008"
+      }
+     ]
+    },
+    "provider_name": "Novita",
+    "tag": "novita/bf16",
+    "quantization": null,
+    "max_completion_tokens": 11059,
+    "max_prompt_tokens": null,
+    "supported_parameters": [
+     "max_tokens",
+     "temperature",
+     "tools",
+     "tool_choice"
+    ],
+    "supports_tool_choice": {
+     "none": true,
+     "auto": true,
+     "required": true,
+     "function": true
+    },
+    "status": -5,
+    "uptime_last_30m": 53.55908776779545,
+    "uptime_last_5m": 77.94117647058823,
+    "uptime_last_1d": 88.8729302507773,
+    "latency_last_30m": {
+     "p50": 420.5,
+     "p75": 610,
+     "p90": 900,
+     "p99": 2400
+    },
+    "throughput_last_30m": {
+     "p50": 80,
+     "p75": 60
+    }
+   },
+   {
+    "name": "Cloudflare | meta-llama/llama-3.3-70b-instruct",
+    "model_id": "meta-llama/llama-3.3-70b-instruct",
+    "model_name": "Meta: Llama 3.3 70B Instruct",
+    "context_length": 24000,
+    "pricing": {
+     "prompt": "0.000000293",
+     "completion": "0.000002253",
+     "discount": 0
+    },
+    "provider_name": "Cloudflare",
+    "tag": "cloudflare/fp8",
+    "quantization": "fp8",
+    "max_completion_tokens": 21600,
+    "max_prompt_tokens": null,
+    "supported_parameters": [
+     "max_tokens",
+     "temperature",
+     "response_format"
+    ],
+    "supports_tool_choice": {
+     "none": true,
+     "auto": true,
+     "required": true,
+     "function": true
+    },
+    "status": 0,
+    "uptime_last_30m": 99.4034302759135,
+    "uptime_last_5m": 100,
+    "uptime_last_1d": 99.1574142610412,
+    "latency_last_30m": null,
+    "throughput_last_30m": null
+   },
+   {
+    "name": "SambaNova | meta-llama/llama-3.3-70b-instruct",
+    "model_id": "meta-llama/llama-3.3-70b-instruct",
+    "model_name": "Meta: Llama 3.3 70B Instruct",
+    "context_length": 131072,
+    "pricing": {
+     "prompt": "0.00000045",
+     "completion": "0.0000009",
+     "discount": 0.25
+    },
+    "provider_name": "SambaNova",
+    "tag": "sambanova-turbo",
+    "quantization": "unknown",
+    "max_completion_tokens": 3072,
+    "max_prompt_tokens": null,
+    "supported_parameters": [
+     "max_tokens",
+     "temperature",
+     "response_format"
+    ],
+    "supports_tool_choice": {
+     "none": true,
+     "auto": true,
+     "required": true,
+     "function": true
+    },
+    "status": 0,
+    "uptime_last_30m": 99.84996249062266,
+    "uptime_last_5m": 100,
+    "uptime_last_1d": 98.61935017615706,
+    "latency_last_30m": null,
+    "throughput_last_30m": null
+   },
+   {
+    "name": "Groq | meta-llama/llama-3.3-70b-instruct",
+    "model_id": "meta-llama/llama-3.3-70b-instruct",
+    "model_name": "Meta: Llama 3.3 70B Instruct",
+    "context_length": 131072,
+    "pricing": {
+     "prompt": "0.00000059",
+     "completion": "0.00000079",
+     "input_cache_read": "0.000000295",
+     "discount": 0
+    },
+    "provider_name": "Groq",
+    "tag": "groq",
+    "quantization": "unknown",
+    "max_completion_tokens": 32768,
+    "max_prompt_tokens": null,
+    "supported_parameters": [
+     "max_tokens",
+     "temperature",
+     "response_format",
+     "tools",
+     "tool_choice"
+    ],
+    "supports_tool_choice": {
+     "none": true,
+     "auto": true,
+     "required": true,
+     "function": true
+    },
+    "status": 0,
+    "uptime_last_30m": 99.32555596062706,
+    "uptime_last_5m": 99.67700258397933,
+    "uptime_last_1d": 99.82989899702103,
+    "latency_last_30m": null,
+    "throughput_last_30m": null
+   },
+   {
+    "name": "Google | meta-llama/llama-3.3-70b-instruct",
+    "model_id": "meta-llama/llama-3.3-70b-instruct",
+    "model_name": "Meta: Llama 3.3 70B Instruct",
+    "context_length": 128000,
+    "pricing": {
+     "prompt": "0.00000072",
+     "completion": "0.00000072",
+     "discount": 0
+    },
+    "provider_name": "Google",
+    "tag": "google-vertex/us-central1",
+    "quantization": "unknown",
+    "max_completion_tokens": 8192,
+    "max_prompt_tokens": null,
+    "supported_parameters": [
+     "response_format",
+     "max_tokens",
+     "temperature",
+     "tools",
+     "tool_choice"
+    ],
+    "supports_tool_choice": {
+     "none": true,
+     "auto": true,
+     "required": true,
+     "function": true
+    },
+    "status": 0,
+    "uptime_last_30m": null,
+    "uptime_last_5m": null,
+    "uptime_last_1d": null,
+    "latency_last_30m": null,
+    "throughput_last_30m": null
+   },
+   {
+    "name": "Google | meta-llama/llama-3.3-70b-instruct",
+    "model_id": "meta-llama/llama-3.3-70b-instruct",
+    "model_name": "Meta: Llama 3.3 70B Instruct",
+    "context_length": 128000,
+    "pricing": {
+     "prompt": "0.00000072",
+     "completion": "0.00000072",
+     "discount": 0
+    },
+    "provider_name": "Google",
+    "tag": "google-vertex",
+    "quantization": "unknown",
+    "max_completion_tokens": 115200,
+    "max_prompt_tokens": null,
+    "supported_parameters": [
+     "max_tokens",
+     "temperature",
+     "response_format"
+    ],
+    "supports_tool_choice": {
+     "none": true,
+     "auto": true,
+     "required": true,
+     "function": true
+    },
+    "status": 0,
+    "uptime_last_30m": null,
+    "uptime_last_5m": null,
+    "uptime_last_1d": null,
+    "latency_last_30m": null,
+    "throughput_last_30m": null
+   }
+  ]
+ }
+}

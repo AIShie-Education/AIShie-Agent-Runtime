@@ -148,6 +148,10 @@ func goldenCases() []goldenCase {
 	openrouter.Capabilities = llm.CapabilityOverrides{ParallelToolCalls: no()}
 	orMaker := maker(openrouterBase, "anthropic/claude-sonnet-4.5")
 
+	// OpenRouter's upstream routing, as the contract's example has it.
+	routed := cfg(openrouterBase, "meta-llama/llama-3.3-70b-instruct")
+	routed.OpenRouter = testRouting()
+
 	gemini := cfg(geminiBase, "gemini-2.5-flash")
 	gemMaker := maker(geminiBase, "gemini-2.5-flash")
 
@@ -345,6 +349,13 @@ func goldenCases() []goldenCase {
 		{name: "usage_lenient_numbers", cfg: cfg("http://localhost:8080/v1", "local-model"), req: simple(), reply: `{"id":"u5","model":"local-model",
 			"choices":[{"index":0,"message":{"role":"assistant","content":"Done."},"finish_reason":"stop"}],
 			"usage":{"prompt_tokens":41.0,"completion_tokens":"7","prompt_tokens_details":null}}`},
+
+		// OpenRouter's upstream routing goes as provider, on a call with
+		// tools and on ForceAnswer's alike.
+		{name: "openrouter_routing", cfg: routed, req: withTools(question()), reply: textReply("stop", "Here.")},
+		{name: "openrouter_routing_force_answer", cfg: routed,
+			req:   &llm.Request{System: system, Messages: toolRound(), Tools: tools, ToolMode: llm.ToolNone},
+			reply: textReply("stop", "You scored 7 out of 10.")},
 
 		{name: "error_in_200", cfg: cfg(openrouterBase, "openai/gpt-4.1"), req: simple(),
 			reply: `{"error":{"code":429,"message":"Rate limit exceeded: free-models-per-min","metadata":{"provider_name":"OpenAI"}},"user_id":"u"}`},

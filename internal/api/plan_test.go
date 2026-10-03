@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/openrouter"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
@@ -497,5 +498,244 @@ func TestSchoolPlanQuotas(t *testing.T) {
 	h.call("GET", "models", h.yuki, "").decode(t, &m)
 	if m.SchoolKey.Limits != (SchoolLimits{PerOwnerDay: 3, PerAskerDay: config.DefaultPerAskerDay}) {
 		t.Errorf("GET /models after the reset: %+v", m.SchoolKey.Limits)
+	}
+}
+
+// orKey is a key of the school's at OpenRouter, given in these tests.
+const orKey = "sk-or-v1-school-0123456789abcdefghij"
+
+// openRouterRuntime is schoolRuntime with an offer of runtime.yaml's at
+// OpenRouter, with its upstream routing.
+func openRouterRuntime() config.Runtime {
+	rt := schoolRuntime()
+	deny := "deny"
+	rt.School.Offers = append(rt.School.Offers, config.SchoolOffer{ID: "llama-yaml", Label: "School AI (Llama)", Adapter: "openai_chat",
+		Model: "meta-llama/llama-3.3-70b-instruct", BaseURL: "https://openrouter.ai/api/v1", KeyRef: "secret://school/keys/openrouter",
+		OpenRouter: &openrouter.Routing{DataCollection: &deny, Only: []string{"groq"}}})
+	return rt
+}
+
+// orOffer is an offer of OpenRouter's, with routing.
+func orOffer(routing string) string {
+	return `{"id":"llama","label":"School AI (Llama)","provider":"openrouter","model":"meta-llama/llama-3.3-70b-instruct",` +
+		`"openrouter":` + routing + `,"key":"` + orKey + `"}`
+}
+
+// An offer of OpenRouter's is made with its upstream routing, kept and
+// answered canonical, and audited so; its key's trial sends none. PATCH
+// replaces the routing whole, keeps it when left out, removes it with
+// null, and a move to another provider drops it; a change of the routing
+// alone leaves the key tried, and is audited with the routing it leaves.
+// runtime.yaml's offer shows its own, and every other offer null. A
+// hosted agent on the offer is built with its routing, and with the next
+// once it changes.
+func TestSchoolPlanOpenRouterRouting(t *testing.T) {
+	h, p, fh := newModelWorld(t, openRouterRuntime())
+	ctx := context.Background()
+	created := h.admin("POST", "admin/school-plan/offers",
+		orOffer(`{"allow_fallbacks":true,"require_parameters":true,"data_collection":"deny","sort":{"by":"price"},"max_price":{"prompt":"01.50"},"only":[]}`))
+	const routing = `{"allow_fallbacks":true,"require_parameters":true,"data_collection":"deny","sort":"price","max_price":{"prompt":"1.5"}}`
+	if created.code != 201 || !strings.Contains(created.body, `"openrouter":`+routing+`,`) {
+		t.Fatalf("made: %d %s", created.code, created.body)
+	}
+	p.mu.Lock()
+	if len(p.bodies) != 1 || p.seen[0].URL.Host != "openrouter.ai" || strings.Contains(p.bodies[0], `"provider"`) {
+		t.Errorf("the key's trial sent routing: %v", p.bodies)
+	}
+	p.mu.Unlock()
+	row, err := h.st.SchoolOffer(ctx, "llama")
+	h.ok(err)
+	if string(row.OpenRouter.JSON()) != routing || !row.KeyTested {
+		t.Fatalf("kept: %s", row.OpenRouter.JSON())
+	}
+	if ev := h.events("school_offer.create"); len(ev) != 1 || !strings.Contains(string(ev[0].Detail), `"openrouter":`+routing) {
+		t.Errorf("the audit: %+v", ev)
+	}
+	if got := h.admin("GET", "admin/school-plan/offers/llama", ""); !strings.Contains(got.body, `"openrouter":`+routing) {
+		t.Errorf("GET: %s", got.body)
+	}
+	var plan SchoolPlan
+	h.admin("GET", "admin/school-plan", "").decode(t, &plan)
+	for _, o := range plan.Offers {
+		want := "null"
+		switch o.ID {
+		case "llama-yaml":
+			want = `{"data_collection":"deny","only":["groq"]}`
+		case "llama":
+			want = routing
+		}
+		if got := string(o.OpenRouter.JSON()); got != want {
+			t.Errorf("%s's routing in the plan: %s, want %s", o.ID, got, want)
+		}
+	}
+	if yaml := h.admin("GET", "admin/school-plan/offers/llama-yaml", ""); !strings.Contains(yaml.body, `"openrouter":{"data_collection":"deny","only":["groq"]}`) {
+		t.Errorf("runtime.yaml's offer: %s", yaml.body)
+	}
+
+	// A hosted agent on it is built with its routing.
+	v := h.host(h.yuki, h.helper.ID)
+	if a := h.patch(v.ID, `"1"`, `{"model":{"school":{"offer":"llama"}}}`); a.code != 200 {
+		t.Fatalf("on the offer: %d %s", a.code, a.body)
+	}
+	build := func() *config.Agent {
+		t.Helper()
+		cfg, _, err := registry.Build(ctx, fh.YAML(), h.st, registry.Options{CoreBaseURL: h.srv.URL})
+		h.ok(err)
+		if len(cfg.Agents) != 1 {
+			t.Fatalf("the build: %+v %+v", cfg.Agents, cfg.Rejected)
+		}
+		return cfg.Agents[0]
+	}
+	if got := build(); string(got.Model.OpenRouter.JSON()) != routing {
+		t.Fatalf("the agent's routing: %s", got.Model.OpenRouter.JSON())
+	}
+
+	// Replaced whole, the key still tried.
+	const only = `{"order":["groq"],"only":["groq","deepinfra/turbo"]}`
+	before := len(p.bodies)
+	replaced := h.admin("PATCH", "admin/school-plan/offers/llama", `{"openrouter":{"only":["groq","deepinfra/turbo"],"order":["groq"]}}`, "If-Match", `"1"`)
+	var o PlanOffer
+	replaced.decode(t, &o)
+	if replaced.code != 200 || string(o.OpenRouter.JSON()) != only || *o.KeyStatus != KeyTested || *o.Version != 2 || len(p.bodies) != before {
+		t.Fatalf("replaced: %d %s", replaced.code, replaced.body)
+	}
+	ev := h.events("school_offer.update")
+	if len(ev) != 1 || !strings.Contains(string(ev[0].Detail), `"changed":["openrouter"]`) || !strings.Contains(string(ev[0].Detail), `"openrouter":`+only) {
+		t.Errorf("the audit: %+v", ev)
+	}
+	if got := build(); string(got.Model.OpenRouter.JSON()) != only {
+		t.Errorf("the agent after the change: %s", got.Model.OpenRouter.JSON())
+	}
+
+	// Left out, kept; the same again, nothing written.
+	relabelled := h.admin("PATCH", "admin/school-plan/offers/llama", `{"label":"Llama"}`)
+	relabelled.decode(t, &o)
+	if string(o.OpenRouter.JSON()) != only || *o.Version != 3 {
+		t.Errorf("relabelled: %s", relabelled.body)
+	}
+	same := h.admin("PATCH", "admin/school-plan/offers/llama", `{"openrouter":{"order":["groq"],"only":["groq","deepinfra/turbo"],"ignore":[]}}`)
+	if same.code != 200 || same.header.Get("ETag") != `"3"` || len(h.events("school_offer.update")) != 2 {
+		t.Errorf("the same routing: %d %s", same.code, same.body)
+	}
+
+	// null removes it, as {} does.
+	removed := h.admin("PATCH", "admin/school-plan/offers/llama", `{"openrouter":null}`)
+	removed.decode(t, &o)
+	if o.OpenRouter != nil || !strings.Contains(removed.body, `"openrouter":null`) || *o.Version != 4 {
+		t.Errorf("removed: %s", removed.body)
+	}
+	if ev := h.events("school_offer.update"); !strings.Contains(string(ev[len(ev)-1].Detail), `"openrouter":null`) {
+		t.Errorf("the removal's audit: %s", ev[len(ev)-1].Detail)
+	}
+	if got := build(); got.Model.OpenRouter != nil {
+		t.Errorf("the agent after the removal: %s", got.Model.OpenRouter.JSON())
+	}
+	if a := h.admin("PATCH", "admin/school-plan/offers/llama", `{"openrouter":{}}`); a.header.Get("ETag") != `"4"` {
+		t.Errorf("{} of none: %d %s", a.code, a.body)
+	}
+
+	// Moved to another provider: its routing dropped; routing for it
+	// refused.
+	h.admin("PATCH", "admin/school-plan/offers/llama", `{"openrouter":{"zdr":true}}`)
+	e := wantRefused(t, h.admin("PATCH", "admin/school-plan/offers/llama", `{"provider":"deepseek","model":"deepseek-chat","key":"`+fastKey+`","openrouter":{"zdr":true}}`),
+		400, CodeInvalidArgument, ReasonInvalidField)
+	if e.Details["field"] != "/openrouter" || e.Message != "only an offer of OpenRouter's takes upstream routing" {
+		t.Errorf("routing for another provider: %+v", e)
+	}
+	moved := h.admin("PATCH", "admin/school-plan/offers/llama", `{"provider":"deepseek","model":"deepseek-chat","key":"`+fastKey+`"}`)
+	moved.decode(t, &o)
+	if moved.code != 200 || o.Provider != "deepseek" || o.OpenRouter != nil {
+		t.Fatalf("moved: %d %s", moved.code, moved.body)
+	}
+	if row, _ := h.st.SchoolOffer(ctx, "llama"); row.OpenRouter != nil {
+		t.Errorf("the row moved keeps its routing: %s", row.OpenRouter.JSON())
+	}
+	if ev := h.events("school_offer.update"); !strings.Contains(string(ev[len(ev)-1].Detail), `"openrouter":null`) ||
+		!strings.Contains(string(ev[len(ev)-1].Detail), `"changed":["model","openrouter","key"]`) {
+		t.Errorf("the move's audit: %s", ev[len(ev)-1].Detail)
+	}
+	if a := h.admin("PATCH", "admin/school-plan/offers/llama", `{"openrouter":null}`); a.code != 200 {
+		t.Errorf("null for another provider's: %d %s", a.code, a.body)
+	}
+	h.noSchoolKeys(created, replaced, removed, moved)
+}
+
+// The routing is refused, 400, at the first problem alone, at its JSON
+// Pointer under /openrouter, unknown_field for a member of no such name
+// at any depth and invalid_field for any other, and nothing is kept or
+// tried.
+func TestSchoolPlanOpenRouterRefusals(t *testing.T) {
+	h, p, _ := newModelWorld(t, openRouterRuntime())
+	for _, tc := range []struct {
+		routing, reason, field, msg string
+	}{
+		{`"deny"`, ReasonInvalidField, "/openrouter", "openrouter is OpenRouter's provider routing: an object, or null"},
+		{`[]`, ReasonInvalidField, "/openrouter", "openrouter is OpenRouter's provider routing: an object, or null"},
+		{`{"providers":["groq"]}`, ReasonUnknownField, "/openrouter/providers", "OpenRouter's provider routing has no such member"},
+		{`{"sort":{"by":"price","direction":"asc"}}`, ReasonUnknownField, "/openrouter/sort/direction", "OpenRouter's provider routing has no such member"},
+		{`{"max_price":{"tokens":1}}`, ReasonUnknownField, "/openrouter/max_price/tokens", "OpenRouter's provider routing has no such member"},
+		{`{"preferred_max_latency":{"p95":3}}`, ReasonUnknownField, "/openrouter/preferred_max_latency/p95", "OpenRouter's provider routing has no such member"},
+		{`{"order":"groq"}`, ReasonInvalidField, "/openrouter/order", "order is a list of at most 50 upstream providers' slugs"},
+		{`{"only":["groq","Groq","-x"]}`, ReasonInvalidField, "/openrouter/only/1", openrouter.MsgSlug},
+		{`{"ignore":["groq","novita","groq"]}`, ReasonInvalidField, "/openrouter/ignore/2", "this slug is in the list already"},
+		{`{"only":["groq"],"ignore":["groq"]}`, ReasonInvalidField, "/openrouter/ignore/0", "this slug skips an upstream provider that order or only names"},
+		{`{"only":["groq"],"order":["groq","together"]}`, ReasonInvalidField, "/openrouter/order/1", "tried first, but not among only"},
+		{`{"order":["groq"],"sort":"price"}`, ReasonInvalidField, "/openrouter/sort", "sort is not used while order is set: choose one"},
+		{`{"data_collection":"never"}`, ReasonInvalidField, "/openrouter/data_collection", "data_collection is allow or deny"},
+		{`{"zdr":"yes"}`, ReasonInvalidField, "/openrouter/zdr", "zdr is true or false"},
+		{`{"quantizations":["fp8","fp7"]}`, ReasonInvalidField, "/openrouter/quantizations/1", openrouter.MsgQuantizations},
+		{`{"sort":"fastest"}`, ReasonInvalidField, "/openrouter/sort", openrouter.MsgSort},
+		{`{"sort":{"by":"price","partition":"all"}}`, ReasonInvalidField, "/openrouter/sort/partition", "partition is model or none"},
+		{`{"preferred_min_throughput":0}`, ReasonInvalidField, "/openrouter/preferred_min_throughput", openrouter.MsgThroughput},
+		{`{"preferred_max_latency":{"p90":601}}`, ReasonInvalidField, "/openrouter/preferred_max_latency/p90", openrouter.MsgLatency},
+		{`{"max_price":{"prompt":"1.0000001"}}`, ReasonInvalidField, "/openrouter/max_price/prompt", openrouter.MsgPrice},
+		{`{"max_price":5}`, ReasonInvalidField, "/openrouter/max_price", openrouter.MsgPrice},
+		// The first problem alone: by member in OpenRouter's order, then by
+		// index.
+		{`{"max_price":{"image":"-1"},"zdr":0,"only":["groq","x y","A"]}`, ReasonInvalidField, "/openrouter/zdr", "zdr is true or false"},
+		{`{"max_price":{"image":"-1"},"only":["groq","x y","A"]}`, ReasonInvalidField, "/openrouter/only/1", openrouter.MsgSlug},
+	} {
+		t.Run(tc.routing, func(t *testing.T) {
+			e := wantRefused(t, h.admin("POST", "admin/school-plan/offers", orOffer(tc.routing)), 400, CodeInvalidArgument, tc.reason)
+			if e.Details["field"] != tc.field || e.Message != tc.msg {
+				t.Errorf("%v: %s; want %s: %s", e.Details["field"], e.Message, tc.field, tc.msg)
+			}
+		})
+	}
+	// An offer of another provider takes none, but null or {}: anything
+	// else given is refused for its provider first.
+	for _, given := range []string{`{"zdr":true}`, `{"only":[]}`, `"deny"`} {
+		e := wantRefused(t, h.admin("POST", "admin/school-plan/offers", strings.Replace(fastOffer, `"key"`, `"openrouter":`+given+`,"key"`, 1)),
+			400, CodeInvalidArgument, ReasonInvalidField)
+		if e.Details["field"] != "/openrouter" || e.Message != "only an offer of OpenRouter's takes upstream routing" {
+			t.Errorf("another provider's, %s: %+v", given, e)
+		}
+	}
+	p.mu.Lock()
+	if len(p.seen) != 0 {
+		t.Errorf("a refused offer's key was tried: %d calls", len(p.seen))
+	}
+	p.mu.Unlock()
+	if offers, _ := h.st.SchoolOffers(context.Background()); len(offers) != 0 {
+		t.Fatalf("a refused offer was kept: %+v", offers)
+	}
+	for _, none := range []string{`null`, `{}`} {
+		body := strings.Replace(fastOffer, `"key"`, `"openrouter":`+none+`,"key"`, 1)
+		body = strings.Replace(body, `"id":"fast"`, `"id":"fast`+map[string]string{"null": "1", "{}": "2"}[none]+`"`, 1)
+		if a := h.admin("POST", "admin/school-plan/offers", body); a.code != 201 || !strings.Contains(a.body, `"openrouter":null`) {
+			t.Errorf("another provider's with %s: %d %s", none, a.code, a.body)
+		}
+	}
+	// PATCH holds a routing to the same rules.
+	if a := h.admin("POST", "admin/school-plan/offers", orOffer(`{"zdr":true}`)); a.code != 201 {
+		t.Fatalf("%d %s", a.code, a.body)
+	}
+	e := wantRefused(t, h.admin("PATCH", "admin/school-plan/offers/llama", `{"openrouter":{"only":["groq"],"order":["deepinfra"]}}`), 400,
+		CodeInvalidArgument, ReasonInvalidField)
+	if e.Details["field"] != "/openrouter/order/0" {
+		t.Errorf("PATCH: %+v", e)
+	}
+	if row, _ := h.st.SchoolOffer(context.Background(), "llama"); string(row.OpenRouter.JSON()) != `{"zdr":true}` || row.Version != 1 {
+		t.Errorf("a refused PATCH wrote: %s", row.OpenRouter.JSON())
 	}
 }
