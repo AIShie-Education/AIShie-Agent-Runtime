@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/fakecore"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/scripted"
@@ -305,6 +306,100 @@ func TestSentBackNoteNotRead(t *testing.T) {
 	w.ok(err)
 	if len(notes) != 1 || notes[0].Kind != store.NoteChangesRequested || notes[0].Text != "" {
 		t.Errorf("memory keeps %+v; want the request, its note not read", notes)
+	}
+}
+
+// TestSentBackLookupCutShort: an answer is sent back for changes, and the
+// read of action_list_mine for what was asked is cut short, the worker
+// stopping (a deploy, say) or Core refusing the agent's token, which stops
+// the agent. Neither would happen again on the next read, so the attempt
+// is left proposed and the event to be read again: once the seat starts
+// again (another worker on the store; the agent issued another token), the
+// attempt is settled with what was asked, and the next attempt told it,
+// never that it could not be read.
+func TestSentBackLookupCutShort(t *testing.T) {
+	const note = "Say where the chapter starts."
+	cfg := func(w *world) *config.Config { return w.config(nil, w.agentDoc("cs101-tutor", "m1", nil, nil)) }
+	for _, c := range []struct {
+		name string
+		// cut sends the proposal back and cuts the read of
+		// action_list_mine short, then starts the seat again, on the
+		// worker it returns.
+		cut func(t *testing.T, w *world, wk *worker, model *scripted.Adapter, p fakecore.Proposal) *worker
+	}{
+		{"worker stopped", func(t *testing.T, w *world, wk *worker, model *scripted.Adapter, p fakecore.Proposal) *worker {
+			var reading atomic.Int32
+			w.fc.Inject(func(c fakecore.InjectedCall) *fakecore.Injection {
+				if c.Tool != "action_list_mine" {
+					return nil
+				}
+				reading.Add(1)
+				return &fakecore.Injection{Delay: 3 * time.Second}
+			})
+			w.ok(w.fc.RequestChanges(p.ActionID, note))
+			eventually(t, "action_list_mine being read", func() bool { return reading.Load() > 0 })
+			wk.stop()
+			w.fc.Inject(nil)
+			proposedStill(t, wk, p.IdempotencyKey, "the worker stopped")
+			return w.start(cfg(w), models{"m1": model}, workerOpts{store: wk.st.Store})
+		}},
+		{"token refused", func(t *testing.T, w *world, wk *worker, _ *scripted.Adapter, p fakecore.Proposal) *worker {
+			var refusing atomic.Bool
+			refusing.Store(true)
+			w.fc.Inject(func(c fakecore.InjectedCall) *fakecore.Injection {
+				if c.Tool != "action_list_mine" || !refusing.CompareAndSwap(true, false) {
+					return nil
+				}
+				return &fakecore.Injection{Status: http.StatusUnauthorized}
+			})
+			w.ok(w.fc.RequestChanges(p.ActionID, note))
+			wk.waitState("cs101-tutor", store.AgentUnauthorized)
+			proposedStill(t, wk, p.IdempotencyKey, "Core refused the agent's token")
+			wk.sup.Reload(cfg(w))
+			wk.waitState("cs101-tutor", store.AgentRunning)
+			return wk
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			w := newWorld(t)
+			model := scripted.New(scripted.Reply("Graphs."), scripted.Reply("Graphs, from page 80."))
+			tu := w.tutor("cs101-tutor")
+			w.ok(w.fc.SetLevel(tu.seat.ID, "conversation_answer", "confirm_required"))
+			wk := w.start(cfg(w), models{"m1": model}, workerOpts{})
+			conv, msg := w.ask(0, tu, "What does chapter 4 cover?")
+			k1, k2 := core.AnswerKey(conv, msg, 1), core.AnswerKey(conv, msg, 2)
+			p1 := w.waitProposal(k1)
+			wk.waitAttempt("cs101-tutor", k1, store.AttemptProposed)
+			wk = c.cut(t, w, wk, model, p1)
+			if at := wk.waitAttempt("cs101-tutor", k1, store.AttemptChangesRequested); at.Reason != note {
+				t.Errorf("the first attempt settled with %q; want what was asked", at.Reason)
+			}
+			if p2 := w.waitProposal(k2); p2.Revises != p1.ActionID {
+				t.Errorf("the second attempt revises %q; want %s", p2.Revises, p1.ActionID)
+			}
+			s := lastRequest(t, model).System
+			if !strings.Contains(s, revisionSaid(note)) || strings.Contains(s, "could not be read") {
+				t.Errorf("the second attempt's prompt:\n%s", s)
+			}
+			notes, err := wk.st.Notes(context.Background(), "cs101-tutor", tu.seat.ID, conv, 10)
+			w.ok(err)
+			if len(notes) != 1 || notes[0].Kind != store.NoteChangesRequested || notes[0].Text != note {
+				t.Errorf("memory keeps %+v; want the request, once, with what was asked", notes)
+			}
+		})
+	}
+}
+
+// proposedStill fails the test unless the attempt under key is still
+// proposed, once the seat that read its decision has stopped, for why.
+func proposedStill(t *testing.T, wk *worker, key, why string) {
+	t.Helper()
+	at, err := wk.st.Attempt(context.Background(), "cs101-tutor", key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if at.State != store.AttemptProposed {
+		t.Fatalf("once %s, the attempt is %s with %q; want proposed still, its decision read again", why, at.State, at.Reason)
 	}
 }
 

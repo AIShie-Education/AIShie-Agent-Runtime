@@ -212,13 +212,19 @@ func (s *Seat) markEventsRead() {
 // store knows once the send is over.
 var errSendUnderWay = errors.New("a decision on an action not yet stored, while an attempt is being sent")
 
+// errLookupCut is a decision on a proposal whose action the lookup of the
+// agent's actions stopped short of, the seat ending or Core refusing the
+// agent's token (actionLookup.cut): the event is read again when the seat
+// starts again, and the decision settled as action_list_mine has it.
+var errLookupCut = errors.New("a decision on a proposal not looked up: the seat ended, or Core refused the agent's token")
+
 // onEvent acts on one event. Only what concerns an attempt the store
 // holds, the agent's own conversations, or its answers is acted on, so
 // that a seat reading its whole history on its first read does no harm;
 // a version's text changed drops what the worker keeps of it, and a
 // document or a version purged what the search keeps of it. Its error is
-// the store failing, or errSendUnderWay, when the event must be read
-// again.
+// the store failing, errSendUnderWay or errLookupCut, when the event must
+// be read again.
 func (s *Seat) onEvent(ctx context.Context, ev core.Event, acts *actionLookup) error {
 	if core.IsTextEvent(ev.Type) {
 		// A file's text is kept by the file (a Core since #49 names it),
@@ -255,8 +261,16 @@ func (s *Seat) onEvent(ctx context.Context, ev core.Event, acts *actionLookup) e
 		case at.State != store.AttemptProposed:
 			return nil
 		}
-		if act, ok := acts.find(ctx, *ev.ActionID); ok && act.Status != actionProposed {
+		act, ok := acts.find(ctx, *ev.ActionID)
+		switch {
+		case ok && act.Status != actionProposed:
 			return s.settleProposal(at, act)
+		case !ok && acts.cut(ctx):
+			// Settled from the event, the proposal would lose for good
+			// what action_list_mine has of its decision (a rejection's
+			// reason, what to change): the attempt would no longer be
+			// proposed when the event is read again.
+			return errLookupCut
 		}
 		return s.settleProposal(at, actionFromEvent(ev))
 	case core.EventConversationMessageRetracted:
@@ -324,10 +338,13 @@ func mayBeRuntimes(ev core.Event) bool {
 }
 
 // actionFromEvent is what an event says of a proposal's fate, for when
-// action_list_mine does not show it: an error the client does not retry,
-// the read cut short, or the action further than the lookup reads. The
-// event is acted on all the same, not left to be read again: what fails
-// so would fail again, and hold up every event after it.
+// action_list_mine does not show it, for a reason the next read would meet
+// again: an error the client does not retry (Core refusing or denying the
+// read, say), or the action further than the lookup reads. The event is
+// acted on all the same, not left to be read again: what fails so would
+// fail again, and hold up every event after it. A lookup cut short by the
+// seat's end or by a 401, which the next start does not meet, leaves the
+// event to be read again instead (actionLookup.cut).
 func actionFromEvent(ev core.Event) core.Action {
 	var p struct {
 		Outcome string `json:"outcome"`
@@ -508,6 +525,8 @@ type actionLookup struct {
 	done               bool
 	pages              int
 	acts               map[string]core.Action
+	// err is why the lookup stopped short: the cursor or a page not read.
+	err error
 }
 
 // find is the action id, reading pages until it is found or there are no
@@ -517,7 +536,7 @@ func (l *actionLookup) find(ctx context.Context, id string) (core.Action, bool) 
 		l.begun, l.acts = true, map[string]core.Action{}
 		cur, err := l.s.a.store().Cursor(ctx, l.s.a.id, l.s.id, store.CursorActions)
 		if err != nil {
-			l.done = true
+			l.done, l.err = true, err
 		}
 		l.start, l.after, l.keep = cur, cur, cur
 	}
@@ -541,7 +560,7 @@ func (l *actionLookup) more(ctx context.Context) bool {
 	page, err := l.s.a.client.ActionsMine(core.WithPriority(ctx, core.PriorityBackground), l.s.course, l.after, nil, actionsPage)
 	if err != nil {
 		l.s.readFailed(ctx, "action_list_mine", err)
-		l.done = true
+		l.done, l.err = true, err
 		return false
 	}
 	for _, act := range page.Actions {
@@ -559,6 +578,15 @@ func (l *actionLookup) more(ctx context.Context) bool {
 		l.after = page.Actions[len(page.Actions)-1].ID
 	}
 	return true
+}
+
+// cut reports whether the lookup stopped short for a reason that ends with
+// the seat, and that the seat, started again, does not meet: its context
+// ended (a stop, a restart, a deploy; until then, Core's client sends a
+// read that fails transiently again), or Core refused the agent's token,
+// which stops the agent until it is issued another.
+func (l *actionLookup) cut(ctx context.Context) bool {
+	return ctx.Err() != nil || isUnauthenticated(l.err)
 }
 
 // runtimesOwn reports whether an action of this type is one the runtime

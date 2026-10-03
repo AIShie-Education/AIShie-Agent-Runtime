@@ -1964,14 +1964,24 @@ The events poller reads `event_list` from the seat's cursor:
   in turn (`worker.revised`); one that failed, or expired undecided,
   leaves the request standing, told as made of an earlier answer, which
   is shown and named. Core requires a note (1 to 2000 characters), but
-  the event carries none: one `action_list_mine` does not give (an error
-  the client does not retry, the read cut short, the proposal more than
-  the lookup's 50 pages on) is settled from the event all the same, and
-  the next attempt is told that what was asked could not be read, never
-  that nothing was. Leaving the event to be read again would read the
-  same pages again, fail the same way, and hold up every event after it.
-  A runtime from before this never settled one, and left the
-  conversation unanswered until its opener wrote again.
+  the event carries none: one `action_list_mine` does not give, for a
+  reason the next read would meet again (an error the client does not
+  retry, the proposal more than the lookup's 50 pages on), is settled
+  from the event all the same, and the next attempt is told that what
+  was asked could not be read, never that nothing was. Leaving that
+  event to be read again would read the same pages again, fail the same
+  way, and hold up every event after it. A lookup cut short by the
+  seat's end (a stop, a restart, a deploy: until then, Core's client
+  sends a read that fails transiently again) or by a 401, which stops
+  the agent until it is issued another token, ends with the seat: its
+  decision is not settled, the cursor stays before its event's page,
+  and the event is read again when the seat starts again, the proposal
+  then settled as `action_list_mine` has it, by the seat's start or
+  from the event (`actionLookup.cut`). Settled from the event, what was
+  asked would be lost for good: the attempt would no longer be proposed
+  when the event was read again. A runtime from before this never
+  settled one, and left the conversation unanswered until its opener
+  wrote again.
 - `action.cancelled`: settled as cancelled, `payload.reason` noted.
 - `conversation.message_retracted`: the answer being written to that
   message, the opener's question withdrawn, stops (§5.3); notes about it
@@ -2700,7 +2710,9 @@ Chinese with a table, overran, and was cut off.
   moved on, duplicates across two workers, denied, 401, 429, quotas,
   budgets, proposals followed, retractions; answers sent back for changes
   revised, told what was asked, or that it could not be read when
-  `action_list_mine` fails, and shown the answer read, in a chain of
+  `action_list_mine` fails, or, after a stop or a 401 cut that read
+  short, told it once the seat starts again, and shown the answer read,
+  in a chain of
   revisions with memory on and off, the one after a revision rejected
   naming nothing, and the one after Core refuses `revises`
   (`not_revisable`, or a Core from before it) naming nothing, still told
