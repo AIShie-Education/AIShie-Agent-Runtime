@@ -2684,8 +2684,10 @@ Chinese with a table, overran, and was cut off.
   (`TEST_DATABASE_URL`). `pgstore` takes 0015 down and up again: an
   attempt sent back for changes, and its note, become a rejection's, but
   not a note whose request was not read, and the other notes are left as
-  they are. `aishie-runtime migrate down` takes no count of migrations:
-  it takes them all down, or, refused, none.
+  they are.
+- `cmd/aishie-runtime`, the binary, among its tests: `migrate up`,
+  `version` and `down` on Postgres, and `migrate down` takes no count of
+  migrations: it takes them all down, or, refused, none.
 - `vault`: a secret sealed and opened; every field and byte of it tampered
   with, and moved to another id, tenant or kind, fails to open; a key
   rotated (added, rewrapped, retired); keyrings that cannot be used are
