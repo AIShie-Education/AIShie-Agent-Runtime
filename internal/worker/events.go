@@ -519,21 +519,25 @@ func (s *Seat) retracted(ctx context.Context, conv, msg string) error {
 // actionLookup finds the agent's own actions in the seat's course, paging
 // action_list_mine (all types: the answers are what matter) from the
 // seat's actions cursor only as far as it must. The cursor moves only over
-// actions that are settled, so that a proposal of the runtime's own (an
-// answer or a close) still waiting is found again when it is decided,
-// however long that takes; save keeps it. A proposal of the model's own
-// writes is its owner's to follow, not the runtime's, and holds the cursor
-// back no more than a settled action does.
+// actions that are settled, and whose decisions the runtime has acted on
+// (save), so that a proposal of the runtime's own (an answer or a close)
+// still waiting is found again when it is decided, however long that
+// takes. A proposal of the model's own writes is its owner's to follow,
+// not the runtime's, and holds the cursor back no more than a settled
+// action does.
 type actionLookup struct {
 	s     *Seat
 	begun bool
-	// start is the cursor as read; after, where the next page starts;
-	// keep, the last action of the settled run from start.
-	start, after, keep string
-	blocked            bool
-	done               bool
-	pages              int
-	acts               map[string]core.Action
+	// start is the cursor as read; after, where the next page starts.
+	start, after string
+	// settled is the run of settled actions read from start, oldest
+	// first, up to the first proposal of the runtime's own still waiting
+	// (blocked).
+	settled []string
+	blocked bool
+	done    bool
+	pages   int
+	acts    map[string]core.Action
 	// err is why the lookup stopped short: the cursor or a page not read.
 	err error
 }
@@ -547,7 +551,7 @@ func (l *actionLookup) find(ctx context.Context, id string) (core.Action, bool) 
 		if err != nil {
 			l.done, l.err = true, err
 		}
-		l.start, l.after, l.keep = cur, cur, cur
+		l.start, l.after = cur, cur
 	}
 	for {
 		if act, ok := l.acts[id]; ok {
@@ -578,7 +582,7 @@ func (l *actionLookup) more(ctx context.Context) bool {
 			l.blocked = true
 		}
 		if !l.blocked {
-			l.keep = act.ID
+			l.settled = append(l.settled, act.ID)
 		}
 	}
 	if len(page.Actions) < actionsPage {
@@ -605,12 +609,47 @@ func runtimesOwn(actionType string) bool {
 	return actionType == "conversation.answer" || actionType == "conversation.close"
 }
 
-// save keeps the cursor, when it moved.
+// save moves the cursor over the run of settled actions read, up to the
+// first whose attempt the store still has as proposed: its decision, made
+// after the events in hand were read, is still to be read, and acted on.
+// Passed over, it would not be found by the lookup for that event, which
+// begins at the cursor, and would be settled from the event, what was
+// asked of it or why it was rejected lost. While one of the seat's
+// attempts is being sent, the store may not know yet an action read that
+// is that attempt's, decided at once (errSendUnderWay): the cursor stays.
 func (l *actionLookup) save(ctx context.Context) {
-	if !l.begun || l.keep == l.start {
+	if !l.begun || len(l.settled) == 0 {
 		return
 	}
-	if err := l.s.a.store().SetCursor(ctx, l.s.a.id, l.s.id, store.CursorActions, l.keep); err != nil && ctx.Err() == nil {
+	// Asked before the store is read: a send over by then has its action
+	// id stored.
+	if l.s.sending() {
+		return
+	}
+	atts, err := l.s.a.store().Unsettled(ctx, l.s.a.id, l.s.id)
+	if err != nil {
+		if ctx.Err() == nil {
+			l.s.log.Warn("the actions cursor was not moved: the proposals waiting could not be read", "err", err)
+		}
+		return
+	}
+	waiting := make(map[string]bool, len(atts))
+	for _, at := range atts {
+		if at.State == store.AttemptProposed {
+			waiting[at.ActionID] = true
+		}
+	}
+	keep := l.start
+	for _, id := range l.settled {
+		if waiting[id] {
+			break
+		}
+		keep = id
+	}
+	if keep == l.start {
+		return
+	}
+	if err := l.s.a.store().SetCursor(ctx, l.s.a.id, l.s.id, store.CursorActions, keep); err != nil && ctx.Err() == nil {
 		l.s.log.Warn("the actions cursor could not be saved", "err", err)
 	}
 }

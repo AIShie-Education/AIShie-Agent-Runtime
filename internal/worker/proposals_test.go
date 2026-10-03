@@ -953,6 +953,99 @@ func TestDecisionBeforeTheSendIsSettled(t *testing.T) {
 	w.waitProposal(core.AnswerKey(conv, msg, 2))
 }
 
+// holdOneProposal is a store that holds back recording one attempt as
+// proposed, the first once armed: holding says the write has begun, and it
+// ends when release is closed.
+type holdOneProposal struct {
+	store.Store
+	armed            atomic.Bool
+	holding, release chan struct{}
+}
+
+func (s *holdOneProposal) FinishAttempt(ctx context.Context, agentID, key string, o store.Outcome) error {
+	if o.State == store.AttemptProposed && s.armed.CompareAndSwap(true, false) {
+		close(s.holding)
+		select {
+		case <-s.release:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return s.Store.FinishAttempt(ctx, agentID, key, o)
+}
+
+// TestSentBackWhileAnotherDecisionIsLookedUp: a person approves one answer,
+// and sends another back for changes once the events holding the approval
+// were read, as action_list_mine is read for it: the lookup finds the one
+// sent back settled before its event is read, while it is proposed, or
+// while it is still being sent and the store does not know its action. The
+// actions cursor stays before it, so that the lookup for its event, read
+// next, finds what was asked: the attempt is settled with it, and the next
+// attempt told it, never that it could not be read.
+func TestSentBackWhileAnotherDecisionIsLookedUp(t *testing.T) {
+	const note = "Say which room."
+	for _, sending := range []bool{false, true} {
+		t.Run(fmt.Sprintf("being sent %v", sending), func(t *testing.T) {
+			w := newWorld(t)
+			model := scripted.New(scripted.Reply("Yes, it is."), scripted.Reply("On Mondays."), scripted.Reply("On Mondays, in room 4."))
+			tu := w.tutor("cs101-tutor")
+			w.ok(w.fc.SetLevel(tu.seat.ID, "conversation_answer", "confirm_required"))
+			st := &holdOneProposal{Store: memstore.New(), holding: make(chan struct{}), release: make(chan struct{})}
+			wk := w.start(w.config(nil, w.agentDoc("cs101-tutor", "m1", nil, nil)), models{"m1": model}, workerOpts{store: st})
+			c1, m1 := w.ask(0, tu, "Is this right?")
+			k1 := core.AnswerKey(c1, m1, 1)
+			p1 := w.waitProposal(k1)
+			wk.waitAttempt("cs101-tutor", k1, store.AttemptProposed)
+			st.armed.Store(sending)
+			c2, m2 := w.ask(1, tu, "When are the lectures?")
+			k2 := core.AnswerKey(c2, m2, 1)
+			p2 := w.waitProposal(k2)
+			if sending {
+				select {
+				case <-st.holding:
+				case <-time.After(15 * time.Second):
+					t.Fatal("the second proposal was never recorded")
+				}
+			} else {
+				wk.waitAttempt("cs101-tutor", k2, store.AttemptProposed)
+			}
+			sentBack := make(chan error, 1)
+			var once atomic.Bool
+			w.fc.OnCall(func(tool string, _ json.RawMessage) {
+				if tool == "action_list_mine" && once.CompareAndSwap(false, true) {
+					sentBack <- w.fc.RequestChanges(p2.ActionID, note)
+				}
+			})
+			_, err := w.fc.Approve(p1.ActionID)
+			w.ok(err)
+			select {
+			case err := <-sentBack:
+				w.ok(err)
+			case <-time.After(15 * time.Second):
+				t.Fatal("action_list_mine was never read for the approval")
+			}
+			wk.waitAttempt("cs101-tutor", k1, store.AttemptExecuted)
+			if sending {
+				// Reads of events are one after another: the one after
+				// the lookup begins once its cursor is saved, and the one
+				// after that holds the decision back for the send.
+				n := len(w.calls(tu.actor.ID, "event_list"))
+				eventually(t, "events read after the lookup", func() bool { return len(w.calls(tu.actor.ID, "event_list")) >= n+2 })
+				close(st.release)
+			}
+			if at := wk.waitAttempt("cs101-tutor", k2, store.AttemptChangesRequested); at.Reason != note {
+				t.Errorf("the answer sent back settled with %q; want what was asked, %q", at.Reason, note)
+			}
+			if p3 := w.waitProposal(core.AnswerKey(c2, m2, 2)); p3.Revises != p2.ActionID {
+				t.Errorf("the revision revises %q; want %s", p3.Revises, p2.ActionID)
+			}
+			if s := lastRequest(t, model).System; !strings.Contains(s, revisionSaid(note)+"\n"+answerRead("On Mondays.")) {
+				t.Errorf("the revision's prompt does not say what was asked:\n%s", s)
+			}
+		})
+	}
+}
+
 // TestAttemptsExhaustedSkip: a question whose attempts are spent is held
 // back until the next UTC day, and its conversation is not closed: by
 // default, with on_attempts_exhausted skip, and with close, which a
