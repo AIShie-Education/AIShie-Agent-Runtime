@@ -217,6 +217,43 @@ tools (`ToolsWithHistory`, Bedrock) flattens that history into text first.
 Provider errors are `*llm.Error` with a kind; `Retryable()` kinds are retried
 with backoff inside the wall clock, then the fallback model if there is one.
 
+**OpenRouter's upstream routing.** OpenRouter passes each call to one of the
+upstream providers that serve the model, and takes a `provider` object that
+says which: those that may answer (`only`, `ignore`), those tried first
+(`order`) and whether others may follow them (`allow_fallbacks`), on what
+terms (`data_collection`, `zdr`, `require_parameters`, `quantizations`,
+`max_price`, `preferred_min_throughput`, `preferred_max_latency`,
+`enforce_distillable_text`), and how they are ordered otherwise (`sort`). A
+model section whose provider is `openrouter`, behind `openai_chat` or
+`anthropic` (the adapters OpenRouter's Chat Completions and Messages APIs
+are spoken by; both take `provider`), and an offer of the school's plan, may
+hold it as `openrouter:` (package `internal/openrouter`, a leaf). It is
+checked offline, with no network: a slug's shape (lower case, a provider's
+slug and up to three `/parts`), not OpenRouter's live list; a slug at most
+once in a list of at most 50; no `ignore` entry that covers what `order` or
+`only` names, and no `order` entry `only` does not cover (a slug with no
+`/` covers its provider's endpoints, as OpenRouter's base slugs do); no
+`sort` beside `order`, which OpenRouter would not use; the enums; the
+thresholds' bounds; and `max_price`'s members as decimals of at most six
+places, from 0 to 1,000,000. An empty list or mapping, a null member and
+`openrouter: {}` are none, and never refused. It is kept, compared, answered
+and sent canonical: only the members set, in OpenRouter's own order;
+`sort: {by}` alone as its string; a threshold of `p50` alone as its number;
+`max_price`'s members as decimal strings in their shortest form, as
+OpenRouter's schema types them. Each adapter sends it as `provider` at the
+top of every body to OpenRouter, whole, streamed and ForceAnswer's alike,
+and to no other provider, whatever it is handed; a routing that is none
+sends none. `runtime.defaults` may not hold it (they reach every model,
+whatever its provider); a fallback's is its own, not the model's; a
+course's is merged over the agent's member by member; and a model on an
+offer has the offer's exactly, so that an agent or a course cannot loosen
+the school's terms. The key trial (`probe.TryModel`, for `keys/test` and an
+offer's key) sends none: a trial refused for the routing would read as a
+key refused or a model not found, and the administrators' page checks the
+routing against OpenRouter's list instead (§11.5). The transcriber, on an
+offer at OpenRouter, sends the offer's. `check` prints each offer's as its
+wire JSON.
+
 **Streaming.** An adapter may also be an `llm.Streamer`: `Stream` makes the
 call `Call` would, with `stream` on, tells an `llm.TextFunc` each piece of
 the answer's text as it arrives, and returns the same `llm.Response` Call
@@ -3230,7 +3267,9 @@ without the runtime's own credential (`CORE_SERVICE_CREDENTIAL`, §11.6).
   "details": {"reason", …}}}`: Core's codes and HTTP statuses, with
   `version_mismatch`, `version_required` and `unavailable` (503, with
   `Retry-After: 5`), and a reason from a closed list, which the front end
-  words. A 401 is always the assertion's, and carries `WWW-Authenticate:
+  words: the administrators' list of a model's upstream providers at
+  OpenRouter (§11.5) adds `openrouter_model_not_found` (404) and
+  `openrouter_unavailable` (503) to it. A 401 is always the assertion's, and carries `WWW-Authenticate:
   Bearer realm="aishie-runtime"`, with `error="invalid_token"` when one was
   sent.
 - **The routes.** `GET /info`, which anyone may ask, cached a minute:
@@ -3366,7 +3405,7 @@ operator's, listed read-only; and `allowed_models`, `denied_models`,
 `on_quota_text` and the budgets of one answer (turns, tool calls, tokens,
 time: not money) stay `runtime.yaml`'s.
 
-- **Kept in the store** (migrations 0009, 0010 and 0011): `site_setting`, a JSON
+- **Kept in the store** (migrations 0009, 0010, 0011 and 0016): `site_setting`, a JSON
   object by name (`ocr`: `enabled`, `languages`; `transcription`:
   `enabled`, `offer`, `max_pages`, `per_day_pages`, `concurrency`; `school_quotas`:
   `per_owner_day`, `per_asker_day`, `per_day`, and `per_owner_day_usd`,
@@ -3379,7 +3418,12 @@ time: not money) stay `runtime.yaml`'s.
   the output bound and the effort), at the provider's own endpoint, with
   the school's key sealed (§11.1) under the tenant `school`, a `model_key`
   that goes with the offer: replaced, the one before is destroyed in the
-  same transaction, and deleted with it. Only its hint is ever shown.
+  same transaction, and deleted with it. Only its hint is ever shown. An
+  offer at OpenRouter keeps its upstream routing (§3) in `openrouter`
+  (0016, `jsonb`): the canonical object, null for none, and null for every
+  offer of another provider, which the schema holds too. A worker of a
+  release before 0016 reads no such column, and calls OpenRouter without
+  the routing: every worker is upgraded before an offer is given one.
 - **Put in force without a restart.** Every statement that writes any of
   these tables moves `registry_rev` on and notifies `aishie_registry`, by
   0003's trigger function, so each worker rebuilds as it does for a hosted
@@ -3432,6 +3476,18 @@ time: not money) stay `runtime.yaml`'s.
   the agents and models, in `details.problems`). Adding a price resolves
   either; so does a quota in answers alone. An owner's change of their
   agent's model is held to the same (`settings_rejected`).
+- **OpenRouter's prices.** OpenRouter charges what the upstream provider
+  that answered charges, and one model's upstream prices differ, sometimes
+  several-fold. The runtime counts every call at the price table's price
+  for `openrouter` and the model, whichever upstream answered, as it does
+  every provider's, and keeps nothing per upstream (costing by
+  OpenRouter's own reported cost would be a change of the ledger's, not of
+  routing). Price the model at the highest price the routing allows, or
+  cap upstream prices with `max_price` and price the model at the cap: a
+  quota in dollars then stops spending before the bill passes it, and the
+  costs report shows at most what was billed, not exactly it. The
+  administrators' page shows the highest price the routing allows beside
+  the table's, from the list of the model's endpoints.
 - **The site's offers are an owner's model**: the registry holds an agent
   on one to what it holds an owner's model to (a provider's own endpoint
   over https, a key, no headers), and the worker calls it over the
@@ -3476,6 +3532,55 @@ time: not money) stay `runtime.yaml`'s.
     `runtime.school`'s offers are `offer_read_only` (403); an id of none,
     `offer_not_found`. Audited as `school_offer.create`, `.update` and
     `.delete`, with the key's hint and the trial's result.
+  - An offer at OpenRouter takes `openrouter`, its upstream routing (§3):
+    in `POST`, absent or null for none (no defaults are filled in), checked
+    after the model and before the key's trial, which sends none; in
+    `PATCH`, an object replaces it whole (it is never merged member by
+    member), null or `{}` removes it, left out it is kept, and a move to
+    another provider drops it, as it drops the other provider's endpoint.
+    Each refusal is 400 `invalid_argument`, the first problem alone, by
+    member in OpenRouter's order and then by index, at its JSON Pointer:
+    `unknown_field` for a member of no such name at any depth
+    (`/openrouter/sort/direction`), `invalid_field` for anything else
+    (`/openrouter/only/2`, `/openrouter/max_price/prompt`), and
+    `invalid_field` at `/openrouter` for a routing given to an offer of
+    another provider, or one that is not an object. Every offer answers its
+    routing canonical, or null, `runtime.school`'s too; `GET /models`
+    (owners) does not. A change of the routing alone is `openrouter` in the
+    audit's `changed`, with the routing as it stands, and leaves the key
+    tried. Owners' own models take none (a later step).
+  - `GET /admin/openrouter/endpoints?model=author/slug`: the upstream
+    endpoints serving one of OpenRouter's models (a variant, `…:nitro`, is
+    its model's), for the administrator setting an offer's routing, read
+    from OpenRouter's public lists with no key (a read on a page must
+    neither spend nor show the school's), over the hosted-model client
+    (`EGRESS_PROXY` when set; public addresses alone; no redirect): the
+    model's endpoints, `/providers` and `/endpoints/zdr`, each within 10 s,
+    the whole within 15 s, each body at most 8 MiB. Each endpoint is its
+    slug (OpenRouter's tag, what `order`, `only` and `ignore` name), its
+    provider (joined by the slug's base, or else by name; null when
+    neither), quantization (`unknown` where none is given), its prices as
+    listed, before discount (per token made dollars per million tokens
+    exactly, and a request's and an image's), the discount, the first
+    long-context price's bound, its limits, whether it calls tools, takes
+    `tool_choice` and reasons, whether `/endpoints/zdr` lists it (null when
+    that list was not read), its status and uptime, latency and throughput
+    (null without a key, so always), and its provider's headquarters,
+    datacenters and https links (null and `[]` when `/providers` was not
+    read). Beside them, the price table in force's price of the model as
+    the query gives it, or null, worked out at each request. A model's list
+    is kept ten minutes, at most 256 models, the oldest read dropped first,
+    and `/providers` and `/endpoints/zdr` once each for ten minutes; calls
+    of one list at once share one call; while OpenRouter cannot be reached,
+    the last list read within the hour is answered with `stale: true`. A
+    failure is never kept, nor a model OpenRouter does not have, which is
+    404 `openrouter_model_not_found`; OpenRouter not reached, too slow,
+    answering a status other than 200 or 404, a body past the cap or not
+    of its shape, with no list kept, is 503 `openrouter_unavailable`, with
+    OpenRouter's status in `details.http_status` (null for none). Anyone
+    but an administrator is 403 `not_admin`; a query of no model, or one
+    that is not `author/slug`, is 400 at `model`, any other parameter
+    `unknown_parameter`. Not audited.
   - `PUT /admin/school-plan/quotas` sets every quota, in answers a UTC day
     from 1 to 1,000,000, `per_day` null for none, and in dollars
     (`per_owner_day_usd`, `per_asker_day_usd`, `per_day_usd`: a decimal

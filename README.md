@@ -144,9 +144,14 @@ Each document holds the agent, and overrides per course if it has any.
 One `runtime:` document holds the process's own settings: tenants' quotas,
 the price table, the models the school's key may use, and the school's AI
 plan, the models the school offers hosted agents on its own key with the
-quotas that hold them. The runtime's administrators also turn OCR off and
+quotas that hold them; an offer of a model at OpenRouter may also say which
+of the upstream providers serving it may answer, and on what terms (no
+data kept, zero data retention, precision, highest price), which goes with
+every call made on it. The runtime's administrators also turn OCR off and
 on, choose its languages, turn the transcriber on and hand it Core's
-service credential, make offers of the school's plan, set its quotas,
+service credential, make offers of the school's plan (one at OpenRouter
+with its upstream routing, set against OpenRouter's list of the upstream
+providers serving its model), set its quotas,
 the tenants' and the hosted agents' budgets, add prices beside the price
 file's, and read what things cost, from the front end, within what the
 environment and `runtime.yaml` allow
@@ -158,7 +163,8 @@ See [`examples/`](examples):
 - [`agents/course-tutor.yaml`](examples/agents/course-tutor.yaml): an
   instructor's course tutor, on the school's Anthropic key, with a fallback
   model and settings for one course.
-- [`runtime.yaml`](examples/runtime.yaml), with the school's plan, and
+- [`runtime.yaml`](examples/runtime.yaml), with the school's plan (an offer
+  at OpenRouter with its upstream routing among them), and
   [`prices.example.yaml`](examples/prices.example.yaml).
 
 Secrets are never written in the YAML, only referred to:
