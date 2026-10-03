@@ -9,6 +9,8 @@ BEGIN;
 
 SET LOCAL lock_timeout = '10s';
 
+DROP TRIGGER IF EXISTS school_offer_left_openrouter ON school_offer;
+DROP FUNCTION IF EXISTS school_offer_left_openrouter();
 ALTER TABLE school_offer DROP COLUMN openrouter;
 
 COMMIT;

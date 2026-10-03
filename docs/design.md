@@ -3423,7 +3423,10 @@ time: not money) stay `runtime.yaml`'s.
   (0016, `jsonb`): the canonical object, null for none, and null for every
   offer of another provider, which the schema holds too. A worker of a
   release before 0016 reads no such column, and calls OpenRouter without
-  the routing: every worker is upgraded before an offer is given one.
+  the routing: every worker is upgraded before an offer is given one. It
+  writes none either, and an offer it moves off OpenRouter loses its
+  routing (0016's trigger), as one this release moves does, so it still
+  runs on this schema, beside this release or after a rollback.
 - **Put in force without a restart.** Every statement that writes any of
   these tables moves `registry_rev` on and notifies `aishie_registry`, by
   0003's trigger function, so each worker rebuilds as it does for a hosted

@@ -646,8 +646,13 @@ owners see is `school:`'s offers and the site's.
 Upgrade every worker before an offer is given upstream routing in the front
 end: a worker of a release before it reads no routing for the site's
 offers, and calls OpenRouter without it (a `data_collection: deny` it does
-not send is not enforced). The migration that keeps it only adds a column,
-so a worker of the release before still runs beside the new one meanwhile.
+not send is not enforced). The migration that keeps it adds a column, two
+checks that only an offer at OpenRouter holds a routing, and a trigger: an
+offer that a worker of the release before moves to another provider loses
+its routing, as one this release moves does. So a worker of the release
+before still runs beside the new one meanwhile, and after a rollback
+([below](#deploying-and-rolling-back)): it leaves each offer's routing in
+the store, unsent, and can change, move and delete every offer.
 
 ## The API for the front end
 

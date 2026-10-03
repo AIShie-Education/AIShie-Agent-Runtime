@@ -773,10 +773,25 @@ func TestHostingByIDMigratesTheRowsBefore(t *testing.T) {
 	}
 }
 
+// releaseBeforeOfferUpdate is v0.2.0's UpdateSchoolOffer's statement,
+// verbatim (its offerColumns, before 0016, written out): it sets the
+// provider, and leaves the routing as it is.
+const releaseBeforeOfferUpdate = `
+			UPDATE school_offer
+			   SET label = $2, adapter = $3, provider = $4, model = $5, base_url = $6, region = $7, max_output_tokens = $8,
+			       reasoning_effort = $9, enabled = $10, key_secret_id = $11, key_hint = $12, key_tested = $13,
+			       version = version + 1, updated_by = $14, updated_at = now()
+			 WHERE id = $1
+			RETURNING id, label, adapter, provider, model, base_url, region, max_output_tokens, reasoning_effort, enabled,
+	key_secret_id, key_hint, key_tested, version, created_by, created_at, updated_by, updated_at`
+
 // 0016 gives an offer its upstream routing, an object, of an offer of
-// OpenRouter's alone, which the schema holds as the store does; its down
-// takes the column away, leaving the offers as a release before reads
-// them, and up again gives it back, empty.
+// OpenRouter's alone, which the schema holds as the store does; a release
+// before it, writing an offer as it did, keeps an offer's routing while
+// the offer stays OpenRouter's, and drops it as it moves the offer off,
+// as this release does; its down takes the column away, leaving the
+// offers as a release before reads them, and up again gives it back,
+// empty.
 func TestOfferRoutingMigrates(t *testing.T) {
 	u := freshDatabase(t)
 	ctx := t.Context()
@@ -811,12 +826,40 @@ func TestOfferRoutingMigrates(t *testing.T) {
 	for what, stmt := range map[string]string{
 		"routing on an offer of DeepSeek's": `UPDATE school_offer SET openrouter = '{"zdr": true}' WHERE id = 'ds'`,
 		"routing that is not an object":     `UPDATE school_offer SET openrouter = '["groq"]' WHERE id = 'llama'`,
-		"a move that keeps the routing":     `UPDATE school_offer SET provider = 'deepseek' WHERE id = 'llama'`,
+		"a move that sets a routing anew":   `UPDATE school_offer SET provider = 'deepseek', openrouter = '{"zdr": false}' WHERE id = 'llama'`,
 	} {
 		if _, err := conn.Exec(ctx, stmt); err == nil {
 			t.Errorf("%s was taken", what)
 		}
 	}
+	// The release before: a change of the label keeps the routing, and a
+	// move to DeepSeek drops it.
+	releaseBefore := func(provider, model, label string) error {
+		_, err := conn.Exec(ctx, releaseBeforeOfferUpdate, "llama", label, "openai_chat", provider, model, "", "", 0, "", true,
+			"sec_or", "", false, "admin")
+		return err
+	}
+	if err := releaseBefore("openrouter", "meta-llama/llama-3.3-70b-instruct", "Llama 3.3"); err != nil {
+		t.Fatalf("the release before, changing the label: %v", err)
+	}
+	if err := conn.QueryRow(ctx, `SELECT openrouter::text FROM school_offer WHERE id = 'llama'`).Scan(&routing); err != nil || routing != `{"zdr": true}` {
+		t.Fatalf("the routing after the release before changed the label: %q, %v", routing, err)
+	}
+	if err := releaseBefore("deepseek", "deepseek-chat", "Llama, now DeepSeek"); err != nil {
+		t.Fatalf("the release before, moving the offer to DeepSeek: %v", err)
+	}
+	var left *string
+	if err := conn.QueryRow(ctx, `SELECT openrouter::text FROM school_offer WHERE id = 'llama'`).Scan(&left); err != nil || left != nil {
+		t.Fatalf("the routing after the release before moved the offer: %v, %v", left, err)
+	}
+	if err := releaseBefore("openrouter", "meta-llama/llama-3.3-70b-instruct", "Llama 3.3"); err != nil {
+		t.Fatalf("the release before, moving the offer back: %v", err)
+	}
+	s = openOn(t, u)
+	if o, err := s.SchoolOffer(ctx, "llama"); err != nil || o.Provider != "openrouter" || o.OpenRouter != nil || o.Label != "Llama 3.3" {
+		t.Fatalf("this release, reading the offer the release before moved back: %+v, %v", o, err)
+	}
+	_ = s.Close()
 
 	m, err := newMigrator(u)
 	if err != nil {
