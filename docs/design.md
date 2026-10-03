@@ -3556,31 +3556,35 @@ time: not money) stay `runtime.yaml`'s.
     neither spend nor show the school's), over the hosted-model client
     (`EGRESS_PROXY` when set; public addresses alone; no redirect): the
     model's endpoints, `/providers` and `/endpoints/zdr`, each within 10 s,
-    the whole within 15 s, each body at most 8 MiB. Each endpoint is its
-    slug (OpenRouter's tag, what `order`, `only` and `ignore` name), its
-    provider (joined by the slug's base, or else by name; null when
-    neither), quantization (`unknown` where none is given), its prices as
-    listed, before discount (per token made dollars per million tokens
-    exactly, and a request's and an image's), the discount, the first
-    long-context price's bound, its limits, whether it calls tools, takes
-    `tool_choice` and reasons, whether `/endpoints/zdr` lists it (null when
-    that list was not read), its status and uptime, latency and throughput
-    (null without a key, so always), and its provider's headquarters,
-    datacenters and https links (null and `[]` when `/providers` was not
-    read). Beside them, the price table in force's price of the model as
-    the query gives it, or null, worked out at each request. A model's list
-    is kept ten minutes, at most 256 models, the oldest read dropped first,
-    and `/providers` and `/endpoints/zdr` once each for ten minutes; calls
-    of one list at once share one call; while OpenRouter cannot be reached,
-    the last list read within the hour is answered with `stale: true`. A
-    failure is never kept, nor a model OpenRouter does not have, which is
-    404 `openrouter_model_not_found`; OpenRouter not reached, too slow,
-    answering a status other than 200 or 404, a body past the cap or not
-    of its shape, with no list kept, is 503 `openrouter_unavailable`, with
-    OpenRouter's status in `details.http_status` (null for none). Anyone
-    but an administrator is 403 `not_admin`; a query of no model, or one
-    that is not `author/slug`, is 400 at `model`, any other parameter
-    `unknown_parameter`. Not audited.
+    the whole within 15 s, each body at most 8 MiB, and each list at most
+    200 endpoints, 2,000 providers and 20,000 ZDR endpoints (one longer is
+    refused as it is read, as not of its shape). An endpoint whose tag is
+    not a slug `order` can name is left out, and a name or an id past 256
+    bytes or a link past 2,048 is not kept. Each endpoint is its slug
+    (OpenRouter's tag, what `order`, `only` and `ignore` name), its provider
+    (joined by the slug's base, or else by name; null when neither),
+    quantization (`unknown` where none is given, or one that is not a word),
+    its prices as listed, before discount (per token made dollars per
+    million tokens exactly, and a request's and an image's), the discount,
+    the first long-context price's bound, its limits, whether it calls
+    tools, takes `tool_choice` and reasons, whether `/endpoints/zdr` lists
+    it (null when that list was not read), its status and uptime, latency
+    and throughput (null without a key, so always), and its provider's
+    headquarters, datacenters and https links (null and `[]` when
+    `/providers` was not read). Beside them, the price table in force's
+    price of the model as the query gives it, or null, worked out at each
+    request. A model's list is kept ten minutes, at most 256 models, the
+    oldest read dropped first, and `/providers` and `/endpoints/zdr` once
+    each for ten minutes; calls of one list at once share one call; while
+    OpenRouter cannot be reached, the last list read within the hour is
+    answered with `stale: true`. A failure is never kept, nor a model
+    OpenRouter does not have, which is 404 `openrouter_model_not_found`;
+    OpenRouter not reached, too slow, answering a status other than 200 or
+    404, a body or a list past its cap or not of its shape, with no list
+    kept, is 503 `openrouter_unavailable`, with OpenRouter's status in
+    `details.http_status` (null for none). Anyone but an administrator is
+    403 `not_admin`; a query of no model, or one that is not `author/slug`,
+    is 400 at `model`, any other parameter `unknown_parameter`. Not audited.
   - `PUT /admin/school-plan/quotas` sets every quota, in answers a UTC day
     from 1 to 1,000,000, `per_day` null for none, and in dollars
     (`per_owner_day_usd`, `per_asker_day_usd`, `per_day_usd`: a decimal

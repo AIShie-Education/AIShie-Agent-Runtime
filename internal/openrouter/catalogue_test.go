@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -183,6 +184,169 @@ func TestPUSD(t *testing.T) {
 		case int64:
 			if got == nil || *got != w {
 				t.Errorf("%s: %v, want %d", in, got, w)
+			}
+		}
+	}
+}
+
+// listsAt is a catalogue of OpenRouter answering each path with its body
+// in bodies, and 404 elsewhere.
+func listsAt(t *testing.T, bodies map[string]string) *Catalogue {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, ok := bodies[r.URL.Path]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	return NewCatalogue(CatalogueOptions{BaseURL: srv.URL, Client: srv.Client()})
+}
+
+// entries is a JSON list of n entries, each entry(i).
+func entries(n int, entry func(i int) string) string {
+	var b strings.Builder
+	b.WriteByte('[')
+	for i := range n {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(entry(i))
+	}
+	b.WriteByte(']')
+	return b.String()
+}
+
+// An answer of more entries than OpenRouter lists, though within MaxBody,
+// is refused as the entry past the bound is reached: a model's list is
+// OpenRouter unavailable, /providers and /endpoints/zdr are as if not
+// read. Each bound itself is read, and a provider is found by its slug's
+// base, or by its name in any case, the first of each, however many
+// there are.
+func TestCatalogueBoundsEntries(t *testing.T) {
+	const model = "/models/a/b/endpoints"
+	tag := func(i int) string { return fmt.Sprintf(`{"tag":"t%d"}`, i) }
+	// As a hostile answer had it: some 472,000 endpoints and 283,000
+	// providers, each body just within MaxBody.
+	huge := `{"data":{"id":"a/b","endpoints":` + entries(472201, tag) + `}}`
+	hugeProviders := `{"data":` + entries(283322, func(i int) string { return fmt.Sprintf(`{"slug":"p%d"}`, i) }) + `}`
+	if len(huge) > MaxBody || len(hugeProviders) > MaxBody {
+		t.Fatalf("the bodies are %d and %d bytes, past MaxBody", len(huge), len(hugeProviders))
+	}
+	c := listsAt(t, map[string]string{model: huge, "/providers": hugeProviders, "/endpoints/zdr": `{"data":[]}`})
+	_, err := c.Endpoints(context.Background(), "a/b")
+	var u *UnavailableError
+	if !errors.As(err, &u) || u.HTTPStatus != http.StatusOK || !strings.Contains(err.Error(), fmt.Sprintf("more than %d entries", MaxEndpoints)) {
+		t.Fatalf("%d endpoints: %v", 472201, err)
+	}
+	if c.providers != nil {
+		t.Errorf("%d providers were kept", 283322)
+	}
+
+	// MaxEndpoints endpoints, MaxProviders providers, and MaxZDR ZDR
+	// endpoints are read; the last endpoint's provider is the last
+	// provider, by its name in another case; and one more of each list
+	// is refused.
+	providers := func(n int) string {
+		return `{"data":` + entries(n, func(i int) string { return fmt.Sprintf(`{"slug":"p%d","name":"Provider %d"}`, i, i) }) + `}`
+	}
+	endpoints := func(n int) string {
+		return `{"data":{"id":"a/b","endpoints":` + entries(n, func(i int) string {
+			return fmt.Sprintf(`{"tag":"t%d","provider_name":"PROVIDER %d"}`, i, i+MaxProviders-MaxEndpoints)
+		}) + `}}`
+	}
+	zdr := func(n int) string {
+		return `{"data":` + entries(n, func(i int) string { return fmt.Sprintf(`{"model_id":"a/b","tag":"t%d"}`, i+MaxEndpoints-1) }) + `}`
+	}
+	c = listsAt(t, map[string]string{model: endpoints(MaxEndpoints), "/providers": providers(MaxProviders), "/endpoints/zdr": zdr(MaxZDR)})
+	l, err := c.Endpoints(context.Background(), "a/b")
+	if err != nil || len(l.Endpoints) != MaxEndpoints {
+		t.Fatalf("%d endpoints at the bound: %v", MaxEndpoints, err)
+	}
+	last := l.Endpoints[MaxEndpoints-1]
+	if last.Provider == nil || *last.Provider != fmt.Sprintf("p%d", MaxProviders-1) || last.ZDR == nil || !*last.ZDR {
+		t.Errorf("the last endpoint at the bounds: provider %v, ZDR %v", last.Provider, last.ZDR)
+	}
+	c = listsAt(t, map[string]string{model: endpoints(MaxEndpoints + 1), "/providers": providers(MaxProviders + 1), "/endpoints/zdr": zdr(MaxZDR + 1)})
+	if _, err := c.Endpoints(context.Background(), "a/b"); !errors.As(err, &u) {
+		t.Errorf("%d endpoints: %v", MaxEndpoints+1, err)
+	}
+	c = listsAt(t, map[string]string{model: endpoints(1), "/providers": providers(MaxProviders + 1), "/endpoints/zdr": zdr(MaxZDR + 1)})
+	if l, err := c.Endpoints(context.Background(), "a/b"); err != nil || l.Endpoints[0].Provider != nil || l.Endpoints[0].ZDR != nil {
+		t.Errorf("%d providers and %d ZDR endpoints: %+v, %v", MaxProviders+1, MaxZDR+1, l, err)
+	}
+
+	// The slug's base comes before a name, and the first of each before
+	// the others.
+	c = listsAt(t, map[string]string{
+		model: `{"data":{"id":"a/b","endpoints":[{"tag":"groq/eu","provider_name":"Groq"},{"tag":"other","provider_name":"GROQ"},` +
+			`{"tag":"twice","provider_name":"Twice"}]}}`,
+		"/providers": `{"data":[{"slug":"g","name":"groq"},{"slug":"groq","name":"Something"},{"slug":"groq","name":"Later"},` +
+			`{"slug":"twice-1","name":"Twice"},{"slug":"twice-2","name":"twice"}]}`,
+		"/endpoints/zdr": `{"data":[]}`,
+	})
+	l, err = c.Endpoints(context.Background(), "a/b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []string{"groq", "g", "twice-1"} {
+		if got := l.Endpoints[i].Provider; got == nil || *got != want {
+			t.Errorf("%s's provider: %v, want %s", l.Endpoints[i].Slug, got, want)
+		}
+	}
+}
+
+// Of what an answer lists, only what can be shown is kept: an endpoint
+// whose tag order, only and ignore could not name is left out; a name or
+// an id past MaxText, a link past MaxURL, a quantization not a word and a
+// provider whose slug is not one are not kept; a datacenter is kept once.
+func TestCatalogueKeepsWhatCanBeShown(t *testing.T) {
+	long := strings.Repeat("x", MaxText+1)
+	link := `"https://example.com/` + strings.Repeat("p", MaxURL) + `"`
+	c := listsAt(t, map[string]string{
+		"/models/a/b/endpoints": `{"data":{"id":"a/b","name":"` + long + `","endpoints":[` +
+			`{"tag":""},{"tag":"Groq"},{"tag":"groq eu"},{"tag":"` + strings.Repeat("g", MaxSlug+1) + `"},` +
+			`{"tag":"groq","provider_name":"` + long + `","quantization":"fp8","model_id":"` + long + `"},` +
+			`{"tag":"novita/bf16","provider_name":"Novita","quantization":"FP 8!"},` +
+			`{"tag":"together","provider_name":"Together","quantization":"` + strings.Repeat("q", 33) + `"}]}}`,
+		"/providers": `{"data":[{"slug":"Novita","name":"Novita"},{"slug":"novita","name":"N","datacenters":["US","DE","US","us"],` +
+			`"privacy_policy_url":` + link + `,"terms_of_service_url":"https://novita.ai/terms"},{"slug":"together","name":"` + long + `"}]}`,
+		"/endpoints/zdr": `{"data":[{"model_id":"a/b","tag":"groq"},{"model_id":"","tag":"together"}]}`,
+	})
+	l, err := c.Endpoints(context.Background(), "a/b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l.Name != "" || len(l.Endpoints) != 3 {
+		t.Fatalf("name %q, %d endpoints", l.Name, len(l.Endpoints))
+	}
+	groq, novita, together := l.Endpoints[0], l.Endpoints[1], l.Endpoints[2]
+	if groq.Slug != "groq" || groq.ProviderName != "" || groq.Quantization != "fp8" || groq.ZDR == nil || !*groq.ZDR {
+		t.Errorf("groq: %+v", groq)
+	}
+	if novita.Quantization != "unknown" || novita.Provider == nil || *novita.Provider != "novita" ||
+		!slices.Equal(novita.Datacenters, []string{"US", "DE"}) || novita.PrivacyPolicyURL != nil || novita.TermsOfServiceURL == nil {
+		t.Errorf("novita: %+v", novita)
+	}
+	if together.Quantization != "unknown" || together.Provider == nil || *together.Provider != "together" || together.ZDR == nil || *together.ZDR {
+		t.Errorf("together: %+v", together)
+	}
+	c = listsAt(t, map[string]string{"/models/a/b/endpoints": `{"data":{"id":"` + long + `","endpoints":[]}}`})
+	var u *UnavailableError
+	if _, err := c.Endpoints(context.Background(), "a/b"); !errors.As(err, &u) {
+		t.Errorf("an id past MaxText: %v", err)
+	}
+}
+
+// Two names have one key exactly when strings.EqualFold holds of them.
+func TestFoldKey(t *testing.T) {
+	names := []string{"Groq", "GROQ", "groq", "Grоq" /* a Cyrillic o */, "ſ", "S", "s", "K", "K", "k", "ǅ", "Ǆ", "ǆ", "Straße", "STRASSE", "", "\xff", "�"}
+	for _, a := range names {
+		for _, b := range names {
+			if got, want := foldKey(a) == foldKey(b), strings.EqualFold(a, b); got != want {
+				t.Errorf("%q and %q: one key %v, EqualFold %v", a, b, got, want)
 			}
 		}
 	}

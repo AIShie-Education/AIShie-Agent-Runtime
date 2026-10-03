@@ -1,6 +1,7 @@
 package openrouter
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 // The list of the upstream providers serving one model, as the
@@ -40,6 +42,19 @@ const (
 	// of its answer.
 	CallTimeout = 10 * time.Second
 	MaxBody     = 8 << 20
+	// MaxEndpoints, MaxProviders and MaxZDR bound the entries read of a
+	// model's endpoints, of /providers and of /endpoints/zdr: OpenRouter
+	// lists tens, and hundreds (a model's most are some thirty, /providers
+	// some hundred, /endpoints/zdr some thousand), and a list of more,
+	// even within MaxBody, is not its answer. It is refused as the entry
+	// past the bound is reached, before that entry is read.
+	MaxEndpoints = 200
+	MaxProviders = 2000
+	MaxZDR       = 20000
+	// MaxText bounds an id or a name kept, in bytes, and MaxURL a link: a
+	// longer one is not kept.
+	MaxText = 256
+	MaxURL  = 2048
 )
 
 // ErrModelNotFound is a model OpenRouter does not have (its 404).
@@ -47,8 +62,8 @@ var ErrModelNotFound = errors.New("openrouter: no such model")
 
 // UnavailableError is OpenRouter not reached, or not answering as it
 // does: a network error, a timeout, a redirect, an address refused, an
-// answer not 200 (but a 404), a body past MaxBody, or JSON not of its
-// shape. HTTPStatus is OpenRouter's status, 0 when none came.
+// answer not 200 (but a 404), a body past MaxBody, a list past its bound
+// (MaxEndpoints, MaxProviders, MaxZDR), or JSON not of its shape. HTTPStatus is OpenRouter's status, 0 when none came.
 type UnavailableError struct {
 	HTTPStatus int
 	Err        error
@@ -113,7 +128,7 @@ func NewCatalogue(o CatalogueOptions) *Catalogue {
 // Listing is a model's upstream endpoints as the page reads them.
 type Listing struct {
 	// Model and Name are OpenRouter's id and name of the model: a
-	// variant's (…:nitro) are its model's.
+	// variant's (…:nitro) are its model's; Name is "" past MaxText.
 	Model, Name string
 	// FetchedAt is when OpenRouter was read, to the second; Stale is set
 	// when it could not be read now, and this is the last list read.
@@ -125,13 +140,16 @@ type Listing struct {
 
 // Endpoint is one upstream endpoint of a model.
 type Endpoint struct {
-	// Slug is OpenRouter's tag: what order, only and ignore name.
+	// Slug is OpenRouter's tag: what order, only and ignore name. An
+	// endpoint whose tag cannot be one (SlugRe, MaxSlug) is not listed.
 	Slug string
 	// Provider is the provider's slug as /providers lists it, nil when
-	// it cannot be told.
+	// it cannot be told; ProviderName OpenRouter's name of it, "" where
+	// it gives none or one past MaxText.
 	Provider     *string
 	ProviderName string
-	// Quantization is OpenRouter's, "unknown" where it gives none.
+	// Quantization is OpenRouter's, "unknown" where it gives none, or
+	// one that is not a word of lower-case letters and digits.
 	Quantization string
 	// Input, Output, CacheRead and CacheWrite are the listed prices
 	// (before Discount) in pUSD a token; Request and Image in pUSD a
@@ -183,9 +201,13 @@ type modelEntry struct {
 	fetched     time.Time
 }
 
-// listEntry is /providers' or /endpoints/zdr's, as read.
+// listEntry is /providers' or /endpoints/zdr's, as read: the providers
+// in OpenRouter's order, indexed by slug and by name folded (the first of
+// each); the ZDR endpoints by model and tag.
 type listEntry struct {
 	providers []providerInfo
+	bySlug    map[string]int
+	byName    map[string]int
 	zdr       map[string]bool
 	fetched   time.Time
 }
@@ -383,37 +405,43 @@ type wireEndpoint struct {
 	} `json:"pricing"`
 }
 
-// readModel reads /models/{author}/{slug}/endpoints' answer.
+// readModel reads /models/{author}/{slug}/endpoints' answer: at most
+// MaxEndpoints endpoints, and of them those whose tag is a slug order,
+// only and ignore can name (SlugRe, MaxSlug) alone.
 func readModel(body []byte) (*modelEntry, error) {
 	var w struct {
 		Data *struct {
-			ID        string         `json:"id"`
-			Name      string         `json:"name"`
-			Endpoints []wireEndpoint `json:"endpoints"`
+			ID        string          `json:"id"`
+			Name      string          `json:"name"`
+			Endpoints json.RawMessage `json:"endpoints"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &w); err != nil {
 		return nil, fmt.Errorf("not the shape of a model's endpoints: %w", err)
 	}
-	if w.Data == nil || w.Data.ID == "" {
-		return nil, errors.New("not the shape of a model's endpoints: no data.id")
+	if w.Data == nil || w.Data.ID == "" || len(w.Data.ID) > MaxText {
+		return nil, fmt.Errorf("not the shape of a model's endpoints: no data.id of at most %d bytes", MaxText)
 	}
-	e := &modelEntry{model: w.Data.ID, name: w.Data.Name, endpoints: []Endpoint{}}
-	for _, x := range w.Data.Endpoints {
-		if x.Tag == "" {
+	endpoints, err := readArray[wireEndpoint](w.Data.Endpoints, MaxEndpoints, true)
+	if err != nil {
+		return nil, fmt.Errorf("not the shape of a model's endpoints: %w", err)
+	}
+	e := &modelEntry{model: w.Data.ID, name: text(w.Data.Name), endpoints: []Endpoint{}}
+	for _, x := range endpoints {
+		if !slug(x.Tag) {
 			continue
 		}
-		ep := Endpoint{Slug: x.Tag, ProviderName: x.ProviderName, Quantization: "unknown", modelID: x.ModelID,
+		ep := Endpoint{Slug: x.Tag, ProviderName: text(x.ProviderName), Quantization: "unknown", modelID: x.ModelID,
 			Input: pusd(x.Pricing.Prompt), Output: pusd(x.Pricing.Completion), CacheRead: pusd(x.Pricing.InputCacheRead),
 			CacheWrite: pusd(x.Pricing.InputCacheWrite), Request: pusd(x.Pricing.Request), Image: pusd(x.Pricing.Image),
 			ContextLength: whole(x.ContextLength), MaxOutputTokens: wholePtr(x.MaxCompletionTokens), MaxPromptTokens: wholePtr(x.MaxPromptTokens),
 			Tools: slices.Contains(x.SupportedParameters, "tools"), ToolChoice: slices.Contains(x.SupportedParameters, "tool_choice"),
 			Reasoning: slices.Contains(x.SupportedParameters, "reasoning"), Status: int(whole(x.Status)),
 			Uptime30m: percent(x.Uptime30m), Uptime1d: percent(x.Uptime1d), Latency: readPercentiles(x.Latency), Throughput: readPercentiles(x.Throughput)}
-		if ep.modelID == "" {
+		if ep.modelID == "" || len(ep.modelID) > MaxText {
 			ep.modelID = w.Data.ID
 		}
-		if x.Quantization != nil && *x.Quantization != "" {
+		if x.Quantization != nil && quantizationRe.MatchString(*x.Quantization) {
 			ep.Quantization = *x.Quantization
 		}
 		if d := x.Pricing.Discount; d != nil && finite(*d) && *d >= 0 && *d <= 1 {
@@ -430,67 +458,151 @@ func readModel(body []byte) (*modelEntry, error) {
 	return e, nil
 }
 
-// readProviders reads /providers' answer.
+// readProviders reads /providers' answer: at most MaxProviders, and of
+// them those whose slug is one (SlugRe, MaxSlug) alone.
 func readProviders(body []byte) (*listEntry, error) {
-	var w struct {
-		Data []struct {
-			Name              string   `json:"name"`
-			Slug              string   `json:"slug"`
-			PrivacyPolicyURL  *string  `json:"privacy_policy_url"`
-			TermsOfServiceURL *string  `json:"terms_of_service_url"`
-			StatusPageURL     *string  `json:"status_page_url"`
-			Headquarters      *string  `json:"headquarters"`
-			Datacenters       []string `json:"datacenters"`
-		} `json:"data"`
+	type wireProvider struct {
+		Name              string   `json:"name"`
+		Slug              string   `json:"slug"`
+		PrivacyPolicyURL  *string  `json:"privacy_policy_url"`
+		TermsOfServiceURL *string  `json:"terms_of_service_url"`
+		StatusPageURL     *string  `json:"status_page_url"`
+		Headquarters      *string  `json:"headquarters"`
+		Datacenters       []string `json:"datacenters"`
 	}
-	if err := json.Unmarshal(body, &w); err != nil || w.Data == nil {
+	var w struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(body, &w); err != nil {
 		return nil, errors.New("not the shape of OpenRouter's providers")
 	}
-	e := &listEntry{}
-	for _, p := range w.Data {
-		if p.Slug == "" {
+	data, err := readArray[wireProvider](w.Data, MaxProviders, false)
+	if err != nil {
+		return nil, fmt.Errorf("not the shape of OpenRouter's providers: %w", err)
+	}
+	e := &listEntry{bySlug: map[string]int{}, byName: map[string]int{}}
+	for _, p := range data {
+		if !slug(p.Slug) {
 			continue
 		}
-		info := providerInfo{slug: p.Slug, name: p.Name, datacenters: []string{}, privacy: https(p.PrivacyPolicyURL),
+		info := providerInfo{slug: p.Slug, name: text(p.Name), datacenters: []string{}, privacy: https(p.PrivacyPolicyURL),
 			terms: https(p.TermsOfServiceURL), status: https(p.StatusPageURL)}
 		if p.Headquarters != nil && countryRe.MatchString(*p.Headquarters) {
 			hq := *p.Headquarters
 			info.headquarters = &hq
 		}
 		for _, d := range p.Datacenters {
-			if countryRe.MatchString(d) {
+			if countryRe.MatchString(d) && !slices.Contains(info.datacenters, d) {
 				info.datacenters = append(info.datacenters, d)
 			}
 		}
+		i := len(e.providers)
 		e.providers = append(e.providers, info)
+		if _, ok := e.bySlug[info.slug]; !ok {
+			e.bySlug[info.slug] = i
+		}
+		k := foldKey(info.name)
+		if _, ok := e.byName[k]; !ok && k != "" {
+			e.byName[k] = i
+		}
 	}
 	return e, nil
 }
 
 // readZDR reads /endpoints/zdr's answer: the (model, tag) of each
-// endpoint, alone.
+// endpoint, alone, at most MaxZDR; one no endpoint read can be is left
+// out.
 func readZDR(body []byte) (*listEntry, error) {
-	var w struct {
-		Data []struct {
-			ModelID string `json:"model_id"`
-			Tag     string `json:"tag"`
-		} `json:"data"`
+	type wireZDR struct {
+		ModelID string `json:"model_id"`
+		Tag     string `json:"tag"`
 	}
-	if err := json.Unmarshal(body, &w); err != nil || w.Data == nil {
+	var w struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(body, &w); err != nil {
 		return nil, errors.New("not the shape of OpenRouter's ZDR endpoints")
 	}
-	e := &listEntry{zdr: make(map[string]bool, len(w.Data))}
-	for _, x := range w.Data {
-		e.zdr[x.ModelID+"\x00"+x.Tag] = true
+	data, err := readArray[wireZDR](w.Data, MaxZDR, false)
+	if err != nil {
+		return nil, fmt.Errorf("not the shape of OpenRouter's ZDR endpoints: %w", err)
+	}
+	e := &listEntry{zdr: make(map[string]bool, len(data))}
+	for _, x := range data {
+		if x.ModelID != "" && len(x.ModelID) <= MaxText && slug(x.Tag) {
+			e.zdr[x.ModelID+"\x00"+x.Tag] = true
+		}
 	}
 	return e, nil
 }
+
+// readArray reads raw, a JSON array, one element at a time: an error past
+// max elements, found before the one past them is read. null and nothing
+// are no elements where none may be, and an error elsewhere.
+func readArray[T any](raw json.RawMessage, max int, none bool) ([]T, error) {
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		if none {
+			return nil, nil
+		}
+		return nil, errors.New("no list")
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if t, err := dec.Token(); err != nil || t != json.Delim('[') {
+		return nil, errors.New("not a list")
+	}
+	var out []T
+	for dec.More() {
+		if len(out) == max {
+			return nil, fmt.Errorf("more than %d entries", max)
+		}
+		var x T
+		if err := dec.Decode(&x); err != nil {
+			return nil, err
+		}
+		out = append(out, x)
+	}
+	return out, nil
+}
+
+// slug reports whether s is an upstream provider's slug, as order, only
+// and ignore take one.
+func slug(s string) bool { return len(s) <= MaxSlug && SlugRe.MatchString(s) }
+
+// text is s when it is at most MaxText bytes, and else "".
+func text(s string) string {
+	if len(s) > MaxText {
+		return ""
+	}
+	return s
+}
+
+// foldKey is s with each letter the least of its case folding's orbit:
+// two strings have one key exactly when strings.EqualFold holds of them.
+func foldKey(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		least := r
+		for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+			least = min(least, f)
+		}
+		b.WriteRune(least)
+	}
+	return b.String()
+}
+
+// quantizationRe is a quantization kept: OpenRouter's (fp8, bf16, …),
+// or another such a word.
+var quantizationRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,31}$`)
 
 // countryRe is an ISO 3166 code, as /providers gives them.
 var countryRe = regexp.MustCompile(`^[A-Z]{2}$`)
 
 // join is ep with what /providers (prov) and /endpoints/zdr (zdr) say
-// of it, when they were read.
+// of it, when they were read: its provider is the first whose slug is its
+// slug's base, or else the first of its name, in any case; each found in
+// an index, so that the join is of one endpoint's length, however many
+// providers there are.
 func join(ep Endpoint, prov, zdr *listEntry) Endpoint {
 	ep.Datacenters = []string{}
 	if zdr != nil {
@@ -501,34 +613,25 @@ func join(ep Endpoint, prov, zdr *listEntry) Endpoint {
 		return ep
 	}
 	base, _, _ := strings.Cut(ep.Slug, "/")
-	var found *providerInfo
-	for i := range prov.providers {
-		if prov.providers[i].slug == base {
-			found = &prov.providers[i]
-			break
-		}
+	i, ok := prov.bySlug[base]
+	if !ok && ep.ProviderName != "" {
+		i, ok = prov.byName[foldKey(ep.ProviderName)]
 	}
-	if found == nil {
-		for i := range prov.providers {
-			if ep.ProviderName != "" && strings.EqualFold(prov.providers[i].name, ep.ProviderName) {
-				found = &prov.providers[i]
-				break
-			}
-		}
-	}
-	if found == nil {
+	if !ok {
 		return ep
 	}
-	slug := found.slug
-	ep.Provider = &slug
+	found := &prov.providers[i]
+	provider := found.slug
+	ep.Provider = &provider
 	ep.Headquarters, ep.Datacenters = clonePtr(found.headquarters), slices.Clone(found.datacenters)
 	ep.PrivacyPolicyURL, ep.TermsOfServiceURL, ep.StatusPageURL = clonePtr(found.privacy), clonePtr(found.terms), clonePtr(found.status)
 	return ep
 }
 
-// https is a link kept only when it is an https URL with a host.
+// https is a link kept only when it is an https URL with a host, of at
+// most MaxURL bytes.
 func https(s *string) *string {
-	if s == nil {
+	if s == nil || len(*s) > MaxURL {
 		return nil
 	}
 	u, err := url.Parse(*s)
