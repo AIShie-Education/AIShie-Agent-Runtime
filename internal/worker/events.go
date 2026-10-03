@@ -220,9 +220,11 @@ var errSendUnderWay = errors.New("a decision on an action not yet stored, while 
 var errLookupCut = errors.New("a decision on a proposal not looked up: the seat ended, or Core refused the agent's token")
 
 // errLookupBehind is a decision read on a later page of events than the
-// lookup of the agent's actions read its action on, made since
-// (actionLookup.behind): events are read again at once, from before its
-// page, with a lookup that reads action_list_mine after it.
+// lookup of the agent's actions read its action on, still proposed then, or,
+// when the lookup never read the action, than it read the agent's last
+// action on (actionLookup.behind): the decision was made since. Events are
+// read again at once, from before its page, with a lookup that reads
+// action_list_mine after it.
 var errLookupBehind = errors.New("a decision on a proposal made since its action was looked up")
 
 // onEvent acts on one event. Only what concerns an attempt the store
