@@ -134,8 +134,12 @@ func (c *Core) newServer() *mcp.Server {
 			continue
 		}
 		closed := false
+		in := t.mcpInput
+		if c.opts.WithoutRevises && t.write {
+			in = withoutRevisesArg(in)
+		}
 		server.AddTool(&mcp.Tool{
-			Name: t.mcpName, Description: t.Description, InputSchema: t.mcpInput, OutputSchema: t.mcpOutput,
+			Name: t.mcpName, Description: t.Description, InputSchema: in, OutputSchema: t.mcpOutput,
 			Annotations: &mcp.ToolAnnotations{ReadOnlyHint: !t.write && !t.ephemeral, IdempotentHint: !t.ephemeral, OpenWorldHint: &closed},
 		}, c.toolHandler(t))
 	}
@@ -156,7 +160,7 @@ func (c *Core) toolHandler(t *toolDef) mcp.ToolHandler {
 			return nil, errors.New("no authenticated caller")
 		}
 		raw := req.Params.Arguments
-		args, key, revises, err := splitKey(raw, t.write)
+		args, key, revises, err := splitKey(raw, t.write, !c.opts.WithoutRevises)
 		var out outcome
 		if err != nil {
 			out = errorOutcome(invalid("%v", err))
@@ -230,8 +234,10 @@ func httpStatusOf(transport string, out outcome) int {
 
 // splitKey takes the idempotency key, and the proposal the call revises if
 // it names one, out of a write's arguments, which then match the tool's own
-// schema exactly as a REST body would.
-func splitKey(raw json.RawMessage, write bool) ([]byte, string, string, error) {
+// schema exactly as a REST body would. A Core that takes no revises
+// (!revisable, Options.WithoutRevises) leaves it in, for the schema to
+// refuse as any argument it does not name.
+func splitKey(raw json.RawMessage, write, revisable bool) ([]byte, string, string, error) {
 	if trimmed := bytes.TrimSpace(raw); len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
 		raw = json.RawMessage("{}")
 	}
@@ -253,7 +259,7 @@ func splitKey(raw json.RawMessage, write bool) ([]byte, string, string, error) {
 		delete(args, idempotencyKey)
 	}
 	var revises string
-	if r, ok := args[revisesArg]; ok {
+	if r, ok := args[revisesArg]; ok && revisable {
 		// null or an empty string is leaving it out, as a model may write
 		// it, and as an empty Revises header is over REST.
 		var blank string

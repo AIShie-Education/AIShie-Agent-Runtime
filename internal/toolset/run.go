@@ -235,8 +235,9 @@ func (w *Writes) claim(tool string, args json.RawMessage) (sent, bool) {
 // exactly, is refused.
 // Core's answer is Core's envelope as JSON, is_error unless executed or
 // proposed (a proposal is Core's normal answer at confirm_required, not a
-// failure), with every download_url taken out and cut to MaxResultBytes
-// keeping status and error whole. Every write sent is recorded in
+// failure, and its note the runtime's, ProposedNote), with every
+// download_url taken out and cut to MaxResultBytes keeping status and
+// error whole. Every write sent is recorded in
 // r.Writes.Records, in call order.
 //
 // A call Core did not answer is one of two things. Fatal: a 401
@@ -692,16 +693,30 @@ type truncated struct {
 	ResultTruncated string      `json:"result_truncated"`
 }
 
+// ProposedNote is the note a write the model made is given when Core
+// proposed it, in place of Core's own. Core's speaks to an agent that
+// follows its proposals (event_list, action_list_mine) and, when one is
+// sent back for changes, proposes it again naming it in revises. The
+// model here does neither: revises is bound (Bound), and the runtime
+// follows only its own answers; a proposal of the model's is its owner's
+// to follow, who may ask it again.
+const ProposedNote = "Not done yet: a person decides it, under the action_id above. This is the normal outcome here, not an error: " +
+	"do not make it again. You do not learn their decision in this answer; if they send it back for changes, you may be asked again."
+
 // render is the content of Core's answer to a call, the files to give
 // the model beside it, if any, and what it gave the model of a course's
 // material (Sources); fa is what the model asked of a document's file by
 // the runtime's own arguments. A document_get result is given without its
 // URLs or its files' text bodies, which the runtime gives itself: a
 // version of one file (or the one file of several fa names) with its
-// file's record and text, and one of several as renderVersion gives it.
+// file's record and text, and one of several as renderVersion gives it. A
+// proposal's note is the runtime's (ProposedNote).
 func (r Runner) render(ctx context.Context, tool string, env *core.Envelope, fa fileArgs) (string, []*llm.File, *materialGiven) {
 	c := content{Status: env.Status, ActionID: env.ActionID, ReviewState: env.ReviewState,
 		Replayed: env.Replayed, Note: env.Note, Error: env.Error}
+	if env.Status == core.StatusProposed {
+		c.Note = ProposedNote
+	}
 	var ver *docVersion
 	var src *core.Source
 	var body, unnamed bool

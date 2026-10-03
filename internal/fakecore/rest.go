@@ -134,7 +134,12 @@ func (c *Core) callByName(w http.ResponseWriter, r *http.Request) {
 func (c *Core) restTool(t *toolDef, method, pattern string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		actorID, _ := r.Context().Value(restCallerKey{}).(string)
-		for _, h := range []string{headerIdempotencyKey, headerRevises} {
+		headers := []string{headerIdempotencyKey, headerRevises}
+		if c.opts.WithoutRevises {
+			// A Core from before revises reads no Revises header.
+			headers = headers[:1]
+		}
+		for _, h := range headers {
 			if len(r.Header.Values(h)) > 1 {
 				writeError(w, invalid("%s is given more than once", h))
 				return
@@ -151,7 +156,7 @@ func (c *Core) restTool(t *toolDef, method, pattern string) http.HandlerFunc {
 		}
 		key := r.Header.Get(headerIdempotencyKey)
 		var revises string
-		if v := r.Header.Get(headerRevises); v != "" {
+		if v := r.Header.Get(headerRevises); v != "" && !c.opts.WithoutRevises {
 			id, err := uuid.Parse(strings.TrimSpace(v))
 			if err != nil {
 				writeError(w, invalid("%s must be the id of the proposal the call revises", headerRevises))

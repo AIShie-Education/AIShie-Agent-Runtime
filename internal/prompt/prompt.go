@@ -108,6 +108,10 @@ type Input struct {
 	// written to the question: those since posted nothing, and no person
 	// decided them.
 	RevisingEarlier bool
+	// Revised is the answer sent back, as the member of staff read it:
+	// given whole in that section, with no word on what to keep of it
+	// beyond what they asked. "" when the runtime does not have it.
+	Revised string
 	// Now dates the prompt.
 	Now time.Time
 }
@@ -205,8 +209,34 @@ func System(in Input) (text, hash string) {
 	if in.Revising != nil {
 		b.WriteString("\n## The answer you are writing again\n")
 		line(revisionSentence(in.Revising.Text, in.RevisingEarlier))
+		if in.Revised != "" {
+			line("This is the answer they read, as it was sent to them:")
+			b.WriteString("\n" + fenced(in.Revised) + "\n")
+		}
 	}
 	return strings.TrimRight(b.String(), "\n"), hash
+}
+
+// fence opens and closes text in a block of its own: backticks, three, or
+// one more than the longest run of them in text, so that nothing in text
+// ends the block.
+func fence(text string) string {
+	longest, run := 0, 0
+	for _, r := range text {
+		if r != '`' {
+			run = 0
+			continue
+		}
+		run++
+		longest = max(longest, run)
+	}
+	return strings.Repeat("`", max(3, longest+1))
+}
+
+// fenced is text in a block of its own, between two lines of fence(text).
+func fenced(text string) string {
+	f := fence(text)
+	return f + "\n" + strings.TrimRight(text, "\n") + "\n" + f
 }
 
 // names are tools' names, sorted, as a list in a sentence.
@@ -258,7 +288,9 @@ func noteSentence(n store.Note) string {
 		return fmt.Sprintf("A member of staff rejected an earlier answer of yours here, saying: %q. Take it into account.", n.Text)
 	case store.NoteChangesRequested:
 		if n.Text == "" {
-			return "A member of staff sent an earlier answer of yours here back for changes, without saying what to change. Take it into account."
+			// Core always has a note of what to change: this one was not
+			// read (revisionSentence).
+			return "A member of staff sent an earlier answer of yours here back for changes; what they asked could not be read."
 		}
 		return fmt.Sprintf("A member of staff sent an earlier answer of yours here back for changes, asking: %q. Take it into account.", n.Text)
 	case store.NoteCancelled:
@@ -276,14 +308,16 @@ func noteSentence(n store.Note) string {
 // revisionSentence tells the model that a member of staff sent its last
 // answer to this question back for changes, or an earlier one, and what
 // they asked: asked, as they wrote it, or "" when the runtime could not
-// read it.
+// read it. Core requires them to say what to change (1 to 2000
+// characters), but the event that says an answer was sent back does not
+// carry it, and action_list_mine, which does, may fail to give it.
 func revisionSentence(asked string, earlier bool) string {
 	sent := "A member of staff read your last answer to this question before it was posted, and sent it back for changes"
 	if earlier {
 		sent = "A member of staff read an earlier answer of yours to this question before it was posted, and sent it back for changes"
 	}
 	if asked == "" {
-		return sent + ", without saying what to change. Write the answer again, better."
+		return sent + "; what they asked could not be read. Write the answer again, better."
 	}
 	return fmt.Sprintf("%s, asking: %q. Write the answer again, making the changes they asked for.", sent, asked)
 }

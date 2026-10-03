@@ -90,13 +90,49 @@ func TestSystemRevising(t *testing.T) {
 		`and sent it back for changes, asking: "Say where the chapter starts.".`) || strings.Contains(text, "your last answer") {
 		t.Errorf("a request made of an earlier answer:\n%s", text)
 	}
+	// Core requires a note of what to change: one the runtime could not
+	// read is said to be so, never to be none, here and in memory.
 	in.Revising, in.RevisingEarlier = &store.Note{Kind: store.NoteChangesRequested, MessageID: "q1"}, false
-	if text, _ := System(in); !strings.Contains(text, "sent it back for changes, without saying what to change. Write the answer again, better.") {
+	in.Notes = []store.Note{{Kind: store.NoteChangesRequested, MessageID: "q0"}}
+	text, _ = System(in)
+	if !strings.Contains(text, "sent it back for changes; what they asked could not be read. Write the answer again, better.") ||
+		!strings.Contains(text, "- A member of staff sent an earlier answer of yours here back for changes; what they asked could not be read.\n") ||
+		strings.Contains(text, "without saying") {
 		t.Errorf("a request whose note was not read:\n%s", text)
 	}
 	// An answer that revises nothing has no such section.
 	if text, _ := System(Input{Base: Builtin(true), Notes: []store.Note{asked}}); strings.Contains(text, "writing again") {
 		t.Errorf("an answer that revises nothing:\n%s", text)
+	}
+}
+
+// An answer written again is shown the answer the member of staff read,
+// whole and as it was sent, after what they asked, in a block that
+// nothing in the answer ends (a code block of its own among them), with
+// no word on what to keep of it beyond what they asked; there is no such
+// block when the runtime does not have it.
+func TestSystemRevisingShowsTheAnswerRead(t *testing.T) {
+	asked := store.Note{Kind: store.NoteChangesRequested, MessageID: "q1", Text: "And the room."}
+	read := "The midterm is on 14 March.\n\n```\nroom: TBA\n```\n\nBring a pen."
+	text, _ := System(Input{Base: Builtin(true), Seat: Seat{AnswerLevel: core.LevelConfirmRequired}, Revising: &asked, Revised: read})
+	want := "## The answer you are writing again\n" +
+		`- A member of staff read your last answer to this question before it was posted, and sent it back for changes, asking: "And the room.". ` +
+		"Write the answer again, making the changes they asked for.\n" +
+		"- This is the answer they read, as it was sent to them:\n\n" +
+		"````\n" + read + "\n````"
+	if !strings.HasSuffix(text, want) {
+		t.Errorf("the prompt does not end with the answer read:\n%s", text)
+	}
+	for _, never := range []string{"keep", "Keep", "drop", "rest of"} {
+		if strings.Contains(text[strings.Index(text, "## The answer you are writing again"):], never) {
+			t.Errorf("the section says what to keep of the answer read (%q):\n%s", never, text)
+		}
+	}
+	if fence("No code here.") != "```" || fence("a ````` b `` c") != "``````" {
+		t.Errorf("fences %q, %q", fence("No code here."), fence("a ````` b `` c"))
+	}
+	if text, _ := System(Input{Base: Builtin(true), Revising: &asked}); strings.Contains(text, "the answer they read") {
+		t.Errorf("an answer read the runtime does not have:\n%s", text)
 	}
 }
 

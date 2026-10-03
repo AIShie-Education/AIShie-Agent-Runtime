@@ -593,8 +593,9 @@ func createDoc(id, title string) llm.Part {
 // TestRunWrites: a write is bound to the conversation's course and to the
 // runtime's key, whatever the model wrote, and revises no proposal,
 // though the model named one; Core's envelope comes back as it is, a
-// proposal not as an error; and what came of it is recorded, ids and
-// codes alone.
+// proposal not as an error, its note the runtime's in place of Core's,
+// which asks of the model what it cannot do; and what came of it is
+// recorded, ids and codes alone.
 func TestRunWrites(t *testing.T) {
 	f := &fakeCore{respond: func(_ context.Context, tool string, args json.RawMessage) (*core.Envelope, error) {
 		var a struct {
@@ -603,7 +604,7 @@ func TestRunWrites(t *testing.T) {
 		_ = json.Unmarshal(args, &a)
 		switch a.Title {
 		case "Proposed":
-			return &core.Envelope{Status: core.StatusProposed, ActionID: "a-1", ReviewState: "none"}, nil
+			return &core.Envelope{Status: core.StatusProposed, ActionID: "a-1", ReviewState: "none", Note: coresProposedNote}, nil
 		case "Executed":
 			return &core.Envelope{Status: core.StatusExecuted, ActionID: "a-2", ReviewState: "none",
 				Result: json.RawMessage(`{"document_id":"d-2","version_id":"v-2","title":"Executed"}`)}, nil
@@ -626,7 +627,7 @@ func TestRunWrites(t *testing.T) {
 		isError bool
 		content string
 	}{
-		{false, `{"status":"proposed","action_id":"a-1","review_state":"none"}`},
+		{false, `{"status":"proposed","action_id":"a-1","review_state":"none","note":` + encodeJSON(ProposedNote) + `}`},
 		{false, `{"status":"executed","action_id":"a-2","review_state":"none","result":{"document_id":"d-2","title":"Executed","version_id":"v-2"}}`},
 		{true, `{"status":"denied","action_id":"a-3","error":{"code":"forbidden","message":"not permitted","details":{"reason":"level_denied"}}}`},
 		{true, `{"status":"failed","action_id":"a-4","error":{"code":"invalid_argument","message":"title is required"}}`},
@@ -671,6 +672,16 @@ func TestRunWrites(t *testing.T) {
 		t.Errorf("records %+v, sent %d, refused %v\nwant    %+v", w.Records, w.Sent(), w.Refused, want)
 	}
 }
+
+// coresProposedNote is the note Core 81ad1fe gives a proposal: for an
+// agent that follows its own proposals, and names in revises one sent back
+// for changes when it proposes it again.
+const coresProposedNote = "Not executed. This action needs a person's confirmation and has been queued as the action_id above. " +
+	"This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. " +
+	"Carry on with other work, and look for action.approved, action.rejected, action.changes_requested or action.cancelled " +
+	"carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome " +
+	"was executed or failed. After action.changes_requested, read what to change in its result.decision.reason and propose " +
+	"again under a new key, with revises = this action_id."
 
 // TestRevisesIsNeverTheModels: a schema that offers revises beside a
 // write's own arguments, as Core's tools/list does over MCP, is shown to
