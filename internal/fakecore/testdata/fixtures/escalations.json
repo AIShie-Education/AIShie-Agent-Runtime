@@ -1,0 +1,334 @@
+{
+ "scenario": "escalations",
+ "steps": [
+  {
+   "args": {
+    "body": "Yes, at noon.",
+    "conversation_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:1>:<id:3>:1",
+    "in_reply_to_message_id": "<id:3>"
+   },
+   "envelope": {
+    "action_id": "<id:4>",
+    "result": {
+     "message_id": "<id:5>"
+    },
+    "review_state": "pending",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "answer_1",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "action_id": "<id:4>",
+    "course_id": "<id:2>",
+    "idempotency_key": "review:<id:4>",
+    "outcome": "escalated"
+   },
+   "envelope": {
+    "action_id": "<id:6>",
+    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected, action.changes_requested or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed. After action.changes_requested, read what to change in its result.decision.reason and propose again under a new key, with revises = this action_id.",
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "escalation_proposed",
+   "text_is_envelope": true,
+   "tool": "action_review"
+  },
+  {
+   "args": {
+    "action_id": "<id:6>",
+    "course_id": "<id:2>",
+    "decision": "approve",
+    "idempotency_key": "decide:<id:4>"
+   },
+   "envelope": {
+    "action_id": "<id:7>",
+    "result": {
+     "action_id": "<id:6>",
+     "outcome": "executed",
+     "result": {
+      "action_id": "<id:4>",
+      "review_state": "escalated"
+     }
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "escalation_approved",
+   "text_is_envelope": true,
+   "tool": "action_decide"
+  },
+  {
+   "args": {
+    "action_id": "<id:4>",
+    "course_id": "<id:2>",
+    "idempotency_key": "review:<id:4>:mori",
+    "outcome": "reviewed"
+   },
+   "envelope": {
+    "action_id": "<id:8>",
+    "error": {
+     "code": "forbidden",
+     "message": "an escalation is for someone else to look at"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "closed_by_who_approved_it",
+   "text_is_envelope": true,
+   "tool": "action_review"
+  },
+  {
+   "args": {
+    "action_id": "<id:4>",
+    "course_id": "<id:2>",
+    "idempotency_key": "review:<id:4>:2",
+    "outcome": "reviewed"
+   },
+   "envelope": {
+    "action_id": "<id:9>",
+    "error": {
+     "code": "forbidden",
+     "message": "an escalation is for someone else to look at"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "closed_by_who_proposed_it",
+   "text_is_envelope": true,
+   "tool": "action_review"
+  },
+  {
+   "args": {
+    "action_id": "<id:4>",
+    "course_id": "<id:2>",
+    "idempotency_key": "review:<id:4>:sato",
+    "outcome": "reviewed"
+   },
+   "envelope": {
+    "action_id": "<id:10>",
+    "result": {
+     "action_id": "<id:4>",
+     "by_owner": true,
+     "review_state": "reviewed"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "closed_by_its_owner",
+   "text_is_envelope": true,
+   "tool": "action_review"
+  },
+  {
+   "args": {
+    "body": "No.",
+    "conversation_id": "<id:11>",
+    "course_id": "<id:2>",
+    "idempotency_key": "answer:<id:11>:<id:12>:1",
+    "in_reply_to_message_id": "<id:12>"
+   },
+   "envelope": {
+    "action_id": "<id:13>",
+    "result": {
+     "message_id": "<id:14>"
+    },
+    "review_state": "pending",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "answer_2",
+   "text_is_envelope": true,
+   "tool": "conversation_answer"
+  },
+  {
+   "args": {
+    "action_id": "<id:13>",
+    "course_id": "<id:2>",
+    "idempotency_key": "review:<id:13>:mori",
+    "outcome": "escalated"
+   },
+   "envelope": {
+    "action_id": "<id:15>",
+    "result": {
+     "action_id": "<id:13>",
+     "review_state": "escalated"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "escalated",
+   "text_is_envelope": true,
+   "tool": "action_review"
+  },
+  {
+   "args": {
+    "action_id": "<id:13>",
+    "course_id": "<id:2>",
+    "idempotency_key": "review:<id:13>",
+    "outcome": "reviewed"
+   },
+   "envelope": {
+    "action_id": "<id:16>",
+    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected, action.changes_requested or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed. After action.changes_requested, read what to change in its result.decision.reason and propose again under a new key, with revises = this action_id.",
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "closing_proposed",
+   "text_is_envelope": true,
+   "tool": "action_review"
+  },
+  {
+   "args": {
+    "action_id": "<id:16>",
+    "course_id": "<id:2>",
+    "decision": "approve",
+    "idempotency_key": "decide:<id:13>"
+   },
+   "envelope": {
+    "action_id": "<id:17>",
+    "error": {
+     "code": "forbidden",
+     "message": "an escalation is for someone else to look at"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "closing_approved_by_who_escalated",
+   "text_is_envelope": true,
+   "tool": "action_decide"
+  },
+  {
+   "args": {
+    "action_id": "<id:16>",
+    "course_id": "<id:2>",
+    "decision": "approve",
+    "idempotency_key": "decide:<id:13>:sato"
+   },
+   "envelope": {
+    "action_id": "<id:18>",
+    "error": {
+     "code": "forbidden",
+     "message": "nobody decides their own proposal, even at one remove: this one decides or reviews an action of yours"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "closing_approved_by_the_answers_owner",
+   "text_is_envelope": true,
+   "tool": "action_decide"
+  },
+  {
+   "args": {
+    "action_id": "<id:16>",
+    "course_id": "<id:2>",
+    "decision": "reject",
+    "idempotency_key": "decide:<id:13>:2",
+    "reason": "Leave it to Sato."
+   },
+   "envelope": {
+    "action_id": "<id:19>",
+    "result": {
+     "action_id": "<id:16>",
+     "outcome": "rejected"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "closing_rejected_by_who_escalated",
+   "text_is_envelope": true,
+   "tool": "action_decide"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "actions": [
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:20>",
+       "authz_result": "pending_review",
+       "created_at": "<time>",
+       "executed_at": "<time>",
+       "id": "<id:4>",
+       "member_id": "<id:21>",
+       "payload": {
+        "body": "Yes, at noon.",
+        "conversation_id": "<id:1>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:3>"
+       },
+       "result": {
+        "message_id": "<id:5>"
+       },
+       "review_state": "reviewed",
+       "reviewed_at": "<time>",
+       "reviewed_by_member_id": "<id:22>",
+       "status": "executed",
+       "target_id": "<id:1>",
+       "target_type": "conversation"
+      },
+      {
+       "action_type": "conversation.answer",
+       "actor_id": "<id:20>",
+       "authz_result": "pending_review",
+       "created_at": "<time>",
+       "executed_at": "<time>",
+       "id": "<id:13>",
+       "member_id": "<id:21>",
+       "payload": {
+        "body": "No.",
+        "conversation_id": "<id:11>",
+        "course_id": "<id:2>",
+        "in_reply_to_message_id": "<id:12>"
+       },
+       "result": {
+        "message_id": "<id:14>"
+       },
+       "review_state": "escalated",
+       "reviewed_at": "<time>",
+       "reviewed_by_member_id": "<id:23>",
+       "status": "executed",
+       "target_id": "<id:11>",
+       "target_type": "conversation"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "mine",
+   "text_is_envelope": true,
+   "tool": "action_list_mine"
+  }
+ ]
+}

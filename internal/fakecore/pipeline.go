@@ -161,7 +161,10 @@ type execCtx struct {
 	course    *course
 	actionID  string
 	createdAt time.Time
-	events    []*event
+	// approved says the write is a proposal being carried out on its
+	// approval, made at createdAt (Core's ExecCtx.Approved).
+	approved bool
+	events   []*event
 }
 
 // emit files an event under the executing action unless it names one.
@@ -185,7 +188,8 @@ type impl struct {
 	resolve  func(c *Core, co *course, in any) (target, error)
 	query    func(c *Core, rc *readCtx, in any) (any, error)
 	validate func(c *Core, m *member, in any) error
-	pin      func(c *Core, m *member, in any) error
+	since    func(c *Core, proposedAt time.Time, in any) error
+	pin      func(c *Core, m *member, in any) (any, error)
 	execute  func(c *Core, ec *execCtx, in any) (any, error)
 }
 
@@ -205,9 +209,19 @@ type spec[In any] struct {
 	// proposer's, when a proposal is approved; and for an agent's owner, as
 	// approving would ask it, before they are let decide its proposal.
 	validate func(c *Core, m *member, in In) error
+	// since is Core's Spec.Since: what has changed since a stored
+	// proposal was made, at proposedAt, that approving it must not pass
+	// over (grade.submit's newer draft, entered while it waited). No call
+	// is refused for that. It is asked, after validate, when a proposal
+	// is approved, which it fails, and for an agent's owner, as approving
+	// would ask it, before they are let decide its proposal (refusal);
+	// execute asks it again as it asks what validate asked.
+	since func(c *Core, proposedAt time.Time, in In) error
 	// pin is what a proposal alone is held to as it is made (Core's
-	// Spec.Pin), after validate.
-	pin     func(c *Core, m *member, in In) error
+	// Spec.Pin), after validate, and the arguments it is kept with: those
+	// given, with what must be fixed when it is made rather than when it
+	// is approved filled in.
+	pin     func(c *Core, m *member, in In) (In, error)
 	execute func(c *Core, ec *execCtx, in In) (any, error)
 }
 
@@ -250,8 +264,11 @@ func define[In any](s spec[In]) *impl {
 	if s.query != nil {
 		im.query = func(c *Core, rc *readCtx, in any) (any, error) { return s.query(c, rc, in.(In)) }
 	}
+	if s.since != nil {
+		im.since = func(c *Core, proposedAt time.Time, in any) error { return s.since(c, proposedAt, in.(In)) }
+	}
 	if s.pin != nil {
-		im.pin = func(c *Core, m *member, in any) error { return s.pin(c, m, in.(In)) }
+		im.pin = func(c *Core, m *member, in any) (any, error) { return s.pin(c, m, in.(In)) }
 	}
 	if s.execute != nil {
 		im.execute = func(c *Core, ec *execCtx, in any) (any, error) { return s.execute(c, ec, in.(In)) }
@@ -638,13 +655,13 @@ func (c *Core) invokeWrite(caller *actor, t *toolDef, in any, raw []byte, key, r
 	// in lower), which is what answer_pending and the views compare with.
 	// The hash stays the call's as made, which is what a retry presents.
 	if status == actProposed && t.impl.pin != nil {
-		if err := t.impl.pin(c, a.decision.member, in); err != nil {
+		if kept, err := t.impl.pin(c, a.decision.member, in); err != nil {
 			e, ok := asAPI(err)
 			if !ok {
 				return outcome{}, err
 			}
 			status, failure = actFailed, e
-		} else if canonical, err = pinned(in); err != nil {
+		} else if canonical, err = pinned(kept); err != nil {
 			return outcome{}, fmt.Errorf("%s: pinned arguments: %w", t.Name, err)
 		}
 	}

@@ -1,0 +1,363 @@
+{
+ "scenario": "grade_since",
+ "steps": [
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "feedback": "Show your working.",
+    "idempotency_key": "tool:x:g:1",
+    "score": "80",
+    "submission_id": "<id:2>"
+   },
+   "envelope": {
+    "action_id": "<id:3>",
+    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected, action.changes_requested or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed. After action.changes_requested, read what to change in its result.decision.reason and propose again under a new key, with revises = this action_id.",
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "proposed",
+   "text_is_envelope": true,
+   "tool": "grade_submit"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "idempotency_key": "grade:<id:2>:1",
+    "score": 85,
+    "submission_id": "<id:2>"
+   },
+   "envelope": {
+    "action_id": "<id:4>",
+    "result": {
+     "grade_id": "<id:5>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "newer_draft",
+   "text_is_envelope": true,
+   "tool": "grade_submit"
+  },
+  {
+   "args": {
+    "action_id": "<id:3>",
+    "course_id": "<id:1>",
+    "decision": "approve",
+    "idempotency_key": "decide:<id:3>"
+   },
+   "envelope": {
+    "action_id": "<id:6>",
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "owner_would_be_refused",
+      "refusal": {
+       "code": "failed_precondition",
+       "message": "a newer draft was entered for this work after this grade was proposed; look at it, and propose again if it should still be replaced"
+      }
+     },
+     "message": "you decide what your agent proposed only where you would do it yourself without anyone's confirmation, and approved now it would be refused (a newer draft was entered for this work after this grade was proposed; look at it, and propose again if it should still be replaced); take it back with action.withdraw, or someone else rejects it"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "its_owner_approves",
+   "text_is_envelope": true,
+   "tool": "action_decide"
+  },
+  {
+   "args": {
+    "action_id": "<id:3>",
+    "course_id": "<id:1>",
+    "decision": "approve",
+    "idempotency_key": "decide:<id:3>:1"
+   },
+   "envelope": {
+    "action_id": "<id:7>",
+    "result": {
+     "action_id": "<id:3>",
+     "error": {
+      "code": "failed_precondition",
+      "message": "a newer draft was entered for this work after this grade was proposed; look at it, and propose again if it should still be replaced"
+     },
+     "outcome": "failed"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "approved_after_a_newer_draft",
+   "text_is_envelope": true,
+   "tool": "action_decide"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "idempotency_key": "tool:x:g:2",
+    "score": 82.5,
+    "submission_id": "<id:2>"
+   },
+   "envelope": {
+    "action_id": "<id:8>",
+    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected, action.changes_requested or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed. After action.changes_requested, read what to change in its result.decision.reason and propose again under a new key, with revises = this action_id.",
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "proposed_after_the_draft",
+   "text_is_envelope": true,
+   "tool": "grade_submit"
+  },
+  {
+   "args": {
+    "action_id": "<id:8>",
+    "course_id": "<id:1>",
+    "decision": "approve",
+    "idempotency_key": "decide:<id:8>"
+   },
+   "envelope": {
+    "action_id": "<id:9>",
+    "result": {
+     "action_id": "<id:8>",
+     "by_owner": true,
+     "outcome": "executed",
+     "result": {
+      "grade_id": "<id:10>"
+     }
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "its_owner_approves_after",
+   "text_is_envelope": true,
+   "tool": "action_decide"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "idempotency_key": "grade:<id:2>:2",
+    "score": "-1",
+    "submission_id": "<id:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "score cannot be negative"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "negative",
+   "text_is_envelope": true,
+   "tool": "grade_submit"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "idempotency_key": "grade:<id:2>:3",
+    "score": 1
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "give exactly one of submission_id and component_id"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "no_subject",
+   "text_is_envelope": true,
+   "tool": "grade_submit"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "idempotency_key": "grade:<id:2>:4",
+    "no_rubric": true,
+    "rubric_version_id": "<id:11>",
+    "score": 1,
+    "submission_id": "<id:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "give rubric_version_id or no_rubric, not both"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "both_rubric_and_none",
+   "text_is_envelope": true,
+   "tool": "grade_submit"
+  },
+  {
+   "args": {
+    "component_id": "<id:11>",
+    "course_id": "<id:1>",
+    "for_missing": false,
+    "idempotency_key": "grade:<id:2>:5",
+    "score": 1,
+    "student_member_id": "<id:12>"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "for_missing is for a grade on a submission"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "for_missing_on_a_component",
+   "text_is_envelope": true,
+   "tool": "grade_submit"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "idempotency_key": "grade:<id:2>:6",
+    "score": 1,
+    "submission_id": "<id:11>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "message": "no such submission in this course"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "no_such_submission",
+   "text_is_envelope": true,
+   "tool": "grade_submit"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "idempotency_key": "grade:<id:2>:7",
+    "score": 120,
+    "submission_id": "<id:2>"
+   },
+   "envelope": {
+    "action_id": "<id:13>",
+    "error": {
+     "code": "failed_precondition",
+     "message": "score 120 is above the 100 points possible; set allow_extra to permit it"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "above_the_points",
+   "text_is_envelope": true,
+   "tool": "grade_submit"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "idempotency_key": "grade:<id:2>:8",
+    "out_of": 50,
+    "score": "45",
+    "submission_id": "<id:2>"
+   },
+   "envelope": {
+    "action_id": "<id:14>",
+    "error": {
+     "code": "failed_precondition",
+     "message": "the score was given out of 50, and the work is worth 100 now; grade it again out of what it is worth"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "out_of_another",
+   "text_is_envelope": true,
+   "tool": "grade_submit"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "for_missing": true,
+    "idempotency_key": "grade:<id:2>:9",
+    "score": 1,
+    "submission_id": "<id:2>"
+   },
+   "envelope": {
+    "action_id": "<id:15>",
+    "error": {
+     "code": "failed_precondition",
+     "message": "this grade was given for nothing handed in, and there is work here now; look at it, and grade it again"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "for_nothing_handed_in",
+   "text_is_envelope": true,
+   "tool": "grade_submit"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "idempotency_key": "grade:<id:2>:10",
+    "rubric_version_id": "<id:11>",
+    "score": 1,
+    "submission_id": "<id:2>"
+   },
+   "envelope": {
+    "action_id": "<id:16>",
+    "error": {
+     "code": "failed_precondition",
+     "message": "there is no rubric here for rubric_version_id to be a version of"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "rubric_of_none",
+   "text_is_envelope": true,
+   "tool": "grade_submit"
+  },
+  {
+   "args": {
+    "allow_extra": true,
+    "course_id": "<id:1>",
+    "idempotency_key": "grade:<id:2>:11",
+    "out_of": "100.00",
+    "score": "100.5",
+    "submission_id": "<id:2>"
+   },
+   "envelope": {
+    "action_id": "<id:17>",
+    "result": {
+     "grade_id": "<id:18>"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "extra",
+   "text_is_envelope": true,
+   "tool": "grade_submit"
+  }
+ ]
+}

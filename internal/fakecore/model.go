@@ -244,17 +244,21 @@ type submission struct {
 	submittedAt time.Time
 }
 
+// grade is a grade on a student's work: posted, or a draft (grades.go),
+// which a later draft of the same work supersedes.
 type grade struct {
-	id         string
-	student    *member
-	assignment *assignment
-	submission *submission
-	grader     *member
-	actionID   string
-	score      string
-	feedback   string
-	createdAt  time.Time
-	postedAt   time.Time
+	id           string
+	student      *member
+	assignment   *assignment
+	submission   *submission
+	grader       *member
+	actionID     string
+	score        string
+	feedback     *string
+	breakdown    json.RawMessage
+	createdAt    time.Time
+	postedAt     *time.Time
+	supersededBy *string
 }
 
 // member is one actor's seat in one course.
@@ -349,7 +353,9 @@ type action struct {
 	revises string
 }
 
-// event is one entry of a course's feed.
+// event is one entry of a course's feed. student and assignment are the
+// student and the assignment it is about, "" for none, which scope who
+// sees it (visible).
 type event struct {
 	seq         int64
 	typ         string
@@ -357,6 +363,8 @@ type event struct {
 	actionID    *string
 	subjectType string
 	subjectID   *string
+	student     string
+	assignment  string
 	payload     json.RawMessage
 	occurredAt  time.Time
 }

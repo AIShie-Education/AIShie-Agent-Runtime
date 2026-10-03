@@ -2316,13 +2316,20 @@ Chinese with a table, overran, and was cut off.
   ceilings, as Core works them out; an agent's owner
   deciding and reviewing what it did where they could do it themselves,
   and not a proposal of its that approving now would refuse
-  (`owner_would_be_refused`, the refusal inside); a call's rules where
+  (`owner_would_be_refused`, the refusal inside); an escalation closed
+  only by someone who had no hand in it, from any seat: neither whoever
+  made or approved the review that escalated it, nor anyone of their
+  party, closes it or approves a review that would (`escalations`); a
+  call's rules where
   AIShie-Core #60 runs them: what the arguments say alone refused as they
   are read (`error`, no `action_id`, at any level; a transcription's
   completion among them, held to `transcription_checks`), what the course
   says failed before anything is carried out or proposed (a party agent's
   decision among them), in Core's order, and both asked again when a
-  proposal is approved;
+  proposal is approved; and what has changed since a proposal was made,
+  which no call is refused for, asked as it is approved and of its owner
+  (Core's `Since`: `grade_submit`'s draft refused once a newer draft of
+  the work was entered while it waited, held to `grade_since`);
   and no question to a runtime agent the site's runtime holds no live
   token for, nor ever to an `mcp` agent (the worker's tests wait for the
   runtime to be issued the agent's token, or, asking before a worker
@@ -2685,7 +2692,9 @@ Chinese with a table, overran, and was cut off.
   log, and a conversion of the file after finding Core's PDF. The fake Core
   carries out `document_create` through its pipeline, held to the
   `model_writes` fixture recorded from Core; `member_add`, `member_get`,
-  `member_list` and `member_lookup_actor`, held to `member_writes`; and
+  `member_list` and `member_lookup_actor`, held to `member_writes`;
+  `grade_submit`, a draft grade on work handed in (shown to those who
+  grade, and told to them within their scope), held to `grade_since`; and
   `submission_roster` and `document_versions`, held to `roster_reads`; and
   serves the files `AddFile` puts in a course.
 - `ocr`: the engine against programs of the test's own (shell scripts

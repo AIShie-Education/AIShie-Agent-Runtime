@@ -247,20 +247,20 @@ func conversationAnswer() *impl {
 			}
 			return c.checkSourcesReadable(m, in.Sources)
 		},
-		pin: func(c *Core, m *member, in answerIn) error {
+		pin: func(c *Core, m *member, in answerIn) (answerIn, error) {
 			cv, err := c.findConversation(m.course, in.ConversationID)
 			if err != nil {
-				return err
+				return in, err
 			}
 			if c.pendingAnswer(cv, m, in.InReplyToMessageID.String()) != nil {
-				return conflicts("an answer of yours to that message already waits for a decision").with("reason", "answer_pending")
+				return in, conflicts("an answer of yours to that message already waits for a decision").with("reason", "answer_pending")
 			}
 			if err := c.checkMessageFiles(m, cv, in.Attachments, true); err != nil {
-				return err
+				return in, err
 			}
 			// Proposed, the answer takes its draft's place.
 			cv.clearDraft()
-			return nil
+			return in, nil
 		},
 		execute: func(c *Core, ec *execCtx, in answerIn) (any, error) {
 			cv, err := c.findConversation(ec.course, in.ConversationID)

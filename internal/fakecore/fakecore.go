@@ -33,9 +33,12 @@
 // question to an agent people in the site may not ask: an mcp agent, or a
 // runtime agent whose runtime token does not live; so
 // are the writes people make that the test controls go through
-// (conversation_open, conversation_ask, action_decide, action_review), and
-// document_create and member_add, writes a model makes through its seat's
-// perms, and the roster a model reads (member_list, member_get,
+// (conversation_open, conversation_ask, action_decide, action_review, an
+// escalation for someone other than whoever had a hand in it to close),
+// and document_create, member_add and grade_submit (grades.go, a draft
+// grade, whose proposal a newer draft entered while it waits refuses on
+// approval), writes a model makes through its seat's perms, and the roster
+// a model reads (member_list, member_get,
 // member_lookup_actor). The model's other read tools (where students stand
 // on an assignment, submission_roster, and a document's versions among
 // them) read canned material per course, and the files AddFile adds, under
@@ -234,6 +237,7 @@ func implemented() map[string]*impl {
 		"submission.get":          submissionGet(),
 		"grade.list":              gradeList(),
 		"grade.get":               gradeGet(),
+		"grade.submit":            gradeSubmit(),
 		"component.tree":          componentTree(),
 		"gradebook.get":           gradebookGet(),
 		"member.list":             memberList(),

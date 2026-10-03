@@ -1207,7 +1207,104 @@ var scenarios = []scenario{
 	renditions,
 	transcriptionChecks,
 	sources,
+	escalations,
+	gradeSince,
 }
+
+// escalations are reviews of the tutor's answers proposed by an agent
+// nobody owns, whose decisions a person confirms: an escalation is for
+// someone else to look at than whoever had a hand in it, from any seat
+// (Core's EscalatedBy): Mori, who approved the agent's escalation, may not
+// close it, nor may the agent; and Mori, who escalated another himself,
+// may not approve the agent's review that would close it, though he may
+// reject it (Core's closesOwnEscalation).
+var escalations = scenario{name: "escalations", about: "reviews of the tutor's answers proposed by an agent nobody owns: Mori approves its escalation, " +
+	"and neither he nor the agent may close it, while the tutor's owner does; Mori escalates another himself, and may not approve the agent's " +
+	"review that would close it, nor may the tutor's owner, while Mori may reject it; and what the tutor sees of both",
+	run: func(t *testing.T, w world, s *steps) {
+		w.setTutorLevel("pending_review")
+		_, reg := w.registrar(map[string]string{permActionDecide: "confirm_required"})
+		sato, mori := w.as("sato"), w.as("mori")
+		answered := func(name string, student int, question, body string) string {
+			t.Helper()
+			conv, m := w.ask(student, question)
+			a := call(t, w, s, name, "conversation_answer", answer(w, conv, m, body, 1))
+			wantStatus(t, a, "executed")
+			return a.str("action_id")
+		}
+		review := func(id, outcome, key string) map[string]any {
+			return inCourseArgs(w, "action_id", id, "outcome", outcome, "idempotency_key", key)
+		}
+		decide := func(id, decision, key string, more ...any) map[string]any {
+			return inCourseArgs(w, append([]any{"action_id", id, "decision", decision, "idempotency_key", key}, more...)...)
+		}
+
+		id1 := answered("answer_1", 0, "Is the quiz on Friday?", "Yes, at noon.")
+		p1 := callAs(t, reg, s, "escalation_proposed", "action_review", review(id1, "escalated", "review:"+id1))
+		wantStatus(t, p1, "proposed")
+		wantStatus(t, callAs(t, mori, s, "escalation_approved", "action_decide", decide(p1.str("action_id"), "approve", "decide:"+id1)), "executed")
+		callAs(t, mori, s, "closed_by_who_approved_it", "action_review", review(id1, "reviewed", "review:"+id1+":mori"))
+		callAs(t, reg, s, "closed_by_who_proposed_it", "action_review", review(id1, "reviewed", "review:"+id1+":2"))
+		wantStatus(t, callAs(t, sato, s, "closed_by_its_owner", "action_review", review(id1, "reviewed", "review:"+id1+":sato")), "executed")
+
+		id2 := answered("answer_2", 1, "Is the quiz open book?", "No.")
+		wantStatus(t, callAs(t, mori, s, "escalated", "action_review", review(id2, "escalated", "review:"+id2+":mori")), "executed")
+		p2 := callAs(t, reg, s, "closing_proposed", "action_review", review(id2, "reviewed", "review:"+id2))
+		wantStatus(t, p2, "proposed")
+		closing := p2.str("action_id")
+		callAs(t, mori, s, "closing_approved_by_who_escalated", "action_decide", decide(closing, "approve", "decide:"+id2))
+		callAs(t, sato, s, "closing_approved_by_the_answers_owner", "action_decide", decide(closing, "approve", "decide:"+id2+":sato"))
+		wantStatus(t, callAs(t, mori, s, "closing_rejected_by_who_escalated", "action_decide",
+			decide(closing, "reject", "decide:"+id2+":2", "reason", "Leave it to Sato.")), "executed")
+		call(t, w, s, "mine", "action_list_mine", inCourseArgs(w))
+	}}
+
+// gradeSince is grade_submit proposed by an agent of Sato's, and a newer
+// draft of the same work entered while it waits, which approving it must
+// not pass over (Core's Since): its owner is refused deciding it, with the
+// refusal inside, and Mori's approval fails; a proposal made after that
+// draft replaces it. And grade_submit's own refusals, of what its
+// arguments say and of what the work says.
+var gradeSince = scenario{name: "grade_since", about: "grade_submit proposed by a tutor of Sato's listed for Yuki, then a newer draft " +
+	"of her work entered by Sato: approving the proposal refused for it, as its owner (owner_would_be_refused, the refusal inside) and as " +
+	"Mori (failed), and a proposal made after the draft approved by its owner, replacing it; refused arguments, and grades the work refuses",
+	run: func(t *testing.T, w world, s *steps) {
+		sub := w.submit(0)
+		seat, lab := w.listedTutor(0)
+		w.setLevel(seat, permGradeSubmit, "confirm_required")
+		sato, mori := w.as("sato"), w.as("mori")
+		grade := func(key string, score any, more ...any) map[string]any {
+			return inCourseArgs(w, append([]any{"submission_id", sub, "score", score, "idempotency_key", key}, more...)...)
+		}
+		decide := func(id, decision, key string) map[string]any {
+			return inCourseArgs(w, "action_id", id, "decision", decision, "idempotency_key", key)
+		}
+
+		p1 := callAs(t, lab, s, "proposed", "grade_submit", grade("tool:x:g:1", "80", "feedback", "Show your working."))
+		wantStatus(t, p1, "proposed")
+		first := p1.str("action_id")
+		wantStatus(t, callAs(t, sato, s, "newer_draft", "grade_submit", grade("grade:"+sub+":1", 85)), "executed")
+		callAs(t, sato, s, "its_owner_approves", "action_decide", decide(first, "approve", "decide:"+first))
+		wantStatus(t, callAs(t, mori, s, "approved_after_a_newer_draft", "action_decide", decide(first, "approve", "decide:"+first+":1")), "executed")
+		p2 := callAs(t, lab, s, "proposed_after_the_draft", "grade_submit", grade("tool:x:g:2", 82.50))
+		wantStatus(t, p2, "proposed")
+		second := p2.str("action_id")
+		wantStatus(t, callAs(t, sato, s, "its_owner_approves_after", "action_decide", decide(second, "approve", "decide:"+second)), "executed")
+
+		callAs(t, sato, s, "negative", "grade_submit", grade("grade:"+sub+":2", "-1"))
+		callAs(t, sato, s, "no_subject", "grade_submit", inCourseArgs(w, "score", 1, "idempotency_key", "grade:"+sub+":3"))
+		callAs(t, sato, s, "both_rubric_and_none", "grade_submit", grade("grade:"+sub+":4", 1, "no_rubric", true,
+			"rubric_version_id", "0192f3c1-0000-7000-8000-00000000abcd"))
+		callAs(t, sato, s, "for_missing_on_a_component", "grade_submit", inCourseArgs(w, "component_id", "0192f3c1-0000-7000-8000-00000000abcd",
+			"student_member_id", w.studentSeat(0), "for_missing", false, "score", 1, "idempotency_key", "grade:"+sub+":5"))
+		callAs(t, sato, s, "no_such_submission", "grade_submit", inCourseArgs(w, "submission_id", "0192f3c1-0000-7000-8000-00000000abcd",
+			"score", 1, "idempotency_key", "grade:"+sub+":6"))
+		callAs(t, sato, s, "above_the_points", "grade_submit", grade("grade:"+sub+":7", 120))
+		callAs(t, sato, s, "out_of_another", "grade_submit", grade("grade:"+sub+":8", "45", "out_of", 50))
+		callAs(t, sato, s, "for_nothing_handed_in", "grade_submit", grade("grade:"+sub+":9", 1, "for_missing", true))
+		callAs(t, sato, s, "rubric_of_none", "grade_submit", grade("grade:"+sub+":10", 1, "rubric_version_id", "0192f3c1-0000-7000-8000-00000000abcd"))
+		wantStatus(t, callAs(t, sato, s, "extra", "grade_submit", grade("grade:"+sub+":11", "100.5", "allow_extra", true, "out_of", "100.00")), "executed")
+	}}
 
 // transcriptionChecks is what a transcription's completion says alone
 // refused as it is read (AIShie-Core #60, its Check): status error, no
