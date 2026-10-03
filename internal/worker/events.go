@@ -175,12 +175,13 @@ func (s *Seat) readEvents(ctx context.Context, wait time.Duration) (bool, error)
 		if page == 0 {
 			found = len(evs.Events) > 0
 		}
+		acts.page = page
 		for _, ev := range evs.Events {
 			if err := s.onEvent(ctx, ev, acts); err != nil {
 				// The cursor stays before this page: its events are read,
 				// and acted on, again next time. Acting on one twice does
 				// no harm.
-				if ctx.Err() == nil && !errors.Is(err, errSendUnderWay) {
+				if ctx.Err() == nil && !errors.Is(err, errSendUnderWay) && !errors.Is(err, errLookupBehind) {
 					s.log.Warn("an event could not be acted on; it is read again next time", "type", ev.Type, "seq", ev.Seq, "err", err)
 				}
 				return found, nil
@@ -218,13 +219,19 @@ var errSendUnderWay = errors.New("a decision on an action not yet stored, while 
 // starts again, and the decision settled as action_list_mine has it.
 var errLookupCut = errors.New("a decision on a proposal not looked up: the seat ended, or Core refused the agent's token")
 
+// errLookupBehind is a decision read on a later page of events than the
+// lookup of the agent's actions read its action on, made since
+// (actionLookup.behind): events are read again at once, from before its
+// page, with a lookup that reads action_list_mine after it.
+var errLookupBehind = errors.New("a decision on a proposal made since its action was looked up")
+
 // onEvent acts on one event. Only what concerns an attempt the store
 // holds, the agent's own conversations, or its answers is acted on, so
 // that a seat reading its whole history on its first read does no harm;
 // a version's text changed drops what the worker keeps of it, and a
 // document or a version purged what the search keeps of it. Its error is
-// the store failing, errSendUnderWay or errLookupCut, when the event must
-// be read again.
+// the store failing, errSendUnderWay, errLookupCut or errLookupBehind,
+// when the event must be read again.
 func (s *Seat) onEvent(ctx context.Context, ev core.Event, acts *actionLookup) error {
 	if core.IsTextEvent(ev.Type) {
 		// A file's text is kept by the file (a Core since #49 names it),
@@ -263,6 +270,13 @@ func (s *Seat) onEvent(ctx context.Context, ev core.Event, acts *actionLookup) e
 		}
 		act, ok := acts.find(ctx, *ev.ActionID)
 		switch {
+		case acts.behind(*ev.ActionID, ok, act):
+			// Settled from the event, the proposal would lose what
+			// action_list_mine has of its decision. Read again, its page
+			// is the first of the next read of events, and the lookup's
+			// every page is read after it.
+			s.eventsAtOnce()
+			return errLookupBehind
 		case ok && act.Status != actionProposed:
 			return s.settleProposal(at, act, false)
 		case !ok && acts.cut(ctx):
@@ -344,7 +358,9 @@ func mayBeRuntimes(ev core.Event) bool {
 // acted on all the same, not left to be read again: what fails so would
 // fail again, and hold up every event after it. A lookup cut short by the
 // seat's end or by a 401, which the next start does not meet, leaves the
-// event to be read again instead (actionLookup.cut).
+// event to be read again instead (actionLookup.cut), and so does one that
+// read the action, or the agent's last, before the decision was made
+// (actionLookup.behind), which a lookup begun after the event does not.
 func actionFromEvent(ev core.Event) core.Action {
 	var p struct {
 		Outcome string `json:"outcome"`
@@ -538,6 +554,14 @@ type actionLookup struct {
 	done    bool
 	pages   int
 	acts    map[string]core.Action
+	// page is the page of events in hand, from 0, which readEvents sets;
+	// readOn, the page in hand when each action was read; ended, whether
+	// the agent's last action was read, and endedOn, the page in hand
+	// then.
+	page    int
+	readOn  map[string]int
+	ended   bool
+	endedOn int
 	// err is why the lookup stopped short: the cursor or a page not read.
 	err error
 }
@@ -546,7 +570,7 @@ type actionLookup struct {
 // more.
 func (l *actionLookup) find(ctx context.Context, id string) (core.Action, bool) {
 	if !l.begun {
-		l.begun, l.acts = true, map[string]core.Action{}
+		l.begun, l.acts, l.readOn = true, map[string]core.Action{}, map[string]int{}
 		cur, err := l.s.a.store().Cursor(ctx, l.s.a.id, l.s.id, store.CursorActions)
 		if err != nil {
 			l.done, l.err = true, err
@@ -577,7 +601,7 @@ func (l *actionLookup) more(ctx context.Context) bool {
 		return false
 	}
 	for _, act := range page.Actions {
-		l.acts[act.ID] = act
+		l.acts[act.ID], l.readOn[act.ID] = act, l.page
 		if act.Status == actionProposed && runtimesOwn(act.ActionType) {
 			l.blocked = true
 		}
@@ -586,11 +610,28 @@ func (l *actionLookup) more(ctx context.Context) bool {
 		}
 	}
 	if len(page.Actions) < actionsPage {
-		l.done = true
+		l.done, l.ended, l.endedOn = true, true, l.page
 	} else {
 		l.after = page.Actions[len(page.Actions)-1].ID
 	}
 	return true
+}
+
+// behind reports whether the lookup is behind a decision on the page of
+// events in hand, ok and act being what find gave for its action: read on
+// an earlier page of the same round, the action still proposed, or the
+// agent's last action read before it was made. A round reads more than one
+// page when more than eventsPage events wait (after a stop, say), and a
+// person may decide a proposal between two. Nothing read on the page in
+// hand is behind it, Core keeping a decision and its event in one
+// transaction; nor is an action read decided, on any page: a status other
+// than proposed is final (approved lives only inside the transaction that
+// carries it out), and is the decision the event names.
+func (l *actionLookup) behind(id string, ok bool, act core.Action) bool {
+	if ok {
+		return act.Status == actionProposed && l.readOn[id] < l.page
+	}
+	return l.ended && l.endedOn < l.page
 }
 
 // cut reports whether the lookup stopped short for a reason that ends with

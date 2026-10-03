@@ -14,6 +14,7 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/doctext/doctexttest"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/fakecore"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/scripted"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
@@ -1033,6 +1034,122 @@ func TestSentBackWhileAnotherDecisionIsLookedUp(t *testing.T) {
 				eventually(t, "events read after the lookup", func() bool { return len(w.calls(tu.actor.ID, "event_list")) >= n+2 })
 				close(st.release)
 			}
+			if at := wk.waitAttempt("cs101-tutor", k2, store.AttemptChangesRequested); at.Reason != note {
+				t.Errorf("the answer sent back settled with %q; want what was asked, %q", at.Reason, note)
+			}
+			if p3 := w.waitProposal(core.AnswerKey(c2, m2, 2)); p3.Revises != p2.ActionID {
+				t.Errorf("the revision revises %q; want %s", p3.Revises, p2.ActionID)
+			}
+			if s := lastRequest(t, model).System; !strings.Contains(s, revisionSaid(note)+"\n"+answerRead("On Mondays.")) {
+				t.Errorf("the revision's prompt does not say what was asked:\n%s", s)
+			}
+		})
+	}
+}
+
+// TestSentBackBetweenPagesOfEvents: a person approves one answer while
+// more than a page of events waits (a document's text edited 520 times),
+// so that one read of events takes two pages, and sends another back for
+// changes between the two: the lookup for the approval, on the first
+// page, read the other still proposed, or read the agent's last action
+// before the other was proposed. Its decision, on the second page, finds
+// the lookup behind it: that page is read again, with a lookup that reads
+// action_list_mine after it, and the attempt is settled with what was
+// asked, the next attempt told it, never that it could not be read.
+func TestSentBackBetweenPagesOfEvents(t *testing.T) {
+	const note = "Say which room."
+	for _, lookedUp := range []bool{true, false} {
+		t.Run(fmt.Sprintf("proposed when looked up %v", lookedUp), func(t *testing.T) {
+			w := newWorld(t)
+			model := scripted.New(scripted.Reply("Yes, it is."), scripted.Reply("On Mondays."), scripted.Reply("On Mondays, in room 4."))
+			tu := w.tutor("cs101-tutor")
+			w.ok(w.fc.SetLevel(tu.seat.ID, "conversation_answer", "confirm_required"))
+			docID, err := w.fc.AddFile(w.co.ID, "Reading 3", "application/pdf", doctexttest.PDF(doctexttest.PDFPage{Lines: []string{"Reading 3"}}))
+			w.ok(err)
+			wk := w.start(w.config(nil, w.agentDoc("cs101-tutor", "m1", nil, nil)), models{"m1": model}, workerOpts{})
+			c1, m1 := w.ask(0, tu, "Is this right?")
+			k1 := core.AnswerKey(c1, m1, 1)
+			p1 := w.waitProposal(k1)
+			wk.waitAttempt("cs101-tutor", k1, store.AttemptProposed)
+			var c2, m2, k2 string
+			var p2 fakecore.Proposal
+			second := func() {
+				c2, m2 = w.ask(1, tu, "When are the lectures?")
+				k2 = core.AnswerKey(c2, m2, 1)
+				p2 = w.waitProposal(k2)
+				wk.waitAttempt("cs101-tutor", k2, store.AttemptProposed)
+			}
+			if lookedUp {
+				second()
+			}
+
+			// The seat's next two reads of events are held: the first
+			// while the events pile up, the second until the answer is
+			// sent back.
+			type held struct {
+				since   int64
+				reached chan struct{}
+			}
+			holds := [2]held{{reached: make(chan struct{})}, {reached: make(chan struct{})}}
+			release := [2]chan struct{}{make(chan struct{}), make(chan struct{})}
+			// Before the fake's server closes, which waits for a call held.
+			t.Cleanup(func() {
+				for _, r := range release {
+					select {
+					case <-r:
+					default:
+						close(r)
+					}
+				}
+			})
+			var reads atomic.Int32
+			w.fc.Inject(func(c fakecore.InjectedCall) *fakecore.Injection {
+				if c.Tool != "event_list" || c.ActorID != tu.actor.ID {
+					return nil
+				}
+				i := int(reads.Add(1)) - 1
+				if i >= len(holds) {
+					return nil
+				}
+				var a struct {
+					SinceSeq int64 `json:"since_seq"`
+				}
+				_ = json.Unmarshal(c.Args, &a)
+				holds[i].since = a.SinceSeq
+				close(holds[i].reached)
+				<-release[i]
+				return nil
+			})
+			reached := func(i int) {
+				t.Helper()
+				select {
+				case <-holds[i].reached:
+				case <-time.After(15 * time.Second):
+					t.Fatalf("read of events %d never made", i+1)
+				}
+			}
+			reached(0)
+			_, err = w.fc.Approve(p1.ActionID)
+			w.ok(err)
+			for i := range 520 {
+				w.ok(w.fc.EditText(docID, w.satoSeat.ID, fmt.Sprintf("text %d", i)))
+			}
+			lists := len(w.calls(tu.actor.ID, "action_list_mine"))
+			close(release[0])
+			reached(1)
+			if holds[1].since <= holds[0].since {
+				t.Fatalf("the second read of events, since %d, is not the first's next page (since %d)", holds[1].since, holds[0].since)
+			}
+			if len(w.calls(tu.actor.ID, "action_list_mine")) == lists {
+				t.Fatal("action_list_mine was not read for the approval on the first page")
+			}
+			if !lookedUp {
+				second()
+			}
+			w.ok(w.fc.RequestChanges(p2.ActionID, note))
+			close(release[1])
+
+			wk.waitAttempt("cs101-tutor", k1, store.AttemptExecuted)
 			if at := wk.waitAttempt("cs101-tutor", k2, store.AttemptChangesRequested); at.Reason != note {
 				t.Errorf("the answer sent back settled with %q; want what was asked, %q", at.Reason, note)
 			}

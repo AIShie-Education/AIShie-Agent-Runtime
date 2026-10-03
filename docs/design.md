@@ -2063,6 +2063,22 @@ the event, what was asked of it, or why it was rejected, lost. While one
 of the seat's attempts is being sent, whose action the store may not know
 yet, the cursor stays where it is.
 
+One read of `event_list` takes more than one page when more than 500
+events wait (after a stop, say), and its pages share one lookup: a
+proposal looked up for a decision on one page may be decided before the
+next page is read. A decision whose action the lookup read on an earlier
+page still `proposed`, or did not find where it had read the agent's last
+action on an earlier page, finds the lookup behind it
+(`actionLookup.behind`): the read stops, the cursor stays before its
+page, and events are read again at once, that page now the first, read
+before any of `action_list_mine`. Settled from the event, what was asked
+of it, or why it was rejected, would be lost. Nothing read on the page in
+hand is behind it, Core recording a decision and its event in one
+transaction, so an event is read again once at most for this; and an
+action read decided, on any page, is settled as it was read: a status
+other than `proposed` is final (`approved` lives only inside the
+transaction that carries it out), and is the decision the event names.
+
 Core's `message_retracted` names no author, so a retraction of the agent's
 own answer is recognised from memory (the `answered` note names the posted
 message); with `memory.enabled: false` it is not.
@@ -2790,9 +2806,11 @@ Chinese with a table, overran, and was cut off.
   revised, told what was asked, or that it could not be read when
   `action_list_mine` fails, or, after a stop or a 401 cut that read
   short, told it once the seat starts again, or when sent back as
-  another decision is looked up (proposed, or still being sent) told it
-  all the same, the actions cursor left before it, and shown the answer
-  read, in a chain of
+  another decision is looked up, its event in the next read of events
+  (proposed, or still being sent), told it all the same, the actions
+  cursor left before it, or between two pages of one read (looked up
+  proposed on the first, or proposed after its lookup), told it once the
+  second page is read again, and shown the answer read, in a chain of
   revisions with memory on and off, the one after a revision rejected
   naming nothing, and the one after Core refuses `revises`
   (`not_revisable`, or a Core from before it) naming nothing, still told
