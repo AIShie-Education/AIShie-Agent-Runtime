@@ -87,11 +87,16 @@ func TestServiceRecognizesOnceInTheBackground(t *testing.T) {
 		t.Errorf("a question meanwhile: %+v", st)
 	}
 	close(release)
+	// Done once the job is let go, which comes just after its text is kept:
+	// a question in between is still told it is pending.
+	var done State
 	eventually(t, "the text kept", func() bool {
-		_, err := st.OCRText(t.Context(), sum)
-		return err == nil
+		done = s.Text(t.Context(), sum, PDF, 3, bytesOf("x", &fetched))
+		return done.Status == StatusDone
 	})
-	done := s.Text(t.Context(), sum, PDF, 3, bytesOf("x", &fetched))
+	if _, err := st.OCRText(t.Context(), sum); err != nil {
+		t.Errorf("the text was not kept: %v", err)
+	}
 	if done.Status != StatusDone || done.Text.Text != "## Page 1\n期中考試" || done.Text.Engine != rec.Describe() ||
 		len(done.Text.Sections) != 1 || done.Text.Kind != store.OCRPDF {
 		t.Errorf("done: %+v %+v", done, done.Text)
