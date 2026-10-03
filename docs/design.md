@@ -2054,7 +2054,14 @@ change, as the events path does, and an answer Core refuses for a source
 is posted again without it, as a claim posts it (§5.3), the model not
 asked. The
 `actions` cursor moves only over settled actions, stopping before the first
-proposal still waiting; a lookup reads at most 50 pages of 200.
+proposal still waiting; a lookup reads at most 50 pages of 200. It stops
+too before a proposal the store still has as `proposed`: one decided
+after the events in hand were read, whose event is still to come, is
+settled in `action_list_mine` before the runtime has acted on it, and,
+passed over, would not be found when its event is read, but settled from
+the event, what was asked of it, or why it was rejected, lost. While one
+of the seat's attempts is being sent, whose action the store may not know
+yet, the cursor stays where it is.
 
 Core's `message_retracted` names no author, so a retraction of the agent's
 own answer is recognised from memory (the `answered` note names the posted
@@ -2791,8 +2798,10 @@ Chinese with a table, overran, and was cut off.
   not be read, retractions; answers sent back for changes
   revised, told what was asked, or that it could not be read when
   `action_list_mine` fails, or, after a stop or a 401 cut that read
-  short, told it once the seat starts again, and shown the answer read,
-  in a chain of
+  short, told it once the seat starts again, or when sent back as
+  another decision is looked up (proposed, or still being sent) told it
+  all the same, the actions cursor left before it, and shown the answer
+  read, in a chain of
   revisions with memory on and off, the one after a revision rejected
   naming nothing, and the one after Core refuses `revises`
   (`not_revisable`, or a Core from before it) naming nothing, still told
