@@ -495,7 +495,9 @@ type given struct {
 	pages bool
 	// unit is what the pages the model asked for are, page or slide (as
 	// doctext names them), where they are given as it asked: as a PDF of
-	// their own, or the text of them alone (pagesOfText); "" otherwise.
+	// their own, or the text of them alone (pagesOfText); "" otherwise,
+	// the whole PDF given where the runtime cuts none among them. The
+	// answer's sources name a page or a slide by it (fileRead).
 	unit string
 	// coreEnds are where each part of the file's text version ends in
 	// text, as document_text gave them, where the runtime read it in

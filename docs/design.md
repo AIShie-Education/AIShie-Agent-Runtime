@@ -1511,7 +1511,10 @@ For an inbox row (conversation X, question M, opener P):
 2. **Unsettled attempt?** An attempt at M found `sending` (a crash, a
    timeout) is sent again with its stored bytes before anything else.
 3. **Attempt number**: one more than the attempts at M so far, all settled
-   without posting. Past `max_attempts`: skip it until tomorrow
+   without posting. `max_attempts` counts the attempts at answering: an
+   attempt that posts the same answer again without a source Core refused
+   (What the answer relied on, below) is not one. Past `max_attempts`:
+   skip it until tomorrow
    (`on_attempts_exhausted: skip`), X left open. The runtime closes no
    conversation, where §2.4 closes X (`close:{X}`): nothing ends a
    conversation in the product any more. A configuration written before
@@ -1883,49 +1886,88 @@ keep, and keeps to what it knows.
   file's text or pages. Each counts once, in the order the calls were made,
   at most 20. Not counted: a document only listed; a call refused, of
   another kind of document (a student's work, a grader's feedback), of a
-  version purged, or one that gave nothing of it (its file not given, and
-  no text of its own); the runtime's own reads (a search's scope, the parts
-  of a text version); anything read for another attempt, another question
-  or another conversation; and the question's own files.
+  version or a document purged, or one that gave nothing of it (its file
+  not given, and no text of its own); the runtime's own reads (a search's
+  scope, the parts of a text version); anything read for another attempt,
+  another question or another conversation, an earlier answer's sources
+  among them; and the question's own files.
 - *What a source names*: the `document_id` and `version.id` Core gave;
   `file_id` where the call gave one file's content, the file it named
   (`file_id`) or a version's one file (a version of several read whole
   names none); `page` or `slide` where the call asked for that one page
   (`file_pages`) and was given it alone, as a PDF of its own or the text
   of it alone, or where the call is the `read` of search hits on that page
-  or slide alone; `part` only where it is Core's numbering: the runtime
-  read the file's text version in Core's parts itself (`document_text`)
-  and gave the model text that lies within one of them. The runtime's own
-  `file_part`, its cutting of a text or of a PDF's pages, is never a
-  `part`, and a text version Core gave whole beside the version names
-  none.
+  or slide alone. The whole PDF, given where the runtime cuts no PDF (no
+  LibreOffice), names no page, though the model is told to see the page
+  in it: it was given every page, and Core's "from the `file_pages` the
+  call read" allows either. `part` only where it is Core's numbering: the
+  runtime read the file's text version in Core's parts itself
+  (`document_text`) and gave the model text that lies within one of them.
+  The runtime's own `file_part`, its cutting of a text or of a PDF's
+  pages, is never a `part`, and a text version Core gave whole beside the
+  version names none.
 - *A search's hits* are no source: an excerpt is cut, and the model is
   told to read a passage before it relies on it. A hit counts when the
   model makes the call it names, which then names the hit's page or slide
-  (hits on two pages read by one call name neither).
+  (hits on two pages read by one call name neither). This departs from
+  the letter of Core's §2.10, which lists a `course_materials_search`
+  hit's `where` (`page 3`) as a page an answer relied on, with the hit's
+  document, version and file, and of AIShie-Core #69, which lists search
+  hits among what an answer read. The runtime takes a hit's `where` as
+  that list says, once the hit is read; a hit given and not read names
+  nothing, since a search gives every hit it finds, not the ones the model
+  chose, and naming them all would say an answer rests on materials it
+  may only have seen listed. An answer that only searched is one whose
+  sources the runtime cannot say, which Core keeps apart by the field
+  left out (AIShie-Core #71: "leave the field out only when the runtime
+  cannot say").
 - *None, or nothing said.* An answer that relied on none sends
   `sources: []`, which Core keeps apart from one that does not say; so
   does a text of the runtime's own (`on_budget_text`, `on_refusal_text`,
   the quota's notice), which relies on no material whatever the model
   read. An answer whose model was given search hits it did not read, and
   nothing else of the course's materials, sends no `sources`: it cannot be
-  said to have relied on none.
+  said to have relied on none. Nor can one that read none of them in a
+  conversation whose earlier answers, given to its model, relied on some,
+  or said nothing of their sources (an answer from before them, or one
+  that only searched): a follow-up such as "repeat question 2 of HW1" may
+  rest on what that answer read, for its own question. It sends no
+  `sources` either, rather than carrying the earlier answer's: Core's
+  §2.10 takes what an answer read for its own question, "nor anything it
+  read for another question" (`worker.saidOf`). Earlier answers that
+  relied on none (the runtime's notices, say) leave it `[]`. Nor can a
+  revision that read none of them, of an answer a person sent back for
+  changes and whose request stands (step 9), where that answer relied on
+  some or said nothing of them: it writes that answer again as they asked
+  ("make it shorter"), shown it whole, and may keep what that answer read
+  for its own attempt, which an attempt never names. It sends no
+  `sources`; what the answer it writes again relied on is read from that
+  attempt's bytes written ahead (`passResult.redone`), as it was proposed,
+  the bytes its model is shown the answer from. A revision of one that
+  relied on none sends `[]`, as any answer that read none does after
+  earlier answers that relied on none.
 - *Refused.* Core takes a source only where the answering seat may read
   it as it takes the answer, and refuses the whole answer otherwise,
   naming it (`invalid_argument`, `source_unreadable` or `source_purged`,
   `field` `sources[i]`): a material archived, withheld or purged since it
   was read. The call is recorded as failed and its key spent, so the
   runtime posts the same answer again at once, without that source, under
-  the next attempt's number, written ahead as any attempt is, each time
-  one fewer; the model is not asked again. Only `sources` and the key
-  change: a revision posted again still names, in `revises`, the proposal
-  it revises (step 9). An answer whose every source is
-  refused is posted saying nothing of them: it did rely on materials it
-  can no longer name. Core's refusals of the sources as it reads them (too
-  many, one named twice), which the runtime should never meet, post the
-  answer again with none. An answer waiting for approval is checked again
-  when it is approved; failing then, it is regenerated (§5.4), from what
-  that attempt reads.
+  the next attempt's number, written ahead as any attempt is (and dated
+  as it is written), each time one fewer; the model is not asked again,
+  whether a claim posts the answer or the seat's start sends again one
+  left `sending` (§5.4). Only `sources` and the key change: a revision
+  posted again still names, in `revises`, the proposal it revises (step
+  9). Such an attempt is not an attempt at answering: it counts toward no
+  `max_attempts` (`worker.reposts`), so that a seat of one attempt still
+  posts its answer, and one posted again and then refused otherwise
+  leaves the attempts at answering that were left. Each drops a source,
+  so an answer is posted again at most 20 times. An answer whose every
+  source is refused is posted saying nothing of them: it did rely on
+  materials it can no longer name. Core's refusals of the sources as it
+  reads them (too many, one named twice), which the runtime should never
+  meet, post the answer again with none. An answer waiting for approval
+  is checked again when it is approved; failing then, it is regenerated
+  (§5.4), from what that attempt reads.
 - *A Core from before them* (before AIShie-Core #71, 81ad1fe) is sent
   none: the agent reads at start whether the catalogue Core serves has
   `conversation_answer` take `sources` (`Catalogue.Takes`), and an answer
@@ -1934,9 +1976,10 @@ keep, and keeps to what it knows.
   schema does not name; the answer is posted again without them, as
   above.
 - The pinned Core shows the sources in `conversation_messages` (the
-  runtime's `core.Message.Sources`); the runtime reads none of them back,
-  and the fake Core keeps them, checks them as Core does, and shows them;
-  with `WithoutSources`, it answers as a Core from before them.
+  runtime's `core.Message.Sources`); the runtime reads them back only to
+  see whether an earlier answer relied on materials or did not say
+  (above). The fake Core keeps them, checks them as Core does, and shows
+  them; with `WithoutSources`, it answers as a Core from before them.
 
 ### 5.4 Following proposals
 
@@ -1993,7 +2036,9 @@ read too soon would be passed over for good, and the attempt left
 as `proposed`, so that a decision made while the runtime was down is found,
 and attempts left `sending` are sent again; a replay that comes back
 `rejected`, or `changes_requested`, is settled with its reason, or what to
-change, as the events path does. The
+change, as the events path does, and an answer Core refuses for a source
+is posted again without it, as a claim posts it (§5.3), the model not
+asked. The
 `actions` cursor moves only over settled actions, stopping before the first
 proposal still waiting; a lookup reads at most 50 pages of 200.
 
@@ -2384,8 +2429,12 @@ Chinese with a table, overran, and was cut off.
   of what each `document_get` gave the model (`toolset/sources_test.go`):
   the syllabus by its own text, a PDF by its file, once however often it
   is read, a slide asked for alone, slides asked for together without
-  their numbers; nothing for a document listed, refused, of a student's
-  or a grader's, purged, or given nothing of; a version of several files
+  their numbers; a page asked for alone by its number, cut as a PDF of its
+  own or given as its text, pages asked for together and the whole PDF
+  given where none are cut without; nothing for a document listed,
+  refused, of a student's or a grader's, of a version or a document
+  purged, or given nothing of, and nothing said for a version Core names
+  no id of; a version of several files
   read whole with no file, and by its `file_id` with it; the runtime's
   `file_part` never a part, and Core's part only where the runtime read
   the text version in Core's parts and gave text within one of them,
@@ -2393,11 +2442,21 @@ Chinese with a table, overran, and was cut off.
   of an answer that only searched, a hit read naming its page or slide,
   two hits on two pages read by one call neither; at most 20, each once.
   The worker posts them in the order read, `[]` for an answer that read
-  nothing and for a refusal's notice, and no `sources` for one that only
-  searched; a source Core refuses as unreadable (the instructions of an
-  assignment unpublished meanwhile) or purged is dropped and the same
-  answer posted at once under the next attempt, saying nothing of its
-  sources once none is left; a Core from before them is sent none, and
+  nothing and for a refusal's, the budget's and the quota's notices, and
+  no `sources` for one that only searched, nor for a follow-up that read
+  nothing after an answer that relied on the syllabus, nor for a revision
+  that read nothing of an answer sent back for changes that relied on it
+  ("make it shorter"), shown that answer, proposed and approved, nor for
+  one naming nothing after Core refuses what the one before it named
+  (`not_revisable`), still shown it, while a revision of one that relied
+  on none sends `[]`; a source Core
+  refuses as unreadable (the instructions of an assignment unpublished
+  meanwhile) or purged is dropped and the same answer posted at once under
+  the next attempt, saying nothing of its sources once none is left, and
+  so is one left `sending` at the seat's start, the model not asked and
+  the attempt dated anew; posted again, it counts toward no
+  `max_attempts`, under one attempt and under two whose answer posted
+  again is refused otherwise; a Core from before them is sent none, and
   one behind a newer catalogue has the answer posted again without them.
   A revision of an answer sent back for changes names its own sources
   and the proposal it revises in one call, both written ahead, over MCP
@@ -2412,7 +2471,9 @@ Chinese with a table, overran, and was cut off.
   reader them as they may open the documents now. The end to end
   (`hosted-agent-from-the-registry`) has Sato read, in
   `conversation.messages`, the slides' version and file as what the hosted
-  agent's answer relied on, and its first answer relying on none.
+  agent's answer relied on, and its first answer relying on none; and
+  `changes-requested` replays a revision's stored bytes over REST, naming
+  what it revises in the `Revises` header.
 - The transcriber (`internal/transcribe`) against `fakecore`, whose text
   versions, service credential and queue answer as Core #43's do (a
   claim's lease lost, the text edited by staff meanwhile, a credential

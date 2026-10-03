@@ -65,8 +65,7 @@ func get(id, args string) llm.Part { return call(id, FilePartTool, args) }
 // across turns: the syllabus by its own text, a PDF's file by its text,
 // once however often it is read; a slide asked for alone by its number,
 // and slides asked for together by none. A document only listed, and one
-// Core does not give, are no source; nor is the call the runtime makes
-// itself for the text of a search's scope.
+// Core does not give, are no source.
 func TestSourcesAreWhatTheModelWasGiven(t *testing.T) {
 	c := newSearchCore(t, course()...)
 	r := searchRunner(c, memstore.New(), &SearchScope{}, false)
@@ -90,12 +89,13 @@ func TestSourcesAreWhatTheModelWasGiven(t *testing.T) {
 	wantSources(t, r.Sources, syll, reading, slide2, slides)
 }
 
-// A search's hits are no source, their excerpts cut: an answer that only
-// searched says nothing of its sources (nil), rather than that it relied
-// on none. A hit read with the call it names is one, with the page or the
-// slide of the hit where the call names none: a text version read by its
-// part, where the hit is on page 2; a slide read by its number. Hits on
-// two pages that one call reads leave the page out.
+// A search's hits are no source, their excerpts cut, nor are the reads the
+// search makes itself of its scope: an answer that only searched says
+// nothing of its sources (nil), rather than that it relied on none, nor
+// names what the search read. A hit read with the call it names is one,
+// with the page or the slide of the hit where the call names none: a text
+// version read by its part, where the hit is on page 2; a slide read by
+// its number. Hits on two pages that one call reads leave the page out.
 func TestSourcesOfASearch(t *testing.T) {
 	c := newSearchCore(t, course()...)
 	r := searchRunner(c, memstore.New(), &SearchScope{}, false)
@@ -135,13 +135,16 @@ func TestSourcesOfASearch(t *testing.T) {
 	wantSources(t, r.Sources, core.Source{DocumentID: docHandout, VersionID: verHandout, FileID: sfileHandout})
 }
 
-// kinds are the documents kindCore gives, by their ids: one of each kind,
-// one purged, and one whose version is a scan the model is not given.
+// kinds are the documents kindCore gives, by their ids: one of each kind;
+// a material whose version is purged, and one purged whole; one whose
+// version is a scan the model is not given; and one whose version Core
+// gives no id.
 var kinds = map[string]string{
 	"0192f3c1-e001-7b4a-9c3d-2e1f0a9b8c7d": "submission", "0192f3c1-e002-7b4a-9c3d-2e1f0a9b8c7d": "feedback",
 	"0192f3c1-e003-7b4a-9c3d-2e1f0a9b8c7d": "purged", "0192f3c1-e004-7b4a-9c3d-2e1f0a9b8c7d": "empty",
 	"0192f3c1-e005-7b4a-9c3d-2e1f0a9b8c7d": "rubric", "0192f3c1-e006-7b4a-9c3d-2e1f0a9b8c7d": "instructions",
-	"0192f3c1-e007-7b4a-9c3d-2e1f0a9b8c7d": "material",
+	"0192f3c1-e007-7b4a-9c3d-2e1f0a9b8c7d": "material", "0192f3c1-e008-7b4a-9c3d-2e1f0a9b8c7d": "purged document",
+	"0192f3c1-e009-7b4a-9c3d-2e1f0a9b8c7d": "unnamed",
 }
 
 // idOf is the id of kinds' document of kind.
@@ -155,8 +158,11 @@ func idOf(kind string) string {
 }
 
 // kindCore answers document_get with kinds' documents, each a version of
-// its own text, its id the document's with a v; purged's version is
-// purged, and empty's has no text and a scan for its file.
+// its own text, its id the document's with a v: purged's version is
+// purged, and purged document's document, each still giving its text, as
+// no Core does, so that the purge alone keeps it from being a source;
+// empty's has no text and a scan for its file; unnamed's version has no
+// id.
 func kindCore(fs *fileServer) func(context.Context, string, json.RawMessage) (*core.Envelope, error) {
 	return func(_ context.Context, _ string, args json.RawMessage) (*core.Envelope, error) {
 		var a struct {
@@ -165,33 +171,85 @@ func kindCore(fs *fileServer) func(context.Context, string, json.RawMessage) (*c
 		_ = json.Unmarshal(args, &a)
 		kind := kinds[a.DocumentID]
 		version := `{"id":"v` + a.DocumentID + `","seq":1,"body_md":"What it says.","files":[],"published":true}`
+		document := ""
 		switch kind {
 		case "purged":
-			kind, version = "material", `{"id":"v`+a.DocumentID+`","seq":1,"files":[],"published":true,`+
+			kind, version = "material", `{"id":"v`+a.DocumentID+`","seq":1,"body_md":"What it said.","files":[],"published":true,`+
 				`"purged":{"at":"2026-09-30T00:00:00Z","by_actor_id":"a","reason":"r"}}`
+		case "purged document":
+			kind, document = "material", `"purged_at":"2026-09-30T00:00:00Z",`
 		case "empty":
 			kind, version = "material", `{"id":"v`+a.DocumentID+`","seq":1,"files":[{"id":"`+fileSlides+`","position":1,"filename":"scan.pdf",`+
 				`"content_type":"application/pdf","byte_size":10,"download_url":"`+fs.url("/scanned.pdf")+`"}],"published":true}`
+		case "unnamed":
+			kind, version = "material", `{"seq":1,"body_md":"What it says.","files":[],"published":true}`
 		}
-		return executed(`{"id":"` + a.DocumentID + `","kind":"` + kind + `","title":"T","version":` + version + `}`), nil
+		return executed(`{"id":"` + a.DocumentID + `","kind":"` + kind + `","title":"T",` + document + `"version":` + version + `}`), nil
 	}
 }
 
 // A source is a course's material, instructions or rubric: never a
 // student's work or a grader's feedback, which Core would refuse as none
-// the seat may read; nor a version purged, nor one the model was given
-// nothing of (a scan with no text, no OCR here, and no text of the
-// version's own). An answer given none of them relied on none.
+// the seat may read; nor a version purged, or of a document purged,
+// whatever the result still holds; nor one the model was given nothing
+// of (a scan with no text, no OCR here, and no text of the version's
+// own). An answer given none of them relied on none. A version Core
+// gives no id of, its text given, is given and named by no source: an
+// answer given it and nothing else says nothing of its sources.
 func TestSourcesAreCourseMaterialsGiven(t *testing.T) {
 	fs := newFileServer(t)
 	r := Runner{Client: core.NewClient(&fakeCore{respond: kindCore(fs)}), Files: NewHTTPFetcher(fs.Client()), Sources: &Sources{}}
 	set := delegateSet(t)
 	doc := func(id, kind string) llm.Part { return get(id, `{"document_id":"`+idOf(kind)+`"}`) }
-	turn(t, set, r, doc("a", "submission"), doc("b", "feedback"), doc("c", "purged"), doc("d", "empty"))
+	turn(t, set, r, doc("a", "submission"), doc("b", "feedback"), doc("c", "purged"), doc("d", "purged document"), doc("e", "empty"))
 	wantSources(t, r.Sources)
-	turn(t, set, r, doc("e", "rubric"), doc("f", "instructions"), doc("g", "material"))
+	turn(t, set, r, doc("f", "rubric"), doc("g", "instructions"), doc("h", "material"))
 	source := func(kind string) core.Source { return core.Source{DocumentID: idOf(kind), VersionID: "v" + idOf(kind)} }
 	wantSources(t, r.Sources, source("rubric"), source("instructions"), source("material"))
+
+	r.Sources = &Sources{}
+	turn(t, set, r, doc("i", "unnamed"))
+	if got := r.Sources.List(); got != nil {
+		t.Errorf("an answer given a version Core named no id of relied on %s; want nil, which says nothing", sourcesText(got))
+	}
+	turn(t, set, r, doc("j", "material"))
+	wantSources(t, r.Sources, source("material"))
+}
+
+// A page asked for alone (file_pages) is named where it was given alone:
+// cut from the PDF as a PDF of its own, or as the text of it alone to a
+// model that takes no files. Pages asked for together name none; nor does
+// the whole PDF, given where the runtime cuts no PDF, though the model is
+// told to see the page in it: it was given every page.
+func TestSourcesOfPagesAskedFor(t *testing.T) {
+	fs := newFileServer(t)
+	result := versionResult(fs, "", vfile{id: fileSlides, name: "w1.pdf", ct: "application/pdf", path: "/reading.pdf", size: len(reading)})
+	file := core.Source{DocumentID: docID, VersionID: "v1", FileID: fileSlides}
+	page2 := file
+	page2.Page = 2
+	for _, c := range []struct {
+		name         string
+		files, cuts  bool
+		pages        string
+		givenAs, say string
+		want         core.Source
+	}{
+		{"a page cut as a PDF of its own", true, true, "2", givenFile, "the file's page 2 are given as a PDF of their own", page2},
+		{"pages cut together", true, true, "1-2", givenFile, "the file's pages 1–2 are given as a PDF of their own", file},
+		{"the whole PDF, where none are cut", true, false, "2", givenFile, "the whole PDF is given: see page 2 in it", file},
+		{"the text of a page alone", false, true, "2", givenText, "file_text is page 2 alone", page2},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := Runner{Client: core.NewClient(&fakeCore{respond: (&versionCore{result: func() string { return result }}).respond}),
+				Files: NewHTTPFetcher(fs.Client()), Texts: NewTextCache(0), FileInput: c.files, Office: &stubOffice{noCuts: !c.cuts},
+				Sources: &Sources{}}
+			parts := turn(t, delegateSet(t), r, get("p", `{"document_id":"`+docID+`","file_pages":"`+c.pages+`"}`))
+			if rec := fileRecordOf(t, parts[0]); rec["given_as"] != c.givenAs || !strings.Contains(noteOf(rec), c.say) {
+				t.Fatalf("file_pages %s: %s", c.pages, parts[0].Content)
+			}
+			wantSources(t, r.Sources, c.want)
+		})
+	}
 }
 
 // A version of several files read whole names no file, having read

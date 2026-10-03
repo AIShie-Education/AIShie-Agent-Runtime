@@ -610,8 +610,9 @@ func (s *Seat) recover(ctx context.Context) {
 	}
 }
 
-// resendAtStart sends one attempt left sending again, as a claim would,
-// under the conversation's lease, and records its end in the ledger.
+// resendAtStart sends one attempt left sending again, as a claim would
+// (claim.sent), under the conversation's lease, and records its end in
+// the ledger.
 func (s *Seat) resendAtStart(ctx context.Context, at store.Attempt) {
 	if !s.a.sched.reserve(at.ConversationID) {
 		return
@@ -625,16 +626,13 @@ func (s *Seat) resendAtStart(ctx context.Context, at store.Attempt) {
 	ctx, cancel := context.WithTimeout(core.WithPriority(ctx, core.PriorityAnswer), c.eff.Budgets.PerAnswer.WallClock()+passSlack)
 	defer cancel()
 	s.log.Info("an attempt written ahead is sent again", "conversation", at.ConversationID, "key", at.Key)
-	over := s.sendBegins()
-	env, err := s.a.client.Send(ctx, at.Tool, at.Args)
-	var d Decision
+	classify := Classify
 	if at.Tool == toolClose {
-		d = classifyClose(env, err)
-	} else {
-		d = Classify(env, err)
+		classify = classifyClose
 	}
-	settle(s.a, c.eff, at, env, d)
-	over()
+	// An answer Core refuses for a source is posted again without it, as a
+	// claim posts it, the model not asked again (§5.3).
+	at, env, d := c.sent(ctx, at, classify)
 	switch d.Next {
 	case NextDone:
 		if at.Tool == toolAnswer {

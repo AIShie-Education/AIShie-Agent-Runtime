@@ -392,7 +392,8 @@ func (w *world) decide(t testing.TB, actionID, decision, reason string) string {
 // answerAs is the agent the runtime rt runs as id calling
 // conversation_answer itself in conv, over REST, with the token rt holds
 // for it, under key, with the arguments the runtime wrote ahead under it
-// (its body and sources): a replay of what the runtime sent.
+// (its body and sources, and the proposal it revises): a replay of what
+// the runtime sent.
 func (w *world) answerAs(t testing.TB, rt *instance, id, conv, key string) reply {
 	t.Helper()
 	at := rt.attempt(id, key)
@@ -403,11 +404,13 @@ func (w *world) answerAs(t testing.TB, rt *instance, id, conv, key string) reply
 	if err := json.Unmarshal(at.Args, &args); err != nil {
 		t.Fatal(err)
 	}
-	// The course and the conversation are in the path, the key a header.
-	for _, k := range []string{"course_id", "conversation_id", "idempotency_key"} {
+	// The course and the conversation are in the path, the key and the
+	// proposal it revises headers: Core's REST body takes neither.
+	revises, _ := args["revises"].(string)
+	for _, k := range []string{"course_id", "conversation_id", "idempotency_key", "revises"} {
 		delete(args, k)
 	}
-	r, err := w.api.send(context.Background(), rt.token(id), "POST", w.path("/conversations/"+conv+"/answer"), args, key)
+	r, err := w.api.sendRevising(context.Background(), rt.token(id), "POST", w.path("/conversations/"+conv+"/answer"), args, key, revises)
 	if err != nil {
 		t.Fatal(err)
 	}
