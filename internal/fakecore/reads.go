@@ -115,6 +115,7 @@ var visibility = map[string][]string{
 	"member.removed": {permMemberRead}, "member.rescoped": {permMemberRead},
 	"course.created": {permDocumentRead}, "course.updated": {permDocumentRead},
 	"course.activated": {permDocumentRead}, "course.archived": {permDocumentRead},
+	"grade.created":         {permGradeSubmit, permGradePost},
 	"document.text_updated": {permDocumentRead}, "document.rubric_text_updated": {permRubricRead},
 	"document.draft_text_updated": {permDocumentReadDraft},
 	"document.purged":             {permDocumentReadDraft},
@@ -125,6 +126,12 @@ func (c *Core) visible(e *event, m *member) bool {
 		cv := c.conversations[*e.subjectID]
 		return cv != nil && (cv.opener == m || cv.respondent == m)
 	}
+	return c.seesType(e, m) && checkScope(m, e.scope()) == ""
+}
+
+// seesType: m holds one of the permissions that see e's type, or caused
+// it.
+func (c *Core) seesType(e *event, m *member) bool {
 	for _, p := range visibility[e.typ] {
 		if m.perm(p).allowed() {
 			return true
@@ -138,6 +145,21 @@ func (c *Core) visible(e *event, m *member) bool {
 	return false
 }
 
+// scope is the student and the assignment an event is about, which a
+// seat must reach to see it, as its own and its principal's scope (Core's
+// ListEvents): one about a student and no assignment spans assignments.
+func (e *event) scope() scope {
+	var s scope
+	if e.student != "" {
+		s.students = []string{e.student}
+	}
+	if e.assignment != "" {
+		s.assignments = []string{e.assignment}
+	}
+	s.spans = e.student != "" && e.assignment == ""
+	return s
+}
+
 type eventListIn struct {
 	inCourse
 	SinceSeq int64 `json:"since_seq,omitempty"`
@@ -146,19 +168,35 @@ type eventListIn struct {
 }
 
 type eventView struct {
-	Seq         int64           `json:"seq"`
-	Type        string          `json:"type"`
-	ActionID    *string         `json:"action_id,omitempty"`
-	SubjectType string          `json:"subject_type"`
-	SubjectID   *string         `json:"subject_id,omitempty"`
-	Payload     json.RawMessage `json:"payload"`
-	OccurredAt  time.Time       `json:"occurred_at"`
+	Seq             int64           `json:"seq"`
+	Type            string          `json:"type"`
+	ActionID        *string         `json:"action_id,omitempty"`
+	SubjectType     string          `json:"subject_type"`
+	SubjectID       *string         `json:"subject_id,omitempty"`
+	StudentMemberID *string         `json:"student_member_id,omitempty"`
+	AssignmentID    *string         `json:"assignment_id,omitempty"`
+	Payload         json.RawMessage `json:"payload"`
+	OccurredAt      time.Time       `json:"occurred_at"`
 }
 
-// eventList is the feed from a cursor. The fake's events name no student or
-// assignment, so Core's scope filters on those have nothing to filter here.
-// next_seq is the last event returned, or since_seq when none is: Core's
-// query leaves out what the caller may not see before it pages.
+// viewEvent is an event as event_list shows it.
+func viewEvent(e *event) eventView {
+	v := eventView{Seq: e.seq, Type: e.typ, ActionID: e.actionID, SubjectType: e.subjectType, SubjectID: e.subjectID,
+		Payload: e.payload, OccurredAt: e.occurredAt}
+	if e.student != "" {
+		v.StudentMemberID = &e.student
+	}
+	if e.assignment != "" {
+		v.AssignmentID = &e.assignment
+	}
+	return v
+}
+
+// eventList is the feed from a cursor. Of the fake's events, only a draft
+// grade's names a student and an assignment (grades.go), which Core's
+// scope filters apply to (visible). next_seq is the last event returned,
+// or since_seq when none is: Core's query leaves out what the caller may
+// not see before it pages.
 func eventList() *impl {
 	return define(spec[eventListIn]{
 		gate:    gateConverses,
@@ -180,8 +218,7 @@ func eventList() *impl {
 				if e.seq <= in.SinceSeq || !c.visible(e, rc.member) {
 					continue
 				}
-				out.Events = append(out.Events, eventView{Seq: e.seq, Type: e.typ, ActionID: e.actionID, SubjectType: e.subjectType,
-					SubjectID: e.subjectID, Payload: e.payload, OccurredAt: e.occurredAt})
+				out.Events = append(out.Events, viewEvent(e))
 				out.NextSeq = e.seq
 			}
 			out.More = len(out.Events) == limit
@@ -738,33 +775,48 @@ func submissionGet() *impl {
 }
 
 type gradeView struct {
-	ID                string     `json:"id"`
-	StudentMemberID   string     `json:"student_member_id"`
-	SubmissionID      *string    `json:"submission_id,omitempty"`
-	AssignmentID      *string    `json:"assignment_id,omitempty"`
-	Origin            string     `json:"origin"`
-	Score             string     `json:"score"`
-	Feedback          *string    `json:"feedback,omitempty"`
-	GraderMemberID    string     `json:"grader_member_id"`
-	CreatedByActionID string     `json:"created_by_action_id"`
-	State             string     `json:"state"`
-	PostedAt          *time.Time `json:"posted_at,omitempty"`
-	CreatedAt         time.Time  `json:"created_at"`
+	ID                string          `json:"id"`
+	StudentMemberID   string          `json:"student_member_id"`
+	SubmissionID      *string         `json:"submission_id,omitempty"`
+	AssignmentID      *string         `json:"assignment_id,omitempty"`
+	Origin            string          `json:"origin"`
+	Score             string          `json:"score"`
+	Feedback          *string         `json:"feedback,omitempty"`
+	Breakdown         json.RawMessage `json:"breakdown,omitempty"`
+	GraderMemberID    string          `json:"grader_member_id"`
+	CreatedByActionID string          `json:"created_by_action_id"`
+	State             string          `json:"state"`
+	PostedAt          *time.Time      `json:"posted_at,omitempty"`
+	SupersededBy      *string         `json:"superseded_by,omitempty"`
+	CreatedAt         time.Time       `json:"created_at"`
 }
 
+// viewGrade is a grade as Core shows it, its state read off the two facts
+// that define it.
 func viewGrade(g *grade) gradeView {
-	at := g.postedAt
 	v := gradeView{ID: g.id, StudentMemberID: g.student.id, AssignmentID: &g.assignment.id, Origin: "entered", Score: g.score,
-		GraderMemberID: g.grader.id, CreatedByActionID: g.actionID, State: "posted", PostedAt: &at, CreatedAt: g.createdAt}
+		Feedback: g.feedback, Breakdown: g.breakdown, GraderMemberID: g.grader.id, CreatedByActionID: g.actionID,
+		State: g.state(), PostedAt: g.postedAt, SupersededBy: g.supersededBy, CreatedAt: g.createdAt}
 	if g.submission != nil {
 		v.SubmissionID = &g.submission.id
 	}
-	if g.feedback != "" {
-		fb := g.feedback
-		v.Feedback = &fb
-	}
 	return v
 }
+
+// state is draft, posted or superseded.
+func (g *grade) state() string {
+	switch {
+	case g.supersededBy != nil:
+		return "superseded"
+	case g.postedAt != nil:
+		return "posted"
+	}
+	return "draft"
+}
+
+// standing reports whether g is posted and not superseded: what everyone
+// who reads grades sees, and what totals count.
+func (g *grade) standing() bool { return g.state() == "posted" }
 
 func gradeList() *impl {
 	return define(spec[workListIn]{
@@ -776,9 +828,10 @@ func gradeList() *impl {
 				Grades []gradeView `json:"grades"`
 				Next   *string     `json:"next,omitempty"`
 			}{Grades: []gradeView{}}
+			drafts := seesDrafts(rc.member)
 			for _, g := range rc.course.grades {
 				if len(out.Grades) < limit && g.id > after && in.matches(g.student.id, g.assignment.id) &&
-					inScope(rc.member, g.student.id, g.assignment.id) {
+					(drafts || g.standing()) && inScope(rc.member, g.student.id, g.assignment.id) {
 					out.Grades = append(out.Grades, viewGrade(g))
 				}
 			}
@@ -815,7 +868,12 @@ func gradeGet() *impl {
 			return target{typ: "grade", id: &g.id, scope: scope{students: []string{g.student.id}, assignments: []string{g.assignment.id}}}, nil
 		},
 		query: func(_ *Core, rc *readCtx, in gradeGetIn) (any, error) {
-			return viewGrade(findGrade(rc.course, in.GradeID)), nil
+			g := findGrade(rc.course, in.GradeID)
+			if !g.standing() && !seesDrafts(rc.member) {
+				// To a student an unposted grade does not exist yet.
+				return nil, missing("no such grade in this course")
+			}
+			return viewGrade(g), nil
 		},
 	})
 }
@@ -893,7 +951,7 @@ func gradebookGet() *impl {
 			for _, a := range co.assignments {
 				item := gradebookItem{ID: a.id, Kind: "assignment", Weight: a.points}
 				for _, g := range co.grades {
-					if g.student.id == student && g.assignment == a {
+					if g.student.id == student && g.assignment == a && g.standing() {
 						f := ratio(g.score, a.points)
 						item.Fraction = &f
 						got, possible = got+parseDecimal(g.score), possible+parseDecimal(a.points)

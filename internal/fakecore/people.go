@@ -71,8 +71,8 @@ func conversationOpen() *impl {
 			}
 			return c.checkMessageFiles(m, nil, in.Attachments, false)
 		},
-		pin: func(c *Core, m *member, in openIn) error {
-			return c.checkMessageFiles(m, nil, in.Attachments, true)
+		pin: func(c *Core, m *member, in openIn) (openIn, error) {
+			return in, c.checkMessageFiles(m, nil, in.Attachments, true)
 		},
 		execute: func(c *Core, ec *execCtx, in openIn) (any, error) {
 			respondent := c.members[in.RespondentMemberID.String()]
@@ -153,12 +153,12 @@ func conversationAsk() *impl {
 			}
 			return c.checkMessageFiles(m, cv, in.Attachments, false)
 		},
-		pin: func(c *Core, m *member, in askIn) error {
+		pin: func(c *Core, m *member, in askIn) (askIn, error) {
 			cv, err := c.findConversation(m.course, in.ConversationID)
 			if err != nil {
-				return err
+				return in, err
 			}
-			return c.checkMessageFiles(m, cv, in.Attachments, true)
+			return in, c.checkMessageFiles(m, cv, in.Attachments, true)
 		},
 		execute: func(c *Core, ec *execCtx, in askIn) (any, error) {
 			cv, err := c.findConversation(ec.course, in.ConversationID)
@@ -275,8 +275,9 @@ func (c *Core) ownerJudges(caller *actor, seat *member, a *action) (owner, may b
 
 // refusal is what approving proposal a, of tool t with arguments args,
 // would be refused with now for what it asks, before anything is carried
-// out: the tool's check, and its validate as the proposer's (Core's
-// pipeline.refusal); nil when neither refuses it. It changes nothing.
+// out: the tool's check, its validate as the proposer's, and its since, of
+// what changed since a was proposed (Core's pipeline.refusal); nil when
+// none refuses it. It changes nothing.
 func (c *Core) refusal(t *toolDef, a *action, args any) *apiError {
 	asked := func(err error) *apiError {
 		if e, ok := asAPI(err); ok {
@@ -291,6 +292,11 @@ func (c *Core) refusal(t *toolDef, a *action, args any) *apiError {
 	}
 	if t.impl.validate != nil {
 		if err := t.impl.validate(c, a.member, args); err != nil {
+			return asked(err)
+		}
+	}
+	if t.impl.since != nil {
+		if err := t.impl.since(c, a.createdAt, args); err != nil {
 			return asked(err)
 		}
 	}
@@ -374,7 +380,7 @@ func actionDecide() *impl {
 			if prop == nil || prop.course == nil || prop.course.id != in.CourseID.String() {
 				return missing("no such action in this course")
 			}
-			_, err := c.refuseDecision(m, prop)
+			_, err := c.refuseDecision(m, prop, in.Decision)
 			return err
 		},
 		execute: func(c *Core, ec *execCtx, in decideIn) (any, error) {
@@ -383,11 +389,11 @@ func actionDecide() *impl {
 	})
 }
 
-// refuseDecision says why seat m may not decide proposal prop now, or nil
-// when it may; and, when it may, whether it decides it as the owner of the
-// agent that proposed it (byOwner), as Core's refuseDecision does. It
-// changes nothing.
-func (c *Core) refuseDecision(m *member, prop *action) (byOwner bool, err error) {
+// refuseDecision says why seat m may not decide proposal prop now as
+// decision says, or nil when it may; and, when it may, whether it decides
+// it as the owner of the agent that proposed it (byOwner), as Core's
+// refuseDecision does. It changes nothing.
+func (c *Core) refuseDecision(m *member, prop *action, decision string) (byOwner bool, err error) {
 	if prop.status != actProposed {
 		return false, conflicts("the action is %s, not awaiting a decision", prop.status)
 	}
@@ -413,8 +419,16 @@ func (c *Core) refuseDecision(m *member, prop *action) (byOwner bool, err error)
 	if c.judgesOwn(prop, m, m.actor) {
 		return false, forbid("nobody decides their own proposal, even at one remove: this one decides or reviews an action of yours")
 	}
+	if decision == decisionApprove && c.closesOwnEscalation(prop, m.actor) {
+		return false, errEscalationIsForOthers
+	}
 	return byOwner, nil
 }
+
+// errEscalationIsForOthers refuses whoever had a hand in escalating an
+// action (escalatedBy) a review that would close the escalation: from the
+// seat they raised it from or any other, made themselves or approved.
+var errEscalationIsForOthers = forbid("an escalation is for someone else to look at")
 
 // decide approves, rejects or sends back a proposal, as Core's
 // pipeline.Decide does:
@@ -426,7 +440,7 @@ func (c *Core) decide(ec *execCtx, in decideIn) (any, error) {
 	if prop == nil || prop.course != ec.course {
 		return nil, missing("no such action in this course")
 	}
-	byOwner, err := c.refuseDecision(ec.member, prop)
+	byOwner, err := c.refuseDecision(ec.member, prop, in.Decision)
 	if err != nil {
 		return nil, err
 	}
@@ -510,8 +524,14 @@ func (c *Core) decide(ec *execCtx, in decideIn) (any, error) {
 			return fail(err)
 		}
 	}
+	// What changed since it was proposed, which no call is refused for.
+	if t.impl.since != nil {
+		if err := t.impl.since(c, prop.createdAt, args); err != nil {
+			return fail(err)
+		}
+	}
 	child := &execCtx{now: ec.now, actor: prop.actor, member: a.decision.member, course: prop.course, actionID: prop.id,
-		createdAt: prop.createdAt}
+		createdAt: prop.createdAt, approved: true}
 	res, err := t.impl.execute(c, child, args)
 	if err != nil {
 		return fail(err)
@@ -636,8 +656,14 @@ func (c *Core) refuseReview(m *member, row *action, outcome string) (byOwner boo
 	if c.judgesOwn(row, m, m.actor) {
 		return false, forbid("nobody reviews their own action, even at one remove: this one decides or reviews an action of yours")
 	}
-	if from == reviewEscalated && c.escalatedBy(row, m.actor) {
-		return false, forbid("an escalation is for someone else to look at")
+	if from == reviewEscalated && c.escalatedBy(row.id, m.actor) {
+		// An escalation asks for a second reviewer, so whoever raised it
+		// does not close it, nor anyone of their party: not from the seat
+		// they raised it from, nor from one they have taken since.
+		// Approving someone else's escalation is raising it too. Approving
+		// someone else's review that closes it is refused in
+		// refuseDecision (closesOwnEscalation).
+		return false, errEscalationIsForOthers
 	}
 	return byOwner, nil
 }
@@ -671,18 +697,62 @@ func (c *Core) review(ec *execCtx, in reviewIn) (any, error) {
 	}{row.id, in.Outcome, byOwner}, nil
 }
 
-// escalatedBy reports whether act, or anyone of its party, escalated a: an
-// executed review of it with outcome escalated. (Core also counts whoever
-// approved such a review when it was a proposal; the fake's reviews of the
-// tests' own making are not proposed.)
-func (c *Core) escalatedBy(a *action, act *actor) bool {
+// escalatedBy reports whether act, or anyone of its party, had a hand in
+// escalating action id, from any seat, as Core's EscalatedBy has it: made
+// the review that escalated it, or approved that review, or confirmed that
+// approval, and so on up. An approved review is carried out as its
+// proposer, so its seat is only the first of these; each approval is an
+// executed action.decide about the one before, made from the seat that
+// approved it.
+func (c *Core) escalatedBy(id string, act *actor) bool {
+	about := func(a *action, target string) bool {
+		return a.status == actExecuted && a.targetType == "action" && a.targetID != nil && *a.targetID == target
+	}
+	var hand []*action
 	for _, r := range c.actionList {
-		if r.actionType == toolActionReview && r.status == actExecuted && r.targetID != nil && *r.targetID == a.id &&
-			payloadString(r.payload, "outcome") == reviewEscalated && sameParty(r.actor, act) {
+		if r.actionType == toolActionReview && about(r, id) && payloadString(r.payload, "outcome") == reviewEscalated {
+			hand = append(hand, r)
+		}
+	}
+	for i := 0; i < len(hand); i++ {
+		for _, d := range c.actionList {
+			if d.actionType == toolActionDecide && about(d, hand[i].id) && payloadString(d.payload, "decision") == decisionApprove {
+				hand = append(hand, d)
+			}
+		}
+	}
+	for _, h := range hand {
+		if h.member != nil && sameParty(h.member.actor, act) {
 			return true
 		}
 	}
 	return false
+}
+
+// closesOwnEscalation reports whether carrying out a would close an
+// escalation that act, or its party, had a hand in (escalatedBy): a is a
+// review of an action act escalated, or the approval of one, at any
+// remove, as Core's closesOwnEscalation has it. Once escalated, the action
+// can only be marked reviewed, so carrying such a review out closes the
+// escalation or fails. The review is carried out as its proposer, and
+// refuseReview checks only them; whoever approves it is checked here.
+// Saying no closes nothing, so a rejection anywhere on the way down is
+// not this.
+func (c *Core) closesOwnEscalation(a *action, act *actor) bool {
+	for a.actionType == toolActionDecide && a.targetID != nil {
+		if payloadString(a.payload, "decision") != decisionApprove {
+			return false
+		}
+		about := c.actions[*a.targetID]
+		if about == nil || about.course != a.course {
+			return false
+		}
+		a = about
+	}
+	if a.actionType != toolActionReview || a.targetID == nil {
+		return false
+	}
+	return c.escalatedBy(*a.targetID, act)
 }
 
 // finish moves a proposal to its end state.

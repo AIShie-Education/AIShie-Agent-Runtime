@@ -1494,6 +1494,117 @@ func TestNobodyDecidesTheirOwnAtOneRemove(t *testing.T) {
 	}
 }
 
+// An escalation is for someone else to look at than whoever had a hand in
+// it (Core's EscalatedBy and closesOwnEscalation), at any remove: the
+// approval of an approval of a review that would close one is refused to
+// whoever escalated it, while someone else confirms it; and the test
+// controls pass over whoever had a hand in it, as Core would refuse them.
+func TestEscalationIsForSomeoneElse(t *testing.T) {
+	w := newFakeWorld(t, Options{})
+	// Two agents nobody owns, whose decisions and reviews a person
+	// confirms, and which write material that is reviewed after.
+	reg := func(name string) (string, *mcpClient) {
+		t.Helper()
+		a := w.fc.AddUnownedAgent(name)
+		m, err := w.fc.Seat(a.ID, w.co.ID, SeatOptions{Preset: "ta",
+			Perms: map[string]string{permActionDecide: "confirm_required", permDocumentWrite: "pending_review"}})
+		w.ok(err)
+		return m.ID, w.client(a.Token)
+	}
+	_, one := reg("Registrar")
+	_, two := reg("Clerk")
+	ito := w.fc.AddPerson("Ito")
+	_, err := w.fc.Seat(ito.ID, w.co.ID, SeatOptions{Preset: "instructor"})
+	w.ok(err)
+	itoC := w.client(ito.Token)
+	review := func(c *mcpClient, id, outcome, key string) toolAnswer {
+		t.Helper()
+		return mustCall(t, c, "action_review", inCourseArgs(w, "action_id", id, "outcome", outcome, "idempotency_key", key))
+	}
+	decide := func(c *mcpClient, id, decision, key string) toolAnswer {
+		t.Helper()
+		return mustCall(t, c, "action_decide", inCourseArgs(w, "action_id", id, "decision", decision, "idempotency_key", key))
+	}
+	decidedBy := func(c *mcpClient, id string) (status, by string) {
+		t.Helper()
+		for _, a := range list(mustCall(t, c, "action_list_mine", inCourseArgs(w)), "actions") {
+			if a := a.(map[string]any); a["id"] == id {
+				by, _ := a["decided_by_member_id"].(string)
+				return a["status"].(string), by
+			}
+		}
+		t.Fatalf("%s is not among the caller's actions", id)
+		return "", ""
+	}
+
+	t.Run("at two removes", func(t *testing.T) {
+		w.setTutorLevel("pending_review")
+		conv, m1 := w.ask(0, "Q")
+		id := mustCall(t, w.agentC, "conversation_answer", answer(w, conv, m1, "A", 1)).str("action_id")
+		wantEnvelope(t, review(w.as("mori"), id, "escalated", "e1"), "executed", "", "")
+		p := review(one, id, "reviewed", "r1")
+		wantEnvelope(t, p, "proposed", "", "")
+		d := decide(two, p.str("action_id"), "approve", "d1")
+		wantEnvelope(t, d, "proposed", "", "")
+		// Confirming the approval carries out the review, which closes
+		// Mori's escalation.
+		c := decide(w.as("mori"), d.str("action_id"), "approve", "d2")
+		wantEnvelope(t, c, "failed", codeForbidden, "")
+		if c.str("error", "message") != "an escalation is for someone else to look at" {
+			t.Errorf("the refusal: %s", c.Text)
+		}
+		// Saying no closes nothing.
+		if c := decide(w.as("mori"), d.str("action_id"), "reject", "d3"); c.status() != "executed" || c.str("result", "outcome") != "rejected" {
+			t.Fatalf("Mori rejects the approval: %s", c.Text)
+		}
+		d = decide(two, p.str("action_id"), "approve", "d4")
+		if c := decide(itoC, d.str("action_id"), "approve", "d5"); c.status() != "executed" || c.str("result", "outcome") != "executed" ||
+			c.str("result", "result", "outcome") != "executed" {
+			t.Fatalf("Ito confirms the approval: %s", c.Text)
+		}
+		if row := list(mustCall(t, w.agentC, "action_list_mine", inCourseArgs(w)), "actions")[0].(map[string]any); row["review_state"] != "reviewed" {
+			t.Errorf("the answer: %v", row)
+		}
+	})
+
+	t.Run("the controls pass over whoever had a hand in it", func(t *testing.T) {
+		// One's material, which Sato, the first who may, escalates, and
+		// the other proposes to close: Sato is passed over to approve it.
+		doc := func(key string) string {
+			t.Helper()
+			a := mustCall(t, one, "document_create", inCourseArgs(w, "kind", "material", "title", key, "body_md", "# "+key, "idempotency_key", key))
+			wantEnvelope(t, a, "executed", "", "")
+			return a.str("action_id")
+		}
+		first := doc("week 1")
+		w.ok(w.fc.Review(first, "escalated"))
+		p := review(two, first, "reviewed", "r2")
+		wantEnvelope(t, p, "proposed", "", "")
+		if outcome, err := w.fc.Approve(p.str("action_id")); err != nil || outcome != "executed" {
+			t.Fatalf("Approve: %q %v", outcome, err)
+		}
+		if status, by := decidedBy(two, p.str("action_id")); status != "executed" || by != w.mori.ID {
+			t.Errorf("the review %s, approved by %s; want Mori, %s", status, by, w.mori.ID)
+		}
+		// The other's escalation of more material, which Sato approves:
+		// his hand is in it, and he is passed over to close it.
+		second := doc("week 2")
+		e := review(two, second, "escalated", "e3")
+		if outcome, err := w.fc.Approve(e.str("action_id")); err != nil || outcome != "executed" {
+			t.Fatalf("Approve: %q %v", outcome, err)
+		}
+		if _, by := decidedBy(two, e.str("action_id")); by != w.sato.ID {
+			t.Fatalf("the escalation approved by %s; want Sato, %s", by, w.sato.ID)
+		}
+		w.ok(w.fc.Review(second, "reviewed"))
+		for _, a := range list(mustCall(t, one, "action_list_mine", inCourseArgs(w)), "actions") {
+			if a := a.(map[string]any); a["id"] == second && (a["review_state"] != "reviewed" || a["reviewed_by_member_id"] != w.mori.ID) {
+				t.Errorf("the material: %v", a)
+			}
+		}
+	})
+}
+
 func TestDocumentRules(t *testing.T) {
 	w := newFakeWorld(t, Options{})
 	t.Run("kind must be a course's", func(t *testing.T) {

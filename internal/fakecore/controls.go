@@ -934,7 +934,9 @@ func (c *Core) decideAs(control, actionID, decision string, reason *string) (str
 	if prop == nil || prop.course == nil {
 		return "", fmt.Errorf("fakecore: %s: no action %s in a course", control, actionID)
 	}
-	m, err := c.judge(prop, func(*member) bool { return true })
+	// Nobody approves a review that closes an escalation they had a hand
+	// in (closesOwnEscalation).
+	m, err := c.judge(prop, func(m *member) bool { return decision != decisionApprove || !c.closesOwnEscalation(prop, m.actor) })
 	if err != nil {
 		return "", err
 	}
@@ -953,10 +955,11 @@ func (c *Core) decideAs(control, actionID, decision string, reason *string) (str
 	return out.Outcome, nil
 }
 
-// Approve approves a proposal as someone who may decide it. It is carried
-// out now, as its proposer, after authorizing the proposer again: the
-// outcome is executed, failed (a conversation that moved on) or cancelled
-// (the proposer may no longer, or it is too old).
+// Approve approves a proposal as someone who may decide it: never, for a
+// review that would close an escalation, anyone who had a hand in raising
+// it. It is carried out now, as its proposer, after authorizing the
+// proposer again: the outcome is executed, failed (a conversation that
+// moved on) or cancelled (the proposer may no longer, or it is too old).
 func (c *Core) Approve(actionID string) (string, error) {
 	return c.decideAs("Approve", actionID, "approve", nil)
 }
@@ -984,8 +987,8 @@ func (c *Core) RequestChanges(actionID, note string) error {
 // Review records a person's look at an action that executed pending
 // review, as action.review does: outcome reviewed or escalated. It is done
 // by someone who may: the first seat that decides actions, is not of the
-// actor's party, and did not escalate it. Its actor sees action.reviewed or
-// action.escalated in event_list.
+// actor's party, and had no hand in escalating it (escalatedBy). Its actor
+// sees action.reviewed or action.escalated in event_list.
 func (c *Core) Review(actionID, outcome string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -993,7 +996,7 @@ func (c *Core) Review(actionID, outcome string) error {
 	if row == nil || row.course == nil {
 		return fmt.Errorf("fakecore: Review: no action %s in a course", actionID)
 	}
-	m, err := c.judge(row, func(m *member) bool { return !c.escalatedBy(row, m.actor) })
+	m, err := c.judge(row, func(m *member) bool { return !c.escalatedBy(row.id, m.actor) })
 	if err != nil {
 		return err
 	}
@@ -1164,7 +1167,7 @@ func (c *Core) AddWork(courseID, studentID, body, score string) (Work, error) {
 	now := c.now()
 	s := &submission{id: newID(), assignment: co.assignments[0], student: student, body: body, createdAt: now, submittedAt: now}
 	g := &grade{id: newID(), student: student, assignment: s.assignment, submission: s, grader: grader, actionID: newID(),
-		score: score, createdAt: now, postedAt: now}
+		score: score, createdAt: now, postedAt: &now}
 	co.submissions, co.grades = append(co.submissions, s), append(co.grades, g)
 	return Work{SubmissionID: s.id, GradeID: g.id}, nil
 }
