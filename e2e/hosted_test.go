@@ -467,14 +467,15 @@ func modelClient(tr http.RoundTripper, target *url.URL) *http.Client {
 	return netguard.NoRedirects(&http.Client{Transport: toModel{next: tr, target: target}})
 }
 
-// toModel takes the calls to OpenAI's own endpoint to the scripted model.
+// toModel takes the calls to OpenAI's and OpenRouter's own endpoints to
+// the scripted model.
 type toModel struct {
 	next   http.RoundTripper
 	target *url.URL
 }
 
 func (tm toModel) RoundTrip(r *http.Request) (*http.Response, error) {
-	if r.URL.Host != "api.openai.com" {
+	if r.URL.Host != "api.openai.com" && r.URL.Host != "openrouter.ai" {
 		return tm.next.RoundTrip(r)
 	}
 	r = r.Clone(r.Context())

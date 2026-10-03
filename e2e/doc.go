@@ -12,8 +12,10 @@
 // readers open from Core (alone too, where Core has renditions and
 // LibreOffice is installed), a student's agent and an instructor's search
 // the course's materials, sharing one index, each finding only what Core
-// lets its seat read, and a version purged in Core leaves the index, and
-// no token reaches a log.
+// lets its seat read, and a version purged in Core leaves the index,
+// OpenRouter's upstream routing goes with every call of a model at
+// OpenRouter, a YAML agent's and that of an offer the school's
+// administrator makes through the API, and no token reaches a log.
 //
 // Each test seats its own people and agents through Core's REST API, as
 // root and then as those people, each signed in with a password of their
