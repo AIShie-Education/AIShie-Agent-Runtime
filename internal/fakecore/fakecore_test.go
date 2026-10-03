@@ -643,6 +643,52 @@ func TestProposals(t *testing.T) {
 	})
 }
 
+// A Core from before revises (WithoutRevises) lists no write taking it in
+// tools/list, and refuses a call over MCP that names a proposal it
+// revises, one sent back for changes too, as its schema refuses any
+// argument it does not name, recording nothing; the same call without it
+// is proposed. Over REST, it reads no Revises header: a call that gives
+// one is taken as one that names nothing.
+func TestACoreFromBeforeRevises(t *testing.T) {
+	ctx := context.Background()
+	w := newFakeWorld(t, Options{WithoutRevises: true})
+	l, err := w.agentC.post(ctx, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(l.Body), `"idempotency_key"`) || strings.Contains(string(l.Body), `"revises"`) {
+		t.Errorf("tools/list lists a write with revises, or none with a key")
+	}
+	w.setTutorLevel("confirm_required")
+	conv, m1 := w.ask(0, "When is the midterm?")
+	first := mustCall(t, w.agentC, "conversation_answer", answer(w, conv, m1, "Soon.", 1))
+	wantEnvelope(t, first, "proposed", "", "")
+	w.ok(w.fc.RequestChanges(first.str("action_id"), "Give the date."))
+	rev := answer(w, conv, m1, "On 14 March.", 2)
+	rev["revises"] = first.str("action_id")
+	a := mustCall(t, w.agentC, "conversation_answer", rev)
+	wantEnvelope(t, a, "error", codeInvalidArgument, "")
+	if msg := a.str("error", "message"); !strings.Contains(msg, `unexpected additional properties ["revises"]`) {
+		t.Errorf("the refusal: %s", a.Text)
+	}
+	if got := w.fc.Proposals(w.co.ID); len(got) != 0 {
+		t.Errorf("a refused revision proposed: %+v", got)
+	}
+	wantEnvelope(t, mustCall(t, w.agentC, "conversation_answer", answer(w, conv, m1, "On 14 March.", 3)), "proposed", "", "")
+
+	kconv, k1 := w.ask(1, "Is there a resit?")
+	r, err := w.rest().doRevising(ctx, "POST", "/v1/courses/"+w.course()+"/conversations/"+kconv+"/answer",
+		map[string]any{"in_reply_to_message_id": k1, "body": "Yes."}, "answer:"+kconv+":"+k1+":1", first.str("action_id"))
+	if err != nil || r.Status != http.StatusAccepted {
+		t.Fatalf("over REST, with a Revises header: %v %d %s", err, r.Status, r.Body)
+	}
+	for _, p := range w.fc.Proposals(w.co.ID) {
+		if p.Revises != "" {
+			t.Errorf("a proposal revises %s", p.Revises)
+		}
+	}
+}
+
 func TestEventVisibility(t *testing.T) {
 	w := newFakeWorld(t, Options{})
 	own := w.ownAgent()

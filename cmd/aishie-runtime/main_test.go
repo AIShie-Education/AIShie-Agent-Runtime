@@ -720,6 +720,17 @@ func TestMigrate(t *testing.T) {
 		!strings.Contains(out, fmt.Sprintf("schema version %d; this binary's newest is %d", latest, latest)) {
 		t.Errorf("migrate version: %d\n%s%s", code, out, errs)
 	}
+	// down takes no count: no one migration is taken down on its own, and
+	// a rollback, which leaves the schema as it is (docs/deploying.md),
+	// has nothing to run but the down that takes them all.
+	for _, args := range [][]string{{"migrate", "down", "1", "--yes"}, {"migrate", "down", "--yes", "1"}} {
+		if code, out, errs := runCmd(t, getenv, args...); code != exitUsage || !strings.Contains(errs, "migrate down: unknown arguments") {
+			t.Errorf("%s: %d\n%s%s", strings.Join(args, " "), code, out, errs)
+		}
+	}
+	if code, out, errs := runCmd(t, getenv, "migrate", "version"); code != exitOK || !strings.Contains(out, fmt.Sprintf("schema version %d;", latest)) {
+		t.Errorf("migrate version after a down by a count: %d\n%s%s", code, out, errs)
+	}
 	if code, out, errs := runCmd(t, getenv, "migrate", "down", "--yes"); code != exitOK || !strings.Contains(out, "schema version 0 (older") {
 		t.Errorf("migrate down: %d\n%s%s", code, out, errs)
 	}

@@ -107,6 +107,16 @@ type Options struct {
 	// 81ad1fe (sources.go): conversation.answer takes no sources, which its
 	// schema refuses, and conversation.messages shows none.
 	WithoutSources bool
+	// WithoutRevises refuses revises as a Core from before a proposal was
+	// sent back for changes (AIShie-Core #68; 2ba8ac7, the runtime's pin
+	// before 81ad1fe) does: over MCP, no write's schema names it, in
+	// tools/list or as a call is read, so that a call that gives it is
+	// refused as one giving any argument its schema does not name; over
+	// REST, the Revises header is not read. All else is the pinned Core's,
+	// sending a proposal back included (RequestChanges), so that a test
+	// sends one back and has the runtime name it to a Core that refuses
+	// revises, as a rollback of Core since has it.
+	WithoutRevises bool
 	// WithdrawnWaits answers as a Core from before a question its opener
 	// withdrew waited for no answer, as b0eb848 and older do
 	// (conversation.go): with the opener's latest message retracted, the

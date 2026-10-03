@@ -515,11 +515,11 @@ func TestAFollowUpOnAnAnswerThatReliedOnMaterialsSaysNothing(t *testing.T) {
 
 // A revision that reads none of the course's materials itself, of an
 // answer that relied on the syllabus, says nothing of its sources: Mori
-// sends the answer back asking only that it be shorter, and what the
-// revision keeps of it rests on the syllabus that answer read for its own
-// attempt, which the revision cannot name. Written ahead, proposed and
-// approved, it says nothing. A revision of an answer that relied on none
-// says it relies on none.
+// sends the answer back asking only that it be shorter, and the revision,
+// shown that answer whole as he read it, keeps what rests on the syllabus
+// that answer read for its own attempt, which the revision cannot name.
+// Written ahead, proposed and approved, it says nothing. A revision of an
+// answer that relied on none, shown it too, says it relies on none.
 func TestARevisionOfAnAnswerThatReliedOnMaterialsSaysNothing(t *testing.T) {
 	w := newWorld(t)
 	model := scripted.New(
@@ -529,7 +529,7 @@ func TestARevisionOfAnAnswerThatReliedOnMaterialsSaysNothing(t *testing.T) {
 		scripted.Reply("Hello, and welcome to CS101."),
 	)
 	tu, wk := confirmedTutor(t, w, model, nil)
-	revision := func(question, note string) (first, again fakecore.Proposal, conv string) {
+	revision := func(question, body, note string) (first, again fakecore.Proposal, conv string) {
 		t.Helper()
 		conv, msg := w.ask(0, tu, question)
 		k1, k2 := core.AnswerKey(conv, msg, 1), core.AnswerKey(conv, msg, 2)
@@ -540,13 +540,17 @@ func TestARevisionOfAnAnswerThatReliedOnMaterialsSaysNothing(t *testing.T) {
 		if again.Revises != first.ActionID {
 			t.Errorf("the revision revises %q; want %s", again.Revises, first.ActionID)
 		}
+		if s := lastRequest(t, model).System; !strings.Contains(s, "## The answer you are writing again\n- A member of staff read your last answer "+
+			"to this question before it was posted, and "+revisionSaid(note)+"\n"+answerRead(body)) {
+			t.Errorf("the revision's prompt does not show the answer sent back, %q, with what was asked:\n%s", body, s)
+		}
 		if at := wk.waitAttempt("cs101-tutor", k2, store.AttemptProposed); sentSources(t, at.Args) != sentSources(t, again.Args) {
 			t.Errorf("the revision written ahead relied on %s, and was proposed relying on %s", sentSources(t, at.Args), sentSources(t, again.Args))
 		}
 		return first, again, conv
 	}
 
-	p1, p2, conv := revision("How often are the lectures?", "Make it shorter.")
+	p1, p2, conv := revision("How often are the lectures?", "Lectures are weekly, on Mondays at 10, in room 4.", "Make it shorter.")
 	if got := sentSources(t, p1.Args); got != w.source(w.co.SyllabusID) {
 		t.Fatalf("the first answer relied on %s", got)
 	}
@@ -562,12 +566,67 @@ func TestARevisionOfAnAnswerThatReliedOnMaterialsSaysNothing(t *testing.T) {
 		t.Errorf("the revision posted: %q, relying on %s; want it to say nothing", a.Body, sourcesOf(a))
 	}
 
-	p1, p2, _ = revision("Hi!", "Welcome them to the course.")
+	p1, p2, _ = revision("Hi!", "Hello.", "Welcome them to the course.")
 	if got := sentSources(t, p1.Args); got != "none" {
 		t.Fatalf("the greeting relied on %s", got)
 	}
 	if got := sentSources(t, p2.Args); got != "none" {
 		t.Errorf("the greeting's revision relied on %s; want none", got)
+	}
+	if err := model.Err(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A revision that names nothing in revises, Core having refused what the
+// one before it named (not_revisable: a rollback of Core made the answer
+// sent back a rejection), is still told what was asked and shown the
+// answer sent back, which relied on the syllabus; reading nothing itself,
+// it says nothing of its sources, as does the refused one before it.
+func TestARevisionNamingNothingOfAnAnswerThatReliedOnMaterialsSaysNothing(t *testing.T) {
+	w := newWorld(t)
+	tu := w.tutor("cs101-tutor")
+	w.ok(w.fc.SetLevel(tu.seat.ID, "conversation_answer", "confirm_required"))
+	conv, msg := w.ask(0, tu, "How often are the lectures?")
+	k1, k2, k3 := core.AnswerKey(conv, msg, 1), core.AnswerKey(conv, msg, 2), core.AnswerKey(conv, msg, 3)
+	const body, note = "Lectures are weekly, on Mondays at 10, in room 4.", "Make it shorter."
+	args, err := json.Marshal(core.AnswerArgs{CourseID: w.co.ID, ConversationID: conv, InReplyToMessageID: msg, Body: body,
+		Sources: []core.Source{{DocumentID: w.co.SyllabusID, VersionID: w.versionOf(w.co.SyllabusID)}}, IdempotencyKey: k1})
+	w.ok(err)
+	caller := core.NewMCPCaller(core.MCPOptions{BaseURL: w.srv.URL, Token: tu.actor.Token, HTTPClient: &http.Client{Timeout: 5 * time.Second}})
+	env, err := caller.Call(context.Background(), toolAnswer, args)
+	if err != nil || env.Status != core.StatusProposed {
+		t.Fatalf("the first answer: %+v, %v", env, err)
+	}
+	w.ok(w.fc.Reject(env.ActionID, "From before the rollback."))
+	st := memstore.New()
+	if _, err := st.PutAttempt(context.Background(), store.Attempt{Key: k1, AgentID: "cs101-tutor", MemberID: tu.seat.ID, CourseID: w.co.ID,
+		ConversationID: conv, MessageID: msg, No: 1, Tool: toolAnswer, Args: args, Kind: kindModel, State: store.AttemptSending}); err != nil {
+		t.Fatal(err)
+	}
+	w.ok(st.FinishAttempt(context.Background(), "cs101-tutor", k1, store.Outcome{State: store.AttemptChangesRequested, ActionID: env.ActionID,
+		Reason: note}))
+	model := scripted.New(scripted.Reply("Weekly, on Mondays."), scripted.Reply("Weekly, on Mondays at 10."))
+	wk := w.start(w.config(nil, w.agentDoc("cs101-tutor", "m1", map[string]any{"memory": map[string]any{"enabled": false}}, nil)),
+		models{"m1": model}, workerOpts{store: st})
+	if at := wk.waitAttempt("cs101-tutor", k2, store.AttemptError); at.Reason != core.ReasonNotRevisable || sentSources(t, at.Args) != "unsaid" {
+		t.Errorf("the second attempt settled %s, %s, relying on %s; want refused, %s, saying nothing", at.State, at.Reason, sentSources(t, at.Args),
+			core.ReasonNotRevisable)
+	}
+	p := w.waitProposal(k3)
+	if p.Revises != "" || sentSources(t, p.Args) != "unsaid" {
+		t.Errorf("the third attempt revises %q, relying on %s; want none, saying nothing", p.Revises, sentSources(t, p.Args))
+	}
+	if at := wk.waitAttempt("cs101-tutor", k3, store.AttemptProposed); sentSources(t, at.Args) != "unsaid" {
+		t.Errorf("the third attempt was written ahead relying on %s; want it to say nothing", sentSources(t, at.Args))
+	}
+	reqs := model.Requests()
+	if len(reqs) != 2 {
+		t.Fatalf("%d model calls; want 2", len(reqs))
+	}
+	if s := reqs[1].System; !strings.Contains(s, "- A member of staff read an earlier answer of yours to this question before it was posted, and "+
+		revisionSaid(note)+"\n"+answerRead(body)) {
+		t.Errorf("the third attempt's prompt does not show the answer sent back with what was asked:\n%s", s)
 	}
 	if err := model.Err(); err != nil {
 		t.Fatal(err)

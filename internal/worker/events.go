@@ -324,7 +324,10 @@ func mayBeRuntimes(ev core.Event) bool {
 }
 
 // actionFromEvent is what an event says of a proposal's fate, for when
-// action_list_mine does not show it.
+// action_list_mine does not show it: an error the client does not retry,
+// the read cut short, or the action further than the lookup reads. The
+// event is acted on all the same, not left to be read again: what fails
+// so would fail again, and hold up every event after it.
 func actionFromEvent(ev core.Event) core.Action {
 	var p struct {
 		Outcome string `json:"outcome"`
@@ -342,9 +345,9 @@ func actionFromEvent(ev core.Event) core.Action {
 	case core.EventActionRejected:
 		act.Status = actionRejected
 	case core.EventActionChangesRequested:
-		// What to change is not in the event: action_list_mine has it,
-		// and without it the next attempt knows only that it was sent
-		// back.
+		// What to change is not in the event: action_list_mine has it.
+		// Without it, the next attempt is told that what was asked could
+		// not be read (Core always has a note), not that nothing was.
 		act.Status = actionChangesRequested
 	case core.EventActionCancelled:
 		act.Status = actionCancelled

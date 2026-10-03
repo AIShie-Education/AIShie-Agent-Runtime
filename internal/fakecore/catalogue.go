@@ -172,6 +172,23 @@ func mcpInputSchema(raw json.RawMessage, write bool) (json.RawMessage, error) {
 	return json.Marshal(s)
 }
 
+// withoutRevisesArg is a write's MCP input schema as a Core from before
+// revises shows it (Options.WithoutRevises): without revises. It is raw
+// itself when that does not read, which mcpInputSchema made.
+func withoutRevisesArg(raw json.RawMessage) json.RawMessage {
+	var s map[string]any
+	if json.Unmarshal(raw, &s) != nil {
+		return raw
+	}
+	props, _ := s["properties"].(map[string]any)
+	delete(props, revisesArg)
+	out, err := json.Marshal(s)
+	if err != nil {
+		return raw
+	}
+	return out
+}
+
 // envelopeSchema describes the envelope every call returns, with the tool's
 // own output as its result, as Core describes it.
 func envelopeSchema(result json.RawMessage) (json.RawMessage, error) {

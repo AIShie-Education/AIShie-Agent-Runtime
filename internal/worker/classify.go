@@ -174,11 +174,19 @@ func classifyFailed(env *core.Envelope, d *Decision) {
 }
 
 func classifyNeverAttempted(env *core.Envelope, d *Decision) {
-	if d.Reason == core.ReasonNotRevisable {
+	if refusedRevisesArg(env) {
+		// A Core from before revises, rolled back since the answer was
+		// sent back (its catalogue cannot say whether it takes revises):
+		// as not_revisable, under a reason of the runtime's own, Core
+		// giving none.
+		d.Reason = reasonRevisesNotTaken
+	}
+	if d.Reason == core.ReasonNotRevisable || d.Reason == reasonRevisesNotTaken {
 		// What the answer named in revises is no proposal of the agent's
 		// sent back for changes, as Core has it now (one a rollback of
-		// Core made a rejection, say): nothing was recorded, and the next
-		// attempt answers anew, naming none (revised).
+		// Core made a rejection, say), or Core takes no revises at all:
+		// nothing was recorded, and the next attempt is written again,
+		// naming none (revised).
 		d.Next, d.Outcome = NextAttempt, store.OutcomeFailed
 		return
 	}
@@ -206,6 +214,23 @@ func classifyNeverAttempted(env *core.Envelope, d *Decision) {
 		// runtime does not know: nothing was attempted.
 		d.Next, d.State, d.Outcome = NextRetryLater, "", store.OutcomeError
 	}
+}
+
+// reasonRevisesNotTaken is the reason an attempt is kept with when Core
+// refused it for naming a proposal in revises at all: over MCP, a Core
+// from before AIShie-Core #68 (2ba8ac7, say) refuses revises as an
+// argument its schema does not name, naming no field and giving no reason
+// of its own; over REST it ignores the Revises header. It is the
+// runtime's, not Core's: the attempts after it name nothing, as after
+// not_revisable (revised).
+const reasonRevisesNotTaken = "revises_not_taken"
+
+// refusedRevisesArg reports whether env refused an answer for its revises
+// argument, as an argument the tool's schema does not name: Core's message
+// says so, and names it, and nothing else Core says does.
+func refusedRevisesArg(env *core.Envelope) bool {
+	return env.Status == core.StatusError && env.Code() == core.CodeInvalidArgument && env.Detail("field") == "" && env.Error != nil &&
+		strings.Contains(env.Error.Message, "unexpected additional properties") && strings.Contains(env.Error.Message, `"revises"`)
 }
 
 // Core's refusals of an answer's sources (§2.10): one the answering seat

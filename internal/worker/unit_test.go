@@ -72,11 +72,16 @@ func TestNextAttempt(t *testing.T) {
 	}
 }
 
-// TestRevised: the next attempt at a message revises the newest attempt a
-// person sent back for changes, and a revision sent back in turn is the
-// one revised next; one that failed, or was rejected, after it names the
-// same; one Core refused for what it named (not_revisable) has the
-// attempts after it name none, until another is sent back.
+// TestRevised: the next attempt at a message writes again the newest
+// attempt a person sent back for changes, and names it in revises; a
+// revision sent back in turn is the one revised next. One written since
+// and decided by nobody (failed, expired, refused) leaves the request
+// standing, made of an earlier answer. A rejection since overrules it:
+// the next attempt revises nothing and names nothing. One Core refused for
+// what it named (not_revisable, or revises itself, as a Core from before
+// AIShie-Core #68 refuses it) has the attempts after it name nothing,
+// though they still write the answer sent back again, until another is
+// sent back; so does one sent back whose action is not known.
 func TestRevised(t *testing.T) {
 	sent := func(no int, action string) store.Attempt {
 		return store.Attempt{No: no, State: store.AttemptChangesRequested, ActionID: action, Reason: fmt.Sprintf("change %d", no)}
@@ -85,56 +90,46 @@ func TestRevised(t *testing.T) {
 		return store.Attempt{No: no, State: st, ActionID: fmt.Sprintf("act-%d", no), Reason: reason}
 	}
 	for _, c := range []struct {
-		name string
-		atts []store.Attempt
-		want string
+		name  string
+		atts  []store.Attempt
+		of    int // the attempt written again, by its number; 0 for none
+		since bool
+		names string
 	}{
-		{"none", nil, ""},
-		{"rejected, not sent back", []store.Attempt{other(1, store.AttemptRejected, "Too terse.")}, ""},
-		{"sent back", []store.Attempt{sent(1, "act-1")}, "act-1"},
-		{"a chain of two", []store.Attempt{sent(1, "act-1"), sent(2, "act-2")}, "act-2"},
-		{"a revision that failed, then", []store.Attempt{sent(1, "act-1"), other(2, store.AttemptFailed, "")}, "act-1"},
-		{"a revision rejected", []store.Attempt{sent(1, "act-1"), other(2, store.AttemptRejected, "No.")}, "act-1"},
-		{"refused for what it named", []store.Attempt{sent(1, "act-1"), other(2, store.AttemptError, core.ReasonNotRevisable)}, ""},
+		{"none", nil, 0, false, ""},
+		{"rejected, not sent back", []store.Attempt{other(1, store.AttemptRejected, "Too terse.")}, 0, false, ""},
+		{"sent back", []store.Attempt{sent(1, "act-1")}, 1, false, "act-1"},
+		{"sent back after a rejection", []store.Attempt{other(1, store.AttemptRejected, "Too terse."), sent(2, "act-2")}, 2, false, "act-2"},
+		{"a chain of two", []store.Attempt{sent(1, "act-1"), sent(2, "act-2")}, 2, false, "act-2"},
+		{"a revision that failed, then", []store.Attempt{sent(1, "act-1"), other(2, store.AttemptFailed, "")}, 1, true, "act-1"},
+		{"a revision expired, then", []store.Attempt{sent(1, "act-1"), other(2, store.AttemptCancelled, "proposal_expired")}, 1, true, "act-1"},
+		{"a revision rejected", []store.Attempt{sent(1, "act-1"), other(2, store.AttemptRejected, "No.")}, 0, false, ""},
+		{"rejected after one that failed", []store.Attempt{sent(1, "act-1"), other(2, store.AttemptFailed, ""),
+			other(3, store.AttemptRejected, "No.")}, 0, false, ""},
+		{"refused for what it named", []store.Attempt{sent(1, "act-1"), other(2, store.AttemptError, core.ReasonNotRevisable)}, 1, true, ""},
+		{"refused for naming any", []store.Attempt{sent(1, "act-1"), other(2, store.AttemptError, reasonRevisesNotTaken)}, 1, true, ""},
+		{"refused, then expired", []store.Attempt{sent(1, "act-1"), other(2, store.AttemptError, core.ReasonNotRevisable),
+			other(3, store.AttemptCancelled, "proposal_expired")}, 1, true, ""},
 		{"refused, then sent back again", []store.Attempt{sent(1, "act-1"), other(2, store.AttemptError, core.ReasonNotRevisable),
-			sent(3, "act-3")}, "act-3"},
-		{"sent back with no action known", []store.Attempt{sent(1, "")}, ""},
+			sent(3, "act-3")}, 3, false, "act-3"},
+		{"sent back with no action known", []store.Attempt{sent(1, "")}, 1, false, ""},
+		{"sent back since, no action known", []store.Attempt{sent(1, "act-1"), sent(2, "")}, 2, false, ""},
 	} {
-		got := ""
-		if at := revised(c.atts); at != nil {
-			got = at.ActionID
-			if at.Reason != "change "+strings.TrimPrefix(at.ActionID, "act-") {
-				t.Errorf("%s: the attempt revised is %+v", c.name, at)
+		at, since, named := revised(c.atts)
+		of, names := 0, ""
+		if at != nil {
+			of = at.No
+			if at.Reason != fmt.Sprintf("change %d", at.No) {
+				t.Errorf("%s: the attempt written again is %+v", c.name, at)
 			}
+			if named {
+				names = at.ActionID
+			}
+		} else if since || named {
+			t.Errorf("%s: none written again, since %v, named %v", c.name, since, named)
 		}
-		if got != c.want {
-			t.Errorf("%s: revises %q, want %q", c.name, got, c.want)
-		}
-	}
-}
-
-// TestStanding: what a person asked of the attempt revised is told while
-// no person has decided an answer to the message since, as of an earlier
-// answer when one was written after it; a revision rejected or sent back
-// since leaves it to memory.
-func TestStanding(t *testing.T) {
-	at := func(no int, st store.AttemptState) store.Attempt { return store.Attempt{No: no, State: st} }
-	for _, c := range []struct {
-		name        string
-		atts        []store.Attempt
-		revised     int // the index in atts of the attempt revised
-		told, since bool
-	}{
-		{"the last written", []store.Attempt{at(1, store.AttemptRejected), at(2, store.AttemptChangesRequested)}, 1, true, false},
-		{"a revision that failed since", []store.Attempt{at(1, store.AttemptChangesRequested), at(2, store.AttemptFailed)}, 0, true, true},
-		{"a revision expired since", []store.Attempt{at(1, store.AttemptChangesRequested), at(2, store.AttemptCancelled)}, 0, true, true},
-		{"a revision rejected since", []store.Attempt{at(1, store.AttemptChangesRequested), at(2, store.AttemptRejected)}, 0, false, true},
-		{"rejected after one that failed", []store.Attempt{at(1, store.AttemptChangesRequested), at(2, store.AttemptFailed),
-			at(3, store.AttemptRejected)}, 0, false, true},
-		{"sent back since, no action known", []store.Attempt{at(1, store.AttemptChangesRequested), at(2, store.AttemptChangesRequested)}, 0, false, true},
-	} {
-		if told, since := standing(c.atts, &c.atts[c.revised]); told != c.told || since != c.since {
-			t.Errorf("%s: told %v, since %v; want %v, %v", c.name, told, since, c.told, c.since)
+		if of != c.of || since != c.since || names != c.names {
+			t.Errorf("%s: writes attempt %d again, since %v, naming %q; want %d, %v, %q", c.name, of, since, names, c.of, c.since, c.names)
 		}
 	}
 }

@@ -14,9 +14,10 @@ import (
 // tutor at confirm_required, Mori, the second instructor, sends its answer
 // back for changes with a note. The runtime settles the attempt as sent
 // back, with the note, which the next attempt's system prompt states
-// plainly, and proposes that attempt (key :2) naming the first, as Core
-// keeps it (revises_action_id). Mori sends the revision back in turn: the
-// third names the second, is told the second note and remembers the first;
+// plainly, with the answer Mori read, and proposes that attempt (key :2)
+// naming the first, as Core keeps it (revises_action_id). Mori sends the
+// revision back in turn: the third names the second, is told the second
+// note, shown the second answer, and remembers the first;
 // Mori approves it, and Yuki reads it. The first attempt's bytes sent
 // again replay what Mori did, 409 changes_requested. Over MCP, the
 // runtime's default, and over REST, where the revision names the proposal
@@ -35,8 +36,9 @@ func changesRequested(t *testing.T, w *world) {
 		}
 		return fakellm.Reply(fmt.Sprintf("Answer %d: %s", n+1, question(req)))
 	})
-	told := func(note string) string {
-		return fmt.Sprintf("sent it back for changes, asking: %q. Write the answer again, making the changes they asked for.", note)
+	told := func(note, read string) string {
+		return fmt.Sprintf("sent it back for changes, asking: %q. Write the answer again, making the changes they asked for.\n"+
+			"- This is the answer they read, as it was sent to them:\n\n```\n%s\n```", note, read)
 	}
 	// revisions are what each of the tutor's answers in the course
 	// revises, as Core keeps it, by action.
@@ -89,16 +91,17 @@ func changesRequested(t *testing.T, w *world) {
 			t.Errorf("the answers %v revise %v in Core; want each the one before", proposals, revises)
 		}
 
-		// The second attempt is told what Mori asked first; the third what
-		// he asked of the second, remembering the first.
+		// The second attempt is told what Mori asked first, and shown the
+		// first; the third what he asked of the second, shown the second,
+		// remembering the first.
 		var second, third bool
 		for _, req := range m.Requests() {
 			if question(req) != q {
 				continue
 			}
 			s := system(req)
-			second = second || strings.Contains(s, told(notes[0])) && !strings.Contains(s, notes[1])
-			third = third || strings.Contains(s, told(notes[1])) && strings.Contains(s, fmt.Sprintf("asking: %q. Take it into account.", notes[0]))
+			second = second || strings.Contains(s, told(notes[0], "Answer 1: "+q)) && !strings.Contains(s, notes[1])
+			third = third || strings.Contains(s, told(notes[1], "Answer 2: "+q)) && strings.Contains(s, fmt.Sprintf("asking: %q. Take it into account.", notes[0]))
 		}
 		if !second || !third {
 			t.Errorf("the revisions' prompts: told the first note %v, the second with the first remembered %v; want both", second, third)
