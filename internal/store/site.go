@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/openrouter"
 )
 
 // What the site's administrators change through the API (docs/design.md
@@ -69,6 +71,10 @@ type SchoolOffer struct {
 	// "" for none.
 	MaxOutputTokens int    `json:"max_output_tokens"`
 	ReasoningEffort string `json:"reasoning_effort"`
+	// OpenRouter is the upstream routing of an offer of OpenRouter's,
+	// canonical, sent with every call made on it; nil for none, and for
+	// every offer of another provider.
+	OpenRouter *openrouter.Routing `json:"openrouter,omitempty"`
 	// Enabled is whether the school offers it now: an offer turned off is
 	// kept, key and all, and offered again once turned on.
 	Enabled bool `json:"enabled"`
@@ -148,8 +154,8 @@ func CheckSiteSetting(s SiteSetting) (SiteSetting, error) {
 }
 
 // CheckSchoolOffer refuses an offer a store must not keep: without its id
-// (IsOfferID), label, adapter, provider, model or key, or with a negative
-// output bound.
+// (IsOfferID), label, adapter, provider, model or key, with a negative
+// output bound, or with upstream routing but of OpenRouter's.
 func CheckSchoolOffer(o SchoolOffer) error {
 	var bad []string
 	if !IsOfferID(o.ID) {
@@ -168,6 +174,9 @@ func CheckSchoolOffer(o SchoolOffer) error {
 	}
 	if len(bad) > 0 {
 		return fmt.Errorf("store: school offer: %s required", strings.Join(bad, ", "))
+	}
+	if o.OpenRouter.Canonical() != nil && o.Provider != "openrouter" {
+		return fmt.Errorf("store: school offer %s: upstream routing is OpenRouter's, and its provider is %s", o.ID, o.Provider)
 	}
 	return nil
 }

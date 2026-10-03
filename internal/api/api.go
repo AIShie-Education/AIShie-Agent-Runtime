@@ -32,10 +32,12 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/netguard"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/openrouter"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/version"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/webauth"
 )
 
@@ -91,6 +93,10 @@ type Options struct {
 	ModelHTTP *http.Client
 	// NewAdapter builds keys/test's adapter; providers.New when nil.
 	NewAdapter func(llm.Config) (llm.Adapter, error)
+	// OpenRouterBaseURL is OpenRouter's API, which the list of a model's
+	// upstream providers is read from over ModelHTTP;
+	// openrouter.DefaultBaseURL when empty. For tests.
+	OpenRouterBaseURL string
 	// AdminActorIDs, when not empty, narrow the runtime's administrators
 	// to those of Core's it names (ADMIN_ACTOR_IDS), in lower case.
 	AdminActorIDs []string
@@ -137,6 +143,9 @@ type Server struct {
 	// guarded client made from CoreHTTP.
 	modelHTTP *http.Client
 	cats      catalogueCache
+	// openRouter reads, and keeps, OpenRouter's lists of a model's
+	// upstream providers.
+	openRouter *openrouter.Catalogue
 
 	perIP, failures, general, token, keyTest *limiter
 	keyDay                                   *dailyLimiter
@@ -181,6 +190,8 @@ func New(o Options) *Server {
 		perIP: newLimiter(RatePerIP), failures: newLimiter(RateFailures), general: newLimiter(RateGeneral),
 		token: newLimiter(RateToken), keyTest: newLimiter(RateKeyTest), keyDay: newDailyLimiter(KeyTestsPerDay),
 		seen: map[string]time.Time{},
+		openRouter: openrouter.NewCatalogue(openrouter.CatalogueOptions{BaseURL: o.OpenRouterBaseURL, Client: modelHTTP,
+			UserAgent: "aishie-runtime/" + version.Version, Now: o.Now}),
 	}
 	s.mux.Handle("GET "+Prefix+"info", s.public(s.info))
 	s.mux.Handle("GET "+Prefix+"me", s.authed(s.me))
@@ -203,6 +214,7 @@ func New(o Options) *Server {
 	s.mux.Handle("GET "+Prefix+"admin/school-plan/offers/{id}", s.authed(s.getOffer))
 	s.mux.Handle("PATCH "+Prefix+"admin/school-plan/offers/{id}", s.authedBody(s.audited("school_offer.update", s.updateOffer)))
 	s.mux.Handle("DELETE "+Prefix+"admin/school-plan/offers/{id}", s.authed(s.audited("school_offer.delete", s.deleteOffer)))
+	s.mux.Handle("GET "+Prefix+"admin/openrouter/endpoints", s.authedBody(s.openRouterEndpoints))
 	s.mux.Handle("PUT "+Prefix+"admin/school-plan/quotas", s.authedBody(s.audited("school_quotas.update", s.putQuotas)))
 	s.mux.Handle("DELETE "+Prefix+"admin/school-plan/quotas", s.authed(s.audited("school_quotas.reset", s.resetQuotas)))
 	s.mux.Handle("GET "+Prefix+"admin/prices", s.authed(s.getPrices))

@@ -7,6 +7,7 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/openrouter"
 )
 
 func TestNewBuildsEveryAdapter(t *testing.T) {
@@ -75,5 +76,24 @@ func TestConfigCarriesTheModelSection(t *testing.T) {
 	}
 	if _, err := New(c); err != nil {
 		t.Errorf("New(Config(...)): %v", err)
+	}
+}
+
+// The model's upstream routing is copied, canonical, and shares nothing
+// with the configuration's; none is none.
+func TestConfigCarriesTheRouting(t *testing.T) {
+	deny, price := "deny", "01.50"
+	m := config.Model{Adapter: "openai_chat", Model: "meta-llama/llama-3.3-70b-instruct", BaseURL: "https://openrouter.ai/api/v1",
+		OpenRouter: &openrouter.Routing{DataCollection: &deny, Only: []string{"groq"}, Ignore: []string{}, MaxPrice: &openrouter.MaxPrice{Prompt: &price}}}
+	c := Config(m, "sk-or-key", nil)
+	if got := string(c.OpenRouter.JSON()); got != `{"data_collection":"deny","only":["groq"],"max_price":{"prompt":"1.5"}}` || c.OpenRouter.Ignore != nil {
+		t.Fatalf("Config's routing: %s", got)
+	}
+	m.OpenRouter.Only[0] = "together"
+	if c.OpenRouter.Only[0] != "groq" {
+		t.Error("the routing is shared with the configuration")
+	}
+	if c := Config(config.Model{Adapter: "openai_chat", Model: "m", OpenRouter: &openrouter.Routing{}}, "k", nil); c.OpenRouter != nil {
+		t.Errorf("an empty routing: %s", c.OpenRouter.JSON())
 	}
 }

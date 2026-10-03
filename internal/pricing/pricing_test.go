@@ -278,6 +278,7 @@ func TestExampleTable(t *testing.T) {
 	}
 	for _, m := range []struct{ provider, model string }{
 		{"anthropic", "claude-sonnet-4-5"}, {"deepseek", "deepseek-chat"}, {"openai", "gpt-4.1-mini"},
+		{"openrouter", "meta-llama/llama-3.3-70b-instruct"},
 	} {
 		if _, ok := tab.Lookup(m.provider, m.model, time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC)); !ok {
 			t.Errorf("the example prices nothing for %s %s", m.provider, m.model)

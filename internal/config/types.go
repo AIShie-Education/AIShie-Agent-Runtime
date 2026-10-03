@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/openrouter"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/secrets"
 )
@@ -134,6 +135,10 @@ type Model struct {
 	Reasoning    Reasoning         `yaml:"reasoning"`
 	Capabilities Capabilities      `yaml:"capabilities"`
 	Headers      map[string]string `yaml:"headers"`
+	// OpenRouter is OpenRouter's upstream routing (its provider object),
+	// sent with every call of a model of OpenRouter's: never written in
+	// runtime.defaults, which reach every model; a fallback's is its own.
+	OpenRouter *openrouter.Routing `yaml:"openrouter"`
 	// Fallback is tried when the model's provider cannot be reached.
 	Fallback *Model `yaml:"fallback"`
 }
@@ -489,6 +494,9 @@ type SchoolOffer struct {
 	Params       ModelParams  `yaml:"params"`
 	Reasoning    Reasoning    `yaml:"reasoning"`
 	Capabilities Capabilities `yaml:"capabilities"`
+	// OpenRouter is the offer's upstream routing, for an offer of
+	// OpenRouter's: every model on the offer has it, exactly.
+	OpenRouter *openrouter.Routing `yaml:"openrouter"`
 	// Site is set for an offer the site's administrators made through the
 	// API (Runtime.Site): its key is sealed, and its endpoint a provider's
 	// own, which the API made from the provider's offer, as it makes an
@@ -703,6 +711,9 @@ func (o SchoolOffer) Section() map[string]any {
 	if len(caps) > 0 {
 		m["capabilities"] = caps
 	}
+	if r := o.OpenRouter.Generic(); r != nil {
+		m["openrouter"] = r
+	}
 	return m
 }
 
@@ -710,7 +721,7 @@ func (o SchoolOffer) Section() map[string]any {
 // bound is 0 where the offer sets none: an agent's defaults give it one.
 func (o SchoolOffer) AsModel() Model {
 	return Model{Adapter: o.Adapter, Model: o.Model, Provider: o.Provider, BaseURL: o.BaseURL, Region: o.Region, KeyRef: o.KeyRef,
-		KeySource: KeySchool, Params: o.Params, Reasoning: o.Reasoning, Capabilities: o.Capabilities, Offer: o.ID}
+		KeySource: KeySchool, Params: o.Params, Reasoning: o.Reasoning, Capabilities: o.Capabilities, Offer: o.ID, OpenRouter: o.OpenRouter.Clone()}
 }
 
 // Config is everything loaded: the runtime's settings and every agent.

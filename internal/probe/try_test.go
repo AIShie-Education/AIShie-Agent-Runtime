@@ -11,6 +11,8 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/providers"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/openrouter"
 )
 
 const key = "sk-proj-TestKeyThatMustNotLeak0123456789"
@@ -88,3 +90,38 @@ func TestTryModel(t *testing.T) {
 		t.Errorf("an adapter that cannot be built: %v", err)
 	}
 }
+
+// A trial sends no upstream routing, even of a model at OpenRouter that
+// has one: a trial refused for the routing would read as a key refused or
+// a model not found. The model it was given keeps its routing.
+func TestTryModelSendsNoRouting(t *testing.T) {
+	var cfgs []llm.Config
+	deny := "deny"
+	m := config.Model{Adapter: llm.AdapterOpenAIChat, Model: "meta-llama/llama-3.3-70b-instruct", BaseURL: "https://openrouter.ai/api/v1",
+		Params: config.ModelParams{MaxOutputTokens: 100}, OpenRouter: &openrouter.Routing{DataCollection: &deny, Only: []string{"groq"}}}
+	var sent string
+	client := &http.Client{Transport: roundTrip(func(r *http.Request) (*http.Response, error) {
+		b, _ := io.ReadAll(r.Body)
+		sent = string(b)
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Request: r,
+			Body: io.NopCloser(strings.NewReader(`{"id":"c1","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"length"}]}`))}, nil
+	})}
+	newAdapter := func(c llm.Config) (llm.Adapter, error) {
+		cfgs = append(cfgs, c)
+		return providers.New(c)
+	}
+	tr, err := TryModel(t.Context(), m, key, client, newAdapter)
+	if err != nil || tr.Result != ResultOK {
+		t.Fatalf("%+v %v", tr, err)
+	}
+	if len(cfgs) != 1 || cfgs[0].OpenRouter != nil || strings.Contains(sent, `"provider"`) || !strings.Contains(sent, `"model":"meta-llama/llama-3.3-70b-instruct"`) {
+		t.Errorf("the trial's routing: %+v; sent %s", cfgs, sent)
+	}
+	if m.OpenRouter == nil || len(m.OpenRouter.Only) != 1 {
+		t.Error("the model lost its routing")
+	}
+}
+
+type roundTrip func(*http.Request) (*http.Response, error)
+
+func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }

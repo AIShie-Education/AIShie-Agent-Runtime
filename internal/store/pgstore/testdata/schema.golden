@@ -168,6 +168,7 @@ school_offer.created_by text not null
 school_offer.created_at timestamp with time zone not null
 school_offer.updated_by text not null
 school_offer.updated_at timestamp with time zone not null
+school_offer.openrouter jsonb
 search_file.version_id text not null
 search_file.file_key text not null
 search_file.course_id text not null
@@ -312,6 +313,8 @@ registry_rev registry_rev_pkey PRIMARY KEY (one)
 school_offer school_offer_id_shape CHECK ((id ~ '^[A-Za-z0-9_-]{1,64}$'::text))
 school_offer school_offer_key_secret_id_fkey FOREIGN KEY (key_secret_id) REFERENCES secret(id)
 school_offer school_offer_key_secret_id_key UNIQUE (key_secret_id)
+school_offer school_offer_openrouter_object CHECK (((openrouter IS NULL) OR (jsonb_typeof(openrouter) = 'object'::text)))
+school_offer school_offer_openrouter_provider CHECK (((openrouter IS NULL) OR (provider = 'openrouter'::text)))
 school_offer school_offer_output_bound CHECK ((max_output_tokens >= 0))
 school_offer school_offer_pkey PRIMARY KEY (id)
 search_file search_file_length_check CHECK ((length >= 0))
@@ -418,6 +421,7 @@ CREATE INDEX transcription_job_status_idx ON public.transcription_job USING btre
 CREATE TRIGGER hosted_agent_changed AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE ON public.hosted_agent FOR EACH STATEMENT EXECUTE FUNCTION registry_changed()
 CREATE TRIGGER hosted_course_changed AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE ON public.hosted_course FOR EACH STATEMENT EXECUTE FUNCTION registry_changed()
 CREATE TRIGGER school_offer_changed AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE ON public.school_offer FOR EACH STATEMENT EXECUTE FUNCTION registry_changed()
+CREATE TRIGGER school_offer_left_openrouter BEFORE UPDATE OF provider ON public.school_offer FOR EACH ROW WHEN (((old.provider = 'openrouter'::text) AND (new.provider <> 'openrouter'::text) AND (NOT (new.openrouter IS DISTINCT FROM old.openrouter)))) EXECUTE FUNCTION school_offer_left_openrouter()
 CREATE TRIGGER site_price_changed AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE ON public.site_price FOR EACH STATEMENT EXECUTE FUNCTION registry_changed()
 CREATE TRIGGER site_price_versioned AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE ON public.site_price FOR EACH STATEMENT EXECUTE FUNCTION site_price_changed()
 CREATE TRIGGER site_setting_changed AFTER INSERT OR DELETE OR UPDATE OR TRUNCATE ON public.site_setting FOR EACH STATEMENT EXECUTE FUNCTION registry_changed()

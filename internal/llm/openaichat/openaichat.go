@@ -24,6 +24,7 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/httpx"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/openrouter"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolschema"
 )
 
@@ -43,7 +44,10 @@ type Adapter struct {
 	dialect  toolschema.Dialect
 	params   llm.Params
 	effort   string
-	client   *http.Client
+	// routing is OpenRouter's upstream routing, canonical: kept for
+	// OpenRouter alone, nil for none.
+	routing *openrouter.Routing
+	client  *http.Client
 	// key is kept only to be removed from any error text a provider echoes
 	// it in; it is sent in headers alone.
 	key string
@@ -96,6 +100,10 @@ func New(cfg llm.Config) (*Adapter, error) {
 		// so it is chosen there by naming the dialect.
 		dialect = toolschema.OpenAIStrict
 	}
+	var routing *openrouter.Routing
+	if provider == llm.ProviderOpenRouter {
+		routing = cfg.OpenRouter.Canonical()
+	}
 	return &Adapter{
 		provider: provider,
 		model:    model,
@@ -106,6 +114,7 @@ func New(cfg llm.Config) (*Adapter, error) {
 		dialect:  dialect,
 		params:   cfg.Params,
 		effort:   strings.TrimSpace(cfg.Reasoning.Effort),
+		routing:  routing,
 		client:   cfg.HTTPClient,
 		key:      cfg.APIKey,
 	}, nil

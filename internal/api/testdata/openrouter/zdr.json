@@ -1,0 +1,32 @@
+{
+ "data": [
+  {
+   "model_id": "meta-llama/llama-3.3-70b-instruct",
+   "tag": "google-vertex/us-central1"
+  },
+  {
+   "model_id": "meta-llama/llama-3.3-70b-instruct",
+   "tag": "google-vertex"
+  },
+  {
+   "model_id": "meta-llama/llama-3.3-70b-instruct",
+   "tag": "groq"
+  },
+  {
+   "model_id": "meta-llama/llama-3.3-70b-instruct",
+   "tag": "novita/bf16"
+  },
+  {
+   "model_id": "meta-llama/llama-3.3-70b-instruct",
+   "tag": "deepinfra/turbo"
+  },
+  {
+   "model_id": "deepseek/deepseek-v4-pro",
+   "tag": "reka"
+  },
+  {
+   "model_id": "deepseek/deepseek-v4-pro",
+   "tag": "cloudflare/fp8"
+  }
+ ]
+}

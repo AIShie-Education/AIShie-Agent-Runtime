@@ -11,6 +11,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/openrouter"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/probe"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
@@ -71,35 +73,37 @@ type SchoolPlan struct {
 // the adapter's own; whether it is turned on, and its status in the plan
 // (offered, disabled, id_taken where an offer of runtime.yaml's has its
 // id, model_not_allowed where runtime.yaml's model lists do not allow it);
-// whether the price table prices it today; how many hosted agents are on
-// it; and, of a site's offer, its key's hint and whether the key was
-// tried with its model, its version (the ETag), and when and by whom it
-// was made and last changed. Of runtime.yaml's, those are null, and
+// its upstream routing, of an offer of OpenRouter's (the canonical
+// routing, null for none); whether the price table prices it today; how
+// many hosted agents are on it; and, of a site's offer, its key's hint and
+// whether the key was tried with its model, its version (the ETag), and
+// when and by whom it was made and last changed. Of runtime.yaml's, those are null, and
 // enabled is true: only the operator changes them.
 type PlanOffer struct {
-	ID              string     `json:"id"`
-	Source          string     `json:"source"`
-	Label           string     `json:"label"`
-	Provider        string     `json:"provider"`
-	Adapter         string     `json:"adapter"`
-	Model           string     `json:"model"`
-	Endpoint        *string    `json:"endpoint"`
-	Resource        *string    `json:"resource"`
-	Region          *string    `json:"region"`
-	BaseURL         *string    `json:"base_url"`
-	MaxOutputTokens *int       `json:"max_output_tokens"`
-	ReasoningEffort *string    `json:"reasoning_effort"`
-	Enabled         bool       `json:"enabled"`
-	Status          string     `json:"status"`
-	Priced          bool       `json:"priced"`
-	Agents          int        `json:"agents"`
-	KeyHint         *string    `json:"key_hint"`
-	KeyStatus       *string    `json:"key_status"`
-	Version         *int       `json:"version"`
-	CreatedAt       *time.Time `json:"created_at"`
-	CreatedBy       *string    `json:"created_by"`
-	UpdatedAt       *time.Time `json:"updated_at"`
-	UpdatedBy       *string    `json:"updated_by"`
+	ID              string              `json:"id"`
+	Source          string              `json:"source"`
+	Label           string              `json:"label"`
+	Provider        string              `json:"provider"`
+	Adapter         string              `json:"adapter"`
+	Model           string              `json:"model"`
+	Endpoint        *string             `json:"endpoint"`
+	Resource        *string             `json:"resource"`
+	Region          *string             `json:"region"`
+	BaseURL         *string             `json:"base_url"`
+	MaxOutputTokens *int                `json:"max_output_tokens"`
+	ReasoningEffort *string             `json:"reasoning_effort"`
+	OpenRouter      *openrouter.Routing `json:"openrouter"`
+	Enabled         bool                `json:"enabled"`
+	Status          string              `json:"status"`
+	Priced          bool                `json:"priced"`
+	Agents          int                 `json:"agents"`
+	KeyHint         *string             `json:"key_hint"`
+	KeyStatus       *string             `json:"key_status"`
+	Version         *int                `json:"version"`
+	CreatedAt       *time.Time          `json:"created_at"`
+	CreatedBy       *string             `json:"created_by"`
+	UpdatedAt       *time.Time          `json:"updated_at"`
+	UpdatedBy       *string             `json:"updated_by"`
 }
 
 // OfferDeleted is DELETE /admin/school-plan/offers/{id}'s answer: the
@@ -152,7 +156,7 @@ func (s *Server) agentsOn(ctx context.Context) (map[string]int, error) {
 func configOfferView(o config.SchoolOffer, prices *pricing.Table, agents int, now time.Time) PlanOffer {
 	m := o.AsModel()
 	v := PlanOffer{ID: o.ID, Source: SourceConfig, Label: o.Label, Provider: m.EffectiveProvider(), Adapter: o.Adapter, Model: o.Model,
-		Enabled: true, Status: OfferOffered, Agents: agents, ReasoningEffort: strPtr(o.Reasoning.Effort)}
+		Enabled: true, Status: OfferOffered, Agents: agents, ReasoningEffort: strPtr(o.Reasoning.Effort), OpenRouter: o.OpenRouter.Canonical()}
 	v.Endpoint, v.Resource, v.Region, v.BaseURL = modelView(v.Provider, o.BaseURL, o.Region)
 	if n := o.Params.MaxOutputTokens; n > 0 {
 		v.MaxOutputTokens = &n
@@ -165,7 +169,8 @@ func configOfferView(o config.SchoolOffer, prices *pricing.Table, agents int, no
 // status in the plan of eff, priced by eff's price table.
 func (s *Server) siteOfferView(o store.SchoolOffer, eff *config.Config, agents int, now time.Time) PlanOffer {
 	v := PlanOffer{ID: o.ID, Source: SourceSite, Label: o.Label, Provider: o.Provider, Adapter: o.Adapter, Model: o.Model,
-		Enabled: o.Enabled, Status: OfferOffered, Agents: agents, ReasoningEffort: strPtr(o.ReasoningEffort), KeyHint: strPtr(o.KeyHint)}
+		Enabled: o.Enabled, Status: OfferOffered, Agents: agents, ReasoningEffort: strPtr(o.ReasoningEffort), KeyHint: strPtr(o.KeyHint),
+		OpenRouter: o.OpenRouter.Canonical()}
 	v.Endpoint, v.Resource, v.Region, v.BaseURL = modelView(o.Provider, o.BaseURL, o.Region)
 	if n := o.MaxOutputTokens; n > 0 {
 		v.MaxOutputTokens = &n
@@ -305,16 +310,46 @@ func (s *Server) getOffer(w http.ResponseWriter, r *http.Request, c *Caller) {
 }
 
 // offerRequest is POST /admin/school-plan/offers' body: the offer's id,
-// its label, its model as an owner's is chosen, whether it is turned on
-// (true unless given), and the school's key, tried with the model before
-// it is kept unless skip_key_test.
+// its label, its model as an owner's is chosen, its upstream routing (an
+// offer of OpenRouter's alone; none unless given), whether it is turned
+// on (true unless given), and the school's key, tried with the model
+// before it is kept unless skip_key_test.
 type offerRequest struct {
 	OwnModelChoice
-	ID          string `json:"id"`
-	Label       string `json:"label"`
-	Enabled     *bool  `json:"enabled"`
-	Key         string `json:"key"`
-	SkipKeyTest bool   `json:"skip_key_test"`
+	ID          string          `json:"id"`
+	Label       string          `json:"label"`
+	OpenRouter  json.RawMessage `json:"openrouter"`
+	Enabled     *bool           `json:"enabled"`
+	Key         string          `json:"key"`
+	SkipKeyTest bool            `json:"skip_key_test"`
+}
+
+// readRouting reads an offer's upstream routing, raw, for an offer of
+// provider: none for null, {} or absent; refused, in this order, where it
+// is given to an offer that is not OpenRouter's, where it is not an object,
+// and at the first problem openrouter.Parse finds, at its pointer under
+// /openrouter (unknown_field for a member of no such name, invalid_field
+// for any other). It is the canonical routing, nil for none.
+func readRouting(raw json.RawMessage, provider string) (*openrouter.Routing, *Error) {
+	var members map[string]json.RawMessage
+	object := json.Unmarshal(raw, &members) == nil && members != nil
+	switch {
+	case raw == nil || isNull(raw) || object && len(members) == 0:
+		return nil, nil
+	case provider != llm.ProviderOpenRouter:
+		return nil, fieldError(CodeInvalidArgument, ReasonInvalidField, "/openrouter", "only an offer of OpenRouter's takes upstream routing")
+	case !object:
+		return nil, fieldError(CodeInvalidArgument, ReasonInvalidField, "/openrouter", openrouter.MsgObject)
+	}
+	r, p := openrouter.Parse(raw)
+	if p != nil {
+		reason := ReasonInvalidField
+		if p.Unknown {
+			reason = ReasonUnknownField
+		}
+		return nil, fieldError(CodeInvalidArgument, reason, "/openrouter"+p.Pointer(), p.Msg)
+	}
+	return r.Canonical(), nil
 }
 
 // labelError refuses a label that is not one line of 1 to
@@ -457,11 +492,18 @@ func (s *Server) createOffer(w http.ResponseWriter, r *http.Request, c *Caller, 
 	}
 	au.detail["key_hint"] = vault.Hint(store.SecretModelKey, req.Key)
 	sec, e := req.section("")
+	var routing *openrouter.Routing
+	if e == nil {
+		routing, e = readRouting(req.OpenRouter, sec.Provider)
+	}
 	if e != nil {
 		WriteError(w, *e)
 		return
 	}
 	au.detail["provider"], au.detail["adapter"], au.detail["model"] = sec.Provider, sec.Adapter, sec.Model
+	if routing != nil {
+		au.detail["openrouter"] = routing
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*storeTimeout)
 	defer cancel()
 	eff, err := s.effective(ctx)
@@ -470,6 +512,7 @@ func (s *Server) createOffer(w http.ResponseWriter, r *http.Request, c *Caller, 
 		return
 	}
 	o := offerOf(req.ID, req.Label, sec)
+	o.OpenRouter = routing
 	o.Enabled, o.CreatedBy, o.UpdatedBy = req.Enabled == nil || *req.Enabled, c.ActorID, c.ActorID
 	if eff.Runtime.Withheld(registry.SiteOffer(o)) == config.WithheldIDTaken {
 		WriteError(w, errOfferExists(SourceConfig))
@@ -515,9 +558,11 @@ func (s *Server) createOffer(w http.ResponseWriter, r *http.Request, c *Caller, 
 // offerPatch is PATCH /admin/school-plan/offers/{id}'s body, a
 // merge-patch: a member left out is kept as it is. The model's members
 // are an owner's choice's; max_output_tokens and reasoning_effort null
-// are the runtime's defaults. key is a new key of the school's, tried
-// with the model unless skip_key_test; one is needed to move the offer to
-// another provider.
+// are the runtime's defaults. openrouter, the upstream routing, is
+// replaced whole by an object (never merged member by member), removed by
+// null or {}, and dropped by a move to another provider. key is a new key
+// of the school's, tried with the model unless skip_key_test; one is
+// needed to move the offer to another provider.
 type offerPatch struct {
 	Label           json.RawMessage `json:"label"`
 	Enabled         json.RawMessage `json:"enabled"`
@@ -529,6 +574,7 @@ type offerPatch struct {
 	Region          json.RawMessage `json:"region"`
 	MaxOutputTokens json.RawMessage `json:"max_output_tokens"`
 	ReasoningEffort json.RawMessage `json:"reasoning_effort"`
+	OpenRouter      json.RawMessage `json:"openrouter"`
 	Key             json.RawMessage `json:"key"`
 	SkipKeyTest     json.RawMessage `json:"skip_key_test"`
 }
@@ -617,6 +663,18 @@ func (s *Server) updateOffer(w http.ResponseWriter, r *http.Request, c *Caller, 
 	if e == nil {
 		sec, e = choice.section("")
 	}
+	// The routing: kept when left out, while the offer stays OpenRouter's;
+	// replaced whole, or removed, when given.
+	var routing *openrouter.Routing
+	switch {
+	case e != nil:
+	case req.OpenRouter == nil:
+		if sec.Provider == llm.ProviderOpenRouter {
+			routing = cur.OpenRouter.Canonical()
+		}
+	default:
+		routing, e = readRouting(req.OpenRouter, sec.Provider)
+	}
 	if e == nil && key != "" {
 		e = keyMalformed(key, "/key")
 	}
@@ -626,6 +684,7 @@ func (s *Server) updateOffer(w http.ResponseWriter, r *http.Request, c *Caller, 
 	}
 	moved := sec.Provider != cur.Provider
 	o := offerOf(cur.ID, next.Label, sec)
+	o.OpenRouter = routing
 	o.Enabled, o.KeySecretID, o.KeyHint, o.KeyTested = next.Enabled, cur.KeySecretID, cur.KeyHint, cur.KeyTested
 	o.Version, o.CreatedBy, o.UpdatedBy = cur.Version, cur.CreatedBy, c.ActorID
 	var changed []string
@@ -636,6 +695,7 @@ func (s *Server) updateOffer(w http.ResponseWriter, r *http.Request, c *Caller, 
 		{"label", o.Label == cur.Label}, {"enabled", o.Enabled == cur.Enabled},
 		{"model", o.Provider == cur.Provider && o.Adapter == cur.Adapter && o.Model == cur.Model && o.BaseURL == cur.BaseURL && o.Region == cur.Region &&
 			o.MaxOutputTokens == cur.MaxOutputTokens && o.ReasoningEffort == cur.ReasoningEffort},
+		{"openrouter", openrouter.Same(o.OpenRouter, cur.OpenRouter)},
 		{"key", key == ""},
 	} {
 		if !f.same {
@@ -651,6 +711,9 @@ func (s *Server) updateOffer(w http.ResponseWriter, r *http.Request, c *Caller, 
 		au.detail["key_hint"] = vault.Hint(store.SecretModelKey, key)
 	}
 	au.detail["provider"], au.detail["adapter"], au.detail["model"], au.detail["changed"] = o.Provider, o.Adapter, o.Model, changed
+	if slices.Contains(changed, "openrouter") {
+		au.detail["openrouter"] = o.OpenRouter
+	}
 	if moved && key == "" {
 		WriteError(w, *fieldError(CodeFailedPrecondition, ReasonKeyRequired, "/key", "another provider's model needs a key of that provider's"))
 		return

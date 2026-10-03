@@ -29,6 +29,7 @@ model:
         file_input: null
         schema_dialect: ""
     headers: {}
+    openrouter: null
     fallback: null
 prompt:
     system_ref: ""

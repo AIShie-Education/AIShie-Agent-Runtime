@@ -49,6 +49,12 @@ func TestExamples(t *testing.T) {
 	if _, err := pricing.Load(cfg.PricesPath()); err != nil {
 		t.Fatalf("prices: %v", err)
 	}
+	// The example's offer at OpenRouter, with its upstream routing.
+	if o, ok := cfg.Runtime.School.OfferOf("llama"); !ok || o.AsModel().EffectiveProvider() != llm.ProviderOpenRouter ||
+		string(o.OpenRouter.JSON()) != `{"order":["groq"],"allow_fallbacks":true,"require_parameters":true,"data_collection":"deny",`+
+			`"only":["groq","deepinfra","together"],"quantizations":["fp8","fp16","bf16","unknown"],"max_price":{"prompt":"1.04","completion":"1.04"}}` {
+		t.Fatalf("the offer at OpenRouter: %+v", o)
+	}
 
 	tutor, own := cfg.Agents[0], cfg.Agents[1]
 	if tutor.Model.KeySource != KeySchool || tutor.Model.EffectiveProvider() != llm.ProviderAnthropic ||

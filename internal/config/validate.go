@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/openrouter"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/redact"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/secrets"
@@ -289,6 +290,7 @@ func checkModel(is *issues, path string, m *Model) {
 	if d := m.Capabilities.SchemaDialect; d != "" && !toolschema.Dialect(d).Valid() {
 		is.add(path+".capabilities.schema_dialect", "%q is not a schema dialect", redact.String(d))
 	}
+	checkRouting(is, path, m)
 	names := make([]string, 0, len(m.Headers))
 	for k := range m.Headers {
 		names = append(names, k)
@@ -435,7 +437,8 @@ func validateRuntimeRules(a *Agent, rt *Runtime, is *issues) {
 
 // checkOfferSection holds a model section that names an offer of the
 // school's plan to it: the offer is there, and the section calls what the
-// offer does, with its key, as the registry writes it.
+// offer does, with its key and its upstream routing, as the registry
+// writes it: an agent or a course cannot loosen the school's terms.
 func checkOfferSection(is *issues, path string, m *Model, school School) {
 	o, ok := school.OfferOf(m.Offer)
 	if !ok {
@@ -444,7 +447,7 @@ func checkOfferSection(is *issues, path string, m *Model, school School) {
 	}
 	om := o.AsModel()
 	if m.Adapter != om.Adapter || m.Model != om.Model || m.EffectiveProvider() != om.EffectiveProvider() || m.BaseURL != om.BaseURL ||
-		m.Region != om.Region || m.KeyRef != om.KeyRef {
+		m.Region != om.Region || m.KeyRef != om.KeyRef || !openrouter.Same(m.OpenRouter, om.OpenRouter) {
 		is.add(path, "is not runtime.school's offer %s: a model on an offer calls what the offer does, with its key", o.ID)
 	}
 }

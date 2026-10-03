@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/openrouter"
 )
 
 // wireRequest is the body of POST /v1/messages.
@@ -30,6 +31,9 @@ type wireRequest struct {
 	OutputConfig *outputConfig `json:"output_config,omitempty"`
 	Temperature  *float64      `json:"temperature,omitempty"`
 	TopP         *float64      `json:"top_p,omitempty"`
+	// Provider is OpenRouter's upstream routing, to OpenRouter's
+	// /messages alone.
+	Provider *openrouter.Routing `json:"provider,omitempty"`
 	// Stream asks for the answer as server-sent events (stream.go).
 	Stream bool `json:"stream,omitempty"`
 }
@@ -225,6 +229,12 @@ func (a *Adapter) buildRequest(req *llm.Request) (*wireRequest, error) {
 			p := min(max(*a.params.TopP, 0), 1)
 			w.TopP = &p
 		}
+	}
+	// OpenRouter's upstream routing goes to OpenRouter alone: New keeps
+	// none for another provider, and this holds it there whatever it was
+	// given, so that none ever reaches api.anthropic.com.
+	if a.provider == llm.ProviderOpenRouter {
+		w.Provider = a.routing
 	}
 	return w, nil
 }

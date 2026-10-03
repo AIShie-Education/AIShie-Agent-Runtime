@@ -107,6 +107,10 @@ const (
 	ReasonTranscriptionUnavailable = "transcription_unavailable"
 	ReasonOfferNoFileInput         = "offer_no_file_input"
 	ReasonCredentialRejected       = "credential_rejected" // #nosec G101 -- a reason's code, not a credential.
+	// OpenRouter's list of a model's upstream providers: a model it does
+	// not have, or OpenRouter not reached with no list kept.
+	ReasonOpenRouterModelNotFound = "openrouter_model_not_found"
+	ReasonOpenRouterUnavailable   = "openrouter_unavailable"
 )
 
 // maxMessage bounds a message, in bytes, as Core's apperr.Clip does.

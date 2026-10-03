@@ -24,6 +24,7 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/httpx"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/openrouter"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolschema"
 )
 
@@ -55,6 +56,9 @@ type Adapter struct {
 	params  llm.Params
 	effort  string
 	family  family
+	// routing is OpenRouter's upstream routing, canonical: kept for
+	// OpenRouter alone, nil for none.
+	routing *openrouter.Routing
 	// noStream is set once the server refused to stream (Stream): its
 	// calls are made whole from then on.
 	noStream atomic.Bool
@@ -107,6 +111,10 @@ func New(cfg llm.Config) (*Adapter, error) {
 		}
 		dialect = cfg.Dialect
 	}
+	var routing *openrouter.Routing
+	if provider == llm.ProviderOpenRouter {
+		routing = cfg.OpenRouter.Canonical()
+	}
 	return &Adapter{
 		model:    cfg.Model,
 		base:     base,
@@ -121,6 +129,7 @@ func New(cfg llm.Config) (*Adapter, error) {
 		params:   cfg.Params,
 		effort:   cfg.Reasoning.Effort,
 		family:   familyOf(cfg.Model),
+		routing:  routing,
 	}, nil
 }
 

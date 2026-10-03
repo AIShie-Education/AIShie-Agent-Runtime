@@ -33,6 +33,7 @@ var scenarios = []scenario{
 	{"api-takes-cores-assertion", apiTakesCoresAssertion},
 	{"hosting-through-the-api", hostingThroughTheAPI},
 	{"school-plan-through-the-api", schoolPlanThroughTheAPI},
+	{"openrouter-routing-on-the-wire", openRouterRoutingOnTheWire},
 	{"long-poll-pickup", longPollPickup},
 	{"drafts-shown", draftsShown},
 	{"stop-cancels-the-answer", stopCancelsTheAnswer},

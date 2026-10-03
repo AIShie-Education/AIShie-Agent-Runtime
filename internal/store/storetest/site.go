@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/openrouter"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
@@ -307,6 +308,68 @@ func testSite(t *testing.T, open Opener) {
 		}
 		// Its id may be taken again.
 		createOffer(t, s, offer("standard", "sec_school_3"), schoolKey("sec_school_3"))
+	})
+
+	t.Run("an offer of OpenRouter's keeps its upstream routing, canonical, and is given as a copy", func(t *testing.T) {
+		s, ctx := open(t), t.Context()
+		deny, price := "deny", "01.50"
+		o := offer("llama", "sec_school_1")
+		o.Provider, o.Model, o.BaseURL = "openrouter", "meta-llama/llama-3.3-70b-instruct", "https://openrouter.ai/api/v1"
+		o.OpenRouter = &openrouter.Routing{DataCollection: &deny, Only: []string{"groq", "together"}, Ignore: []string{},
+			Sort: &openrouter.Sort{By: "price"}, MaxPrice: &openrouter.MaxPrice{Prompt: &price}}
+		const want = `{"data_collection":"deny","only":["groq","together"],"sort":"price","max_price":{"prompt":"1.5"}}`
+		routingOf := func(what string, got *store.SchoolOffer, want string) {
+			t.Helper()
+			if r := string(got.OpenRouter.JSON()); r != want {
+				t.Errorf("%s: %s, want %s", what, r, want)
+			}
+			if got.OpenRouter != nil && got.OpenRouter.Ignore != nil {
+				t.Errorf("%s: not canonical: %+v", what, got.OpenRouter)
+			}
+		}
+		created := createOffer(t, s, o, schoolKey("sec_school_1"))
+		routingOf("created", created, want)
+		read := getOffer(t, s, "llama")
+		routingOf("read", read, want)
+		read.OpenRouter.Only[0] = "novita"
+		*read.OpenRouter.MaxPrice.Prompt = "9"
+		all, err := s.SchoolOffers(ctx)
+		if err != nil || len(all) != 1 {
+			t.Fatalf("SchoolOffers = %v, %v", offerIDs(all), err)
+		}
+		routingOf("listed, after a read was changed", &all[0], want)
+		if o.OpenRouter.Only[0] != "groq" {
+			t.Error("the store changed the routing it was given")
+		}
+
+		u := *getOffer(t, s, "llama")
+		u.OpenRouter = &openrouter.Routing{ZDR: new(bool)}
+		updated, err := s.UpdateSchoolOffer(ctx, u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		routingOf("replaced", updated, `{"zdr":false}`)
+		routingOf("replaced, read", getOffer(t, s, "llama"), `{"zdr":false}`)
+		u = *updated
+		u.OpenRouter = &openrouter.Routing{Only: []string{}}
+		if updated, err = s.UpdateSchoolOffer(ctx, u); err != nil || updated.OpenRouter != nil {
+			t.Fatalf("an empty routing: %v, %v", updated, err)
+		}
+		if got := getOffer(t, s, "llama"); got.OpenRouter != nil {
+			t.Errorf("removed, read: %s", got.OpenRouter.JSON())
+		}
+
+		// Routing is OpenRouter's alone.
+		d := offer("deepseek", "sec_school_2")
+		d.OpenRouter = &openrouter.Routing{ZDR: new(bool)}
+		if _, err := s.CreateSchoolOffer(ctx, d, schoolKey("sec_school_2")); err == nil {
+			t.Error("routing on an offer of DeepSeek's was taken")
+		}
+		u = *getOffer(t, s, "llama")
+		u.Provider, u.OpenRouter = "deepseek", &openrouter.Routing{ZDR: new(bool)}
+		if _, err := s.UpdateSchoolOffer(ctx, u); err == nil {
+			t.Error("routing on an offer moved to DeepSeek was taken")
+		}
 	})
 
 	t.Run("the revision moves on with every write to a setting or an offer", func(t *testing.T) {

@@ -1,0 +1,65 @@
+{
+  "max_tokens": 4096,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "Why did I lose marks on HW3?",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "anthropic/claude-haiku-4.5",
+  "provider": {
+    "allow_fallbacks": false,
+    "data_collection": "deny",
+    "max_price": {
+      "completion": "5",
+      "prompt": "1"
+    },
+    "only": [
+      "anthropic",
+      "amazon-bedrock"
+    ],
+    "order": [
+      "amazon-bedrock"
+    ],
+    "require_parameters": true
+  },
+  "system": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "text": "You are CS101's tutor.",
+      "type": "text"
+    }
+  ],
+  "tool_choice": {
+    "type": "auto"
+  },
+  "tools": [
+    {
+      "cache_control": {
+        "type": "ephemeral"
+      },
+      "description": "List the grades of an assignment.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "assignment_id": {
+            "description": "the assignment (UUID)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "assignment_id"
+        ],
+        "type": "object"
+      },
+      "name": "grade_list"
+    }
+  ]
+}

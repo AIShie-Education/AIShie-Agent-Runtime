@@ -1,0 +1,3 @@
+{"order":["deepinfra/turbo","groq"],"allow_fallbacks":false,"require_parameters":true,"data_collection":"deny","zdr":true,"enforce_distillable_text":false,"only":["groq","together","deepinfra"],"ignore":["novita"],"quantizations":["fp8","bf16","unknown"],"preferred_min_throughput":{"p50":50,"p99":10},"preferred_max_latency":{"p90":3},"max_price":{"prompt":"1","completion":"2.5","request":"0","image":"0.01"}}
+{"only":["groq"],"sort":{"by":"exacto","partition":"model"}}
+{"order":["deepinfra/turbo","groq"],"allow_fallbacks":false,"require_parameters":true,"data_collection":"deny","only":["groq","together","deepinfra"],"quantizations":["fp8","bf16","unknown"],"preferred_max_latency":{"p90":3},"max_price":{"prompt":"1","completion":"2.5"}}

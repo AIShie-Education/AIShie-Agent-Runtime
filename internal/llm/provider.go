@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/openrouter"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolschema"
 )
 
@@ -38,6 +39,10 @@ type Config struct {
 	Dialect toolschema.Dialect
 	// Headers are extra request headers, never secrets.
 	Headers map[string]string
+	// OpenRouter is OpenRouter's upstream routing, sent as provider in
+	// every call by openai_chat and anthropic when the provider is
+	// OpenRouter, and never to any other; nil sends none.
+	OpenRouter *openrouter.Routing
 	// HTTPClient carries the egress proxy and TLS settings. Nil means
 	// http.DefaultClient. Timeouts come from the call's context.
 	HTTPClient *http.Client

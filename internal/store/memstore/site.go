@@ -55,7 +55,7 @@ func (s *Store) SchoolOffers(_ context.Context) ([]store.SchoolOffer, error) {
 	defer s.mu.Unlock()
 	out := make([]store.SchoolOffer, 0, len(s.offers))
 	for _, o := range s.offers {
-		out = append(out, o)
+		out = append(out, copyOffer(o))
 	}
 	slices.SortFunc(out, func(x, y store.SchoolOffer) int { return strings.Compare(x.ID, y.ID) })
 	return out, nil
@@ -69,7 +69,15 @@ func (s *Store) SchoolOffer(_ context.Context, id string) (*store.SchoolOffer, e
 	if !ok {
 		return nil, fmt.Errorf("school offer %s: %w", id, store.ErrNotFound)
 	}
+	o = copyOffer(o)
 	return &o, nil
+}
+
+// copyOffer is o sharing nothing with it: its upstream routing, as
+// pgstore keeps it, canonical.
+func copyOffer(o store.SchoolOffer) store.SchoolOffer {
+	o.OpenRouter = o.OpenRouter.Canonical()
+	return o
 }
 
 // storeOfferKey stores an offer's new key, refusing an id taken. Called
@@ -104,8 +112,9 @@ func (s *Store) CreateSchoolOffer(_ context.Context, o store.SchoolOffer, key st
 	if o.UpdatedBy == "" {
 		o.UpdatedBy = o.CreatedBy
 	}
-	s.offers[o.ID] = o
+	s.offers[o.ID] = copyOffer(o)
 	s.rev++
+	o = copyOffer(o)
 	return &o, nil
 }
 
@@ -138,8 +147,9 @@ func (s *Store) UpdateSchoolOffer(_ context.Context, o store.SchoolOffer, key ..
 		}
 	}
 	o.Version, o.CreatedBy, o.CreatedAt, o.UpdatedAt = old.Version+1, old.CreatedBy, old.CreatedAt, s.clock()
-	s.offers[o.ID] = o
+	s.offers[o.ID] = copyOffer(o)
 	s.rev++
+	o = copyOffer(o)
 	return &o, nil
 }
 

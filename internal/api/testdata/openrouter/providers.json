@@ -1,0 +1,71 @@
+{
+ "data": [
+  {
+   "name": "SambaNova",
+   "slug": "sambanova",
+   "privacy_policy_url": "https://sambanova.ai/privacy-policy",
+   "terms_of_service_url": "https://sambanova.ai/terms-and-conditions",
+   "status_page_url": "https://status.sambanova.ai/",
+   "headquarters": "US",
+   "datacenters": null
+  },
+  {
+   "name": "Groq",
+   "slug": "groq",
+   "privacy_policy_url": "https://groq.com/privacy-policy/",
+   "terms_of_service_url": "https://groq.com/terms-of-use/",
+   "status_page_url": "https://status.groq.com/",
+   "headquarters": "US",
+   "datacenters": null
+  },
+  {
+   "name": "DeepInfra",
+   "slug": "deepinfra",
+   "privacy_policy_url": "https://deepinfra.com/privacy",
+   "terms_of_service_url": "https://deepinfra.com/terms",
+   "status_page_url": "https://status.deepinfra.com/",
+   "headquarters": "US",
+   "datacenters": null
+  },
+  {
+   "name": "Cloudflare",
+   "slug": "cloudflare",
+   "privacy_policy_url": "https://developers.cloudflare.com/workers-ai/privacy",
+   "terms_of_service_url": "https://www.cloudflare.com/service-specific-terms-developer-platform/#developer-platform-terms",
+   "status_page_url": "https://www.cloudflarestatus.com/",
+   "headquarters": "US",
+   "datacenters": null
+  },
+  {
+   "name": "Google",
+   "slug": "google-vertex",
+   "privacy_policy_url": "https://cloud.google.com/terms/cloud-privacy-notice",
+   "terms_of_service_url": "https://cloud.google.com/terms/",
+   "status_page_url": "https://status.cloud.google.com/products/sdXM79fz1FS6ekNpu37K/history",
+   "headquarters": "US",
+   "datacenters": null
+  },
+  {
+   "name": "Together",
+   "slug": "together",
+   "privacy_policy_url": "https://www.together.ai/privacy",
+   "terms_of_service_url": "https://www.together.ai/terms-of-service",
+   "status_page_url": "https://status.together.ai/",
+   "headquarters": "US",
+   "datacenters": null
+  },
+  {
+   "name": "Novita",
+   "slug": "novita",
+   "privacy_policy_url": "https://novita.ai/legal/privacy-policy",
+   "terms_of_service_url": "https://novita.ai/legal/terms-of-service",
+   "status_page_url": "http://status.novita.ai/",
+   "headquarters": "US",
+   "datacenters": [
+    "US",
+    "eu",
+    "XX1"
+   ]
+  }
+ ]
+}

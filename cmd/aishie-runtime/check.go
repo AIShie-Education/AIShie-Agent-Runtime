@@ -280,6 +280,9 @@ func describeSchool(p func(string, ...any), sc config.School) {
 			site = ", made in the site"
 		}
 		p("school plan: offer %s, %q: %s %s (%s)%s", o.ID, redact.String(o.Label), m.Adapter, m.Model, m.EffectiveProvider(), site)
+		if o.OpenRouter.Canonical() != nil {
+			p("school plan: offer %s's upstream routing, sent to OpenRouter with every call: %s", o.ID, o.OpenRouter.JSON())
+		}
 	}
 	p("school plan: per owner %s; per asker %s; across the school %s (UTC days)", quotaLine(sc.OwnerQuota()), quotaLine(sc.AskerQuota()), quotaLine(sc.PerDay))
 }
@@ -290,8 +293,14 @@ func modelSame(x, y config.Model) bool {
 
 func modelLine(m config.Model) string {
 	s := fmt.Sprintf("%s %s (%s) on the %s key, %d output tokens a call", m.Adapter, m.Model, m.EffectiveProvider(), m.KeySource, m.Params.MaxOutputTokens)
+	if m.OpenRouter.Canonical() != nil {
+		s += fmt.Sprintf(", upstream routing %s", m.OpenRouter.JSON())
+	}
 	if m.Fallback != nil {
 		s += fmt.Sprintf("; fallback %s %s (%s)", m.Fallback.Adapter, m.Fallback.Model, m.Fallback.EffectiveProvider())
+		if m.Fallback.OpenRouter.Canonical() != nil {
+			s += fmt.Sprintf(", upstream routing %s", m.Fallback.OpenRouter.JSON())
+		}
 	}
 	return s
 }

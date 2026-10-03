@@ -20,6 +20,7 @@ runtime:
   allowed_models:
     - "anthropic:anthropic:claude-*"
     - "openai_chat:deepseek:deepseek-*"
+    - "openai_chat:openrouter:meta-llama/*"
 
   # Models no agent may use, on any key.
   denied_models:
@@ -46,6 +47,28 @@ runtime:
         model: deepseek-chat
         base_url: https://api.deepseek.com
         key_ref: secret://school/keys/deepseek
+      # A model at OpenRouter, which passes each call to one of the
+      # upstream providers serving it. `openrouter:` is OpenRouter's
+      # upstream routing (its `provider` object, sent with every call;
+      # docs/deploying.md): here, only upstreams that keep no data, among
+      # three named, Groq tried first, each running the model at fp8 or
+      # better, and none charging more than the price table counts the
+      # model at (prices.example.yaml). Left out, OpenRouter chooses by
+      # price and uptime among all of them.
+      - id: llama
+        label: "School AI (Llama 3.3 70B)"
+        adapter: openai_chat
+        model: meta-llama/llama-3.3-70b-instruct
+        base_url: https://openrouter.ai/api/v1
+        key_ref: secret://school/keys/openrouter
+        openrouter:
+          data_collection: deny       # only upstreams that keep no data
+          require_parameters: true    # only upstreams that take every setting, tools included
+          allow_fallbacks: true       # if Groq cannot answer, the others may
+          only: [groq, deepinfra, together]
+          order: [groq]               # tried first
+          quantizations: [fp8, fp16, bf16, unknown]
+          max_price: {prompt: "1.04", completion: "1.04"}   # dollars per million tokens
     # Per owner, across all of their agents on the plan (default 100); per
     # asker, per agent and course (default 20); and, when set, a ceiling
     # across everything on the school's key. Each may also take usd:, which

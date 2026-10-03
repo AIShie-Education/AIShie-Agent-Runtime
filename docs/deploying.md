@@ -595,10 +595,64 @@ agent with none stops, saying the school withdrew its offer
 read today's use per owner at `GET
 /runtime/api/v1/admin/school-plan/usage`.
 
+An offer of a model at OpenRouter (`base_url: https://openrouter.ai/api/v1`,
+behind `openai_chat`, or `anthropic` for OpenRouter's Messages API) may say
+which of the upstream providers serving the model OpenRouter may pass its
+calls to, and on what terms: `openrouter:`, OpenRouter's own provider
+routing, sent with every call made on the offer (`docs/design.md` §3).
+Every member is optional; one left out is OpenRouter's default (any
+upstream, chosen by price and uptime):
+
+```yaml
+      - id: llama
+        label: "School AI (Llama 3.3 70B)"
+        adapter: openai_chat
+        model: meta-llama/llama-3.3-70b-instruct
+        base_url: https://openrouter.ai/api/v1
+        key_ref: secret://school/keys/openrouter
+        openrouter:
+          data_collection: deny            # only upstreams that keep no data
+          zdr: true                        # stricter: zero-data-retention endpoints alone
+          require_parameters: true         # only upstreams that take every setting, tools included
+          only: [groq, together, deepinfra]
+          order: [deepinfra/turbo, groq]   # tried first; allow_fallbacks: false tries no other
+          quantizations: [fp8, bf16, unknown]
+          preferred_max_latency: {p90: 3}  # seconds; preferred_min_throughput is tokens a second
+          max_price: {prompt: 1, completion: "2.50"}   # dollars per million tokens
+```
+
+A slug is OpenRouter's (`groq`, `deepinfra/turbo`, `google-vertex/us-east5`);
+one with no `/` names every endpoint of its provider. `sort: price`
+(`throughput`, `latency`, `exacto`) orders the upstreams strictly instead of
+`order`, never beside it. The routing is checked as the configuration
+loads, with no network (a slug's shape, not whether OpenRouter lists it
+now); `runtime.defaults` may not hold it, and an agent on the offer, or a
+course of its, has the offer's exactly. `check` prints it as it is sent.
+The key's trial (`check --live`, and an administrator's) sends none.
+
+OpenRouter charges what the upstream provider that answered charges, and
+one model's upstream prices differ. The runtime counts every call at the
+price table's price for `openrouter` and the model, whichever upstream
+answered. Price the model at the highest price the routing allows, or cap
+upstream prices with `max_price` and price the model at the cap. A quota in
+dollars then stops spending before the bill passes it, and the costs report
+shows at most what was billed, not exactly it.
+
 The runtime's administrators also make offers of their own, set the
 quotas, in answers and in dollars, and add the prices those need from the
 front end ([below](#what-the-sites-administrators-change)): the plan
 owners see is `school:`'s offers and the site's.
+
+Upgrade every worker before an offer is given upstream routing in the front
+end: a worker of a release before it reads no routing for the site's
+offers, and calls OpenRouter without it (a `data_collection: deny` it does
+not send is not enforced). The migration that keeps it adds a column, two
+checks that only an offer at OpenRouter holds a routing, and a trigger: an
+offer that a worker of the release before moves to another provider loses
+its routing, as one this release moves does. So a worker of the release
+before still runs beside the new one meanwhile, and after a rollback
+([below](#deploying-and-rolling-back)): it leaves each offer's routing in
+the store, unsent, and can change, move and delete every offer.
 
 ## The API for the front end
 
@@ -655,7 +709,12 @@ the rest of the reserved ranges, whatever DNS says), and follows no
 redirect; `check --live` tries a hosted agent's model the same way. Behind
 `EGRESS_PROXY` it dials only the proxy, which then resolves and connects:
 the proxy must refuse those addresses itself, or a hosted agent's calls
-are only as closed as the proxy is.
+are only as closed as the proxy is. The administrators' page reads OpenRouter's
+public lists of the upstream providers serving a model through the same
+client, with no key (`https://openrouter.ai/api/v1`: the model's endpoints,
+`/providers` and `/endpoints/zdr`, kept ten minutes): a proxy that
+allowlists must let `openrouter.ai` through for it, or the page lists none
+and its upstreams are added by slug alone.
 
 ### What the site's administrators change
 
@@ -668,9 +727,11 @@ change in force within moments, with no restart and no SIGHUP:
 - **The school's plan:** offers of the school's, each a provider's model
   at its own endpoint with a key of the school's, which is tried with the
   model before it is kept, sealed in the database like an owner's key,
-  and shown only as its hint (`sk-…3f9a`); an offer turned off, changed or
-  deleted; and the quotas a day per owner, per asker, and across the
-  school, in answers and in dollars.
+  and shown only as its hint (`sk-…3f9a`); the upstream routing of an
+  offer at OpenRouter ([above](#the-schools-ai-plan)), set against
+  OpenRouter's list of the upstream providers serving its model; an offer
+  turned off, changed or deleted; and the quotas a day per owner, per
+  asker, and across the school, in answers and in dollars.
 - **Prices:** rows of the site's own beside the price file's, which the
   front end lists read-only: a model the file does not price, or a price
   that has changed. A site's row of the same provider, model and `from`

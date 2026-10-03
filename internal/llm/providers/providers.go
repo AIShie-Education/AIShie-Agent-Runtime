@@ -66,6 +66,7 @@ func Config(m config.Model, key string, client *http.Client) llm.Config {
 		},
 		Dialect:    toolschema.Dialect(m.Capabilities.SchemaDialect),
 		HTTPClient: client,
+		OpenRouter: m.OpenRouter.Canonical(),
 	}
 	if len(m.Headers) > 0 {
 		c.Headers = make(map[string]string, len(m.Headers))
