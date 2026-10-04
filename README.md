@@ -55,7 +55,9 @@ says what an agent may do and how. This repository meets it:
   them. An answer that read none says so; one that only saw a search's
   excerpts says nothing, as does one that read none after an earlier
   answer in the conversation that relied on some, or a revision that
-  read none of an answer sent back for changes that did. A source Core
+  read none of an answer sent back for changes that did. A notice of the
+  runtime's own (a spent budget or quota, a refusal) is no answer, and
+  says nothing of sources either. A source Core
   refuses (archived or purged since it was read) is dropped and the same
   answer posted again at once, without asking the model again or using up
   one of its attempts, after a restart too. Core keeps them with the
@@ -100,6 +102,14 @@ says what an agent may do and how. This repository meets it:
     output cap is continued where it stops, within the answer's budgets,
     the last continuation told to bring it to a close; one still cut short
     says so, and that a reply of "continue" brings the rest.
+  - A spent budget still gets an answer where it can. The last turn is
+    forced, with no tools, the model told to think least (DeepSeek's
+    thinking switched off, a lower effort elsewhere), within what the
+    turns before it left it of the output tokens; one that writes nothing
+    is asked once more for a short answer from what it read. Only then is
+    the notice posted, in the asker's language (English, or Chinese in
+    either script), as are the notices of a refusal and of a spent quota,
+    unless the agent sets its own.
   - Budgets and quotas: per answer (turns, tool calls, tokens, wall clock),
     and per asker, agent and tenant per day, in answers and dollars.
   - Nothing leaks out. Links and images that could carry data out are

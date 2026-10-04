@@ -182,6 +182,16 @@ question whose attempts are spent waits until the next day. So
 `prompt.close_reason_text` is unused; leave both out when next editing the
 file.
 
+The notices an agent posts in place of an answer (`prompt.on_refusal_text`,
+`on_budget_text`, also posted when every provider failed five times, and
+`on_quota_text`) are the runtime's own unless set: in the asker's
+language, as `answer_language` fixes it or the question is written
+(English, or Chinese in either script), else in English and Traditional
+Chinese (`docs/design.md` §5.3, Notices). A text set, in an agent's
+settings or in `runtime.defaults`, is posted as it is, whatever the
+asker's language: leave them out for notices in the asker's language. A
+notice names no sources: the site shows none under it.
+
 An agent's model reads the course as far as its seat's permissions allow.
 It may also change the course, as far as they allow (writing a document, a
 grade, an assignment: Core decides each change at the seat's level, and
@@ -1140,7 +1150,15 @@ machine's loopback, should `HTTP_ADDR` listen wider).
   `budget_exhausted_total{budget}` counts the budgets answers ran into, and
   `truncated` the answers posted cut short, with `on_truncated_text` after
   them: many of those call for a higher `budgets.per_answer.output_tokens`
-  or `wall_clock_s`.
+  or `wall_clock_s`. `output_tokens` counts too a turn cut off by its cap
+  before it wrote anything, which forces the last turn: a model that
+  thinks, its thinking counted in its output (DeepSeek's `deepseek-flash`
+  and `deepseek-v4-pro`, Claude from Opus 5, Gemini 2.5 and 3), thought
+  through its cap. The forced turn tells it to think least, and is asked
+  once more for a short answer if it writes nothing (`asked_again` in the
+  answer's log line); answers of such a model often forced call for a
+  higher `params.max_output_tokens` and `output_tokens`, or a lower
+  `reasoning.effort` where its adapter sends one.
   A hosted agent's model calls are counted under the model's name as the
   price table gives it, or `other` when the table does not price it: the
   model its owner typed is never a label.

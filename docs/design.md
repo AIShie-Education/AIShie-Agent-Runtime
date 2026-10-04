@@ -1575,11 +1575,12 @@ For an inbox row (conversation X, question M, opener P):
    spent, the model's fallback answers when it is on the owner's own key
    (D8), and its calls and answer are the owner's, not the school's. Out of
    quota: the canned notice under the answer's key, with no model call
-   (`on_quota_exhausted: canned`; the plan's own notice for its quotas,
-   `runtime.school.on_quota_text` or the built-in one, in the language
-   `answer_language` fixes, else in English and Traditional Chinese), or
-   skip until tomorrow (`silent`). An answer is on the key of the model
-   that wrote it.
+   (`on_quota_exhausted: canned`: the agent's `on_quota_text`, or the
+   plan's own notice for its quotas, `runtime.school.on_quota_text`, or
+   else the built-in one, in the language `answer_language` fixes, else in
+   English and Traditional Chinese, the conversation not being read;
+   Notices, below), or skip until tomorrow (`silent`). An answer is on the
+   key of the model that wrote it.
 5. **Read** X: `conversation_messages` (the newest `history_messages`). If
    the opener's newest message is retracted, the question is withdrawn
    (below): it is not answered, and the pass is recorded `dropped`. If it
@@ -1592,15 +1593,23 @@ For an inbox row (conversation X, question M, opener P):
    `max_writes`, each keyed for this attempt. Stop
    `end` gives the body. `max_tokens` with text is continued, not written
    again (below); with none, its thinking or a tool call it did not finish
-   having taken the cap, the turn is tried once more with twice the cap.
+   having taken the cap, the turn is tried once more with twice the cap,
+   where what is left of the output tokens, less the forced turn's
+   reserve, holds it; where it does not, or that turn is cut off so
+   again, the output tokens are spent, and the last turn is forced (The
+   forced answer, below).
    `content_filter` and `refusal` give `on_refusal_text`;
    `context_overflow` halves the history and tries once more; `tool_error`
    retries the turn once. A spent budget takes a last turn with
-   ForceAnswer, and gives `on_budget_text` if that has no text.
-   `turns` is a hard cap: the last call it allows is the forced one, and a
+   ForceAnswer, the model told to think least; one that writes nothing is
+   asked once more, for a short answer now; and only then is
+   `on_budget_text` posted (below).
+   `turns` is a hard cap: the last call it allows is the forced one (and
+   its one try more, the same turn asked again), and a
    provider's error is not a turn, nor a continuation (below). The output-token budget forces the last
-   turn as soon as what is left cannot hold a whole one, and caps it at what
-   is left; tool calls past their budget get an error result and never reach
+   turn as soon as what is left, less the reserve the turns before it
+   keep for it, cannot hold a whole one, and caps it at what is left;
+   tool calls past their budget get an error result and never reach
    Core. A last turn forced by the wall clock gets min(wall clock / 6, 15 s)
    more; the claim's Core calls stop at the wall clock plus 25 s, inside the
    lease. A call is given the wall clock left, at most 120 s: §7.1's 60 s
@@ -1642,6 +1651,115 @@ For an inbox row (conversation X, question M, opener P):
    is counted in `budget_exhausted_total{budget="truncated"}`, and the
    answer's log line gives its `continuations` and whether it was
    `truncated`.
+
+   **The forced answer** (`worker/loop.go`). A model that thinks before it
+   writes counts its thinking in its output tokens: DeepSeek's
+   `deepseek-flash` and `deepseek-v4-pro` think by default, at high
+   effort, as do Claude from Opus 5, Gemini 2.5 Pro and Flash, and
+   Gemini 3. On test.aishie.app on 2026-10-04, `deepseek-flash` behind
+   `openai_chat`, at 4,000 tokens a call, answered three of six broad
+   questions in one conversation ("有什么问题吗?", each after reading six
+   to eight documents) with `on_budget_text`, and a fourth soon after:
+   most of its output was thinking, and the turn that was to answer
+   thought until its cap stopped it (`finish_reason: length`,
+   `reasoning_content` and an empty `content`). What was left of the
+   answer's 12,000 output tokens (about 2,800 to 3,400) could not hold that
+   turn again with twice the cap, and the loop gave `on_budget_text` at
+   once: no turn was forced, none was logged, and
+   `budget_exhausted_total` counted none (the fourth was tried with twice
+   the cap, and thought through that too, to the last of the 12,000). Had
+   a turn been forced, by the rule then, it would have had what little
+   was left, and thought through that as well. So:
+   - *A reserve.* Every turn before a forced one leaves it the least of
+     2,000 tokens (`forcedFloor`), a turn's cap and a quarter of the output
+     tokens: a turn that is not forced is capped at what is left less the
+     reserve, and none is started, the last turn forced instead, once
+     that cannot hold a whole cap. The first turn of a small budget is
+     capped so too: 3,000 of 4,000. The reserve holds where a turn writes
+     no more than it is asked; the anthropic and gemini adapters add a
+     thinking allowance to the cap of a model that thinks, and a turn
+     there may write past it, as it may spend the output tokens (which then
+     end the answer with `on_budget_text`, as before).
+   - *A turn cut off before it writes forces the last turn*, as a spent
+     budget does (`budget_exhausted_total{budget="output_tokens"}`), rather
+     than end the answer: the turn tried with twice the cap where the
+     output tokens, less the reserve, hold it, as before, and otherwise the
+     forced turn, within what is left.
+   - *The forced turn thinks least* (`llm.Request.LeastReasoning`), as
+     does a continuation, which writes within what is left too: off
+     where the provider documents a switch per request, DeepSeek's
+     `thinking: {"type": "disabled"}` in its OpenAI format (its Thinking
+     Mode guide, read 2026-10: thinking is on by default, at high, and
+     without `tools` the history's `reasoning_content` is ignored, so the
+     flattened history of a forced turn there, which declares no tools, is
+     taken); else a configured `medium` or `high` effort sent as `low`
+     (`llm.LeastEffort`: OpenAI's and Azure's `reasoning_effort`,
+     OpenRouter's `reasoning.effort`, the Responses API's, Bedrock's), and
+     a model of Anthropic's or Google's that thinks unasked asked at
+     `low`, in the shape its adapter sends a configured `low` in (adaptive
+     with `output_config.effort`, a budget of 1,024, `thinkingLevel: LOW`),
+     with that effort's allowance, never `{type: disabled}`. DeepSeek's
+     `reasoning_effort` is not sent, configured or not: the switch says
+     all a forced turn needs. A 400 to a call asking for it is taken for
+     its API refusing it (a model that takes no low, such as one that
+     takes only high): the call is made again as configured, as is the
+     rest of the answer, logged.
+   - *A forced turn that writes nothing is asked once more*: it thought
+     until its cap, ended empty, or called tools it was told not to. The
+     same turn is asked again (not counted in `turns`, nor stopped by it;
+     the answer's log line says `asked_again`), with the runtime's word to
+     answer now, from what it has read, in at most a quarter of the tokens
+     left in words, between 50 and 300 (`prompt.AnswerNow`), as one more
+     part of the last message (the question, or the tools' results), so
+     that no API meets two user messages in a row; thinking least, within
+     what is left of the output tokens. Like a continuation, it starts only
+     while the input tokens are not spent and at least 100 output tokens
+     are left, and it ends when the forced turn's time does (its grace from
+     when it began, past the wall clock): it adds one call, and nothing to
+     the answer's bounds. One that writes nothing again gives
+     `on_budget_text`.
+   - *The defaults* (§9) stay: 4,000 tokens a call and 12,000 an answer
+     bound what any model may cost, and a model that thinks now writes its
+     forced answer within them. One whose answers are often forced, or
+     cut short, may be given more by its operator or owner
+     (`params.max_output_tokens`, `budgets.per_answer.output_tokens`), or
+     a lower `reasoning.effort` where its adapter sends one; raising the
+     defaults for every model would raise every answer's cost bound, and
+     DeepSeek's thinking, 64,000 tokens a call by its own default, would
+     take what it was given.
+
+   **Notices** (`worker/notices.go`, `config/notices.go`). The runtime's
+   own texts posted in place of an answer: `on_budget_text` (a spent
+   budget, every provider down), `on_refusal_text` and the quota's
+   (`on_quota_text`, or the school plan's). An agent's own text, when it
+   sets one, is posted as it is. Unset, as by default, the built-in one is
+   posted in the asker's language: the one `answer_language` fixes, where
+   it fixes English or Chinese; else the question's, told by its script
+   (`config.QuestionLang`): Chinese where it holds Han characters and no
+   kana or hangul, Simplified where more of them are of the characters
+   only Simplified writes than of those only Traditional writes (a list
+   of some 200 common pairs, 这/這, 么/麼, 问/問…, and Zhuyin as
+   Traditional), Traditional otherwise; English where it holds Latin
+   letters alone; and where the question tells nothing ("?", a file) the
+   asker's message before it. A language it cannot tell (Japanese, a
+   language fixed to another) gets English and Traditional Chinese, the
+   school's two, as does the quota's notice under `opener`, posted before
+   the conversation is read. The built-in notices:
+
+   | | English | 繁體中文 | 简体中文 |
+   |---|---|---|---|
+   | budget | I couldn't finish this one. Try a narrower question. | 這題我未能完成，請試試問得具體一點。 | 这题我没能完成，请试着问得具体一点。 |
+   | refusal | I can't help with that here. Please ask your instructor. | 這個我無法在這裡協助，請向你的老師查詢。 | 这个我无法在这里帮忙，请向你的老师询问。 |
+   | quota | I've answered as many questions as I can today. Please try again tomorrow, or ask your instructor. | 今天我能回答的問題已達上限。請明天再試，或向你的老師查詢。 | 今天我能回答的问题已达上限。请明天再试，或向你的老师询问。 |
+
+   The school plan's notice of its quotas is as before. `on_truncated_text`,
+   a line after the model's own answer in Traditional Chinese and English,
+   is not a notice and is unchanged. A notice is no answer: it is posted
+   with no `sources` at all, never `[]`, which the site would show under it
+   as "relied on no course material" (未引用课程教材, as it did under the
+   notices of 2026-10-04); and one earlier in the conversation is not taken
+   for an answer that may rest on materials (What the answer relied on,
+   below).
 8. **Safety** (`safety.Body`, §7 below): links and images whose URLs carry
    context stripped, cut to `max_body_chars` on a paragraph or sentence.
    The model's answer so cut ends with `on_truncated_text`, as one cut
@@ -1959,10 +2077,12 @@ keep, and keeps to what it knows.
   left out (AIShie-Core #71: "leave the field out only when the runtime
   cannot say").
 - *None, or nothing said.* An answer that relied on none sends
-  `sources: []`, which Core keeps apart from one that does not say; so
-  does a text of the runtime's own (`on_budget_text`, `on_refusal_text`,
-  the quota's notice), which relies on no material whatever the model
-  read. An answer whose model was given search hits it did not read, and
+  `sources: []`, which Core keeps apart from one that does not say. A
+  notice of the runtime's own (`on_budget_text`, `on_refusal_text`, the
+  quota's) is no answer, and sends no `sources`, whatever the model read:
+  `[]` would have the asker shown that it relied on no course material,
+  as if it had answered. It sent `[]` until 2026-10. An answer whose
+  model was given search hits it did not read, and
   nothing else of the course's materials, sends no `sources`: it cannot be
   said to have relied on none. Nor can one that read none of them in a
   conversation whose earlier answers, given to its model, relied on some,
@@ -1972,8 +2092,11 @@ keep, and keeps to what it knows.
   `sources` either, rather than carrying the earlier answer's: Core's
   §2.10 takes what an answer read for its own question, "nor anything it
   read for another question" (`worker.saidOf`). Earlier answers that
-  relied on none (the runtime's notices, say) leave it `[]`. Nor can a
-  revision that read none of them, of an answer a person sent back for
+  relied on none leave it `[]`, as do the agent's notices, which say
+  nothing of sources and read nothing: one is known by its text, the
+  agent's own or a built-in notice in any of its languages
+  (`claim.isNotice`). Nor can a revision that read none of them, of an
+  answer a person sent back for
   changes and whose request stands (step 9), where that answer relied on
   some or said nothing of them: it writes that answer again as they asked
   ("make it shorter"), shown it whole, and may keep what that answer read
@@ -1982,7 +2105,8 @@ keep, and keeps to what it knows.
   attempt's bytes written ahead (`passResult.redone`), as it was proposed,
   the bytes its model is shown the answer from. A revision of one that
   relied on none sends `[]`, as any answer that read none does after
-  earlier answers that relied on none.
+  earlier answers that relied on none; so does a revision of a notice
+  sent back, which relied on none.
 - *Refused.* Core takes a source only where the answering seat may read
   it as it takes the answer, and refuses the whole answer otherwise,
   naming it (`invalid_argument`, `source_unreadable` or `source_purged`,
@@ -2309,7 +2433,9 @@ the read tools of §2.3 and every gated read (a document's versions, where
 students stand on an assignment, the roster, the queues of proposals) and
 the gated writes allowed, writes off (`tools.writes`, on for a hosted
 agent), four in parallel; three attempts,
-then skip; the canned notice when out of quota; 19,000 characters; the
+then skip; the canned notice when out of quota; the runtime's notices
+built in, in the asker's language (`on_budget_text`, `on_refusal_text`
+and `on_quota_text` unset: §5.3, Notices); 19,000 characters; the
 newest 30 messages; eight answers at once per agent, four per course; per
 answer 8 turns, 12 tool calls of which at most 10 writes (`max_writes`),
 150,000 input and 12,000 output tokens, 180 s; no daily
@@ -2346,7 +2472,13 @@ bytes and excerpts of 200 characters, files no search has needed for 30
 days dropped.
 The output tokens, a call's and an answer's, and the wall clock are more
 than §4's example (2,000, 4,000 and 90 s), which a long answer, in
-Chinese with a table, overran, and was cut off.
+Chinese with a table, overran, and was cut off. They are not raised for
+the models that think, their thinking counted in their output (§5.3, The
+forced answer): they bound every model's cost, and such a model now
+writes its forced answer within them, thinking least, from the reserve
+the turns before it leave it (2,000 of 12,000). An operator or owner
+whose model thinks, and whose answers are often forced or cut short,
+gives it more, or a lower effort.
 
 ## 10. Tests
 
@@ -2524,8 +2656,8 @@ Chinese with a table, overran, and was cut off.
   of an answer that only searched, a hit read naming its page or slide,
   two hits on two pages read by one call neither; at most 20, each once.
   The worker posts them in the order read, `[]` for an answer that read
-  nothing and for a refusal's, the budget's and the quota's notices, and
-  no `sources` for one that only searched, nor for a follow-up that read
+  nothing, and no `sources` for a refusal's, the budget's and the quota's
+  notices, nor for one that only searched, nor for a follow-up that read
   nothing after an answer that relied on the syllabus, nor for a revision
   that read nothing of an answer sent back for changes that relied on it
   ("make it shorter"), shown that answer, proposed and approved, nor for
@@ -2632,6 +2764,44 @@ Chinese with a table, overran, and was cut off.
   continuation asked with the answer so far and no tools, one answer
   posted of the two pieces, and, where Core takes drafts, its text growing
   through the continuation as Yuki watches.
+- The forced answer, with a scripted model that thinks as DeepSeek's do
+  (its thinking counted in its output; stopped at its cap while it
+  thinks, a reasoning part and no text; writing when told to think
+  least): the answers of 2026-10-04, three turns of reading and one cut
+  off, forced within the 3,216 tokens left and answered
+  (`TestAThinkingModelCutOffBeforeItWritesIsForcedToAnswer`, which gave
+  `on_budget_text` with four calls before); the reserve kept from the
+  turns before it, and from a small budget's first turn; a forced turn
+  that writes nothing asked once more, with `prompt.AnswerNow` after the
+  tools' results, no turn, within what is left; a model that never
+  writes given the notice after that, in the question's Simplified
+  Chinese, within the output tokens; no try more once the input tokens
+  or the forced turn's time are spent; and an API that refuses to think
+  least asked as configured. Each adapter's least reasoning: DeepSeek's
+  thinking off (a golden of the forced call; one of the length stop with
+  `reasoning_content` and no content, all of it reasoning), and low in
+  place of medium or high for OpenAI, Azure, OpenRouter, Responses,
+  Bedrock, Anthropic and Gemini, and for the models of the last two that
+  think unasked; nothing for the rest. The end to end
+  (`a-thinking-model-forced-to-answer`) has Yuki's agent on `deepseek`
+  (the fake streaming its `reasoning_content`) asked "有什么问题吗?": the
+  turn cut off, the forced one sent `thinking: {"type": "disabled"}` and
+  no tools, and its answer posted in Core; and a model that never writes
+  given the notice in Simplified Chinese, after the forced turn and its
+  try more, with no `sources` in Core.
+- Notices: the script heuristic (`config.QuestionLang`, Simplified,
+  Traditional, mixed with English, Zhuyin, English, Spanish, Japanese,
+  Korean, Russian, nothing to go by) and its lists, pairs in both
+  scripts; each notice in each language, and the agent's own as it is;
+  the refusal's and the budget's in the question's language, the one
+  `answer_language` fixes, the asker's message before a question of no
+  language, the notice of every provider down so too, and the quota's in
+  the fixed language and otherwise in English and Traditional Chinese. A
+  notice (budget, refusal, quota) sends no `sources`, written ahead and
+  sent; an answer that read nothing after a notice relied on none
+  (`TestSaidOf`, `TestAnAnswerAfterANoticeThatReadNothingReliedOnNone`);
+  and the end to end of the school's plan finds Core showing no sources
+  under its quota's notice.
 - Attempts spent: the question skipped until the next day and its
   conversation left open, by default, with `skip`, and with `close`, which
   is logged as deprecated; a close an earlier version left `sending`, sent
