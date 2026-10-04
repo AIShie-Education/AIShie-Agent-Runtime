@@ -161,12 +161,14 @@ func schoolPlanThroughTheAPI(t *testing.T, w *world) {
 		return an.code == 200 && json.Unmarshal(an.body, &used) == nil && used.Today.School != nil && used.Today.School.Used == 1
 	})
 
-	// Her day's quota spent: the plan's notice, and no model call.
+	// Her day's quota spent: the plan's notice, and no model call. A
+	// notice is no answer: it says nothing of sources, and Core shows
+	// none, not that it relied on none.
 	before := len(calls())
 	conv2, _ := w.ask(t, w.yuki, w.own.member, "And again?")
 	want := config.SchoolQuotaTextEn + "\n\n" + config.SchoolQuotaTextZhHant
-	if ans := w.waitAnswer(t, w.yuki, conv2, w.own.member); ans.text() != want {
-		t.Errorf("over the plan's quota: %q", ans.text())
+	if ans := w.waitAnswer(t, w.yuki, conv2, w.own.member); ans.text() != want || ans.Sources != nil {
+		t.Errorf("over the plan's quota: %q, sources %v", ans.text(), ans.Sources)
 	}
 	if n := len(calls()) - before; n != 0 {
 		t.Errorf("%d model calls over the quota", n)

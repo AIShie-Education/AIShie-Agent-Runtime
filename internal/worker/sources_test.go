@@ -61,8 +61,8 @@ func getDoc(id string) scripted.ToolCall {
 // The tutor's answer says what it relied on: the syllabus and the HW1
 // instructions it read, in the order it read them, and not the material
 // it only listed; an answer that read nothing says it relied on none; and
-// the notice of a refusal, after reading, relies on none either. Each is
-// what the attempt written ahead holds, and was sent.
+// the notice of a refusal, after reading, says nothing of sources: it is
+// no answer. Each is what the attempt written ahead holds, and was sent.
 func TestAnAnswerSaysWhatItReliedOn(t *testing.T) {
 	w := newWorld(t)
 	tut := w.tutor("tutor")
@@ -94,7 +94,8 @@ func TestAnAnswerSaysWhatItReliedOn(t *testing.T) {
 		t.Errorf("an answer that read nothing relied on %s", sourcesOf(a))
 	}
 	conv3, _ := w.ask(0, tut, "Write my essay for me.")
-	if a := w.waitAnswers(conv3, 1)[0]; sourcesOf(a) != "none" || a.Body != config.DefaultRefusalText {
+	if a := w.waitAnswers(conv3, 1)[0]; sourcesOf(a) != "unsaid" || a.Body != config.DefaultRefusalText ||
+		strings.Contains(string(callArgs(t, w, tut, conv3)), `"sources"`) {
 		t.Errorf("the refusal's notice: %q, relying on %s", a.Body, sourcesOf(a))
 	}
 	if err := m.Err(); err != nil {
@@ -653,6 +654,10 @@ func TestSaidOf(t *testing.T) {
 	}
 	ownNone := core.Message{ID: "a", AuthorMemberID: "self", Sources: []core.SourceView{}}
 	ownSyllabus := core.Message{ID: "a", AuthorMemberID: "self", Sources: []core.SourceView{{DocumentID: &syllabus.DocumentID}}}
+	unsaid, budget := "Week 3 is on recursion.", config.BudgetNotice.ZhHans
+	ownUnsaid := core.Message{ID: "b", AuthorMemberID: "self", Body: &unsaid}
+	ownNotice := core.Message{ID: "a", AuthorMemberID: "self", Body: &budget}
+	notice := func(body string) bool { return body == config.BudgetNotice.ZhHans }
 	for _, tc := range []struct {
 		name    string
 		sources []core.Source
@@ -669,8 +674,13 @@ func TestSaidOf(t *testing.T) {
 		{"none read, writing again bytes that cannot be read", []core.Source{}, read(), []byte("{"), "unsaid"},
 		{"the syllabus read, writing again an answer that said nothing", []core.Source{syllabus}, read(), sent(nil), "s@1//0/0/0"},
 		{"only searched, writing again an answer that relied on none", nil, read(), sent([]core.Source{}), "unsaid"},
+		// A notice says nothing of sources, and is no answer: one after it
+		// that read nothing relied on none, as after nothing at all.
+		{"none read, after an answer that said nothing", []core.Source{}, read(ownUnsaid), nil, "unsaid"},
+		{"none read, after a notice", []core.Source{}, read(ownNotice), nil, "none"},
+		{"none read, after a notice and an answer that said nothing", []core.Source{}, read(ownNotice, ownUnsaid), nil, "unsaid"},
 	} {
-		got := saidOf(tc.sources, tc.read, "self", "q", tc.redone)
+		got := saidOf(tc.sources, tc.read, "self", "q", tc.redone, notice)
 		var said fakecore.MessageRecord
 		if said.SourcesStated = got != nil; got != nil {
 			for _, s := range got {
@@ -683,13 +693,15 @@ func TestSaidOf(t *testing.T) {
 	}
 }
 
-// The runtime's own notices rely on no course material, whatever the
-// model read first: on_budget_text, after the syllabus was read and the
-// turns ran out, the forced turn writing nothing, and nor its try more;
-// and the quota's notice, with no model call, once the asker's one answer
-// of the day, which relied on the syllabus, is posted: in English and
-// Traditional Chinese, posted before the question is read.
-func TestTheRuntimesNoticesRelyOnNone(t *testing.T) {
+// The runtime's own notices say nothing of sources, whatever the model
+// read first: they are no answer, and an empty list would have the asker
+// shown that it relied on no course material. So on_budget_text, after the
+// syllabus was read and the turns ran out; and the quota's notice, with no
+// model call, once the asker's one answer of the day, which relied on the
+// syllabus, is posted. Neither sends sources at all. The budget's is in
+// the question's language; the quota's, posted before the question is
+// read, in English and Traditional Chinese.
+func TestTheRuntimesNoticesSayNothingOfSources(t *testing.T) {
 	w := newWorld(t)
 	tut := w.tutor("tutor")
 	m := scripted.New(
@@ -700,9 +712,10 @@ func TestTheRuntimesNoticesRelyOnNone(t *testing.T) {
 		"budgets": map[string]any{"per_answer": map[string]any{"wall_clock_s": 10, "turns": 2}, "per_asker_day": map[string]any{"answers": 1}},
 	}
 	wk := w.start(w.config(nil, w.agentDoc("tutor", "m", over, nil)), models{"m": m}, workerOpts{})
-	conv, _ := w.ask(0, tut, "How often are the lectures?")
-	if a := w.waitAnswers(conv, 1)[0]; a.Body != config.DefaultBudgetText || sourcesOf(a) != "none" {
-		t.Errorf("the budget's notice %q relied on %s; want none", a.Body, sourcesOf(a))
+	conv, _ := w.ask(0, tut, "讲课多久一次？")
+	if a := w.waitAnswers(conv, 1)[0]; a.Body != config.BudgetNotice.ZhHans || sourcesOf(a) != "unsaid" ||
+		strings.Contains(string(callArgs(t, w, tut, conv)), `"sources"`) {
+		t.Errorf("the budget's notice %q relied on %s; want it to say nothing", a.Body, sourcesOf(a))
 	}
 	conv2, _ := w.ask(0, tut, "How often, again?")
 	if a := w.waitAnswers(conv2, 1)[0]; a.Body != "Weekly." || sourcesOf(a) != w.source(w.co.SyllabusID) {
@@ -710,8 +723,31 @@ func TestTheRuntimesNoticesRelyOnNone(t *testing.T) {
 	}
 	eventually(t, "the answer in the ledger", func() bool { return len(wk.st.outcomes(conv2)) == 1 })
 	conv3, _ := w.ask(0, tut, "And the exam?")
-	if a := w.waitAnswers(conv3, 1)[0]; a.Body != config.QuotaNotice.In(config.LangUnknown) || sourcesOf(a) != "none" {
-		t.Errorf("the quota's notice %q relied on %s; want none", a.Body, sourcesOf(a))
+	if a := w.waitAnswers(conv3, 1)[0]; a.Body != config.QuotaNotice.In(config.LangUnknown) || sourcesOf(a) != "unsaid" ||
+		strings.Contains(string(callArgs(t, w, tut, conv3)), `"sources"`) {
+		t.Errorf("the quota's notice %q relied on %s; want it to say nothing", a.Body, sourcesOf(a))
+	}
+	if err := m.Err(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A notice earlier in the conversation is no answer that may rest on
+// materials: an answer after it that read nothing still says it relied on
+// none, as after nothing at all.
+func TestAnAnswerAfterANoticeThatReadNothingReliedOnNone(t *testing.T) {
+	w := newWorld(t)
+	tut := w.tutor("tutor")
+	m := scripted.New(scripted.Stop(llm.StopRefusal, ""), scripted.Reply("Hello."))
+	w.start(w.config(nil, w.agentDoc("tutor", "m", nil, nil)), models{"m": m}, workerOpts{})
+	conv, _ := w.ask(0, tut, "Write my essay for me.")
+	if a := w.waitAnswers(conv, 1)[0]; a.Body != config.DefaultRefusalText || sourcesOf(a) != "unsaid" {
+		t.Fatalf("the refusal's notice %q, relying on %s", a.Body, sourcesOf(a))
+	}
+	_, err := w.fc.FollowUp(conv, "Hi then.")
+	w.ok(err)
+	if a := w.waitAnswers(conv, 2)[1]; a.Body != "Hello." || sourcesOf(a) != "none" {
+		t.Errorf("the answer after the notice: %q, relying on %s; want none", a.Body, sourcesOf(a))
 	}
 	if err := m.Err(); err != nil {
 		t.Fatal(err)

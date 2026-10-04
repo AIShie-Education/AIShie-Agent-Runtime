@@ -83,8 +83,10 @@ type claim struct {
 	d *drafter
 	// lang is the language of the pass's notices (notice): the one
 	// prompt.answer_language fixes, else the asker's, once the
-	// conversation is read (askerLang).
-	lang config.Lang
+	// conversation is read (askerLang). notices are the texts the
+	// agent's notices are posted as, made when first asked (isNotice).
+	lang    config.Lang
+	notices map[string]bool
 }
 
 // then is what a pass leaves to the claim.
@@ -236,7 +238,11 @@ func (c *claim) pass(ctx context.Context, msgID string, shorter bool) passResult
 		}
 		r.no, r.key = n, core.AnswerKey(c.conv, msgID, n)
 		if at, since, named := revised(atts); at != nil {
-			r.told, r.since, r.changes, r.read, r.redone = true, since, at.Reason, sentBody(at), at.Args
+			r.told, r.since, r.changes, r.read = true, since, at.Reason, sentBody(at)
+			if at.Kind == kindModel {
+				// A notice written again relied on nothing.
+				r.redone = at.Args
+			}
 			if named {
 				r.revises = at.ActionID
 			}
@@ -406,7 +412,7 @@ func (c *claim) generate(ctx context.Context, r passResult, read *core.Messages,
 		return c.providersDown(ctx, r)
 	}
 	c.s.providerRecovered(r.msg)
-	r = c.post(ctx, r, end.body, end.kind, saidOf(end.sources, read, c.s.id, r.msg, r.redone))
+	r = c.post(ctx, r, end.body, end.kind, saidOf(end.sources, read, c.s.id, r.msg, r.redone, c.isNotice))
 	if r.withdrawn {
 		// Refused, its question withdrawn as it was sent: its draft went
 		// with the question.
@@ -517,8 +523,8 @@ func searchTool(set *toolset.Set) string {
 
 // post makes body safe (step 8) and posts it written ahead (step 9) under
 // r.key, with the course's materials it relied on (sources: nil says
-// nothing, and a text of the runtime's own relies on none), then acts on
-// what came back (step 10).
+// nothing; a notice of the runtime's own says nothing of them), then acts
+// on what came back (step 10).
 func (c *claim) post(ctx context.Context, r passResult, body, kind string, sources []core.Source) passResult {
 	// The answer takes its draft's place: nothing more of the draft is
 	// sent, lest a write come after it.
@@ -540,14 +546,13 @@ func (c *claim) post(ctx context.Context, r passResult, body, kind string, sourc
 			"links_removed", rep.LinksRemoved, "images_removed", rep.ImagesRemoved, "truncated", rep.Truncated)
 	}
 	r.kind = kind
-	switch {
-	case !c.a.sources:
-		// A Core from before sources refuses them.
+	if !c.a.sources || kind != kindModel {
+		// A Core from before sources refuses them. A notice (of a spent
+		// budget or quota, of a refusal, of every provider down) is no
+		// answer: it says nothing of sources, whatever the model read,
+		// rather than that it relied on none, which the asker would be
+		// shown under it as if it had answered.
 		sources = nil
-	case kind != kindModel:
-		// The notice of a spent budget or quota, or of a refusal: it
-		// relies on no course material, whatever the model read.
-		sources = []core.Source{}
 	}
 	args, err := json.Marshal(core.AnswerArgs{CourseID: c.s.course, ConversationID: c.conv, InReplyToMessageID: r.msg, Body: safe,
 		Sources: sources, IdempotencyKey: r.key, Revises: r.revises})
