@@ -685,13 +685,14 @@ func TestSaidOf(t *testing.T) {
 
 // The runtime's own notices rely on no course material, whatever the
 // model read first: on_budget_text, after the syllabus was read and the
-// turns ran out; and the quota's notice, with no model call, once the
+// turns ran out, the forced turn writing nothing, and nor its try more;
+// and the quota's notice, with no model call, once the
 // asker's one answer of the day, which relied on the syllabus, is posted.
 func TestTheRuntimesNoticesRelyOnNone(t *testing.T) {
 	w := newWorld(t)
 	tut := w.tutor("tutor")
 	m := scripted.New(
-		scripted.CallTools(getDoc(w.co.SyllabusID)), scripted.Stop(llm.StopEnd, ""),
+		scripted.CallTools(getDoc(w.co.SyllabusID)), scripted.Stop(llm.StopEnd, ""), scripted.Stop(llm.StopEnd, ""),
 		scripted.CallTools(getDoc(w.co.SyllabusID)), scripted.Reply("Weekly."),
 	)
 	over := map[string]any{

@@ -981,7 +981,8 @@ func (c *claim) record(r passResult) {
 	m := c.a.s.o.Metrics
 	m.Answers.WithLabelValues(r.outcome).Inc()
 	attrs := []any{"conversation", c.conv, "message", r.msg, "opener", c.opener, "key", r.key, "attempt", r.no,
-		"outcome", r.outcome, "kind", r.kind, "turns", r.stats.Turns, "continuations", r.stats.Continuations, "truncated", r.stats.Truncated,
+		"outcome", r.outcome, "kind", r.kind, "turns", r.stats.Turns, "asked_again", r.stats.AskedAgain, "continuations", r.stats.Continuations,
+		"truncated", r.stats.Truncated,
 		"tool_calls", r.stats.ToolCalls,
 		"writes", r.stats.Writes.Sent, "input_tokens", r.stats.In, "output_tokens", r.stats.Out, "cost_pusd", r.stats.Cost}
 	if r.revises != "" {

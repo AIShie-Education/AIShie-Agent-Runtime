@@ -469,3 +469,21 @@ func TestContinue(t *testing.T) {
 		t.Errorf("the last continuation, which may say it was cut short, is told not to mention it:\n%s", last)
 	}
 }
+
+// AnswerNow tells a forced turn that wrote nothing to answer at once, from
+// what it read, in the question's language, briefly, within its room; and
+// to say so where what it read does not answer.
+func TestAnswerNow(t *testing.T) {
+	now := AnswerNow(3216)
+	for _, want := range []string{"cannot look anything more up", "only about 3216 more tokens", "Answer the question now",
+		"from what you have already read", "in the language of the question", "in at most 300 words", "suggest a narrower question"} {
+		if !strings.Contains(now, want) {
+			t.Errorf("not told %q:\n%s", want, now)
+		}
+	}
+	for room, words := range map[int]int{100: 50, 200: 50, 400: 100, 1000: 250, 3216: 300, 12000: 300} {
+		if got := AnswerNowWords(room); got != words {
+			t.Errorf("AnswerNowWords(%d) = %d, want %d", room, got, words)
+		}
+	}
+}

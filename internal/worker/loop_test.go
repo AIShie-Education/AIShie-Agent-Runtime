@@ -58,8 +58,21 @@ func TestBudgets(t *testing.T) {
 			t.Errorf("outcome %v", o)
 		}
 	})
-	t.Run("turns: no text on the last turn posts on_budget_text", func(t *testing.T) {
-		model := scripted.New(scripted.CallTool("course_get", `{}`), scripted.Stop(llm.StopEnd, ""))
+	t.Run("turns: no text on the last turn, asked once more to answer now, answers", func(t *testing.T) {
+		model := scripted.New(scripted.CallTool("course_get", `{}`), scripted.Stop(llm.StopEnd, ""), scripted.Reply("Briefly: …"))
+		body, _, line := cutOff(t, model, perAnswer("turns", 2))
+		reqs := model.Requests()
+		last := reqs[2].Messages[len(reqs[2].Messages)-1]
+		if body != "Briefly: …" || reqs[2].ToolMode != llm.ToolNone || !reqs[2].LeastReasoning ||
+			last.Role != llm.RoleTool || last.Parts[len(last.Parts)-1].Text != prompt.AnswerNow(500) {
+			t.Errorf("body %q; asked once more with %+v", body, last)
+		}
+		if line["turns"] != 2.0 || line["asked_again"] != true || line["outcome"] != store.OutcomePosted {
+			t.Errorf("the answer's line: %v", line)
+		}
+	})
+	t.Run("turns: no text on the last turn, nor asked once more, posts on_budget_text", func(t *testing.T) {
+		model := scripted.New(scripted.CallTool("course_get", `{}`), scripted.Stop(llm.StopEnd, ""), scripted.Stop(llm.StopEnd, ""))
 		body, wk, conv := answerOnce(t, model, perAnswer("turns", 2))
 		if body != config.DefaultBudgetText || lastRequest(t, model).ToolMode != llm.ToolNone {
 			t.Errorf("body %q", body)
@@ -146,9 +159,28 @@ func TestStops(t *testing.T) {
 			},
 		},
 		{
-			name:  "max_tokens with no text twice: on_budget_text",
-			steps: []scripted.Step{scripted.Stop(llm.StopMaxTokens, ""), scripted.Stop(llm.StopMaxTokens, "")},
-			want:  config.DefaultBudgetText,
+			name:  "max_tokens with no text twice: the last turn is forced, thinking least",
+			steps: []scripted.Step{scripted.Stop(llm.StopMaxTokens, ""), scripted.Stop(llm.StopMaxTokens, ""), scripted.Reply("Forced.")},
+			want:  "Forced.",
+			check: func(t *testing.T, reqs []*llm.Request) {
+				if reqs[1].ToolMode != llm.ToolAuto || reqs[1].LeastReasoning || reqs[2].ToolMode != llm.ToolNone || !reqs[2].LeastReasoning {
+					t.Errorf("the second turn: %s, least %v; the third: %s, least %v", reqs[1].ToolMode, reqs[1].LeastReasoning,
+						reqs[2].ToolMode, reqs[2].LeastReasoning)
+				}
+			},
+		},
+		{
+			name: "max_tokens with no text, the forced turn too, and asked once more to answer now: on_budget_text",
+			steps: []scripted.Step{scripted.Stop(llm.StopMaxTokens, ""), scripted.Stop(llm.StopMaxTokens, ""), scripted.Stop(llm.StopMaxTokens, ""),
+				scripted.Stop(llm.StopMaxTokens, "")},
+			want: config.DefaultBudgetText,
+			check: func(t *testing.T, reqs []*llm.Request) {
+				last := reqs[3].Messages[len(reqs[3].Messages)-1]
+				if len(reqs[2].Messages) != len(reqs[3].Messages) || !strings.HasPrefix(last.Parts[len(last.Parts)-1].Text, "[You cannot look anything more up") ||
+					!reqs[3].LeastReasoning || reqs[3].ToolMode != llm.ToolNone {
+					t.Errorf("asked once more with %+v", last)
+				}
+			},
 		},
 		{
 			name:  "end with no text: once more",
