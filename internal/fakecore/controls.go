@@ -188,7 +188,9 @@ func (c *Core) AddCourse(code string) Course {
 	defer c.mu.Unlock()
 	now := c.now()
 	co := &course{id: newID(), code: code, section: "A", title: code, status: statusActive, deptID: newID(), termID: newID(), createdAt: now}
-	root := &component{id: newID(), name: "Course total", weight: "100"}
+	// The root is the course total, named and weighted as Core's
+	// course.create makes it.
+	root := &component{id: newID(), name: "Total", weight: "1"}
 	bucket := &component{id: newID(), name: "Assignments", weight: "100", parent: root}
 	co.rootComponent, co.bucket, co.components = root, bucket, []*component{root, bucket}
 	author := newID()

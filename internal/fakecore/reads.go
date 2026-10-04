@@ -916,13 +916,15 @@ func gradeGet() *impl {
 	})
 }
 
+// componentView is a component as component.tree gives it, its weight a
+// JSON number, as Core writes a decimal.
 type componentView struct {
-	ID         string  `json:"id"`
-	ParentID   *string `json:"parent_id,omitempty"`
-	Name       string  `json:"name"`
-	Weight     string  `json:"weight"`
-	DropLowest int     `json:"drop_lowest"`
-	SortOrder  int     `json:"sort_order"`
+	ID         string      `json:"id"`
+	ParentID   *string     `json:"parent_id,omitempty"`
+	Name       string      `json:"name"`
+	Weight     json.Number `json:"weight"`
+	DropLowest int         `json:"drop_lowest"`
+	SortOrder  int         `json:"sort_order"`
 }
 
 func componentTree() *impl {
@@ -934,7 +936,7 @@ func componentTree() *impl {
 				Components []componentView `json:"components"`
 			}{Components: []componentView{}}
 			for _, cp := range rc.course.components {
-				v := componentView{ID: cp.id, Name: cp.name, Weight: cp.weight, SortOrder: cp.sortOrder}
+				v := componentView{ID: cp.id, Name: cp.name, Weight: json.Number(decimalOf(cp.weight).String()), SortOrder: cp.sortOrder}
 				if cp.parent != nil {
 					v.ParentID = &cp.parent.id
 				}
