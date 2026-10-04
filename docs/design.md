@@ -3199,7 +3199,11 @@ short, gives it more, or a lower effort.
   document, which at `confirm_required` is proposed, as the answer says, and
   at `autonomous` is executed and in Core, while a student asking his
   course tutor, which holds a write, is offered none and nothing is
-  written; and members: Core seats Sato's own agent with `member_manage`
+  written; and an assistant of his reaching every student, asked to
+  delete an assignment, reads `assignment_delete_preview` and sends its
+  counts back: an unpublished one with nothing in it is deleted, and Core
+  says so after, and one Yuki handed work in on is refused
+  (`people_only`) and stays; and members: Core seats Sato's own agent with `member_manage`
   and refuses it to Yuki's (`principal_level`); an
   agent nobody owns that Sato seated with it seats Aoi as a student when
   he asks, executed at `autonomous` and in Core, and Ren on a proposal at
