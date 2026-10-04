@@ -26,7 +26,9 @@ func TestQuotaCanned(t *testing.T) {
 	eventually(t, "the first answer in the ledger", func() bool { return len(wk.st.outcomes(c1)) == 1 })
 	c2, m2 := w.ask(0, tu, "Second question.")
 	got := w.waitAnswers(c2, 1)
-	if got[0].Body != config.DefaultQuotaText || got[0].IdempotencyKey != core.AnswerKey(c2, m2, 1) {
+	// Posted before the question is read, the built-in notice is in
+	// English and Traditional Chinese.
+	if got[0].Body != config.QuotaNotice.In(config.LangUnknown) || got[0].IdempotencyKey != core.AnswerKey(c2, m2, 1) {
 		t.Errorf("answer %+v", got[0])
 	}
 	// Ken is another asker, with his own quota.
@@ -113,7 +115,7 @@ prices:
 		w.waitAnswers(c1, 1)
 		// $1.20 spent and $1.20 likely: over $2.00.
 		c2, _ := w.ask(0, own, "Second question.")
-		if got := w.waitAnswers(c2, 1); got[0].Body != config.DefaultQuotaText {
+		if got := w.waitAnswers(c2, 1); got[0].Body != config.QuotaNotice.In(config.LangUnknown) {
 			t.Errorf("second answer %q", got[0].Body)
 		}
 		calls, _ := wk.st.ledger()
@@ -139,7 +141,7 @@ prices:
 		c1, _ := w.ask(0, yuki, "Yuki's question.")
 		w.waitAnswers(c1, 1)
 		c2, _ := w.ask(1, ken, "Ken's question.")
-		if got := w.waitAnswers(c2, 1); got[0].Body != config.DefaultQuotaText {
+		if got := w.waitAnswers(c2, 1); got[0].Body != config.QuotaNotice.In(config.LangUnknown) {
 			t.Errorf("Ken's answer %q", got[0].Body)
 		}
 		if got := counter(t, wk.reg, "budget_exhausted_total", map[string]string{"budget": "tenant_answers"}); got != 1 {

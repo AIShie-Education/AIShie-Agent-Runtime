@@ -213,7 +213,7 @@ func (a *Adapter) buildRequest(req *llm.Request) (*wireRequest, error) {
 		}
 	}
 
-	r := a.reasoning(w.Messages)
+	r := a.reasoning(w.Messages, req.LeastReasoning)
 	w.Thinking, w.OutputConfig = r.thinking, r.output
 	w.MaxTokens = outputCap(req.Limits.MaxOutputTokens, a.params.MaxOutputTokens) + r.allowance
 	// The API refuses temperature and top_p while the model thinks, and the
@@ -267,9 +267,34 @@ type reasoningConfig struct {
 // older ones with {type: enabled, budget_tokens}. Which shape each model
 // takes, and whether a newer model still accepts the older one, is
 // [UNVERIFIED] per model beyond Anthropic's documentation (familyOf).
-func (a *Adapter) reasoning(msgs []wireMessage) reasoningConfig {
+//
+// A call asking for the least reasoning (least: ForceAnswer's, a
+// continuation's) thinks least, configured or not, and never more than an
+// ordinary call (LeastEffort): a Claude that thinks unasked at low,
+// adaptively, in the shape the adapter sends a configured low in; a Claude
+// that does not (4 to 4.8) with no thinking asked, which a turn may turn
+// to half way, the API then setting thinking aside (platform.claude.com,
+// thinking with tool use, read 2026-10). DeepSeek's /anthropic, whose
+// models think by default at high, documents {type: disabled} as its
+// switch per request in this format as in its OpenAI one
+// (api-docs.deepseek.com, Thinking Mode, read 2026-10): such a call to it
+// is sent that, configured or not. Any other model, not documented here,
+// is asked at the configured effort no higher than low (llm.LeastEffort),
+// and with none configured, nothing.
+func (a *Adapter) reasoning(msgs []wireMessage, least bool) reasoningConfig {
+	if least && a.provider == llm.ProviderDeepSeek {
+		return reasoningConfig{thinking: &thinking{Type: "disabled"}}
+	}
+	effort := a.effort
+	if least {
+		if e, known := LeastEffort(a.model); known {
+			effort = e
+		} else {
+			effort = llm.LeastEffort(effort)
+		}
+	}
 	switch {
-	case a.effort == "":
+	case effort == "":
 		if a.family.thinksByDefault {
 			return reasoningConfig{allowance: defaultThinkingAllowance, on: true}
 		}
@@ -277,8 +302,8 @@ func (a *Adapter) reasoning(msgs []wireMessage) reasoningConfig {
 	case a.family.adaptive:
 		return reasoningConfig{
 			thinking:  &thinking{Type: "adaptive"},
-			output:    &outputConfig{Effort: adaptiveEffort[a.effort]},
-			allowance: thinkingBudgets[a.effort],
+			output:    &outputConfig{Effort: adaptiveEffort[effort]},
+			allowance: thinkingBudgets[effort],
 			on:        true,
 		}
 	case !turnThinks(msgs):
@@ -290,7 +315,7 @@ func (a *Adapter) reasoning(msgs []wireMessage) reasoningConfig {
 		// without thinking rather than fail.
 		return reasoningConfig{}
 	}
-	b := thinkingBudgets[a.effort]
+	b := thinkingBudgets[effort]
 	return reasoningConfig{thinking: &thinking{Type: "enabled", BudgetTokens: b}, allowance: b, on: true}
 }
 

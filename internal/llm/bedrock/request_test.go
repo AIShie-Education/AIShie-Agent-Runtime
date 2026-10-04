@@ -163,22 +163,57 @@ func TestReasoning(t *testing.T) {
 		{"5, with no cap", "us.anthropic.claude-sonnet-5-20260801-v1:0", "high", 0, plain, adaptive("high")},
 		{"adaptive, a tool turn without its thinking", "anthropic.claude-opus-4-7", "high", 32000, withTool, ""},
 	}
+	// A call asking for the least reasoning (ForceAnswer's) asks a Claude
+	// that thinks unasked (from Opus 5) for low, adaptively, configured or
+	// not; a Claude 4 that does not, nothing, configured or not; and a
+	// model whose family is not documented (Claude 3.7) is made at low in
+	// place of medium or high.
+	least := []struct {
+		name, model, effort string
+		maxTokens           int
+		msgs                []message
+		want                string
+	}{
+		{"least: claude 4.1 at high thinks not", "anthropic.claude-opus-4-1-20250805-v1:0", "high", 64000, plain, ""},
+		{"least: adaptive 4.6 at medium thinks not", "global.anthropic.claude-opus-4-6-v1", "medium", 4000, plain, ""},
+		{"least: claude 4.5 at minimal thinks not", claude, "minimal", 4000, plain, ""},
+		{"least: claude 3.7, high is low", "us.anthropic.claude-3-7-sonnet-20250219-v1:0", "high", 64000, plain, budget(2048)},
+		{"least: claude 3.7, minimal stays", "us.anthropic.claude-3-7-sonnet-20250219-v1:0", "minimal", 4000, plain, budget(1024)},
+		{"least: opus 5 at high is low", "us.anthropic.claude-opus-5-20260901-v1:0", "high", 4000, plain, adaptive("low")},
+		{"least: no effort", claude, "", 4000, plain, ""},
+		{"least: opus 5, no effort", "us.anthropic.claude-opus-5-20260901-v1:0", "", 4000, plain, adaptive("low")},
+		{"least: sonnet 5, no effort, no cap", "us.anthropic.claude-sonnet-5-20260801-v1:0", "", 0, plain, adaptive("low")},
+		{"least: opus 4.7, no effort", "anthropic.claude-opus-4-7", "", 4000, plain, ""},
+		{"least: opus 5, a tool turn without its thinking", "global.anthropic.claude-opus-5-v1", "", 4000, withTool, ""},
+	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			a := newTestAdapter(t, func(c *llm.Config) { c.Model = tc.model; c.Reasoning.Effort = tc.effort })
-			got := a.reasoning(tc.maxTokens, tc.msgs)
-			if tc.want == "" {
-				if got != nil {
-					b, _ := json.Marshal(got)
-					t.Errorf("reasoning = %s, want nothing", b)
-				}
-				return
-			}
-			b, err := json.Marshal(got)
-			if err != nil || string(b) != tc.want {
-				t.Errorf("reasoning = %s, want %s", b, tc.want)
-			}
+			checkReasoning(t, tc.model, tc.effort, tc.maxTokens, tc.msgs, false, tc.want)
 		})
+	}
+	for _, tc := range least {
+		t.Run(tc.name, func(t *testing.T) {
+			checkReasoning(t, tc.model, tc.effort, tc.maxTokens, tc.msgs, true, tc.want)
+		})
+	}
+}
+
+// checkReasoning holds the reasoning asked of model at effort to want
+// ("" for nothing).
+func checkReasoning(t *testing.T, model, effort string, maxTokens int, msgs []message, least bool, want string) {
+	t.Helper()
+	a := newTestAdapter(t, func(c *llm.Config) { c.Model = model; c.Reasoning.Effort = effort })
+	got := a.reasoning(maxTokens, msgs, least)
+	if want == "" {
+		if got != nil {
+			b, _ := json.Marshal(got)
+			t.Errorf("reasoning = %s, want nothing", b)
+		}
+		return
+	}
+	b, err := json.Marshal(got)
+	if err != nil || string(b) != want {
+		t.Errorf("reasoning = %s, want %s", b, want)
 	}
 }
 

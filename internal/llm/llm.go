@@ -135,6 +135,31 @@ type Request struct {
 	Tools    []Tool    `json:"tools,omitempty"`
 	ToolMode ToolMode  `json:"tool_mode"`
 	Limits   Limits    `json:"limits"`
+	// LeastReasoning asks for the least thinking the model takes on this
+	// call, never more than an ordinary call's: the lowest setting its
+	// provider documents for the model's family (off, else the lowest
+	// effort), nothing where the model already thinks least unasked, and
+	// for a family not documented, no setting it was not configured with
+	// (least.go). The loop asks it of the calls it makes after a budget is
+	// spent (ForceAnswer) and of a continuation, which must write within
+	// what is left, and to a model that thinks, its thinking counted in
+	// its output, could otherwise spend it all thinking and write nothing.
+	// An adapter that has no such setting ignores it.
+	LeastReasoning bool `json:"least_reasoning,omitempty"`
+}
+
+// LeastEffort is the reasoning effort a call that asks for the least
+// reasoning (Request.LeastReasoning) is made with, for an agent configured
+// with effort on a model whose family the adapter does not know: low in
+// place of medium or high, which every model that takes an effort takes;
+// anything else as it is ("", minimal, low). It is never more than the
+// effort an ordinary call is made with.
+func LeastEffort(effort string) string {
+	switch effort {
+	case "medium", "high":
+		return "low"
+	}
+	return effort
 }
 
 // Stop is why the model stopped, in the runtime's terms (§3.4).

@@ -1,0 +1,27 @@
+{
+  "model": "deepseek-flash",
+  "parts": [
+    {
+      "text": "You scored 7 out of 10 on HW3.",
+      "type": "text"
+    }
+  ],
+  "raw_stop": "stop",
+  "request_id": "ds-off",
+  "stop": "end",
+  "usage": {
+    "cache_read": 0,
+    "cache_write": 0,
+    "estimated": false,
+    "input": 30140,
+    "output": 12,
+    "raw": {
+      "completion_tokens": 12,
+      "prompt_cache_hit_tokens": 0,
+      "prompt_cache_miss_tokens": 30140,
+      "prompt_tokens": 30140,
+      "total_tokens": 30152
+    },
+    "reasoning": 0
+  }
+}

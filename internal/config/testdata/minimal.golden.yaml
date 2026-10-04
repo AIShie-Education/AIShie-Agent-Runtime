@@ -35,10 +35,10 @@ prompt:
     system_ref: ""
     system_text: ""
     answer_language: opener
-    on_refusal_text: I can't help with that here. Please ask your instructor.
-    on_budget_text: I couldn't finish this one. Try a narrower question.
+    on_refusal_text: ""
+    on_budget_text: ""
     on_truncated_text: （回答已達長度上限而中斷，回覆「繼續」可看後續。The answer reached its length limit; reply “continue” for the rest.）
-    on_quota_text: I've answered as many questions as I can today. Please try again tomorrow, or ask your instructor.
+    on_quota_text: ""
 tools:
     mode: derived
     allow: []

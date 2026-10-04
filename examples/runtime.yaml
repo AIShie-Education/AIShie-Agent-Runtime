@@ -78,11 +78,13 @@ runtime:
     per_day: {answers: 5000}
     # The notice posted when a quota of the plan's is spent and the owner
     # has no key of their own behind it. Left out, it is the built-in one,
-    # in English and Chinese.
+    # in the language answers are fixed to, else in English and Chinese.
     # on_quota_text: "今天的學校 AI 額度已用完，請明天再試。"
 
   # Settings every agent starts from, over the built-in defaults and under
-  # the agent's own. Here, the school's own words for the quota notice.
+  # the agent's own. Here, the school's own words for the quota notice,
+  # posted as they are, in place of the built-in one in the asker's
+  # language.
   defaults:
     prompt:
       on_quota_text: >-

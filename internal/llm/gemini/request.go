@@ -151,7 +151,7 @@ func (a *Adapter) buildRequest(req *llm.Request) (*wireRequest, error) {
 		}
 		w.ToolConfig = &wireToolConfig{FunctionCallingConfig: wireFunctionCallingConfig{Mode: mode}}
 	}
-	w.GenerationConfig = a.generation(req.Limits)
+	w.GenerationConfig = a.generation(req.Limits, req.LeastReasoning)
 	return w, nil
 }
 
@@ -448,14 +448,32 @@ func takesArguments(schema json.RawMessage) bool {
 // thinks is given the cap and its thinking allowance, as the anthropic
 // adapter gives max_tokens; the tokens it spends are counted in Usage.Output
 // all the same.
-func (a *Adapter) generation(l llm.Limits) *wireGeneration {
-	g := wireGeneration{Temperature: a.params.Temperature, TopP: a.params.TopP, ThinkingConfig: thinking(a.model, a.effort)}
+//
+// A call asking for the least reasoning (least: ForceAnswer's, a
+// continuation's) thinks least, configured or not, and never more than an
+// ordinary call: the lowest setting Google documents for the model
+// (LeastEffort), thinking off where it can be (2.5 Flash), else the least
+// budget or level, and nothing where the model already thinks least
+// unasked (2.5 Flash-Lite, 3.1 Flash-Lite). A model not documented there
+// is asked at the configured effort no higher than low (llm.LeastEffort),
+// and with none configured, nothing.
+func (a *Adapter) generation(l llm.Limits, least bool) *wireGeneration {
+	cfg, allowance := thinking(a.model, a.effort), thinkingAllowance(a.model, a.effort)
+	if least {
+		if effort, known := LeastEffort(a.model); known {
+			cfg, allowance = leastThinking(a.model, effort)
+		} else {
+			effort = llm.LeastEffort(a.effort)
+			cfg, allowance = thinking(a.model, effort), thinkingAllowance(a.model, effort)
+		}
+	}
+	g := wireGeneration{Temperature: a.params.Temperature, TopP: a.params.TopP, ThinkingConfig: cfg}
 	limit := a.params.MaxOutputTokens
 	if l.MaxOutputTokens > 0 {
 		limit = l.MaxOutputTokens
 	}
 	if limit > 0 {
-		g.MaxOutputTokens = outputCap(limit, thinkingAllowance(a.model, a.effort))
+		g.MaxOutputTokens = outputCap(limit, allowance)
 	}
 	if g == (wireGeneration{}) {
 		return nil

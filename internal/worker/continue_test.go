@@ -299,23 +299,26 @@ func bodyChars(over map[string]any) int {
 
 // TestContinuationEnds: what a continuation stops for ends the answer: a
 // refusal as any refusal, a failure with what was written and
-// on_truncated_text.
+// on_truncated_text. A continuation asks the model to think least; a 400
+// is taken for its API refusing that, and the call is made once more as
+// the model is configured before it counts as failed.
 func TestContinuationEnds(t *testing.T) {
+	refused := scripted.Fail(&llm.Error{Kind: llm.ErrBadRequest, Status: 400})
 	for _, c := range []struct {
 		name string
-		then scripted.Step
+		then []scripted.Step
 		want string
 	}{
-		{"refused", scripted.Stop(llm.StopRefusal, ""), config.DefaultRefusalText},
-		{"filtered", scripted.Fail(&llm.Error{Kind: llm.ErrContentFilter}), config.DefaultRefusalText},
-		{"failed", scripted.Fail(&llm.Error{Kind: llm.ErrBadRequest, Status: 400}), "The answer so far\n\n" + config.DefaultTruncatedText},
-		{"a tool called, and nothing written", scripted.CallTool("course_get", `{}`), "The answer so far\n\n" + config.DefaultTruncatedText},
-		{"a tool called after the rest", scripted.Respond(llm.Response{Stop: llm.StopToolCalls, Parts: []llm.Part{llm.Text(", whole."),
-			{Type: llm.PartToolCall, Name: "course_get", Args: json.RawMessage(`{}`)}}}), "The answer so far, whole."},
-		{"nothing more to say", scripted.Reply(""), "The answer so far"},
+		{"refused", []scripted.Step{scripted.Stop(llm.StopRefusal, "")}, config.DefaultRefusalText},
+		{"filtered", []scripted.Step{scripted.Fail(&llm.Error{Kind: llm.ErrContentFilter})}, config.DefaultRefusalText},
+		{"failed", []scripted.Step{refused, refused}, "The answer so far\n\n" + config.DefaultTruncatedText},
+		{"a tool called, and nothing written", []scripted.Step{scripted.CallTool("course_get", `{}`)}, "The answer so far\n\n" + config.DefaultTruncatedText},
+		{"a tool called after the rest", []scripted.Step{scripted.Respond(llm.Response{Stop: llm.StopToolCalls, Parts: []llm.Part{llm.Text(", whole."),
+			{Type: llm.PartToolCall, Name: "course_get", Args: json.RawMessage(`{}`)}}})}, "The answer so far, whole."},
+		{"nothing more to say", []scripted.Step{scripted.Reply("")}, "The answer so far"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			model := scripted.New(scripted.Stop(llm.StopMaxTokens, "The answer so far"), c.then)
+			model := scripted.New(append([]scripted.Step{scripted.Stop(llm.StopMaxTokens, "The answer so far")}, c.then...)...)
 			if body, _, _ := cutOff(t, model, nil); body != c.want {
 				t.Errorf("body %q, want %q", body, c.want)
 			}

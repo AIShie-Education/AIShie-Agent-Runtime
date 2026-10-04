@@ -180,6 +180,101 @@ func TestProviderCorners(t *testing.T) {
 	}
 }
 
+// TestLeastReasoning holds what a call asking for the least reasoning
+// (ForceAnswer's, a continuation's) sends, provider by provider, beside an
+// ordinary turn's, whether or not an effort is configured: DeepSeek's
+// thinking switched off, as its API documents it ({"thinking": {"type":
+// "disabled"}}); OpenRouter's reasoning off (effort none) for DeepSeek's
+// and Qwen's models; where an effort has a field, the lowest the model's
+// family takes (minimal for GPT-5, low for the o series, Gemini's by
+// model), and nothing for a model that thinks least unasked; for a model
+// not documented, low in place of a configured effort above it, and
+// nothing unasked, which an effort would make think; nothing anywhere else.
+// The providers package holds the whole table (least_test.go).
+func TestLeastReasoning(t *testing.T) {
+	type sent struct{ Thinking, Effort, Reasoning string }
+	for _, c := range []struct {
+		name, base, model, effort string
+		auto, least               sent
+	}{
+		{"deepseek-flash, which thinks by default", deepseekBase, "deepseek-flash", "", sent{}, sent{Thinking: "disabled"}},
+		{"deepseek, an effort configured", deepseekBase, "deepseek-v4-pro", "high", sent{}, sent{Thinking: "disabled"}},
+		{"openai, a reasoning model at high", "", "o4-mini", "high", sent{Effort: "high"}, sent{Effort: "low"}},
+		{"openai, at minimal", "", "gpt-5-mini", "minimal", sent{Effort: "minimal"}, sent{Effort: "minimal"}},
+		{"openai, a reasoning model, no effort", "", "gpt-5-mini", "", sent{}, sent{Effort: "minimal"}},
+		{"openai, an o-series model, no effort", "", "o4-mini", "", sent{}, sent{Effort: "low"}},
+		{"openai, gpt-5.1, which reasons not unasked, no effort", "", "gpt-5.1", "", sent{}, sent{}},
+		{"openai, gpt-5.1 at high", "", "gpt-5.1", "high", sent{Effort: "high"}, sent{}},
+		{"openai, gpt-5.5, no effort", "", "gpt-5.5", "", sent{}, sent{Effort: "none"}},
+		{"openai, gpt-5's chat variant, no effort", "", "gpt-5-chat-latest", "", sent{}, sent{}},
+		{"openai, a model that does not reason", "", "gpt-4.1", "high", sent{}, sent{}},
+		{"openai, a model that does not reason, no effort", "", "gpt-4.1", "", sent{}, sent{}},
+		{"azure at medium", azureBase, "tutor-prod", "medium", sent{Effort: "medium"}, sent{Effort: "low"}},
+		{"azure, a deployment named for a reasoning model, no effort", azureBase, "o4-mini", "", sent{}, sent{Effort: "low"}},
+		{"azure, a deployment not named for its model, no effort", azureBase, "tutor-prod", "", sent{}, sent{}},
+		{"openrouter, deepseek at high", openrouterBase, "deepseek/deepseek-v4-flash", "high", sent{Reasoning: "high"}, sent{Reasoning: "none"}},
+		{"openrouter, deepseek, no effort", openrouterBase, "deepseek/deepseek-v4-flash", "", sent{}, sent{Reasoning: "none"}},
+		{"openrouter, qwen, no effort", openrouterBase, "qwen/qwen3-235b-a22b", "", sent{}, sent{Reasoning: "none"}},
+		{"openrouter, gemini at high", openrouterBase, "google/gemini-3.8-flash", "high", sent{Reasoning: "high"}, sent{Reasoning: "low"}},
+		{"openrouter, gemini 3, no effort", openrouterBase, "google/gemini-3.8-flash", "", sent{}, sent{Reasoning: "low"}},
+		{"openrouter, gemini 2.5 flash-lite, no effort", openrouterBase, "google/gemini-2.5-flash-lite", "", sent{}, sent{}},
+		{"openrouter, claude from opus 5, no effort", openrouterBase, "anthropic/claude-opus-5", "", sent{}, sent{Reasoning: "low"}},
+		{"openrouter, claude 4.5, no effort", openrouterBase, "anthropic/claude-sonnet-4.5", "", sent{}, sent{}},
+		{"openrouter, an openai reasoning model, no effort", openrouterBase, "openai/o4-mini", "", sent{}, sent{Reasoning: "low"}},
+		{"openrouter, gpt-4.1, no effort", openrouterBase, "openai/gpt-4.1", "", sent{}, sent{}},
+		{"openrouter, at minimal", openrouterBase, "openai/gpt-5-mini", "minimal", sent{Reasoning: "minimal"}, sent{Reasoning: "minimal"}},
+		{"openrouter, glm, no effort", openrouterBase, "z-ai/glm-4.6", "", sent{}, sent{}},
+		{"gemini, 3, no effort", geminiBase, "gemini-3-flash", "", sent{}, sent{Effort: "minimal"}},
+		{"gemini, 2.5 pro at high", geminiBase, "gemini-2.5-pro", "high", sent{}, sent{Effort: "minimal"}},
+		{"gemini, 2.5 flash-lite", geminiBase, "gemini-2.5-flash-lite", "", sent{}, sent{}},
+		{"kimi", moonshotBase, "kimi-k2-thinking", "high", sent{}, sent{}},
+		{"glm", glmBase, "glm-4.6", "", sent{}, sent{}},
+		{"qwen", qwenBase, "qwen3-max", "", sent{}, sent{}},
+		{"ollama", ollamaBase, "qwen3:8b", "", sent{}, sent{}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			conf := cfg(c.base, c.model)
+			conf.Reasoning = llm.Reasoning{Effort: c.effort}
+			a, err := New(conf)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sentBy := func(least bool) sent {
+				req := &llm.Request{System: system, Messages: toolRound(), Tools: tools, ToolMode: llm.ToolNone, LeastReasoning: least}
+				b, err := marshal(a.request(req))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var body struct {
+					Thinking *struct {
+						Type string `json:"type"`
+					} `json:"thinking"`
+					Effort    string          `json:"reasoning_effort"`
+					Reasoning *reasoningParam `json:"reasoning"`
+				}
+				if err := json.Unmarshal(b, &body); err != nil {
+					t.Fatal(err)
+				}
+				var s sent
+				if body.Thinking != nil {
+					s.Thinking = body.Thinking.Type
+				}
+				s.Effort = body.Effort
+				if body.Reasoning != nil {
+					s.Reasoning = body.Reasoning.Effort
+				}
+				return s
+			}
+			if got := sentBy(false); got != c.auto {
+				t.Errorf("an ordinary call sent %+v, want %+v", got, c.auto)
+			}
+			if got := sentBy(true); got != c.least {
+				t.Errorf("a call asking for the least reasoning sent %+v, want %+v", got, c.least)
+			}
+		})
+	}
+}
+
 // TestArgumentsThatDidNotParseGoBackSafely holds that a model's malformed
 // arguments go back as written only where the API keeps them as a string.
 func TestArgumentsThatDidNotParseGoBackSafely(t *testing.T) {

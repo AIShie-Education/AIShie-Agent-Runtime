@@ -107,6 +107,39 @@ type opaqueItem struct {
 	Phase string `json:"phase,omitempty"`
 }
 
+// reasoningEffort is the reasoning effort a call is made with, or "" for
+// none sent: the configured one, which an ordinary call is made with.
+//
+// A call asking for the least reasoning (least: ForceAnswer's, a
+// continuation's), which must write within what is left of the answer's
+// output tokens, is made at the lowest effort the model takes and never at
+// more than an ordinary call. On OpenAI or Azure that is
+// llm.OpenAILeastEffort, the lowest effort the model's page lists (none
+// for GPT-5.5, minimal for GPT-5, low for the o series), or none sent
+// where that is what the model does unasked (GPT-5.1's none); on Azure,
+// for a deployment whose name names its model. DeepSeek, whose models
+// think by default at high, documents effort none in this format as
+// switching their thinking off (api-docs.deepseek.com, Thinking Mode, read
+// 2026-10): such a call to it is made so, configured or not. Any other
+// model, its family not documented here, is made at the configured effort
+// no higher than low (llm.LeastEffort), and with none configured at none
+// sent, which a model that does not think unasked would be made to think
+// by.
+func (a *Adapter) reasoningEffort(least bool) string {
+	if !least {
+		return a.effort
+	}
+	switch a.provider {
+	case llm.ProviderDeepSeek:
+		return "none"
+	case llm.ProviderOpenAI, llm.ProviderAzure:
+		if effort, known := llm.OpenAILeastEffort(a.model); known {
+			return effort
+		}
+	}
+	return llm.LeastEffort(a.effort)
+}
+
 // encode builds the body of one call.
 func (a *Adapter) encode(req *llm.Request) ([]byte, error) {
 	tools := req.Tools
@@ -143,9 +176,11 @@ func (a *Adapter) encode(req *llm.Request) ([]byte, error) {
 		w.ParallelToolCalls = &parallel
 	}
 	w.MaxOutputTokens = outputCap(req.Limits.MaxOutputTokens, a.params.MaxOutputTokens)
-	if a.effort != "" {
-		w.Reasoning = &wireReasoning{Effort: a.effort}
-		w.Include = []string{includeEncryptedReasoning}
+	if effort := a.reasoningEffort(req.LeastReasoning); effort != "" {
+		w.Reasoning = &wireReasoning{Effort: effort}
+		if effort != "none" {
+			w.Include = []string{includeEncryptedReasoning}
+		}
 	}
 	body, err := json.Marshal(w)
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/anthropic"
 )
 
 // converseRequest is Converse's request body, in the order AWS documents
@@ -198,7 +199,7 @@ func (a *Adapter) translate(req *llm.Request) (*converseRequest, error) {
 		maxTokens = a.params.MaxOutputTokens
 	}
 	ic := inferenceConfig{MaxTokens: maxTokens, Temperature: a.params.Temperature, TopP: a.params.TopP}
-	out.AdditionalModelRequestFields = a.reasoning(maxTokens, out.Messages)
+	out.AdditionalModelRequestFields = a.reasoning(maxTokens, out.Messages, req.LeastReasoning)
 	if out.AdditionalModelRequestFields != nil || a.family.noSampling {
 		// Claude refuses a changed temperature or top_p while thinking,
 		// and its newest models refuse them always; the configured
@@ -433,13 +434,30 @@ const minThinkingBudget = 1024
 // Claude also refuses thinking when the last assistant turn holds a tool
 // call without the thinking that came with it (a turn another model made,
 // before a fallback), so such a turn gets no thinking either.
-func (a *Adapter) reasoning(maxTokens int, msgs []message) *additionalRequest {
-	budget, ok := thinkingBudgets[a.effort]
+//
+// A call asking for the least reasoning (least: ForceAnswer's, a
+// continuation's) thinks least, configured or not, as the anthropic
+// adapter asks it (anthropic.LeastEffort, by Anthropic's documentation of
+// each model): a Claude that thinks unasked (from Opus 5) at low,
+// adaptively, never {type: disabled}, which some of those models refuse;
+// a Claude that does not (4 to 4.8) with no thinking asked. Any other
+// model the effort is mapped for (Claude 3.7, an id of a shape not known)
+// is asked at the configured effort no higher than low (llm.LeastEffort).
+func (a *Adapter) reasoning(maxTokens int, msgs []message, least bool) *additionalRequest {
+	effort := a.effort
+	if least {
+		if e, known := anthropic.LeastEffort(a.model); known && a.family.anthropic {
+			effort = e
+		} else {
+			effort = llm.LeastEffort(effort)
+		}
+	}
+	budget, ok := thinkingBudgets[effort]
 	if !ok || !a.family.thinks || !lastToolTurnThinks(msgs) {
 		return nil
 	}
 	if a.family.adaptive {
-		return &additionalRequest{Thinking: &thinking{Type: "adaptive"}, OutputConfig: &outputConfig{Effort: adaptiveEffort[a.effort]}}
+		return &additionalRequest{Thinking: &thinking{Type: "adaptive"}, OutputConfig: &outputConfig{Effort: adaptiveEffort[effort]}}
 	}
 	if maxTokens <= 0 {
 		return nil

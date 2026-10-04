@@ -75,12 +75,15 @@ func answerApart(args []byte) (rest []byte, sources int, ok bool) {
 // bytes written ahead are redone (passResult.redone, nil for none), where
 // that answer relied on some or did not say (relied): "make it shorter"
 // keeps what that answer read for its own attempt, which this one may
-// not name either. It says nothing of its sources.
-func saidOf(sources []core.Source, read *core.Messages, self, question string, redone []byte) []core.Source {
+// not name either. It says nothing of its sources. A notice of the
+// agent's (notice reports whether a body of its own is one; nil for
+// none), which says nothing of sources either, is no answer, and read
+// nothing.
+func saidOf(sources []core.Source, read *core.Messages, self, question string, redone []byte, notice func(body string) bool) []core.Source {
 	if sources == nil || len(sources) > 0 {
 		return sources
 	}
-	if relied(redone) || earlierRelied(read.Messages, self, question) {
+	if relied(redone) || earlierRelied(read.Messages, self, question, notice) {
 		return nil
 	}
 	return sources
@@ -99,14 +102,20 @@ func relied(args []byte) bool {
 
 // earlierRelied reports whether msgs, up to question, hold an answer
 // that names course materials it relied on, or one of the agent's own
-// (self) that says nothing of them; a retracted message gives the model
-// nothing.
-func earlierRelied(msgs []core.Message, self, question string) bool {
+// (self) that says nothing of them and is no notice; a retracted message
+// gives the model nothing.
+func earlierRelied(msgs []core.Message, self, question string, notice func(body string) bool) bool {
 	for _, m := range msgs {
 		if m.ID == question {
 			return false
 		}
-		if m.Retracted == nil && (len(m.Sources) > 0 || (m.Sources == nil && m.AuthorMemberID == self)) {
+		if m.Retracted != nil {
+			continue
+		}
+		if len(m.Sources) > 0 {
+			return true
+		}
+		if m.Sources == nil && m.AuthorMemberID == self && (notice == nil || m.Body == nil || !notice(*m.Body)) {
 			return true
 		}
 	}

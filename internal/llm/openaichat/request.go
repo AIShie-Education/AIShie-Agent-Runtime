@@ -9,6 +9,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/anthropic"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/gemini"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/openrouter"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolschema"
 )
@@ -26,7 +28,9 @@ type chatRequest struct {
 	TopP                *float64        `json:"top_p,omitempty"`
 	ReasoningEffort     string          `json:"reasoning_effort,omitempty"`
 	Reasoning           *reasoningParam `json:"reasoning,omitempty"`
-	Store               *bool           `json:"store,omitempty"`
+	// Thinking is DeepSeek's switch for its models' thinking.
+	Thinking *thinkingParam `json:"thinking,omitempty"`
+	Store    *bool          `json:"store,omitempty"`
 	// Provider is OpenRouter's upstream routing, to OpenRouter alone.
 	Provider *openrouter.Routing `json:"provider,omitempty"`
 	Stream   bool                `json:"stream"`
@@ -41,6 +45,10 @@ type streamOptions struct {
 
 type reasoningParam struct {
 	Effort string `json:"effort"`
+}
+
+type thinkingParam struct {
+	Type string `json:"type"`
 }
 
 // chatMessage is one message. Content is a string, a []contentPart, or nil
@@ -204,29 +212,12 @@ func (a *Adapter) request(req *llm.Request) *chatRequest {
 	// OpenAI's reasoning models refuse any temperature or top_p but the
 	// default with a 400, so a sampling setting meant for another model
 	// would stop every answer; it is left out for them instead.
-	if !isOpenAI(a.provider) || !reasoningModel(a.model) {
+	if !isOpenAI(a.provider) || !llm.OpenAIReasoningModel(a.model) {
 		out.Temperature = a.params.Temperature
 		out.TopP = a.params.TopP
 	}
 
-	// Reasoning effort has a field only on OpenAI and Azure, and on
-	// OpenRouter, which maps it to each upstream. DeepSeek, Kimi, GLM and
-	// Qwen choose thinking by model or by parameters of their own that an
-	// effort does not translate to; what Gemini's compatible endpoint makes
-	// of an effort differs by model family, which the gemini adapter maps
-	// itself; a local server would ignore it or, if strict, refuse the
-	// call. So nothing is sent elsewhere. OpenAI refuses the field from a
-	// model that does not reason, so an effort configured for one is left
-	// out rather than stop every answer; an Azure deployment's name need
-	// not name its model, so Azure gets the effort its operator configured.
-	if a.effort != "" {
-		switch {
-		case a.provider == llm.ProviderAzure, a.provider == llm.ProviderOpenAI && reasoningModel(a.model):
-			out.ReasoningEffort = a.effort
-		case a.provider == llm.ProviderOpenRouter:
-			out.Reasoning = &reasoningParam{Effort: a.effort}
-		}
-	}
+	a.askReasoning(out, req.LeastReasoning)
 
 	// A school's data is not kept by OpenAI (§5.2). false is already the
 	// default for Chat Completions; it is said anyway, so that a change of
@@ -245,6 +236,117 @@ func (a *Adapter) request(req *llm.Request) *chatRequest {
 	return out
 }
 
+// askReasoning sets what out asks of the model's thinking.
+//
+// A configured reasoning effort has a field only on OpenAI and Azure, and
+// on OpenRouter, which maps it to each upstream. DeepSeek, Kimi, GLM and
+// Qwen choose thinking by model or by parameters of their own that an
+// effort does not translate to; what Gemini's compatible endpoint makes
+// of an effort differs by model family, which the gemini adapter maps
+// itself; a local server would ignore it or, if strict, refuse the call.
+// So it is sent nowhere else. OpenAI refuses the field from a model that
+// does not reason, so an effort configured for one is left out rather than
+// stop every answer; an Azure deployment's name need not name its model,
+// so Azure gets the effort its operator configured.
+//
+// A call asking for the least reasoning (least: ForceAnswer's, a
+// continuation's) must write within what is left of the answer's output
+// tokens, which a model that thinks, its thinking counted in them, may
+// otherwise spend thinking. It asks for the lowest setting the model
+// takes, as its provider documents the model's family, whether or not an
+// effort is configured, and never for more than an ordinary call would:
+//   - DeepSeek: thinking {type: disabled}, its switch per request, which
+//     deepseek-flash and deepseek-v4-pro are on by default at high
+//     (api-docs.deepseek.com, Thinking Mode, read 2026-10).
+//   - OpenAI and Azure: llm.OpenAILeastEffort, the lowest effort the
+//     model's page lists (none for GPT-5.5, minimal for GPT-5, low for the
+//     o series), or nothing where that is what it does unasked (GPT-5.1's
+//     none); on Azure, for a deployment whose name names its model.
+//   - OpenRouter (openRouterLeast): the same of OpenAI's, Anthropic's and
+//     Google's models by their makers' documentation, and none, which
+//     OpenRouter documents as switching reasoning off, for DeepSeek's and
+//     Qwen's (openrouter.ai/docs, reasoning tokens, read 2026-10).
+//   - Gemini: gemini.LeastEffort, which its compatible endpoint maps as
+//     Google documents (ai.google.dev, OpenAI compatibility, read 2026-10):
+//     none to switch 2.5 Flash's thinking off, minimal or low otherwise.
+//
+// Where the model's family is not documented here (an Azure deployment
+// not named for its model, a model of OpenRouter's from another maker), a
+// configured effort is sent no higher than low (llm.LeastEffort), and with
+// none configured nothing is sent: an effort would make a model that does
+// not think unasked think. Kimi's, GLM's and Qwen's own switches are not
+// sent, as what they take is not documented here, nor anything to a local
+// server. A 400 to the call is the loop's to take: it is made again as
+// configured.
+func (a *Adapter) askReasoning(out *chatRequest, least bool) {
+	switch a.provider {
+	case llm.ProviderOpenAI, llm.ProviderAzure:
+		effort := ""
+		if a.provider == llm.ProviderAzure || llm.OpenAIReasoningModel(a.model) {
+			effort = a.effort
+		}
+		if least {
+			effort = leastOf(effort, llm.OpenAILeastEffort, a.model)
+		}
+		out.ReasoningEffort = effort
+	case llm.ProviderOpenRouter:
+		effort := a.effort
+		if least {
+			effort = leastOf(effort, openRouterLeast, a.model)
+		}
+		if effort != "" {
+			out.Reasoning = &reasoningParam{Effort: effort}
+		}
+	case llm.ProviderGemini:
+		if least {
+			out.ReasoningEffort, _ = gemini.LeastEffort(a.model)
+		}
+	case llm.ProviderDeepSeek:
+		if least {
+			out.Thinking = &thinkingParam{Type: "disabled"}
+		}
+	}
+}
+
+// leastOf is the effort a call asking for the least reasoning is made
+// with: the lowest model's family takes, as of tells it, or, for a family
+// it does not know, the effort an ordinary call is made with no higher
+// than low.
+func leastOf(effort string, of func(string) (string, bool), model string) string {
+	if least, known := of(model); known {
+		return least
+	}
+	return llm.LeastEffort(effort)
+}
+
+// openRouterLeast is the effort that asks model, an id of OpenRouter's
+// (vendor/model), to think least, by its maker's documentation; known is
+// false for a maker's model not documented here (GLM's, Kimi's, a new
+// one of any maker).
+//
+// OpenAI's and Google's efforts pass through as their own APIs take them
+// (OpenRouter maps an effort to Gemini 3's thinkingLevel, and to a budget
+// for Gemini 2.5). Claude takes low at least, and none is refused
+// (OpenRouter, reasoning tokens: "minimal is sent as low, none is
+// rejected"), so a Claude that thinks unasked is asked at low and one that
+// does not is sent nothing. DeepSeek's and Qwen's models are sent none,
+// reasoning off: those whose reasoning is mandatory (deepseek-r1, Qwen's
+// -thinking models) refuse it, and the call is made again as configured.
+func openRouterLeast(model string) (string, bool) {
+	vendor, id, _ := strings.Cut(family(model), "/")
+	switch vendor {
+	case "openai":
+		return llm.OpenAILeastEffort(id)
+	case "anthropic":
+		return anthropic.LeastEffort(id)
+	case "google":
+		return gemini.LeastEffort(id)
+	case "deepseek", "qwen":
+		return "none", true
+	}
+	return "", false
+}
+
 // systemRole is developer for OpenAI's reasoning models and the GPT-5
 // family, which take their instructions under that role, and system
 // everywhere else. An Azure deployment is matched by its name, which
@@ -258,18 +360,9 @@ func (a *Adapter) systemRole() string {
 }
 
 // developerRole reports whether model is an o-series reasoning model (o1,
-// o3, o4-mini, …) or of the GPT-5 family.
+// o3, o4-mini, …) or of the GPT-5 family, its chat variants too.
 func developerRole(model string) bool {
-	m := family(model)
-	return oSeries(m) || strings.HasPrefix(m, "gpt-5")
-}
-
-// reasoningModel reports whether model reasons: it then takes a
-// reasoning_effort, and only the default temperature and top_p. GPT-5's
-// chat variants do not reason.
-func reasoningModel(model string) bool {
-	m := family(model)
-	return oSeries(m) || (strings.HasPrefix(m, "gpt-5") && !strings.Contains(m, "-chat"))
+	return llm.OpenAIReasoningModel(model) || strings.HasPrefix(family(model), "gpt-5")
 }
 
 // family is a model id as its family names it: lower case, without the
@@ -277,10 +370,6 @@ func reasoningModel(model string) bool {
 // base model does.
 func family(model string) string {
 	return strings.TrimPrefix(strings.ToLower(strings.TrimSpace(model)), "ft:")
-}
-
-func oSeries(m string) bool {
-	return len(m) >= 2 && m[0] == 'o' && m[1] >= '1' && m[1] <= '9'
 }
 
 // parallelToolCalls is sent only to the APIs that document it, and only

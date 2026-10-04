@@ -502,6 +502,82 @@ func TestThinking(t *testing.T) {
 	}
 }
 
+// TestLeastReasoning: a call asking for the least reasoning (ForceAnswer's,
+// a continuation's) asks for the least thinking Google documents for the
+// model, configured or not, with its allowance: 2.5 Flash's thinking off,
+// with none; 2.5 Pro's least budget, 128; Gemini 3's least level; nothing
+// for a model that thinks least unasked. A model not documented there is
+// asked at low in place of medium or high, and nothing unasked.
+func TestLeastReasoning(t *testing.T) {
+	tests := []struct {
+		model, effort, thinking string
+		maxOut                  int
+	}{
+		{"gemini-2.5-flash", "", `{"includeThoughts":false,"thinkingBudget":0}`, 1500},
+		{"gemini-2.5-flash", "minimal", `{"includeThoughts":false,"thinkingBudget":0}`, 1500},
+		{"gemini-2.5-pro", "high", `{"includeThoughts":false,"thinkingBudget":128}`, 1628},
+		{"gemini-2.5-flash-lite", "", `null`, 1500},
+		{"gemini-2.5-flash-lite", "medium", `null`, 1500},
+		{"gemini-3-pro-preview", "", `{"includeThoughts":false,"thinkingLevel":"LOW"}`, 1500 + defaultThinkingAllowance},
+		{"gemini-3-flash-preview", "high", `{"includeThoughts":false,"thinkingLevel":"MINIMAL"}`, 1500 + defaultThinkingAllowance},
+		{"gemini-3.8-flash", "", `{"includeThoughts":false,"thinkingLevel":"LOW"}`, 1500 + defaultThinkingAllowance},
+		{"gemini-3.1-flash-lite", "high", `null`, 1500 + defaultThinkingAllowance},
+		{"gemini-3.9-flash", "high", `{"includeThoughts":false,"thinkingLevel":"LOW"}`, 1500 + defaultThinkingAllowance},
+		{"gemini-3.9-flash", "", `null`, 1500 + defaultThinkingAllowance},
+		{"gemini-flash-latest", "medium", `{"includeThoughts":false,"thinkingBudget":1024}`, 2524},
+	}
+	for _, tc := range tests {
+		a := &Adapter{model: tc.model, effort: tc.effort}
+		g := a.generation(llm.Limits{MaxOutputTokens: 1500}, true)
+		got, err := json.Marshal(g.ThinkingConfig)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != tc.thinking || g.MaxOutputTokens != tc.maxOut {
+			t.Errorf("%s at %q: thinking %s, maxOutputTokens %d; want %s, %d", tc.model, tc.effort, got, g.MaxOutputTokens, tc.thinking, tc.maxOut)
+		}
+	}
+}
+
+// TestLeastEffort holds the least thinking Google documents for each
+// Gemini, by its id as Google or a router writes it, and "" where the
+// model thinks least unasked; a model not documented is not known.
+func TestLeastEffort(t *testing.T) {
+	for _, c := range []struct {
+		model, effort string
+		known         bool
+	}{
+		{"gemini-2.5-flash", "none", true},
+		{"gemini-2.5-flash-preview-09-2025", "none", true},
+		{"models/gemini-2.5-pro", "minimal", true},
+		{"google/gemini-2.5-pro:batch", "minimal", true},
+		{"gemini-2.5-flash-lite", "", true},
+		{"gemini-2.5-flash-lite-preview-06-17", "", true},
+		{"gemini-3-pro-preview", "low", true},
+		{"gemini-3-flash-preview", "minimal", true},
+		{"gemini-3.1-pro-preview-customtools", "low", true},
+		{"gemini-3.1-flash-lite", "", true},
+		{"gemini-3.1-flash-lite-image", "", true},
+		{"gemini-3.5-flash", "minimal", true},
+		{"gemini-3.5-flash-lite", "", true},
+		{"gemini-3.6-flash", "minimal", true},
+		{"gemini-3.7-flash", "low", true},
+		{"gemini-3.8-flash", "low", true},
+		{"gemini-2.5-flash-image", "", false},
+		{"gemini-3.1-flash-image-preview", "", false},
+		{"gemini-3.8-pro", "", false},
+		{"gemini-3.9-flash", "", false},
+		{"gemini-4-flash", "", false},
+		{"gemini-2.0-flash-001", "", false},
+		{"gemini-flash-latest", "", false},
+		{"tunedModels/cs101-tutor", "", false},
+	} {
+		if effort, known := LeastEffort(c.model); effort != c.effort || known != c.known {
+			t.Errorf("LeastEffort(%q) = %q, %v; want %q, %v", c.model, effort, known, c.effort, c.known)
+		}
+	}
+}
+
 func TestVersionOf(t *testing.T) {
 	tests := []struct {
 		model string

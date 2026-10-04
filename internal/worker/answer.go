@@ -81,6 +81,12 @@ type claim struct {
 	// model and handed back when it ends; nil against a Core that takes no
 	// drafts.
 	d *drafter
+	// lang is the language of the pass's notices (notice): the one
+	// prompt.answer_language fixes, else the asker's, once the
+	// conversation is read (askerLang). notices are the texts the
+	// agent's notices are posted as, made when first asked (isNotice).
+	lang    config.Lang
+	notices map[string]bool
 }
 
 // then is what a pass leaves to the claim.
@@ -206,6 +212,9 @@ func (c *claim) pass(ctx context.Context, msgID string, shorter bool) passResult
 	defer cancel()
 	for switched := 0; ; switched++ {
 		r := passResult{msg: msgID}
+		// Before the conversation is read, a notice is in the language
+		// answers are fixed to, if any.
+		c.lang = config.NoticeLangOf(c.eff.Prompt.AnswerLanguage, "")
 		// 2. An attempt at msg still sending is sent again first.
 		atts, err := c.a.store().AttemptsFor(ctx, c.a.id, c.conv, msgID)
 		if err != nil {
@@ -229,7 +238,11 @@ func (c *claim) pass(ctx context.Context, msgID string, shorter bool) passResult
 		}
 		r.no, r.key = n, core.AnswerKey(c.conv, msgID, n)
 		if at, since, named := revised(atts); at != nil {
-			r.told, r.since, r.changes, r.read, r.redone = true, since, at.Reason, sentBody(at), at.Args
+			r.told, r.since, r.changes, r.read = true, since, at.Reason, sentBody(at)
+			if at.Kind == kindModel {
+				// A notice written again relied on nothing.
+				r.redone = at.Args
+			}
 			if named {
 				r.revises = at.ActionID
 			}
@@ -353,6 +366,7 @@ func (c *claim) generate(ctx context.Context, r passResult, read *core.Messages,
 		return c.failedHere(r, "the memory could not be read", err)
 	}
 	r.hash = hash
+	c.lang = c.askerLang(read, r.msg)
 	hist, err := prompt.History(read.Messages, c.s.id, r.msg, read.More)
 	if err != nil {
 		return c.failedHere(r, "the question is not in the conversation read", err)
@@ -398,7 +412,7 @@ func (c *claim) generate(ctx context.Context, r passResult, read *core.Messages,
 		return c.providersDown(ctx, r)
 	}
 	c.s.providerRecovered(r.msg)
-	r = c.post(ctx, r, end.body, end.kind, saidOf(end.sources, read, c.s.id, r.msg, r.redone))
+	r = c.post(ctx, r, end.body, end.kind, saidOf(end.sources, read, c.s.id, r.msg, r.redone, c.isNotice))
 	if r.withdrawn {
 		// Refused, its question withdrawn as it was sent: its draft went
 		// with the question.
@@ -509,15 +523,15 @@ func searchTool(set *toolset.Set) string {
 
 // post makes body safe (step 8) and posts it written ahead (step 9) under
 // r.key, with the course's materials it relied on (sources: nil says
-// nothing, and a text of the runtime's own relies on none), then acts on
-// what came back (step 10).
+// nothing; a notice of the runtime's own says nothing of them), then acts
+// on what came back (step 10).
 func (c *claim) post(ctx context.Context, r passResult, body, kind string, sources []core.Source) passResult {
 	// The answer takes its draft's place: nothing more of the draft is
 	// sent, lest a write come after it.
 	c.d.hold()
 	safe, rep := safety.Body(body, c.eff.Answer.MaxBodyChars)
 	if rep.Empty {
-		safe, _ = safety.Body(c.eff.Prompt.OnBudgetText, c.eff.Answer.MaxBodyChars)
+		safe, _ = safety.Body(c.notice(kindBudget), c.eff.Answer.MaxBodyChars)
 		kind = kindBudget
 	}
 	if rep.Truncated && kind == kindModel && !r.stats.Truncated {
@@ -532,14 +546,13 @@ func (c *claim) post(ctx context.Context, r passResult, body, kind string, sourc
 			"links_removed", rep.LinksRemoved, "images_removed", rep.ImagesRemoved, "truncated", rep.Truncated)
 	}
 	r.kind = kind
-	switch {
-	case !c.a.sources:
-		// A Core from before sources refuses them.
+	if !c.a.sources || kind != kindModel {
+		// A Core from before sources refuses them. A notice (of a spent
+		// budget or quota, of a refusal, of every provider down) is no
+		// answer: it says nothing of sources, whatever the model read,
+		// rather than that it relied on none, which the asker would be
+		// shown under it as if it had answered.
 		sources = nil
-	case kind != kindModel:
-		// The notice of a spent budget or quota, or of a refusal: it
-		// relies on no course material, whatever the model read.
-		sources = []core.Source{}
 	}
 	args, err := json.Marshal(core.AnswerArgs{CourseID: c.s.course, ConversationID: c.conv, InReplyToMessageID: r.msg, Body: safe,
 		Sources: sources, IdempotencyKey: r.key, Revises: r.revises})
@@ -905,7 +918,7 @@ func (c *claim) providersDown(ctx context.Context, r passResult) passResult {
 	if n >= maxProviderFailures {
 		c.s.providerRecovered(r.msg)
 		c.s.log.Warn("the providers failed again: the budget text is posted", "conversation", c.conv, "failures", n)
-		return c.post(ctx, r, c.eff.Prompt.OnBudgetText, kindBudget, nil)
+		return c.post(ctx, r, c.notice(kindBudget), kindBudget, nil)
 	}
 	c.s.holdBack(c.conv, c.a.now().Add(hold), "the model's providers could not be reached")
 	r.outcome = store.OutcomeError
@@ -981,7 +994,8 @@ func (c *claim) record(r passResult) {
 	m := c.a.s.o.Metrics
 	m.Answers.WithLabelValues(r.outcome).Inc()
 	attrs := []any{"conversation", c.conv, "message", r.msg, "opener", c.opener, "key", r.key, "attempt", r.no,
-		"outcome", r.outcome, "kind", r.kind, "turns", r.stats.Turns, "continuations", r.stats.Continuations, "truncated", r.stats.Truncated,
+		"outcome", r.outcome, "kind", r.kind, "turns", r.stats.Turns, "asked_again", r.stats.AskedAgain, "continuations", r.stats.Continuations,
+		"truncated", r.stats.Truncated,
 		"tool_calls", r.stats.ToolCalls,
 		"writes", r.stats.Writes.Sent, "input_tokens", r.stats.In, "output_tokens", r.stats.Out, "cost_pusd", r.stats.Cost}
 	if r.revises != "" {

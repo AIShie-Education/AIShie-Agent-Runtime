@@ -30,6 +30,14 @@ const (
 	// maxGrace bounds the time a last turn forced by a spent wall clock is
 	// given.
 	maxGrace = 15 * time.Second
+	// forcedFloor is the output, in tokens, that the turns before a forced
+	// last turn leave it of the answer's output tokens, where a turn's cap
+	// and the budget allow (reserve): room for a short answer, in Chinese
+	// or in English, from a model told to think least. A model that
+	// thinks, its thinking counted in its output, can spend a whole turn's
+	// cap thinking and write nothing; without the reserve, the turn forced
+	// after it had what little was left, or none.
+	forcedFloor = 2000
 )
 
 // loop is one answer's model loop (§7.1; design §5.3 step 7): turns of the
@@ -84,6 +92,16 @@ type loop struct {
 	// and what it used.
 	lastTook  time.Duration
 	lastUsage llm.Usage
+	// forcedEnd is when the forced last turn's time ends, set as it
+	// begins: the wall clock, or its grace from then where that is later.
+	// ask is the runtime's word to answer now (prompt.AnswerNow), after
+	// the last message, once a forced turn wrote nothing (answerNow).
+	forcedEnd time.Time
+	ask       string
+	// leastRefused is that the model's API refused a call that asked it
+	// to think least (llm.Request.LeastReasoning): the rest of the answer
+	// asks it of none.
+	leastRefused bool
 
 	stats     loopStats
 	exhausted string
@@ -92,10 +110,12 @@ type loop struct {
 // loopStats are what the loop spent.
 type loopStats struct {
 	// Turns are the model calls, continuations aside, which Continuations
-	// counts (continue.go); Truncated is that the answer was posted cut
-	// short, with on_truncated_text after it.
+	// counts (continue.go), and the forced last turn asked once more,
+	// which AskedAgain says was (answerNow); Truncated is that the answer
+	// was posted cut short, with on_truncated_text after it.
 	Turns         int
 	Continuations int
+	AskedAgain    bool
 	Truncated     bool
 	ToolCalls     int
 	In, Out       int64
@@ -163,13 +183,16 @@ func (l *loop) use(m *model) error {
 
 // retries are the turns tried again once each.
 type retries struct {
-	emptyEnd, maxTokens, overflow, toolError bool
+	emptyEnd, maxTokens, overflow, toolError, answerNow bool
 }
 
 // run runs the loop. A spent budget takes one last turn with ToolMode none
-// (ForceAnswer) and gives on_budget_text if that has no text. A turn the
-// output cap cuts off after some text, forced or not, is continued
-// (continue.go).
+// (ForceAnswer), asking the model to think least, and gives on_budget_text
+// if that has no text, and nor does the one try more asking for less
+// (answerNow). A turn the output cap cuts off before it wrote any text,
+// which what is left of the output tokens cannot hold again with twice the
+// cap, spends them: the last turn is forced. A turn the output cap cuts
+// off after some text, forced or not, is continued (continue.go).
 func (l *loop) run(ctx context.Context) loopEnd {
 	var tried retries
 	forced := false
@@ -183,7 +206,7 @@ func (l *loop) run(ctx context.Context) loopEnd {
 			// question was withdrawn: no more turns.
 			return loopEnd{fatal: err}
 		}
-		if l.stats.Turns >= l.b.Turns {
+		if l.stats.Turns >= l.b.Turns && l.ask == "" {
 			return l.spent()
 		}
 		if !forced {
@@ -196,6 +219,12 @@ func (l *loop) run(ctx context.Context) loopEnd {
 		}
 		if l.outLeft() <= 0 {
 			return l.spent()
+		}
+		if forced && l.forcedEnd.IsZero() {
+			l.forcedEnd = l.deadline
+			if end := l.c.a.now().Add(l.grace()); end.After(l.forcedEnd) {
+				l.forcedEnd = end
+			}
 		}
 		l.d.round()
 		resp, err := l.call(ctx, forced)
@@ -225,6 +254,9 @@ func (l *loop) run(ctx context.Context) loopEnd {
 				if text != "" {
 					return l.body(text)
 				}
+				if l.answerNow(&tried) {
+					continue
+				}
 				return l.spent()
 			}
 			if err := l.runTools(ctx, resp); err != nil {
@@ -235,7 +267,13 @@ func (l *loop) run(ctx context.Context) loopEnd {
 				return l.body(text)
 			}
 			// No text is no answer: the turn once more, then the budget.
-			if forced || tried.emptyEnd {
+			if forced {
+				if l.answerNow(&tried) {
+					continue
+				}
+				return l.spent()
+			}
+			if tried.emptyEnd {
 				return l.spent()
 			}
 			tried.emptyEnd = true
@@ -245,14 +283,23 @@ func (l *loop) run(ctx context.Context) loopEnd {
 			}
 			// Cut off before it wrote any text, its thinking or a tool
 			// call it did not finish having taken the cap: the turn once
-			// more with twice the cap, where the output budget allows.
-			if !forced && !tried.maxTokens {
-				if c := min(2*l.cap, int(min(l.outLeft(), int64(maxInt)))); c > l.cap {
+			// more with twice the cap, where the output budget allows,
+			// less what it keeps for a forced last turn. Where it does
+			// not, or the turn was cut off so again, the output tokens are
+			// spent: the last turn is forced, within what is left.
+			if forced {
+				if l.answerNow(&tried) {
+					continue
+				}
+				return l.spent()
+			}
+			if !tried.maxTokens {
+				if c := min(2*l.cap, int(min(l.room(), int64(maxInt)))); c > l.cap {
 					tried.maxTokens, l.cap = true, c
 					continue
 				}
 			}
-			return l.spent()
+			forced = l.exhaust("output_tokens")
 		case llm.StopContentFilter, llm.StopRefusal:
 			return l.refused()
 		case llm.StopContextOverflow:
@@ -281,21 +328,22 @@ func (l *loop) body(text string) loopEnd {
 }
 
 // spent ends a loop whose budget is spent with no text of the model's:
-// on_budget_text.
+// on_budget_text, or the built-in notice in the asker's language.
 func (l *loop) spent() loopEnd {
-	return loopEnd{body: l.c.eff.Prompt.OnBudgetText, kind: kindBudget}
+	return loopEnd{body: l.c.notice(kindBudget), kind: kindBudget}
 }
 
 // refused ends a loop the model refused, or its provider's filter stopped:
-// on_refusal_text. A refusal's tool calls, if any, were removed, and none
-// is run.
+// on_refusal_text, or the built-in notice in the asker's language. A
+// refusal's tool calls, if any, were removed, and none is run.
 func (l *loop) refused() loopEnd {
-	return loopEnd{body: l.c.eff.Prompt.OnRefusalText, kind: kindRefusal}
+	return loopEnd{body: l.c.notice(kindRefusal), kind: kindRefusal}
 }
 
 // spentOn names the budget spent, or "". The output tokens count as spent
-// once what is left cannot hold a whole turn: the last turn is forced then,
-// within what is left, so that the cap holds and the model still writes.
+// once what is left, less the reserve a forced last turn is kept, cannot
+// hold a whole turn: the last turn is forced then, within what is left, so
+// that the cap holds and the model still writes.
 func (l *loop) spentOn() string {
 	switch {
 	case !l.c.a.now().Before(l.deadline):
@@ -304,7 +352,7 @@ func (l *loop) spentOn() string {
 		return "tool_calls"
 	case l.stats.In >= l.b.InputTokens:
 		return "input_tokens"
-	case l.stats.Turns > 0 && l.outLeft() < int64(l.cap):
+	case l.stats.Turns > 0 && l.room() < int64(l.cap):
 		return "output_tokens"
 	}
 	return ""
@@ -321,17 +369,42 @@ func (l *loop) exhaust(why string) bool {
 // outLeft is the output tokens the answer may still use.
 func (l *loop) outLeft() int64 { return l.b.OutputTokens - l.stats.Out }
 
+// reserve is what the turns before a forced last turn leave it of the
+// answer's output tokens: forcedFloor, but no more than a turn's cap,
+// which is all a turn may write, nor than a quarter of the output tokens,
+// so that a small budget still leaves the turns before it most of it.
+func (l *loop) reserve() int64 {
+	return min(int64(min(forcedFloor, l.cap)), l.b.OutputTokens/4)
+}
+
+// room is what a turn that is not forced may write: what is left of the
+// output tokens, less the reserve.
+func (l *loop) room() int64 { return l.outLeft() - l.reserve() }
+
+// grace is the time a forced last turn is given once the wall clock is
+// spent: a sixth of the wall clock, at most maxGrace.
+func (l *loop) grace() time.Duration { return min(l.b.WallClock()/6, maxGrace) }
+
 // request is the next turn's request; or, while an answer is continued,
 // the continuation's: the turns, the answer so far as the model's own, and
-// the word to go on, with no tools, within the continuation's room.
+// the word to go on, with no tools, within the continuation's room. A turn
+// that is not forced writes within the room the reserve leaves; a forced
+// one, and a continuation, within what is left, asking the model to think
+// least (llm.Request.LeastReasoning) unless its API refused that.
 func (l *loop) request(forced bool) *llm.Request {
 	msgs := make([]llm.Message, 0, len(l.history)+len(l.turns)+2)
 	msgs = append(msgs, l.history...)
 	msgs = append(msgs, l.turns...)
-	limit := int(min(int64(l.cap), l.outLeft()))
-	if c := l.cont; c != nil {
+	if l.ask != "" {
+		msgs = withAsk(msgs, l.ask)
+	}
+	limit := min(int64(l.cap), l.outLeft())
+	switch c := l.cont; {
+	case c != nil:
 		msgs = append(msgs, llm.Message{Role: llm.RoleAssistant, Parts: []llm.Part{llm.Text(c.text)}}, llm.UserText(prompt.Continue(c.last, c.room)))
-		forced, limit = true, min(c.room, limit)
+		forced, limit = true, min(int64(c.room), limit)
+	case !forced:
+		limit = min(limit, l.room())
 	}
 	mode := llm.ToolAuto
 	if forced {
@@ -339,8 +412,46 @@ func (l *loop) request(forced bool) *llm.Request {
 	}
 	return &llm.Request{
 		System: l.system, Messages: msgs, Tools: l.decls, ToolMode: mode,
-		Limits: llm.Limits{MaxOutputTokens: limit},
+		Limits: llm.Limits{MaxOutputTokens: int(limit)}, LeastReasoning: forced && !l.leastRefused,
 	}
+}
+
+// withAsk is msgs with ask, a word of the runtime's, after the last of
+// them: as one more part of it where it is the question or the tools'
+// results, as it is after any turn, so that no API meets two messages of
+// one side in a row.
+func withAsk(msgs []llm.Message, ask string) []llm.Message {
+	out := slices.Clone(msgs)
+	if n := len(out); n > 0 && (out[n-1].Role == llm.RoleUser || out[n-1].Role == llm.RoleTool) {
+		out[n-1] = llm.Message{Role: out[n-1].Role, Parts: append(slices.Clone(out[n-1].Parts), llm.Text(ask))}
+		return out
+	}
+	return append(out, llm.UserText(ask))
+}
+
+// answerNow tries once more a forced last turn that wrote nothing (it
+// thought until its cap, ended empty, or called tools it was told not
+// to), asking for less: the runtime's word to answer at once, briefly,
+// from what the model has read, in the language the system prompt tells
+// it to answer in, the one answer_language fixes or the asker's
+// (prompt.AnswerNow), within what is left of the output tokens, thinking
+// least. Like a continuation it is the same
+// turn, not another (turns, the hard cap, allow it); it starts only while
+// the input tokens are not spent and what is left can hold
+// minContinuation, and it ends when the forced turn's time does: it adds
+// one call, and nothing to the answer's bounds. It reports whether it is
+// tried.
+func (l *loop) answerNow(tried *retries) bool {
+	room := min(l.outLeft(), int64(l.cap))
+	switch {
+	case tried.answerNow, room < minContinuation, l.stats.In >= l.b.InputTokens, !l.c.a.now().Before(l.forcedEnd):
+		return false
+	}
+	tried.answerNow = true
+	l.ask = prompt.AnswerNow(int(room), l.c.eff.Prompt.AnswerLanguage)
+	l.c.s.log.Info("the forced last turn wrote nothing: it is asked once more, to answer now", "conversation", l.c.conv,
+		"budget", l.exhausted, "room", room)
+	return true
 }
 
 // call makes the turn's model call: the model, retried with backoff within
@@ -392,7 +503,8 @@ func (l *loop) callModel(ctx context.Context, forced bool) (*llm.Response, error
 		cctx, cancel := context.WithTimeout(ctx, timeout)
 		began := time.Now()
 		l.d.again()
-		resp, err := llm.Stream(cctx, l.m.ad, l.request(forced), l.onText())
+		req := l.request(forced)
+		resp, err := llm.Stream(cctx, l.m.ad, req, l.onText())
 		cancel()
 		l.account(resp, err, time.Since(began))
 		if err == nil && resp.Stop != llm.StopError {
@@ -407,6 +519,15 @@ func (l *loop) callModel(ctx context.Context, forced bool) (*llm.Response, error
 		}
 		last = err
 		var le *llm.Error
+		if errors.As(err, &le) && le.Kind == llm.ErrBadRequest && req.LeastReasoning && !l.leastRefused {
+			// Its API refused to be asked to think least: the call is made
+			// again as the model is configured, as is the rest of the
+			// answer's.
+			l.leastRefused = true
+			l.c.s.log.Warn("the model's API refused a call asking it to think least: it is made as configured", "conversation", l.c.conv,
+				"code", le.Code)
+			continue
+		}
 		if !errors.As(err, &le) || !le.Retryable() {
 			return nil, err
 		}
@@ -439,13 +560,18 @@ func (l *loop) onText() llm.TextFunc {
 // timeout is a model call's: min(maxCallTimeout, the wall clock left). A
 // last turn forced by a spent wall clock is given a grace of its own, a
 // sixth of the wall clock and at most 15 s, within the claim's own
-// deadline. While a fallback remains, the model gets two thirds of what is
-// left, so that a provider that hangs leaves its fallback time to answer.
+// deadline; asked once more to answer now, it is given what is left of
+// that time (forcedEnd). While a fallback remains, the model gets two
+// thirds of what is left, so that a provider that hangs leaves its
+// fallback time to answer.
 func (l *loop) timeout(ctx context.Context, forced bool) time.Duration {
-	left := l.deadline.Sub(l.c.a.now())
+	now := l.c.a.now()
+	left := l.deadline.Sub(now)
 	if forced {
-		grace := min(l.b.WallClock()/6, maxGrace)
-		left = max(left, grace)
+		left = max(left, l.grace())
+		if l.ask != "" && l.cont == nil {
+			left = min(left, l.forcedEnd.Sub(now))
+		}
 	}
 	if dl, ok := ctx.Deadline(); ok {
 		left = min(left, time.Until(dl))
@@ -494,7 +620,11 @@ func (l *loop) account(resp *llm.Response, err error, took time.Duration) {
 		return
 	}
 	l.lastTook, l.lastUsage = took, resp.Usage
-	if l.cont == nil {
+	switch {
+	case l.cont != nil:
+	case l.ask != "":
+		l.stats.AskedAgain = true
+	default:
 		l.stats.Turns++
 	}
 	l.stats.KeySource = l.m.keySource

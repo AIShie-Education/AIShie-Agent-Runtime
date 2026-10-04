@@ -425,6 +425,67 @@ func TestReasoning(t *testing.T) {
 	}
 }
 
+// TestLeastReasoning: a call asking for the least reasoning (ForceAnswer's,
+// a continuation's) asks a Claude that thinks unasked for low, adaptively,
+// with low's allowance, configured or not; a Claude that does not think
+// unasked is asked nothing, configured or not, and given no allowance; a
+// model not documented (Claude 3.7) thinks at low in place of medium or
+// high. DeepSeek's /anthropic, whose models think unasked, is sent its
+// switch, thinking off, configured or not; an ordinary call to it is sent
+// what it was before.
+func TestLeastReasoning(t *testing.T) {
+	const deepseek = "https://api.deepseek.com/anthropic"
+	cases := []struct {
+		model     string
+		effort    string
+		thinking  *thinking
+		effortOut string
+		maxTokens int
+		base      string
+	}{
+		{"deepseek-flash", "", &thinking{Type: "disabled"}, "", 1000, deepseek},
+		{"deepseek-v4-pro", "high", &thinking{Type: "disabled"}, "", 1000, deepseek},
+		{"claude-opus-5", "", &thinking{Type: "disabled"}, "", 1000, deepseek},
+		{"claude-sonnet-4-5", "medium", nil, "", 1000, ""},
+		{"claude-sonnet-4-5", "minimal", nil, "", 1000, ""},
+		{"claude-sonnet-4-5", "", nil, "", 1000, ""},
+		{"claude-opus-4-8", "high", nil, "", 1000, ""},
+		{"claude-3-7-sonnet-20250219", "medium", &thinking{Type: "enabled", BudgetTokens: 1024}, "", 2024, ""},
+		{"claude-opus-5-5", "high", &thinking{Type: "adaptive"}, "low", 2024, ""},
+		{"claude-opus-4-7", "", nil, "", 1000, ""},
+		{"claude-opus-5", "", &thinking{Type: "adaptive"}, "low", 2024, ""},
+		{"claude-fable-5-1", "high", &thinking{Type: "adaptive"}, "low", 2024, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.model+"/"+c.effort+"/"+c.base, func(t *testing.T) {
+			a := newAdapter(t, llm.Config{Model: c.model, BaseURL: c.base, Reasoning: llm.Reasoning{Effort: c.effort}, Params: llm.Params{MaxOutputTokens: 1000}})
+			if c.base == deepseek {
+				ordinary, err := a.buildRequest(&llm.Request{Messages: []llm.Message{question}, ToolMode: llm.ToolNone})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if ordinary.Thinking != nil && ordinary.Thinking.Type == "disabled" {
+					t.Errorf("an ordinary call to DeepSeek is sent thinking %+v", ordinary.Thinking)
+				}
+			}
+			w, err := a.buildRequest(&llm.Request{Messages: []llm.Message{question}, ToolMode: llm.ToolNone, LeastReasoning: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (w.Thinking == nil) != (c.thinking == nil) || (w.Thinking != nil && *w.Thinking != *c.thinking) {
+				t.Errorf("thinking = %+v, want %+v", w.Thinking, c.thinking)
+			}
+			var effort string
+			if w.OutputConfig != nil {
+				effort = w.OutputConfig.Effort
+			}
+			if effort != c.effortOut || w.MaxTokens != c.maxTokens {
+				t.Errorf("output_config.effort = %q, max_tokens = %d; want %q, %d", effort, w.MaxTokens, c.effortOut, c.maxTokens)
+			}
+		})
+	}
+}
+
 func TestMaxTokens(t *testing.T) {
 	cases := []struct {
 		name        string

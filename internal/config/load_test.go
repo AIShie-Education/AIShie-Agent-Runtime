@@ -66,7 +66,9 @@ func TestExamples(t *testing.T) {
 		t.Fatalf("fallback: %+v", tutor.Model.Fallback)
 	}
 	// runtime.defaults sit between the built-in defaults and the agent.
-	if !strings.HasSuffix(own.Prompt.OnQuotaText, "ask your instructor in class.") || own.Prompt.OnRefusalText != DefaultRefusalText {
+	// Its refusal and budget texts are unset: the built-in notices, in the
+	// asker's language.
+	if !strings.HasSuffix(own.Prompt.OnQuotaText, "ask your instructor in class.") || own.Prompt.OnRefusalText != "" || own.Prompt.OnBudgetText != "" {
 		t.Fatalf("prompt: %+v", own.Prompt)
 	}
 	if own.Model.KeySource != KeyOwn || own.Model.EffectiveProvider() != llm.ProviderDeepSeek || own.Answer.HistoryMessages != 30 ||

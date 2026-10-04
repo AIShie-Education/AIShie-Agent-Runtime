@@ -1,6 +1,7 @@
 package gemini
 
 import (
+	"fmt"
 	"strings"
 )
 
@@ -121,6 +122,88 @@ func thinksUnasked(model string) bool {
 	}
 	return false
 }
+
+// LeastEffort is the reasoning effort, as OpenAI names efforts, that asks
+// model to think least: the lowest setting Google documents for it
+// (ai.google.dev/gemini-api/docs/generate-content/thinking, read
+// 2026-10), or "" where the model already thinks least unasked. known is
+// false for a model not documented here (a Gemini newer than these, a
+// Pro of 3.5 on, an image or speech model, an alias): it is not guessed
+// at. The id is Google's, or a router's with a prefix (OpenRouter's
+// google/gemini-3-flash-preview).
+//
+//	models               unasked            least
+//	2.5 Pro              thinks (dynamic)   minimal: a budget of 128, its
+//	                                          least; thinking cannot be off
+//	2.5 Flash            thinks (dynamic)   none: a budget of 0, off
+//	2.5 Flash-Lite       no thinking        -
+//	3 Pro, 3.1 Pro       high               low; MINIMAL is refused
+//	3 Flash              high               minimal
+//	3.5 Flash, 3.6 Flash medium             minimal
+//	3.7 Flash, 3.8 Flash medium             low; MINIMAL is refused
+//	3.1 and 3.5          minimal            -
+//	  Flash-Lite, 3.1
+//	  Flash-Lite Image
+//
+// Gemini's OpenAI-compatible endpoint maps these as Google documents
+// there: none switches 2.5's thinking off, minimal is the least budget it
+// gives 2.5 (1,024) and MINIMAL where a model takes it, LOW on 3.1 Pro.
+// OpenRouter maps an effort to Gemini 3's level, and to a budget for 2.5.
+func LeastEffort(model string) (effort string, known bool) {
+	v := versionOf(model)
+	if !v.known {
+		return "", false
+	}
+	effort, known = leastByModel[fmt.Sprintf("%d.%d%s", v.major, v.minor, kindOf(v.variant))]
+	return effort, known
+}
+
+// leastByModel is LeastEffort's table, by version and kind.
+var leastByModel = map[string]string{
+	"2.5-pro": "minimal", "2.5-flash": "none", "2.5-flash-lite": "",
+	"3.0-pro": "low", "3.1-pro": "low",
+	"3.0-flash": "minimal", "3.5-flash": "minimal", "3.6-flash": "minimal",
+	"3.7-flash": "low", "3.8-flash": "low",
+	"3.1-flash-lite": "", "3.5-flash-lite": "", "3.1-flash-lite-image": "",
+}
+
+// kindOf is a model's kind from what follows its version: -flash-lite in
+// -flash-lite-preview-06-17, -pro in -pro-preview, -flash in -flash-001.
+// A stage (preview, exp, latest), a number or a router's variant (:batch)
+// ends it.
+func kindOf(variant string) string {
+	variant, _, _ = strings.Cut(variant, ":")
+	var kind strings.Builder
+	for _, w := range strings.Split(strings.TrimPrefix(variant, "-"), "-") {
+		if w == "" || w == "preview" || w == "exp" || w == "latest" || (w[0] >= '0' && w[0] <= '9') {
+			break
+		}
+		kind.WriteString("-" + w)
+	}
+	return kind.String()
+}
+
+// leastThinking is thinkingConfig, and the allowance beside the cap, for a
+// call asking model to think least at effort (LeastEffort's): budget 0 to
+// switch 2.5 Flash's thinking off, 2.5 Pro's least budget, or Gemini 3's
+// level; nothing where the model already thinks least unasked.
+func leastThinking(model, effort string) (*wireThinking, int) {
+	switch {
+	case effort == "":
+		return nil, thinkingAllowance(model, "")
+	case takesLevel(model):
+		return &wireThinking{ThinkingLevel: strings.ToUpper(effort)}, defaultThinkingAllowance
+	case effort == "none":
+		off := 0
+		return &wireThinking{ThinkingBudget: &off}, 0
+	}
+	least := proLeastBudget
+	return &wireThinking{ThinkingBudget: &least}, least
+}
+
+// proLeastBudget is the least thinkingBudget 2.5 Pro takes; it cannot
+// think less, nor be switched off.
+const proLeastBudget = 128
 
 // thinking is thinkingConfig for a reasoning effort, or nil for none: the
 // model's own default then stands.

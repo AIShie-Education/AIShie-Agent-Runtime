@@ -273,10 +273,26 @@ func levelSentence(level string) string {
 }
 
 func languageSentence(setting string) string {
-	if tag, ok := strings.CutPrefix(setting, "fixed:"); ok && tag != "" {
-		return fmt.Sprintf("Answer in the language with the tag %s, whatever language the question is in.", tag)
+	if fixedLanguage(setting) {
+		return "Answer " + inLanguage(setting) + ", whatever language the question is in."
 	}
-	return "Answer in the language the person writes in."
+	return "Answer " + inLanguage(setting) + "."
+}
+
+// inLanguage is the language answers are written in, as setting
+// (prompt.answer_language) has it, in the words the model is told it in
+// ("in the language …"): the one a fixed setting tags, else the asker's.
+func inLanguage(setting string) string {
+	if fixedLanguage(setting) {
+		return "in the language with the tag " + strings.TrimPrefix(setting, "fixed:")
+	}
+	return "in the language the person writes in"
+}
+
+// fixedLanguage reports whether setting fixes the answers' language.
+func fixedLanguage(setting string) bool {
+	tag, ok := strings.CutPrefix(setting, "fixed:")
+	return ok && tag != ""
 }
 
 func noteSentence(n store.Note) string {
@@ -347,6 +363,30 @@ func Continue(last bool, room int) string {
 		" Bring the answer to a close within that room. If it cannot be finished there, end with one short sentence, in the language of the answer, " +
 		"saying that the answer was cut short here and that they can reply \"continue\" (in that language) for the rest.]"
 }
+
+// AnswerNow is what the model is told, after the last message, when the
+// last turn it was forced to, its budgets spent, wrote nothing: it thought
+// until the output cap stopped it, or ended with nothing, or called tools
+// it was told not to. It is to answer now, from what it has already read,
+// in the language its answers are written in, as answerLanguage (the
+// agent's prompt.answer_language) has it and the system prompt says it
+// (inLanguage): the one it fixes, else the asker's, whatever the
+// question's (this word is in English, whatever the answer's). Briefly:
+// in at most AnswerNowWords(room) words, room being the tokens it may
+// write; and, where what it read does not answer the question, it is to
+// say so and suggest a narrower one.
+func AnswerNow(room int, answerLanguage string) string {
+	return fmt.Sprintf("[You cannot look anything more up, and there is room for only about %d more tokens. "+
+		"Answer the question now, from what you have already read, %s: directly, "+
+		"in at most %d words (in Chinese, characters), with no preamble and no plan. "+
+		"If what you read does not answer it, say so in one sentence, and suggest a narrower question.]",
+		room, inLanguage(answerLanguage), AnswerNowWords(room))
+}
+
+// AnswerNowWords is the most words an answer asked for with AnswerNow, in
+// room tokens, is to be: a quarter of room, which leaves the model a share
+// for thinking it cannot be told not to do, between 50 and 300.
+func AnswerNowWords(room int) int { return min(max(room/4, 50), 300) }
 
 // Retracted is how a retracted message appears to the model.
 const Retracted = "[message retracted]"

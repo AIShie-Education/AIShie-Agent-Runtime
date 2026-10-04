@@ -365,6 +365,39 @@ func TestBadRequestsSendNothing(t *testing.T) {
 	}
 }
 
+// TestLeastEffort holds the least thinking Anthropic documents for each
+// Claude, by its id as Anthropic, OpenRouter or Bedrock writes it: low for
+// a Claude that thinks unasked, "" for one that does not; any other id is
+// not known.
+func TestLeastEffort(t *testing.T) {
+	for _, c := range []struct {
+		model, effort string
+		known         bool
+	}{
+		{"claude-opus-5", "low", true},
+		{"claude-opus-5-5", "low", true},
+		{"anthropic/claude-sonnet-5.5", "low", true},
+		{"claude-sonnet-5", "low", true},
+		{"claude-fable-5-1", "low", true},
+		{"anthropic/claude-fable-5:batch", "low", true},
+		{"claude-mythos-5-1", "low", true},
+		{"us.anthropic.claude-opus-5-20260901-v1:0", "low", true},
+		{"claude-sonnet-4-5-20250929", "", true},
+		{"claude-haiku-4-5", "", true},
+		{"anthropic/claude-opus-4.8", "", true},
+		{"arn:aws:bedrock:us-east-1:1:inference-profile/us.anthropic.claude-opus-4-7", "", true},
+		{"claude-3-7-sonnet-20250219", "", false},
+		{"claude-mythos-preview", "", false},
+		{"claude-haiku-6", "", false},
+		{"claude-opus-6", "", false},
+		{"deepseek-flash", "", false},
+	} {
+		if effort, known := LeastEffort(c.model); effort != c.effort || known != c.known {
+			t.Errorf("LeastEffort(%q) = %q, %v; want %q, %v", c.model, effort, known, c.effort, c.known)
+		}
+	}
+}
+
 func TestFamilyOf(t *testing.T) {
 	budget := family{}
 	adaptive46 := family{adaptive: true}

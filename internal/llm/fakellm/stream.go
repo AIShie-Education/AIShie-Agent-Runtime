@@ -9,7 +9,8 @@ import (
 )
 
 // stream sends resp as OpenAI streams an answer (stream: true): a chunk
-// with the role, the content a few words at a time, each call with its id
+// with the role, the reasoning_content and then the content a few words
+// at a time, each call with its id
 // and name and then its arguments in two pieces, a chunk with the finish
 // reason, and, where stream_options.include_usage asks, a last chunk with
 // the usage alone; then [DONE]. The pieces go the response's Every apart
@@ -56,6 +57,12 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, req ChatRequest,
 	}
 	if !send(delta(map[string]any{"role": "assistant", "content": ""}, nil), nil) {
 		return
+	}
+	// A model that thinks streams its thinking first, as DeepSeek's do.
+	for _, piece := range pieces(c.Message.ReasoningContent) {
+		if !send(delta(map[string]any{"reasoning_content": piece}, nil), nil) {
+			return
+		}
 	}
 	for i, piece := range pieces(c.Message.Text()) {
 		if !send(delta(map[string]any{"content": piece}, nil), nil) {
