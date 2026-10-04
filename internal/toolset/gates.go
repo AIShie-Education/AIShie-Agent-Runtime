@@ -98,6 +98,11 @@ var Gates = map[string]Gate{
 	// a token, on member_invite, as Core gates them: what a seat that may
 	// revoke one reads first.
 	"course_join_link_list": {Any: []string{"member_invite"}},
+	// What deleting an assignment for good would take with it, counted
+	// (never a person named), and what Core would refuse the seat now: on
+	// assignment_write, as Core gates it and the deletion. A model reads
+	// it before assignment_delete, which takes its counts back.
+	"assignment_delete_preview": {Any: []string{"assignment_write"}},
 }
 
 // WriteGates are the gates of the writes a model may be offered, where the
@@ -123,6 +128,11 @@ var WriteGates = map[string]Gate{
 	"assignment_update":    {Any: []string{"assignment_write"}},
 	"assignment_publish":   {Any: []string{"assignment_write"}},
 	"assignment_unpublish": {Any: []string{"assignment_write"}},
+	// An assignment deleted for good, with its work and grades, given back
+	// the counts assignment_delete_preview showed: Core refuses an agent
+	// one anybody has started on (people_only), so a model deletes only an
+	// assignment with no work and no grade, and a person the rest.
+	"assignment_delete":    {Any: []string{"assignment_write"}},
 	"component_create":     {Any: []string{"assignment_write"}},
 	"component_update":     {Any: []string{"assignment_write"}},
 	"component_move":       {Any: []string{"assignment_write"}},
@@ -179,9 +189,10 @@ var DefaultAllow = append(slices.Clone(defaultReads), sortedKeys(WriteGates)...)
 
 // defaultReads are the read tools of §2.3, the versions of a document and
 // where students stand on an assignment, the roster's, the queues of
-// proposals, and the course's join links.
+// proposals, the course's join links, and what deleting an assignment
+// would take.
 var defaultReads = []string{
-	"course_get", "document_list", "document_get", "document_versions", "assignment_list", "assignment_get",
+	"course_get", "document_list", "document_get", "document_versions", "assignment_list", "assignment_get", "assignment_delete_preview",
 	"submission_list", "submission_get", "submission_roster", "grade_list", "grade_get", "component_tree", "gradebook_get",
 	"member_list", "member_get", "member_lookup_actor",
 	"action_list_proposed", "action_list_pending_review", "action_get",

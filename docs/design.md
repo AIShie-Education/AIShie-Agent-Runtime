@@ -321,11 +321,14 @@ have not started among them, on `submission_read`, with names only for a
 seat that holds `member_read`; the roster: `member_list` and `member_get` on
 `member_read`, `member_lookup_actor` on `member_manage`; the queues of
 proposals, `action_list_proposed`, `action_list_pending_review` and
-`action_get`, on `action_decide`; and the course's join links,
-`course_join_link_list`, on `member_invite`, never a token; each as Core
-gates it), `toolset.WriteGates` for the writes: `assignment_create`,
-`_update`, `_publish`, `_unpublish` and `component_create`, `_update`,
-`_move` on `assignment_write`; `document_create`, `_add_version`,
+`action_get`, on `action_decide`; the course's join links,
+`course_join_link_list`, on `member_invite`, never a token; and
+`assignment_delete_preview`, what deleting an assignment would take with
+it, counted, never naming a person, and what Core would refuse the seat
+now, on `assignment_write`; each as Core gates it), `toolset.WriteGates`
+for the writes: `assignment_create`, `_update`, `_publish`, `_unpublish`,
+`_delete` and `component_create`, `_update`, `_move` on
+`assignment_write`; `document_create`, `_add_version`,
 `_publish`, `_archive`, and `document_update` (a rename, or a place in the
 list) and `document_unarchive`, as `document_archive`, on any of
 `document_write`, `submission_write` and `grade_submit` (the document's
