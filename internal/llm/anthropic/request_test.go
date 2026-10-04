@@ -426,11 +426,13 @@ func TestReasoning(t *testing.T) {
 }
 
 // TestLeastReasoning: a call asking for the least reasoning (ForceAnswer's,
-// a continuation's) thinks at low in place of medium or high, and a model
-// that thinks unasked is asked at low, adaptively; one that does not think
-// is asked nothing. DeepSeek's /anthropic, whose models think unasked, is
-// sent its switch, thinking off, configured or not; an ordinary call to it
-// is sent what it was before.
+// a continuation's) asks a Claude that thinks unasked for low, adaptively,
+// with low's allowance, configured or not; a Claude that does not think
+// unasked is asked nothing, configured or not, and given no allowance; a
+// model not documented (Claude 3.7) thinks at low in place of medium or
+// high. DeepSeek's /anthropic, whose models think unasked, is sent its
+// switch, thinking off, configured or not; an ordinary call to it is sent
+// what it was before.
 func TestLeastReasoning(t *testing.T) {
 	const deepseek = "https://api.deepseek.com/anthropic"
 	cases := []struct {
@@ -444,10 +446,12 @@ func TestLeastReasoning(t *testing.T) {
 		{"deepseek-flash", "", &thinking{Type: "disabled"}, "", 1000, deepseek},
 		{"deepseek-v4-pro", "high", &thinking{Type: "disabled"}, "", 1000, deepseek},
 		{"claude-opus-5", "", &thinking{Type: "disabled"}, "", 1000, deepseek},
-		{"claude-sonnet-4-5", "medium", &thinking{Type: "enabled", BudgetTokens: 1024}, "", 2024, ""},
-		{"claude-sonnet-4-5", "minimal", &thinking{Type: "enabled", BudgetTokens: 1024}, "", 2024, ""},
+		{"claude-sonnet-4-5", "medium", nil, "", 1000, ""},
+		{"claude-sonnet-4-5", "minimal", nil, "", 1000, ""},
 		{"claude-sonnet-4-5", "", nil, "", 1000, ""},
-		{"claude-opus-4-8", "high", &thinking{Type: "adaptive"}, "low", 2024, ""},
+		{"claude-opus-4-8", "high", nil, "", 1000, ""},
+		{"claude-3-7-sonnet-20250219", "medium", &thinking{Type: "enabled", BudgetTokens: 1024}, "", 2024, ""},
+		{"claude-opus-5-5", "high", &thinking{Type: "adaptive"}, "low", 2024, ""},
 		{"claude-opus-4-7", "", nil, "", 1000, ""},
 		{"claude-opus-5", "", &thinking{Type: "adaptive"}, "low", 2024, ""},
 		{"claude-fable-5-1", "high", &thinking{Type: "adaptive"}, "low", 2024, ""},

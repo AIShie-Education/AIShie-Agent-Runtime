@@ -252,55 +252,54 @@ func (a *Adapter) request(req *llm.Request) *chatRequest {
 // A call asking for the least reasoning (least: ForceAnswer's, a
 // continuation's) must write within what is left of the answer's output
 // tokens, which a model that thinks, its thinking counted in them, may
-// otherwise spend thinking. It asks for less wherever the provider has a
-// field for it, whether or not an effort is configured:
+// otherwise spend thinking. It asks for the lowest setting the model
+// takes, as its provider documents the model's family, whether or not an
+// effort is configured, and never for more than an ordinary call would:
 //   - DeepSeek: thinking {type: disabled}, its switch per request, which
 //     deepseek-flash and deepseek-v4-pro are on by default at high
 //     (api-docs.deepseek.com, Thinking Mode, read 2026-10).
-//   - OpenAI and Azure: low in place of a configured medium or high
-//     (llm.LeastEffort), and low for a reasoning model with none
-//     configured, which reasons at medium unasked; on Azure, a deployment
-//     whose name names one.
-//   - OpenRouter: none for DeepSeek's and Qwen's models, whose reasoning
-//     it switches only on or off by effort, none off; else low in place of
-//     a configured medium or high, and low for a model that thinks unasked
-//     with none configured (openRouterThinksUnasked). That is
-//     openrouter.ai/docs, reasoning tokens, read 2026-10; low is a fifth
-//     of max_tokens where it maps an effort to a budget.
-//   - Gemini: low, which every Gemini takes there, for a model that thinks
-//     unasked (gemini.ThinksUnasked; ai.google.dev, OpenAI compatibility,
-//     read 2026-10), a budget of 1,024 on 2.5.
+//   - OpenAI and Azure: llm.OpenAILeastEffort, the lowest effort the
+//     model's page lists (none for GPT-5.5, minimal for GPT-5, low for the
+//     o series), or nothing where that is what it does unasked (GPT-5.1's
+//     none); on Azure, for a deployment whose name names its model.
+//   - OpenRouter (openRouterLeast): the same of OpenAI's, Anthropic's and
+//     Google's models by their makers' documentation, and none, which
+//     OpenRouter documents as switching reasoning off, for DeepSeek's and
+//     Qwen's (openrouter.ai/docs, reasoning tokens, read 2026-10).
+//   - Gemini: gemini.LeastEffort, which its compatible endpoint maps as
+//     Google documents (ai.google.dev, OpenAI compatibility, read 2026-10):
+//     none to switch 2.5 Flash's thinking off, minimal or low otherwise.
 //
-// Kimi's, GLM's and Qwen's own switches are not sent, as what they take is
-// not documented here, nor anything to a local server. A 400 to the call
-// is the loop's to take: it is made again as configured.
+// Where the model's family is not documented here (an Azure deployment
+// not named for its model, a model of OpenRouter's from another maker), a
+// configured effort is sent no higher than low (llm.LeastEffort), and with
+// none configured nothing is sent: an effort would make a model that does
+// not think unasked think. Kimi's, GLM's and Qwen's own switches are not
+// sent, as what they take is not documented here, nor anything to a local
+// server. A 400 to the call is the loop's to take: it is made again as
+// configured.
 func (a *Adapter) askReasoning(out *chatRequest, least bool) {
-	effort := a.effort
-	if least {
-		effort = llm.LeastEffort(effort)
-	}
 	switch a.provider {
 	case llm.ProviderOpenAI, llm.ProviderAzure:
-		reasons := llm.OpenAIReasoningModel(a.model)
-		if least && effort == "" && reasons {
-			effort = "low"
+		effort := ""
+		if a.provider == llm.ProviderAzure || llm.OpenAIReasoningModel(a.model) {
+			effort = a.effort
 		}
-		if a.provider == llm.ProviderAzure || reasons {
-			out.ReasoningEffort = effort
+		if least {
+			effort = leastOf(effort, llm.OpenAILeastEffort, a.model)
 		}
+		out.ReasoningEffort = effort
 	case llm.ProviderOpenRouter:
-		switch {
-		case least && switchesReasoning(a.model):
-			effort = "none"
-		case least && effort == "" && openRouterThinksUnasked(a.model):
-			effort = "low"
+		effort := a.effort
+		if least {
+			effort = leastOf(effort, openRouterLeast, a.model)
 		}
 		if effort != "" {
 			out.Reasoning = &reasoningParam{Effort: effort}
 		}
 	case llm.ProviderGemini:
-		if least && gemini.ThinksUnasked(a.model) {
-			out.ReasoningEffort = "low"
+		if least {
+			out.ReasoningEffort, _ = gemini.LeastEffort(a.model)
 		}
 	case llm.ProviderDeepSeek:
 		if least {
@@ -309,30 +308,43 @@ func (a *Adapter) askReasoning(out *chatRequest, least bool) {
 	}
 }
 
-// switchesReasoning reports whether model, an id of OpenRouter's
-// (vendor/model), is DeepSeek's or Qwen's, whose reasoning OpenRouter
-// switches on or off by effort rather than grading it.
-func switchesReasoning(model string) bool {
-	vendor, _, _ := strings.Cut(family(model), "/")
-	return vendor == "deepseek" || vendor == "qwen"
+// leastOf is the effort a call asking for the least reasoning is made
+// with: the lowest model's family takes, as of tells it, or, for a family
+// it does not know, the effort an ordinary call is made with no higher
+// than low.
+func leastOf(effort string, of func(string) (string, bool), model string) string {
+	if least, known := of(model); known {
+		return least
+	}
+	return llm.LeastEffort(effort)
 }
 
-// openRouterThinksUnasked reports whether model, an id of OpenRouter's,
-// is one that thinks when a request says nothing of it: OpenAI's
-// reasoning models, Claude from Opus 5 and Gemini 2.5 and 3, as their
-// own adapters know them. A model that does not would be made to think by
-// an effort, so it is sent none.
-func openRouterThinksUnasked(model string) bool {
+// openRouterLeast is the effort that asks model, an id of OpenRouter's
+// (vendor/model), to think least, by its maker's documentation; known is
+// false for a maker's model not documented here (GLM's, Kimi's, a new
+// one of any maker).
+//
+// OpenAI's and Google's efforts pass through as their own APIs take them
+// (OpenRouter maps an effort to Gemini 3's thinkingLevel, and to a budget
+// for Gemini 2.5). Claude takes low at least, and none is refused
+// (OpenRouter, reasoning tokens: "minimal is sent as low, none is
+// rejected"), so a Claude that thinks unasked is asked at low and one that
+// does not is sent nothing. DeepSeek's and Qwen's models are sent none,
+// reasoning off: those whose reasoning is mandatory (deepseek-r1, Qwen's
+// -thinking models) refuse it, and the call is made again as configured.
+func openRouterLeast(model string) (string, bool) {
 	vendor, id, _ := strings.Cut(family(model), "/")
 	switch vendor {
 	case "openai":
-		return llm.OpenAIReasoningModel(id)
+		return llm.OpenAILeastEffort(id)
 	case "anthropic":
-		return anthropic.ThinksUnasked(id)
+		return anthropic.LeastEffort(id)
 	case "google":
-		return gemini.ThinksUnasked(id)
+		return gemini.LeastEffort(id)
+	case "deepseek", "qwen":
+		return "none", true
 	}
-	return false
+	return "", false
 }
 
 // systemRole is developer for OpenAI's reasoning models and the GPT-5

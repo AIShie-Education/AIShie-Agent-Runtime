@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/anthropic"
 )
 
 // converseRequest is Converse's request body, in the order AWS documents
@@ -435,17 +436,20 @@ const minThinkingBudget = 1024
 // before a fallback), so such a turn gets no thinking either.
 //
 // A call asking for the least reasoning (least: ForceAnswer's, a
-// continuation's) is made at low in place of medium or high
-// (llm.LeastEffort), and a Claude that thinks unasked (from Opus 5) is
-// asked at low as if low were configured, adaptively, as the anthropic
-// adapter asks it: never {type: disabled}, which some of those models
-// refuse.
+// continuation's) thinks least, configured or not, as the anthropic
+// adapter asks it (anthropic.LeastEffort, by Anthropic's documentation of
+// each model): a Claude that thinks unasked (from Opus 5) at low,
+// adaptively, never {type: disabled}, which some of those models refuse;
+// a Claude that does not (4 to 4.8) with no thinking asked. Any other
+// model the effort is mapped for (Claude 3.7, an id of a shape not known)
+// is asked at the configured effort no higher than low (llm.LeastEffort).
 func (a *Adapter) reasoning(maxTokens int, msgs []message, least bool) *additionalRequest {
 	effort := a.effort
 	if least {
-		effort = llm.LeastEffort(effort)
-		if effort == "" && a.family.thinksByDefault {
-			effort = "low"
+		if e, known := anthropic.LeastEffort(a.model); known && a.family.anthropic {
+			effort = e
+		} else {
+			effort = llm.LeastEffort(effort)
 		}
 	}
 	budget, ok := thinkingBudgets[effort]

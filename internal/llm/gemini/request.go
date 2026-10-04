@@ -450,25 +450,30 @@ func takesArguments(schema json.RawMessage) bool {
 // all the same.
 //
 // A call asking for the least reasoning (least: ForceAnswer's, a
-// continuation's) is made at low in place of medium or high
-// (llm.LeastEffort), and a model that thinks unasked is asked at low as if
-// low were configured: a budget of 1,024, which every 2.5 model that
-// thinks takes, or LOW, which every Gemini 3 model takes.
+// continuation's) thinks least, configured or not, and never more than an
+// ordinary call: the lowest setting Google documents for the model
+// (LeastEffort), thinking off where it can be (2.5 Flash), else the least
+// budget or level, and nothing where the model already thinks least
+// unasked (2.5 Flash-Lite, 3.1 Flash-Lite). A model not documented there
+// is asked at the configured effort no higher than low (llm.LeastEffort),
+// and with none configured, nothing.
 func (a *Adapter) generation(l llm.Limits, least bool) *wireGeneration {
-	effort := a.effort
+	cfg, allowance := thinking(a.model, a.effort), thinkingAllowance(a.model, a.effort)
 	if least {
-		effort = llm.LeastEffort(effort)
-		if effort == "" && ThinksUnasked(a.model) {
-			effort = "low"
+		if effort, known := LeastEffort(a.model); known {
+			cfg, allowance = leastThinking(a.model, effort)
+		} else {
+			effort = llm.LeastEffort(a.effort)
+			cfg, allowance = thinking(a.model, effort), thinkingAllowance(a.model, effort)
 		}
 	}
-	g := wireGeneration{Temperature: a.params.Temperature, TopP: a.params.TopP, ThinkingConfig: thinking(a.model, effort)}
+	g := wireGeneration{Temperature: a.params.Temperature, TopP: a.params.TopP, ThinkingConfig: cfg}
 	limit := a.params.MaxOutputTokens
 	if l.MaxOutputTokens > 0 {
 		limit = l.MaxOutputTokens
 	}
 	if limit > 0 {
-		g.MaxOutputTokens = outputCap(limit, thinkingAllowance(a.model, effort))
+		g.MaxOutputTokens = outputCap(limit, allowance)
 	}
 	if g == (wireGeneration{}) {
 		return nil

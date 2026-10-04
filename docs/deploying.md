@@ -1154,15 +1154,23 @@ machine's loopback, should `HTTP_ADDR` listen wider).
   before it wrote anything, which forces the last turn: a model that
   thinks, its thinking counted in its output (DeepSeek's `deepseek-flash`
   and `deepseek-v4-pro`, Claude from Opus 5, Gemini 2.5 and 3, OpenAI's
-  reasoning models), thought through its cap. The forced turn tells it
-  to think least where its provider has a field for that, configured or
-  not: DeepSeek's thinking is switched off, and OpenAI's, Anthropic's and
-  Google's thinking models are asked at low, directly or through
-  OpenRouter, Azure (a deployment named for its model) or Bedrock. Kimi,
-  GLM and Qwen on their own endpoints, and local servers, are told
-  nothing, and a model there that thinks by default may think through
-  the forced turn too. A forced turn that writes nothing is asked once
-  more for a short answer (`asked_again` in the answer's log line).
+  reasoning models but GPT-5.1, 5.2 and 5.4), thought through its cap.
+  The forced turn asks it for the least thinking it takes, configured or
+  not, and never for more than it would do unasked, by what its provider
+  documents for its family (design.md §5.3, The forced answer): thinking
+  off where it goes off (DeepSeek, GPT-5.5 and later's `none`, Gemini 2.5
+  Flash), else the lowest effort (GPT-5's `minimal`, `low` for the o
+  series and for Claude from Opus 5, Gemini 3's least level), and
+  nothing for a model that already thinks least unasked (GPT-5.1, Claude
+  4.5, the Flash-Lite models). That holds directly and through
+  OpenRouter, Azure (a deployment named for its model) or Bedrock. A
+  model whose family is not documented there (Kimi, GLM and Qwen on
+  their own endpoints, GLM and Kimi through OpenRouter, a local server, a
+  model newer than the runtime knows) is sent no more than its
+  configured effort, and nothing if none is configured, so a model there
+  that thinks by default may think through the forced turn too. A
+  forced turn that writes nothing is asked once more for a short answer
+  (`asked_again` in the answer's log line).
   Answers of such a model often forced call for a higher
   `params.max_output_tokens` and `output_tokens`, or a lower
   `reasoning.effort` where its adapter sends one.

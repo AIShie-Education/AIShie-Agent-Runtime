@@ -185,12 +185,12 @@ func TestProviderCorners(t *testing.T) {
 // ordinary turn's, whether or not an effort is configured: DeepSeek's
 // thinking switched off, as its API documents it ({"thinking": {"type":
 // "disabled"}}); OpenRouter's reasoning off (effort none) for DeepSeek's
-// and Qwen's models, which it only switches; low in place of a configured
-// effort above it, and low for a model that thinks unasked with none
-// configured, where an effort has a field (OpenAI's reasoning models, an
-// Azure deployment named for one, OpenRouter's thinking models, Gemini's);
-// nothing for a model that does not think unasked, which an effort would
-// make think, nor anywhere else.
+// and Qwen's models; where an effort has a field, the lowest the model's
+// family takes (minimal for GPT-5, low for the o series, Gemini's by
+// model), and nothing for a model that thinks least unasked; for a model
+// not documented, low in place of a configured effort above it, and
+// nothing unasked, which an effort would make think; nothing anywhere else.
+// The providers package holds the whole table (least_test.go).
 func TestLeastReasoning(t *testing.T) {
 	type sent struct{ Thinking, Effort, Reasoning string }
 	for _, c := range []struct {
@@ -201,8 +201,11 @@ func TestLeastReasoning(t *testing.T) {
 		{"deepseek, an effort configured", deepseekBase, "deepseek-v4-pro", "high", sent{}, sent{Thinking: "disabled"}},
 		{"openai, a reasoning model at high", "", "o4-mini", "high", sent{Effort: "high"}, sent{Effort: "low"}},
 		{"openai, at minimal", "", "gpt-5-mini", "minimal", sent{Effort: "minimal"}, sent{Effort: "minimal"}},
-		{"openai, a reasoning model, no effort", "", "gpt-5-mini", "", sent{}, sent{Effort: "low"}},
+		{"openai, a reasoning model, no effort", "", "gpt-5-mini", "", sent{}, sent{Effort: "minimal"}},
 		{"openai, an o-series model, no effort", "", "o4-mini", "", sent{}, sent{Effort: "low"}},
+		{"openai, gpt-5.1, which reasons not unasked, no effort", "", "gpt-5.1", "", sent{}, sent{}},
+		{"openai, gpt-5.1 at high", "", "gpt-5.1", "high", sent{Effort: "high"}, sent{}},
+		{"openai, gpt-5.5, no effort", "", "gpt-5.5", "", sent{}, sent{Effort: "none"}},
 		{"openai, gpt-5's chat variant, no effort", "", "gpt-5-chat-latest", "", sent{}, sent{}},
 		{"openai, a model that does not reason", "", "gpt-4.1", "high", sent{}, sent{}},
 		{"openai, a model that does not reason, no effort", "", "gpt-4.1", "", sent{}, sent{}},
@@ -221,8 +224,8 @@ func TestLeastReasoning(t *testing.T) {
 		{"openrouter, gpt-4.1, no effort", openrouterBase, "openai/gpt-4.1", "", sent{}, sent{}},
 		{"openrouter, at minimal", openrouterBase, "openai/gpt-5-mini", "minimal", sent{Reasoning: "minimal"}, sent{Reasoning: "minimal"}},
 		{"openrouter, glm, no effort", openrouterBase, "z-ai/glm-4.6", "", sent{}, sent{}},
-		{"gemini, 3, no effort", geminiBase, "gemini-3-flash", "", sent{}, sent{Effort: "low"}},
-		{"gemini, 2.5 pro at high", geminiBase, "gemini-2.5-pro", "high", sent{}, sent{Effort: "low"}},
+		{"gemini, 3, no effort", geminiBase, "gemini-3-flash", "", sent{}, sent{Effort: "minimal"}},
+		{"gemini, 2.5 pro at high", geminiBase, "gemini-2.5-pro", "high", sent{}, sent{Effort: "minimal"}},
 		{"gemini, 2.5 flash-lite", geminiBase, "gemini-2.5-flash-lite", "", sent{}, sent{}},
 		{"kimi", moonshotBase, "kimi-k2-thinking", "high", sent{}, sent{}},
 		{"glm", glmBase, "glm-4.6", "", sent{}, sent{}},

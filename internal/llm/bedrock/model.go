@@ -21,10 +21,6 @@ type family struct {
 	// output_config.effort: budget_tokens is deprecated on the 4.6 models
 	// and refused from Opus 4.7 on.
 	adaptive bool
-	// thinksByDefault models think when the request says nothing about
-	// thinking (Opus 5 and later, Sonnet 5, Fable, Mythos), as the
-	// anthropic adapter knows them.
-	thinksByDefault bool
 	// noSampling models refuse temperature and top_p (Opus 4.7 on).
 	noSampling bool
 	// toolStatus: the model takes toolResult.status. AWS documents the
@@ -86,7 +82,7 @@ func familyOf(model string) family {
 	}
 	switch {
 	case tier == "fable" || tier == "mythos" || major >= 5:
-		f.adaptive, f.thinksByDefault, f.noSampling = true, true, true
+		f.adaptive, f.noSampling = true, true
 	case major == 4 && minor >= 7:
 		f.adaptive, f.noSampling = true, true
 	case major == 4 && minor == 6:

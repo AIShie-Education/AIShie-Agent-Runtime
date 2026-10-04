@@ -228,10 +228,12 @@ func MakerOf(adapter, baseURL, model string) string {
 }
 
 // OpenAIReasoningModel reports whether model, as OpenAI names it, is one of
-// its reasoning models, which reason unasked and take a reasoning effort:
-// the o series (o1, o3, o4-mini, …) and the GPT-5 family but its chat
-// variants, which do not reason. A fine-tuned model (ft:o4-mini:org::id)
-// is its base model.
+// its reasoning models, which take a reasoning effort and refuse a
+// temperature or top_p but the default: the o series (o1, o3, o4-mini, …)
+// and the GPT-5 family but its chat variants, which do not reason. Whether
+// one reasons unasked is another matter (GPT-5.1 does not): see
+// OpenAILeastEffort. A fine-tuned model (ft:o4-mini:org::id) is its base
+// model.
 func OpenAIReasoningModel(model string) bool {
 	m := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(model)), "ft:")
 	oSeries := len(m) >= 2 && m[0] == 'o' && m[1] >= '1' && m[1] <= '9'

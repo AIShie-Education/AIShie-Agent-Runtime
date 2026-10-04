@@ -112,22 +112,30 @@ type opaqueItem struct {
 //
 // A call asking for the least reasoning (least: ForceAnswer's, a
 // continuation's), which must write within what is left of the answer's
-// output tokens, is made at low in place of medium or high
-// (llm.LeastEffort), and at low on OpenAI or Azure for a reasoning model
-// with none configured, which reasons at medium unasked (on Azure, a
-// deployment whose name names one). DeepSeek, whose models think by
-// default at high, documents effort none in this format as switching
-// their thinking off (api-docs.deepseek.com, Thinking Mode, read
-// 2026-10): such a call to it is made so, configured or not.
+// output tokens, is made at the lowest effort the model takes and never at
+// more than an ordinary call. On OpenAI or Azure that is
+// llm.OpenAILeastEffort, the lowest effort the model's page lists (none
+// for GPT-5.5, minimal for GPT-5, low for the o series), or none sent
+// where that is what the model does unasked (GPT-5.1's none); on Azure,
+// for a deployment whose name names its model. DeepSeek, whose models
+// think by default at high, documents effort none in this format as
+// switching their thinking off (api-docs.deepseek.com, Thinking Mode, read
+// 2026-10): such a call to it is made so, configured or not. Any other
+// model, its family not documented here, is made at the configured effort
+// no higher than low (llm.LeastEffort), and with none configured at none
+// sent, which a model that does not think unasked would be made to think
+// by.
 func (a *Adapter) reasoningEffort(least bool) string {
 	if !least {
 		return a.effort
 	}
-	switch {
-	case a.provider == llm.ProviderDeepSeek:
+	switch a.provider {
+	case llm.ProviderDeepSeek:
 		return "none"
-	case a.effort == "" && (a.provider == llm.ProviderOpenAI || a.provider == llm.ProviderAzure) && llm.OpenAIReasoningModel(a.model):
-		return "low"
+	case llm.ProviderOpenAI, llm.ProviderAzure:
+		if effort, known := llm.OpenAILeastEffort(a.model); known {
+			return effort
+		}
 	}
 	return llm.LeastEffort(a.effort)
 }

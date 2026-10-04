@@ -269,23 +269,28 @@ type reasoningConfig struct {
 // [UNVERIFIED] per model beyond Anthropic's documentation (familyOf).
 //
 // A call asking for the least reasoning (least: ForceAnswer's, a
-// continuation's) is made at low in place of medium or high
-// (llm.LeastEffort), and a model that thinks unasked is asked at low as
-// if low were configured, in the shape the adapter sends for it then:
-// never {type: disabled}, which some of those models refuse. DeepSeek's
-// /anthropic, whose models think by default at high, documents
-// {type: disabled} as its switch per request in this format as in its
-// OpenAI one (api-docs.deepseek.com, Thinking Mode, read 2026-10): such a
-// call to it is sent that, configured or not.
+// continuation's) thinks least, configured or not, and never more than an
+// ordinary call (LeastEffort): a Claude that thinks unasked at low,
+// adaptively, in the shape the adapter sends a configured low in; a Claude
+// that does not (4 to 4.8) with no thinking asked, which a turn may turn
+// to half way, the API then setting thinking aside (platform.claude.com,
+// thinking with tool use, read 2026-10). DeepSeek's /anthropic, whose
+// models think by default at high, documents {type: disabled} as its
+// switch per request in this format as in its OpenAI one
+// (api-docs.deepseek.com, Thinking Mode, read 2026-10): such a call to it
+// is sent that, configured or not. Any other model, not documented here,
+// is asked at the configured effort no higher than low (llm.LeastEffort),
+// and with none configured, nothing.
 func (a *Adapter) reasoning(msgs []wireMessage, least bool) reasoningConfig {
 	if least && a.provider == llm.ProviderDeepSeek {
 		return reasoningConfig{thinking: &thinking{Type: "disabled"}}
 	}
 	effort := a.effort
 	if least {
-		effort = llm.LeastEffort(effort)
-		if effort == "" && a.family.thinksByDefault {
-			effort = "low"
+		if e, known := LeastEffort(a.model); known {
+			effort = e
+		} else {
+			effort = llm.LeastEffort(effort)
 		}
 	}
 	switch {

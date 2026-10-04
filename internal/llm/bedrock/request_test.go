@@ -163,19 +163,23 @@ func TestReasoning(t *testing.T) {
 		{"5, with no cap", "us.anthropic.claude-sonnet-5-20260801-v1:0", "high", 0, plain, adaptive("high")},
 		{"adaptive, a tool turn without its thinking", "anthropic.claude-opus-4-7", "high", 32000, withTool, ""},
 	}
-	// A call asking for the least reasoning (ForceAnswer's) is made at
-	// low in place of medium or high; with nothing configured, a Claude
-	// that thinks unasked (from Opus 5) is asked at low, adaptively, and
-	// any other is asked nothing still.
+	// A call asking for the least reasoning (ForceAnswer's) asks a Claude
+	// that thinks unasked (from Opus 5) for low, adaptively, configured or
+	// not; a Claude 4 that does not, nothing, configured or not; and a
+	// model whose family is not documented (Claude 3.7) is made at low in
+	// place of medium or high.
 	least := []struct {
 		name, model, effort string
 		maxTokens           int
 		msgs                []message
 		want                string
 	}{
-		{"least: high is low", "anthropic.claude-opus-4-1-20250805-v1:0", "high", 64000, plain, budget(2048)},
-		{"least: adaptive medium is low", "global.anthropic.claude-opus-4-6-v1", "medium", 4000, plain, adaptive("low")},
-		{"least: minimal stays", claude, "minimal", 4000, plain, budget(1024)},
+		{"least: claude 4.1 at high thinks not", "anthropic.claude-opus-4-1-20250805-v1:0", "high", 64000, plain, ""},
+		{"least: adaptive 4.6 at medium thinks not", "global.anthropic.claude-opus-4-6-v1", "medium", 4000, plain, ""},
+		{"least: claude 4.5 at minimal thinks not", claude, "minimal", 4000, plain, ""},
+		{"least: claude 3.7, high is low", "us.anthropic.claude-3-7-sonnet-20250219-v1:0", "high", 64000, plain, budget(2048)},
+		{"least: claude 3.7, minimal stays", "us.anthropic.claude-3-7-sonnet-20250219-v1:0", "minimal", 4000, plain, budget(1024)},
+		{"least: opus 5 at high is low", "us.anthropic.claude-opus-5-20260901-v1:0", "high", 4000, plain, adaptive("low")},
 		{"least: no effort", claude, "", 4000, plain, ""},
 		{"least: opus 5, no effort", "us.anthropic.claude-opus-5-20260901-v1:0", "", 4000, plain, adaptive("low")},
 		{"least: sonnet 5, no effort, no cap", "us.anthropic.claude-sonnet-5-20260801-v1:0", "", 0, plain, adaptive("low")},
@@ -295,8 +299,8 @@ func TestFamilyOf(t *testing.T) {
 		{"anthropic.claude-sonnet-4-20250514-v1:0", family{anthropic: true, thinks: true, toolStatus: true}},
 		{"global.anthropic.claude-opus-4-6-v1", family{anthropic: true, thinks: true, adaptive: true, toolStatus: true}},
 		{"arn:aws:bedrock:us-east-1:1:inference-profile/us.anthropic.claude-opus-4-7", family{anthropic: true, thinks: true, adaptive: true, noSampling: true, toolStatus: true}},
-		{"anthropic.claude-fable-1-v1:0", family{anthropic: true, thinks: true, adaptive: true, thinksByDefault: true, noSampling: true, toolStatus: true}},
-		{"us.anthropic.claude-opus-5-5-v1:0", family{anthropic: true, thinks: true, adaptive: true, thinksByDefault: true, noSampling: true, toolStatus: true}},
+		{"anthropic.claude-fable-1-v1:0", family{anthropic: true, thinks: true, adaptive: true, noSampling: true, toolStatus: true}},
+		{"us.anthropic.claude-opus-5-5-v1:0", family{anthropic: true, thinks: true, adaptive: true, noSampling: true, toolStatus: true}},
 		{nova, family{toolStatus: true}},
 		{"us.amazon.nova-lite-v1:0", family{toolStatus: true}},
 		{"meta.llama3-3-70b-instruct-v1:0", family{}},

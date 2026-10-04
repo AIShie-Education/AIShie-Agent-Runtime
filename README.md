@@ -103,10 +103,11 @@ says what an agent may do and how. This repository meets it:
     the last continuation told to bring it to a close; one still cut short
     says so, and that a reply of "continue" brings the rest.
   - A spent budget still gets an answer where it can. The last turn is
-    forced, with no tools, the model told to think least where its
-    provider has a field for it (DeepSeek's thinking switched off,
-    OpenAI's, Anthropic's and Google's thinking models asked at low),
-    within what the turns before it left it of the output tokens; one
+    forced, with no tools, the model asked for the least thinking its
+    provider documents for it and never more than it does unasked
+    (thinking off where it goes off, else the lowest effort, nothing for
+    a model that thinks least unasked, such as GPT-5.1), within what the
+    turns before it left it of the output tokens; one
     that writes nothing is asked once more for a short answer from what
     it read. Only then is
     the notice posted, in the asker's language (English, or Chinese in

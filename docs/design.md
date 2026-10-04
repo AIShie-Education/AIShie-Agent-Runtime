@@ -1656,7 +1656,8 @@ For an inbox row (conversation X, question M, opener P):
    writes counts its thinking in its output tokens: DeepSeek's
    `deepseek-flash` and `deepseek-v4-pro` think by default, at high
    effort, as do Claude from Opus 5, Gemini 2.5 Pro and Flash, Gemini 3,
-   and OpenAI's reasoning models (at medium). On test.aishie.app on
+   and OpenAI's reasoning models but GPT-5.1, 5.2 and 5.4 (at medium;
+   those three reason only when asked). On test.aishie.app on
    2026-10-04, `deepseek-flash` behind `openai_chat`, at 4,000 tokens a
    call, answered three of six broad
    questions in one conversation ("有什么问题吗?", each after reading six
@@ -1688,9 +1689,11 @@ For an inbox row (conversation X, question M, opener P):
      forced turn, within what is left.
    - *The forced turn thinks least* (`llm.Request.LeastReasoning`), as
      does a continuation, which writes within what is left too. It is
-     asked so whether or not an effort is configured, wherever the
-     provider has a field for it:
-     - *Off*, where the provider documents a switch per request.
+     asked for the lowest setting the model takes, as its provider
+     documents the model's family, whether or not an effort is
+     configured, and never for more than an ordinary call: asking a model
+     to think least never makes it think more than it would unasked.
+     - *Off*, where the model's thinking can be switched off per request.
        DeepSeek's `thinking: {"type": "disabled"}`, in its OpenAI format
        (`openai_chat`) and in its Anthropic one (`anthropic` at
        `/anthropic`), and `reasoning.effort: none` in its Responses one
@@ -1698,41 +1701,59 @@ For an inbox row (conversation X, question M, opener P):
        at high; without `tools` the history's `reasoning_content` is
        ignored, so the flattened history of a forced turn on
        `openai_chat`, which declares no tools there, is taken).
-       OpenRouter's `reasoning.effort: none` for DeepSeek's and Qwen's
-       models, whose reasoning it only switches on or off (its reasoning
-       tokens guide, read 2026-10).
-     - *Low*, elsewhere: a configured `medium` or `high` sent as `low`
-       (`llm.LeastEffort`), and `low` asked of a model that thinks
-       unasked with no effort configured, in the shape its adapter sends
-       a configured `low` in, with that effort's allowance where the
-       adapter adds one, never `{type: disabled}`. That is OpenAI's
-       reasoning models (`o1`, `o3`, `o4-mini`, GPT-5 but its chat
-       variants; on Azure, a deployment named for one), by
-       `reasoning_effort` and the Responses API's `reasoning.effort`;
-       Claude from Opus 5, adaptive with `output_config.effort`, on
-       `anthropic` and on Bedrock; Gemini 2.5 Pro and Flash and Gemini 3
-       on `gemini` (a budget of 1,024, `thinkingLevel: LOW`) and by
-       `reasoning_effort` on its OpenAI-compatible endpoint; and those
-       three makers' through OpenRouter, by `reasoning.effort` (a fifth of
-       `max_tokens` where it maps an effort to a budget). A model that
-       does not think unasked is asked nothing, which an effort would
-       make think.
-     - *Nothing*, where there is no such field, or none documented here:
-       Kimi, GLM and Qwen behind their own endpoints; on OpenRouter,
-       GLM's and Kimi's models and any other not known here to think
-       unasked; an Azure deployment whose name does not name its model; a
-       local server. A model there that thinks by default thinks through
-       the forced turn as through any other: the forced turn adds a call,
-       and what is left of the output tokens, to the answer, and one that
+       `reasoning_effort: none` for GPT-5.5, GPT-5.6 and GPT-6 Sol and
+       Luna, which reason at medium unasked. A budget of 0 for Gemini 2.5
+       Flash (`reasoning_effort: none` on Gemini's OpenAI-compatible
+       endpoint). OpenRouter's `reasoning.effort: none`, which it
+       documents as switching reasoning off, for those models of OpenAI's
+       and Google's and for DeepSeek's and Qwen's.
+     - *The lowest effort*, where thinking cannot be switched off:
+       `minimal` for GPT-5 (and its mini and nano); `low` for the o
+       series, GPT-6 Astra, GPT-6.1 Sol and GPT-5.2 and 5.3 Codex;
+       `medium` for GPT-5.2 Pro and 5.5 Pro. `low`, adaptively with
+       `output_config.effort`, for a Claude that thinks unasked (Opus 5
+       and 5.5, Sonnet 5 and 5.5, Fable, Mythos), on `anthropic`, Bedrock
+       and OpenRouter: Fable, Mythos, Opus 5.5 and Sonnet 5.5 refuse
+       `{type: disabled}`, and Anthropic answers Opus 5's disabled
+       thinking, which may write a tool call as text or leak tags into
+       the answer, with low effort and thinking on. Gemini 2.5 Pro's least
+       budget, 128 (`minimal` on the compatible endpoint and OpenRouter).
+       Gemini 3's `MINIMAL` where the model takes it (3, 3.5 and 3.6
+       Flash) and `LOW` where it does not (3 and 3.1 Pro, 3.7 and 3.8
+       Flash).
+     - *Nothing*, where the model already thinks least unasked: GPT-5.1,
+       5.2 and 5.4 (`none` by default), GPT-5 Pro (`high` only) and 5.4
+       Pro (`medium`, its least), the chat models (`gpt-5-chat-latest`…);
+       Claude 4 to 4.8, configured or not (a turn may turn its thinking
+       off half way, the API setting it aside); Gemini 2.5 Flash-Lite,
+       and 3.1 and 3.5 Flash-Lite (`minimal` by default). An effort sent
+       to such a model would make it think more.
+     - *No more than configured*, where the model's family is not
+       documented here: one of OpenAI's not in its table (GPT-5 Codex,
+       a newer model), an Azure deployment whose name does not name its
+       model, OpenRouter's models of other makers (GLM's, Kimi's), a
+       Gemini or Claude newer than those named, Claude 3.7. A configured
+       `medium` or `high` is sent as `low` (`llm.LeastEffort`) where an
+       ordinary call sends an effort, and with none configured nothing is
+       sent, which a model that does not think unasked would be made to
+       think by. Kimi, GLM and Qwen behind their own endpoints, and a
+       local server, are sent nothing, their switches not documented
+       here. A model there that thinks by default thinks through the
+       forced turn as through any other: the forced turn adds a call, and
+       what is left of the output tokens, to the answer, and one that
        writes nothing gets the notice (The defaults, below).
 
-     DeepSeek's `reasoning_effort` is not sent, configured or not: the
-     switch says all a forced turn needs. A 400 to a call asking for
-     less (or another refusal of the request, such as OpenRouter finding
-     no provider that takes it) is taken for its API refusing it: a model
-     that takes no low, such as one that takes only high, or that cannot
-     switch its thinking off. The call is made again as configured, as is
-     the rest of the answer, logged.
+     The tables are `llm.OpenAILeastEffort` (OpenAI's model pages and
+     reasoning guide), `anthropic.LeastEffort` (Anthropic's adaptive
+     thinking and effort pages) and `gemini.LeastEffort` (Google's
+     thinking and OpenAI compatibility pages), all read 2026-10, with
+     OpenRouter's reasoning tokens guide for what it maps. DeepSeek's
+     `reasoning_effort` is not sent, configured or not: the switch says
+     all a forced turn needs. A 400 to a call asking for less (or another
+     refusal of the request, such as OpenRouter finding no provider that
+     takes it, as for a model whose reasoning is mandatory) is taken for
+     its API refusing it. The call is made again as configured, as is the
+     rest of the answer, logged.
    - *A forced turn that writes nothing is asked once more*: it thought
      until its cap, ended empty, or called tools it was told not to. The
      same turn is asked again (not counted in `turns`, nor stopped by it;
@@ -1753,10 +1774,11 @@ For an inbox row (conversation X, question M, opener P):
      bound what any model may cost, and a model that thinks now writes its
      forced answer within them where it can be asked to think less
      (above): DeepSeek's, OpenAI's, Anthropic's and Google's thinking
-     models, directly or through OpenRouter, Azure (by name) or Bedrock.
-     Where nothing reaches it (Kimi, GLM and Qwen on their own endpoints,
-     GLM and Kimi through OpenRouter, a local server, an Azure deployment
-     not named for its model), a model that thinks by default may think
+     models of the families named, directly or through OpenRouter, Azure
+     (by name) or Bedrock. Where nothing reaches it (Kimi, GLM and Qwen on
+     their own endpoints, GLM and Kimi through OpenRouter, a local server,
+     an Azure deployment not named for its model, a model newer than the
+     tables), a model that thinks by default may think
      through the forced turn as it did before: the answer then costs one
      more call, and what was left of its output tokens, for the same
      notice. Such a model, and any whose answers are often forced or cut
@@ -2520,10 +2542,11 @@ the models that think, their thinking counted in their output (§5.3, The
 forced answer): they bound every model's cost, and such a model now
 writes its forced answer within them, from the reserve the turns before
 it leave it (2,000 of 12,000), where it can be asked to think less
-(DeepSeek's, OpenAI's, Anthropic's and Google's thinking models). An
-operator or owner whose model thinks where it cannot (Kimi, GLM, Qwen on
-their own endpoints, a local server), or whose answers are often forced
-or cut short, gives it more, or a lower effort.
+(DeepSeek's, OpenAI's, Anthropic's and Google's thinking models of the
+families §5.3 names). An operator or owner whose model thinks where it
+cannot (Kimi, GLM, Qwen on their own endpoints, a local server, a model
+newer than those tables), or whose answers are often forced or cut
+short, gives it more, or a lower effort.
 
 ## 10. Tests
 
@@ -2824,17 +2847,25 @@ or cut short, gives it more, or a lower effort.
   or the forced turn's time are spent; an API that refuses to think
   least asked as configured; and an agent fixed to Traditional Chinese,
   asked in English, asked once more in the language its system prompt
-  names, not the question's. Each adapter's least reasoning, configured
-  or not: DeepSeek's thinking off in its three formats (a golden of the
-  forced call; one of the length stop with `reasoning_content` and no
-  content, all of it reasoning), and OpenRouter's for DeepSeek's and
-  Qwen's models; low in place of medium or high for OpenAI, Azure,
-  OpenRouter, Responses, Bedrock, Anthropic and Gemini; low with no
-  effort configured for a model that thinks unasked (OpenAI's reasoning
-  models on OpenAI, Azure by name, the Responses API and OpenRouter;
-  Claude from Opus 5 on Anthropic, Bedrock and OpenRouter; Gemini 2.5 and
-  3 on Gemini, its compatible endpoint and OpenRouter); nothing for a
-  model that does not, nor for the rest. The end to end
+  names, not the question's. Least reasoning, in one table over every
+  adapter, provider and model family, with and without an effort
+  configured, beside what an ordinary call sends
+  (`TestLeastReasoningNeverThinksMore`): DeepSeek's thinking off in its
+  three formats (a golden of the forced call; one of the length stop
+  with `reasoning_content` and no content, all of it reasoning); nothing
+  for GPT-5.1, 5.2 and 5.4, configured or not, on OpenAI, Azure, the
+  Responses API and OpenRouter; none for GPT-5.5, 5.6 and 6 Sol and Luna,
+  minimal for GPT-5, low for the o series and GPT-6 Astra, medium for the
+  Pro models that take no less, nothing for GPT-5 Pro and the chat
+  models; Claude that thinks unasked at low, adaptively, and Claude 4 to
+  4.8 with nothing, on Anthropic, Bedrock and OpenRouter; Gemini 2.5
+  Flash off, 2.5 Pro at 128, Gemini 3 at MINIMAL or LOW by model, the
+  Flash-Lite models with nothing, on Gemini, its compatible endpoint and
+  OpenRouter; DeepSeek's and Qwen's models off on OpenRouter; and for a
+  model not documented, a configured effort no higher than low and
+  nothing unasked. The tables themselves (`TestOpenAILeastEffort`,
+  `anthropic` and `gemini` `TestLeastEffort`) read ids as each provider
+  and router writes them. The end to end
   (`a-thinking-model-forced-to-answer`) has Yuki's agent on `deepseek`
   (the fake streaming its `reasoning_content`) asked "有什么问题吗?": the
   turn cut off, the forced one sent `thinking: {"type": "disabled"}` and
