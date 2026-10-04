@@ -2,6 +2,7 @@ package fakecore
 
 import (
 	"encoding/json"
+	"reflect"
 	"slices"
 	"testing"
 )
@@ -44,11 +45,25 @@ func ids(entries []any) []string {
 	return out
 }
 
+// totalsTold is the totals the student's feed tells of after since, in
+// order: each grade.total_updated's payload.
+func totalsTold(t *testing.T, w *fakeWorld, c *mcpClient, since int64) []any {
+	t.Helper()
+	var out []any
+	for _, e := range list(mustCall(t, c, "event_list", inCourseArgs(w, "since_seq", since)), "events") {
+		if m, _ := e.(map[string]any); m["type"] == "grade.total_updated" {
+			out = append(out, m["payload"])
+		}
+	}
+	return out
+}
+
 // TestDeleteHW1: the canned HW1, with Yuki's work graded and posted and a
 // draft of Sato's on it, goes with its work and grades, a grader listed
 // for it alone reaching no assignment after; its instructions stay in the
 // course, for Sato; its earlier news goes from the feed; Yuki's totals are
-// written again, and she is told it was deleted, as the course tutor is.
+// written again, the Assignments component's and then the course
+// total's, and she is told it was deleted, as the course tutor is.
 func TestDeleteHW1(t *testing.T) {
 	w := newFakeWorld(t, Options{})
 	hw := w.co.AssignmentID
@@ -107,10 +122,65 @@ func TestDeleteHW1(t *testing.T) {
 	if !slices.Equal(types, []string{"grade.total_updated", "grade.total_updated", "assignment.deleted"}) {
 		t.Errorf("Yuki is told %v", types)
 	}
+	// HW1 was the component's last assignment: it is left complete with
+	// nothing to go on, and the course total, with nothing from it, not
+	// complete.
+	co := w.fc.courses[w.co.ID]
+	want := []any{
+		map[string]any{"component_id": co.bucket.id, "complete": true, "no_total": true},
+		map[string]any{"component_id": co.rootComponent.id, "complete": false, "no_total": true},
+	}
+	if got := totalsTold(t, w, yuki, cursor); !reflect.DeepEqual(got, want) {
+		t.Errorf("Yuki's totals are written %v, want %v", got, want)
+	}
 	a := mustCall(t, w.agent(), "assignment_get", inCourseArgs(w, "assignment_id", hw))
 	wantEnvelope(t, a, "error", codeNotFound, deleteDeleted)
 	if a.str("error", "details", "by_action_id") != d.str("action_id") {
 		t.Errorf("by_action_id: %s", a.Text)
+	}
+}
+
+// TestDeleteTotals: a student's totals worked out again as Core's
+// snapshot writes them, nearest first, each only when its working
+// changed. A quiz Yuki was graded on goes, then HW1, which nobody started
+// on, the last assignment of the Assignments component. The quiz's
+// deletion leaves the component, and so the course total, with nothing to
+// go on, HW1 ungraded: both are written again, neither complete. HW1's
+// leaves the component complete with nothing in it, and the course total
+// as it was, with nothing to go on: only the component's is written.
+func TestDeleteTotals(t *testing.T) {
+	w := newFakeWorld(t, Options{})
+	co := w.fc.courses[w.co.ID]
+	quiz, err := w.fc.AddAssignment(w.co.ID, "Quiz", "10", true)
+	w.ok(err)
+	sub, err := w.fc.HandIn(w.co.ID, w.seats[0].ID, quiz, "Mine.")
+	w.ok(err)
+	_, err = w.fc.PostGrade(sub, "8")
+	w.ok(err)
+	sato, yuki := w.as("sato"), w.as("yuki")
+	for _, c := range []struct {
+		assignment string
+		want       []any
+	}{
+		{quiz, []any{
+			map[string]any{"component_id": co.bucket.id, "complete": false, "no_total": true},
+			map[string]any{"component_id": co.rootComponent.id, "complete": false, "no_total": true},
+		}},
+		{w.co.AssignmentID, []any{
+			map[string]any{"component_id": co.bucket.id, "complete": true, "no_total": true},
+		}},
+	} {
+		cursor := feedCursor(t, w, yuki)
+		counts, _ := previewOf(t, w, sato, c.assignment)
+		d := mustCall(t, sato, "assignment_delete", deleteArgs(w, c.assignment, "d:"+c.assignment, counts))
+		wantEnvelope(t, d, "executed", "", "")
+		res, _ := d.Structured["result"].(map[string]any)
+		if n := count(res, "snapshots"); n != len(c.want) {
+			t.Errorf("%s: %d snapshots, want %d", res["title"], n, len(c.want))
+		}
+		if got := totalsTold(t, w, yuki, cursor); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: Yuki's totals are written %v, want %v", res["title"], got, c.want)
+		}
 	}
 }
 

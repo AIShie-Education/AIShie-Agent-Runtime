@@ -7,23 +7,31 @@ import (
 )
 
 // assignmentDeletion is an assignment deleted for good (AIShie-Core #73):
-// what its preview counts, and what it says the deletion would be refused,
-// for Sato, for his assistant (an agent, which deletes no work), for an
-// agent of his that reaches no student, the course tutor and a student;
-// the deletion refused for an agent, for one reaching nobody, for a
+// HW1, which nobody has started on, deleted first, leaving the quiz Yuki
+// was graded on the last assignment of its component; what the quiz's
+// preview counts, and what it says the deletion would be refused, for
+// Sato, for his assistant (an agent, which deletes no work), for an agent
+// of his that reaches no student, the course tutor and a student; the
+// deletion refused for an agent, for one reaching nobody, for a
 // confirmation missing, below zero and stale; carried out by Sato,
 // replayed, and every call naming the assignment or its work after told
 // it was deleted, the assistant's proposal about it among them, which was
 // cancelled and emptied; what the feed tells a student, the course tutor
-// and the assistant; an empty assignment its assistant deletes at once;
-// and its proposal to delete another, which work reached while it waited.
-var assignmentDeletion = scenario{name: "assignment_delete", about: "assignment_delete_preview by an instructor, his agents (one " +
-	"reaching every student, one reaching none), the course tutor and a student, and of no assignment; assignment_delete refused " +
-	"for an agent (people_only), out of scope, without confirm, below zero and stale (confirm_stale); carried out, replayed, " +
-	"refused after as deleted, as are reads and writes naming it, and a key of an action it emptied (target_deleted); the " +
-	"proposal about it cancelled and emptied (action_list_mine); the feed as a student, the course tutor and the agent; an " +
-	"unpublished one with nothing in it deleted by the agent; and an agent's proposal to delete one that work reached while it " +
-	"waited, which its owner may not decide and which fails when approved",
+// and the assistant, Yuki's totals among it: the component's, left with
+// nothing to go on, and then the course total's, which that leaves
+// incomplete, in the order Core writes them, held there by the course's
+// components being read before the feed names them; an empty assignment
+// its assistant deletes at once; and its proposal to delete another,
+// which work reached while it waited.
+var assignmentDeletion = scenario{name: "assignment_delete", about: "component_tree, naming the components before the feed does; " +
+	"an assignment nobody has started on deleted, leaving a graded one the last of its component; assignment_delete_preview " +
+	"by an instructor, his agents (one reaching every student, one reaching none), the course tutor and a student, and of no " +
+	"assignment; assignment_delete refused for an agent (people_only), out of scope, without confirm, below zero and stale " +
+	"(confirm_stale); carried out, replayed, refused after as deleted, as are reads and writes naming it, and a key of an " +
+	"action it emptied (target_deleted); the proposal about it cancelled and emptied (action_list_mine); the feed as a " +
+	"student, the course tutor and the agent, with the student's totals written again, the component's (no_total) and then " +
+	"the course total's (no_total, incomplete); an unpublished one with nothing in it deleted by the agent; and an agent's " +
+	"proposal to delete one that work reached while it waited, which its owner may not decide and which fails when approved",
 	run: func(t *testing.T, w world, s *steps) {
 		quiz := w.quiz("Quiz 1", true)
 		sub := w.handIn(0, quiz)
@@ -41,6 +49,18 @@ var assignmentDeletion = scenario{name: "assignment_delete", about: "assignment_
 			t.Helper()
 			return callAs(t, c, s, name, "assignment_delete_preview", of(id))
 		}
+
+		// The course's components, the course total and then the
+		// Assignments component, named here before the feed names them:
+		// the order Yuki is told her totals in is then held to Core's.
+		callAs(t, sato, s, "components", "component_tree", inCourseArgs(w))
+		// HW1 goes first, which nobody has started on: Yuki's totals are
+		// then the quiz's alone, written again whole, and the quiz is the
+		// last assignment of its component.
+		hw := w.assignment()
+		ph := preview(sato, "hw1_preview", hw)
+		wantStatus(t, callAs(t, sato, s, "hw1_deleted", "assignment_delete", del(hw, "delete:"+hw+":1", resultOf(ph, "counts"))),
+			"executed")
 
 		p := preview(sato, "preview", quiz)
 		wantStatus(t, p, "executed")

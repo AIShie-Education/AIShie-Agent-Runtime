@@ -26,9 +26,11 @@ import (
 // The fake keeps no totals of its own: a student has them once a grade of
 // theirs was posted (AddWork, PostGrade), and working them out again
 // writes again those of the course's two components whose working changes,
-// as Core's snapshot does: the Assignments component's, which loses the
-// assignment's line, and the course total's, when what that component
-// comes to changes.
+// in the order Core's snapshot writes them, from the assignment's
+// component up (gradecalc.Ancestors, nearest first): the Assignments
+// component's, which loses the assignment's line, and then the course
+// total's, when that changes what the component gives it: what it comes
+// to, or whether it is complete and comes to anything.
 
 const (
 	toolAssignmentDelete = "assignment.delete"
@@ -437,11 +439,11 @@ func (c *Core) deleteAssignment(ec *execCtx, in assignmentDeleteIn) (any, error)
 	co.assignments = slices.DeleteFunc(co.assignments, func(x *assignment) bool { return x == a })
 
 	// The totals it counts in, worked out again without it: each written
-	// again whose working changed, the course total's before the
-	// component's, as Core walks down to it.
+	// again whose working changed, the component's before the course
+	// total's, as Core walks up from it.
 	for _, s := range d.totals {
 		after := workTotals(co, s)
-		for i, cp := range []*component{co.rootComponent, co.bucket} {
+		for i, cp := range []*component{co.bucket, co.rootComponent} {
 			if before[s][i].same(after[i]) {
 				continue
 			}
@@ -479,10 +481,13 @@ func (w working) same(o working) bool {
 	return w.fraction == nil || w.fraction.Cmp(o.fraction) == 0
 }
 
-// workTotals is the student's totals of the course total and of the
-// Assignments component, which every assignment of the fake's counts
-// toward: the posted grades of its published assignments, over the points
-// they are worth.
+// workTotals is the student's totals of the Assignments component, which
+// every assignment of the fake's counts toward, and of the course total,
+// in that order: the posted grades of its published assignments, over the
+// points they are worth. The course total is complete only when the
+// component is and comes to something, as Core's gradecalc.parent has it:
+// a component with nothing to go on, such as one left with no published
+// assignment, is a gap in the total above it.
 func workTotals(co *course, student string) [2]working {
 	var bucket working
 	bucket.complete = true
@@ -512,9 +517,9 @@ func workTotals(co *course, student string) [2]working {
 	if graded && possible.Sign() > 0 {
 		bucket.fraction = new(big.Rat).Quo(got, possible)
 	}
-	root := working{fraction: bucket.fraction, complete: bucket.complete, lines: []string{co.bucket.id}}
+	root := working{fraction: bucket.fraction, complete: bucket.complete && bucket.fraction != nil, lines: []string{co.bucket.id}}
 	if bucket.fraction != nil {
 		root.lines[0] += ":" + bucket.fraction.RatString()
 	}
-	return [2]working{root, bucket}
+	return [2]working{bucket, root}
 }
