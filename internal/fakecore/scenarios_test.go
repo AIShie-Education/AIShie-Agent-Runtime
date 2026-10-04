@@ -116,6 +116,21 @@ type world interface {
 	// officeMaterial is Sato putting up a published material of files, in
 	// order, each under its name: its id and its files' ids.
 	officeMaterial(title string, files ...namedFile) (documentID string, fileIDs []string)
+	// quiz is Sato putting up an assignment worth 10 points, published or
+	// not, in the component the course's HW1 (assignment, published and
+	// worth 100) counts toward: its id.
+	quiz(title string, published bool) string
+	// handIn is a student handing in work on the assignment, which nobody
+	// grades: its submission's id.
+	handIn(student int, assignmentID string) string
+	// gradeAndPost is Sato grading the work and posting the grade, which
+	// writes the student's totals down.
+	gradeAndPost(submissionID, score string)
+	// assistant is an agent of Sato's seated as his delegate (preset
+	// delegate) reaching every student, with perms over the preset's, as
+	// an instructor seats an assistant who works with the whole class: its
+	// seat and its client.
+	assistant(perms map[string]string) (seat string, c *mcpClient)
 }
 
 // steps is what a scenario recorded, in order.
@@ -1209,6 +1224,7 @@ var scenarios = []scenario{
 	sources,
 	escalations,
 	gradeSince,
+	assignmentDeletion,
 }
 
 // escalations are reviews of the tutor's answers proposed by an agent

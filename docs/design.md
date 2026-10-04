@@ -321,11 +321,14 @@ have not started among them, on `submission_read`, with names only for a
 seat that holds `member_read`; the roster: `member_list` and `member_get` on
 `member_read`, `member_lookup_actor` on `member_manage`; the queues of
 proposals, `action_list_proposed`, `action_list_pending_review` and
-`action_get`, on `action_decide`; and the course's join links,
-`course_join_link_list`, on `member_invite`, never a token; each as Core
-gates it), `toolset.WriteGates` for the writes: `assignment_create`,
-`_update`, `_publish`, `_unpublish` and `component_create`, `_update`,
-`_move` on `assignment_write`; `document_create`, `_add_version`,
+`action_get`, on `action_decide`; the course's join links,
+`course_join_link_list`, on `member_invite`, never a token; and
+`assignment_delete_preview`, what deleting an assignment would take with
+it, counted, never naming a person, and what Core would refuse the seat
+now, on `assignment_write`; each as Core gates it), `toolset.WriteGates`
+for the writes: `assignment_create`, `_update`, `_publish`, `_unpublish`,
+`_delete` and `component_create`, `_update`, `_move` on
+`assignment_write`; `document_create`, `_add_version`,
 `_publish`, `_archive`, and `document_update` (a rename, or a place in the
 list) and `document_unarchive`, as `document_archive`, on any of
 `document_write`, `submission_write` and `grade_submit` (the document's
@@ -3013,9 +3016,16 @@ short, gives it more, or a lower effort.
   `model_writes` fixture recorded from Core; `member_add`, `member_get`,
   `member_list` and `member_lookup_actor`, held to `member_writes`;
   `grade_submit`, a draft grade on work handed in (shown to those who
-  grade, and told to them within their scope), held to `grade_since`; and
-  `submission_roster` and `document_versions`, held to `roster_reads`; and
-  serves the files `AddFile` puts in a course.
+  grade, and told to them within their scope), held to `grade_since`;
+  `submission_roster` and `document_versions`, held to `roster_reads`;
+  and `assignment_delete_preview` and `assignment_delete`, an assignment
+  deleted for good as AIShie-Core #73 has it (`deletion.go`: its work and
+  grades gone, its instructions left, an agent refused one anybody has
+  started on, a confirmation smaller than what would go refused, the
+  proposals about it cancelled and every action about it emptied, the
+  totals it counted in worked out again, and every call naming it after,
+  or replaying a key it emptied, told it was deleted), held to
+  `assignment_delete`; and serves the files `AddFile` puts in a course.
 - `ocr`: the engine against programs of the test's own (shell scripts
   standing in for pdftoppm and tesseract) under the real prlimit, so
   skipped where there is none, as on macOS (CI's Linux runners run them):
@@ -3189,7 +3199,11 @@ short, gives it more, or a lower effort.
   document, which at `confirm_required` is proposed, as the answer says, and
   at `autonomous` is executed and in Core, while a student asking his
   course tutor, which holds a write, is offered none and nothing is
-  written; and members: Core seats Sato's own agent with `member_manage`
+  written; and an assistant of his reaching every student, asked to
+  delete an assignment, reads `assignment_delete_preview` and sends its
+  counts back: an unpublished one with nothing in it is deleted, and Core
+  says so after, and one Yuki handed work in on is refused
+  (`people_only`) and stays; and members: Core seats Sato's own agent with `member_manage`
   and refuses it to Yuki's (`principal_level`); an
   agent nobody owns that Sato seated with it seats Aoi as a student when
   he asks, executed at `autonomous` and in Core, and Ren on a proposal at
@@ -3223,7 +3237,7 @@ short, gives it more, or a lower effort.
     Gemini every tool of the pinned catalogue declared at 16 output
     tokens, Core's own schemas, in requests of at most 128 tools
     (`livetest.MaxTools`: OpenAI takes no more, and the catalogue has
-    167), so that the provider itself checks every schema. `live.yml` runs
+    169), so that the provider itself checks every schema. `live.yml` runs
     it nightly with the repository's keys, and its log names each provider
     tried or skipped; run it by hand when an adapter changes, or a
     provider's API or the default models do.

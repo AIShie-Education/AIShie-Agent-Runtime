@@ -27,6 +27,7 @@ var scenarios = []scenario{
 	{"proposals", proposals},
 	{"changes-requested", changesRequested},
 	{"owner-writes", ownerWrites},
+	{"assignment-deleted-by-an-agent", assignmentDeletedByAnAgent},
 	{"member-writes", memberWrites},
 	{"binary", theBinary},
 	{"hosted-agent-from-the-registry", hostedAgentAnswers},

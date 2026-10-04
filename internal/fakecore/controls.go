@@ -188,7 +188,9 @@ func (c *Core) AddCourse(code string) Course {
 	defer c.mu.Unlock()
 	now := c.now()
 	co := &course{id: newID(), code: code, section: "A", title: code, status: statusActive, deptID: newID(), termID: newID(), createdAt: now}
-	root := &component{id: newID(), name: "Course total", weight: "100"}
+	// The root is the course total, named and weighted as Core's
+	// course.create makes it.
+	root := &component{id: newID(), name: "Total", weight: "1"}
 	bucket := &component{id: newID(), name: "Assignments", weight: "100", parent: root}
 	co.rootComponent, co.bucket, co.components = root, bucket, []*component{root, bucket}
 	author := newID()
@@ -1169,7 +1171,94 @@ func (c *Core) AddWork(courseID, studentID, body, score string) (Work, error) {
 	g := &grade{id: newID(), student: student, assignment: s.assignment, submission: s, grader: grader, actionID: newID(),
 		score: score, createdAt: now, postedAt: &now}
 	co.submissions, co.grades = append(co.submissions, s), append(co.grades, g)
+	co.wroteTotals(student)
 	return Work{SubmissionID: s.id, GradeID: g.id}, nil
+}
+
+// AddAssignment adds an assignment to the course worth points, in the
+// component its HW1 counts toward, with no instructions, and published
+// if published, as an instructor's assignment.create and
+// assignment.publish make one. It returns its id.
+func (c *Core) AddAssignment(courseID, title, points string, published bool) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	co := c.courses[courseID]
+	if co == nil {
+		return "", fmt.Errorf("fakecore: AddAssignment: no course %s", courseID)
+	}
+	a := &assignment{id: newID(), title: title, component: co.bucket, points: points}
+	if published {
+		now := c.now()
+		a.publishedAt = &now
+	}
+	co.assignments = append(co.assignments, a)
+	return a.id, nil
+}
+
+// HandIn hands in the student's work on the course's assignment, as
+// submission.create and submission.submit do, and grades none of it. It
+// returns the submission's id.
+func (c *Core) HandIn(courseID, studentID, assignmentID, body string) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	co := c.courses[courseID]
+	if co == nil {
+		return "", fmt.Errorf("fakecore: HandIn: no course %s", courseID)
+	}
+	student := c.members[studentID]
+	if student == nil || student.course != co {
+		return "", fmt.Errorf("fakecore: HandIn: no seat %s in the course", studentID)
+	}
+	var a *assignment
+	for _, x := range co.assignments {
+		if x.id == assignmentID {
+			a = x
+		}
+	}
+	if a == nil {
+		return "", fmt.Errorf("fakecore: HandIn: no assignment %s in the course", assignmentID)
+	}
+	now := c.now()
+	s := &submission{id: newID(), assignment: a, student: student, body: body, createdAt: now, submittedAt: now}
+	co.submissions = append(co.submissions, s)
+	return s.id, nil
+}
+
+// PostGrade grades the submission and posts the grade, from a seat that
+// posts grades, as grade.submit and grade.post do: the student's totals
+// are written down. It returns the grade's id.
+func (c *Core) PostGrade(submissionID, score string) (string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, co := range c.courses {
+		for _, s := range co.submissions {
+			if s.id != submissionID {
+				continue
+			}
+			var grader *member
+			for _, m := range c.memberList {
+				if m.course == co && m.status == statusActive && m.perm(permGradePost).allowed() {
+					grader = m
+					break
+				}
+			}
+			if grader == nil {
+				return "", errors.New("fakecore: PostGrade: nobody in the course posts grades")
+			}
+			now := c.now()
+			for _, g := range co.grades {
+				if g.submission == s && g.supersededBy == nil {
+					return "", errors.New("fakecore: PostGrade: the work is graded already")
+				}
+			}
+			g := &grade{id: newID(), student: s.student, assignment: s.assignment, submission: s, grader: grader, actionID: newID(),
+				score: score, createdAt: now, postedAt: &now}
+			co.grades = append(co.grades, g)
+			co.wroteTotals(s.student)
+			return g.id, nil
+		}
+	}
+	return "", fmt.Errorf("fakecore: PostGrade: no submission %s", submissionID)
 }
 
 // parseDecimal and formatDecimal are the canned gradebook's arithmetic.

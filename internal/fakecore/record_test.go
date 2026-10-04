@@ -249,8 +249,9 @@ type liveWorld struct {
 	ownM     string
 	clients  map[string]*mcpClient
 	// rootComponent is the course's grade tree's root; hw and syllabus
-	// are made when first asked for (assignment, material).
-	rootComponent, hw, syllabus string
+	// are made when first asked for (assignment, material), and bucket,
+	// the component HW1 counts toward, with hw.
+	rootComponent, hw, syllabus, bucket string
 }
 
 func (lc *liveCore) newWorld(t *testing.T) *liveWorld {
@@ -581,12 +582,57 @@ func (w *liveWorld) assignment() string {
 	if w.hw != "" {
 		return w.hw
 	}
-	bucket := str(w.lc.result(w.sato.token, "POST", w.path("/components"), map[string]any{"parent_id": w.rootComponent,
+	w.bucket = str(w.lc.result(w.sato.token, "POST", w.path("/components"), map[string]any{"parent_id": w.rootComponent,
 		"name": "Assignments", "weight": 100}), "id")
 	w.hw = str(w.lc.result(w.sato.token, "POST", w.path("/assignments"), map[string]any{"title": "HW1", "points_possible": 100,
-		"component_id": bucket}), "id")
+		"component_id": w.bucket}), "id")
 	w.lc.result(w.sato.token, "POST", w.path("/assignments/"+w.hw+"/publish"), map[string]any{})
 	return w.hw
+}
+
+// quiz is Sato making an assignment worth 10 points in the component HW1
+// counts toward, which HW1 is made with, and publishing it if published.
+func (w *liveWorld) quiz(title string, published bool) string {
+	w.t.Helper()
+	w.assignment()
+	id := str(w.lc.result(w.sato.token, "POST", w.path("/assignments"), map[string]any{"title": title, "points_possible": 10,
+		"component_id": w.bucket}), "id")
+	if published {
+		w.lc.result(w.sato.token, "POST", w.path("/assignments/"+id+"/publish"), map[string]any{})
+	}
+	return id
+}
+
+// handIn is a student handing in work on the assignment: a draft, then
+// submitted.
+func (w *liveWorld) handIn(student int, assignmentID string) string {
+	w.t.Helper()
+	id := str(w.lc.result(w.people[student].token, "POST", w.path("/submissions"), map[string]any{"assignment_id": assignmentID,
+		"body": "My answers."}), "submission_id")
+	w.lc.result(w.people[student].token, "POST", w.path("/submissions/"+id+"/submit"), map[string]any{})
+	return id
+}
+
+// gradeAndPost is Sato grading the work and posting the grade, which
+// writes the student's totals down.
+func (w *liveWorld) gradeAndPost(submissionID, score string) {
+	w.t.Helper()
+	id := str(w.lc.result(w.sato.token, "POST", w.path("/grades"), map[string]any{"submission_id": submissionID, "score": score}), "grade_id")
+	w.lc.result(w.sato.token, "POST", w.path("/grades/post"), map[string]any{"grade_ids": []string{id}})
+}
+
+// assistant is an agent of Sato's, seated with member.add_delegate as his
+// delegate reaching every student.
+func (w *liveWorld) assistant(perms map[string]string) (string, *mcpClient) {
+	w.t.Helper()
+	id, token, _ := w.lc.runtimeAgent(w.sato.token, "Sato's class assistant")
+	seat := str(w.lc.result(w.sato.token, "POST", w.path("/delegates"), map[string]any{"actor_id": id, "preset": "delegate",
+		"student_scope": "all", "perms": perms}), "member_id")
+	c := newMCPClient(w.lc.base, token, w.lc.hc)
+	if h, err := c.initialize(context.Background()); err != nil || h.Status != http.StatusOK {
+		w.t.Fatalf("initialize: %v %d %s", err, h.Status, h.Body)
+	}
+	return seat, c
 }
 
 // submit is a student handing in work on HW1: a draft, then submitted.

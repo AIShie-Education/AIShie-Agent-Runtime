@@ -176,6 +176,11 @@ type course struct {
 	grades                []*grade
 	// events are the course's feed, in the order of their seq.
 	events []*event
+	// totals are the students whose totals were written down, by member
+	// id: those of whom a grade was posted (deletion.go). deletions are
+	// the assignments deleted for good, by id.
+	totals    map[string]bool
+	deletions map[string]*deletion
 }
 
 type component struct {
@@ -351,6 +356,9 @@ type action struct {
 	// revises is the proposal sent back for changes this one revises
 	// (revises_action_id), "" for none.
 	revises string
+	// redactedBy is the deletion of an assignment (assignment.delete)
+	// that emptied the action, which was about it: "" for none.
+	redactedBy string
 }
 
 // event is one entry of a course's feed. student and assignment are the

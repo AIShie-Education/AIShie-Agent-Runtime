@@ -61,6 +61,11 @@ func TestBuild(t *testing.T) {
 			want:  []string{"member_get", "member_list"},
 		},
 		{
+			name:  "assignment_write alone reads what deleting an assignment would take, and deletes nothing where writes are not",
+			perms: map[string]string{"assignment_write": "autonomous"},
+			want:  []string{"assignment_delete_preview"},
+		},
+		{
 			name:  "member_manage alone looks up whom to seat, and offers no write where writes are not",
 			perms: map[string]string{"member_manage": "confirm_required"},
 			want:  []string{"member_lookup_actor"},
@@ -250,8 +255,8 @@ func TestBuildWrites(t *testing.T) {
 			name:  "every level but denied allows a write",
 			perms: map[string]string{"grade_submit": "confirm_required", "grade_post": "pending_review", "assignment_write": "autonomous"},
 			cfg:   config.Tools{Writes: true}, access: ReadWrite,
-			want: []string{"assignment_create", "assignment_publish", "assignment_unpublish", "assignment_update",
-				"component_create", "component_move", "component_update", "document_add_version", "document_archive",
+			want: []string{"assignment_create", "assignment_delete", "assignment_delete_preview", "assignment_publish",
+				"assignment_unpublish", "assignment_update", "component_create", "component_move", "component_update", "document_add_version", "document_archive",
 				"document_create", "document_publish", "document_unarchive", "document_update", "grade_clear_override",
 				"grade_comment_total", "grade_override_total", "grade_post", "grade_regrade", "grade_submit",
 				"grade_undo_ungraded_as_zero", "submission_record_missing", "submission_set_lateness"},
@@ -579,7 +584,8 @@ func TestBuiltinDenied(t *testing.T) {
 		"member_update_perms_bulk", "member_rescope", "member_pause", "member_resume", "member_remove", "member_list", "member_get",
 		"member_lookup_actor", "member_add_delegates", "action_decide", "action_review", "action_get", "action_list_proposed",
 		"member_set_role", "course_update_details", "course_join_link_list", "course_join_link_revoke", "document_update",
-		"document_unarchive", "grade_override_total", "grade_clear_override", "grade_comment_total", "grade_undo_ungraded_as_zero"} {
+		"document_unarchive", "grade_override_total", "grade_clear_override", "grade_comment_total", "grade_undo_ungraded_as_zero",
+		"assignment_delete", "assignment_delete_preview"} {
 		if BuiltinDenied(name) {
 			t.Errorf("%s is denied", name)
 		}

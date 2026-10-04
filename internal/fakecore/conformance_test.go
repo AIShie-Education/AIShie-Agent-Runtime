@@ -309,6 +309,35 @@ func (w *fakeWorld) officeMaterial(title string, files ...namedFile) (string, []
 	return id, fileIDs
 }
 
+func (w *fakeWorld) quiz(title string, published bool) string {
+	w.t.Helper()
+	id, err := w.fc.AddAssignment(w.co.ID, title, "10", published)
+	w.ok(err)
+	return id
+}
+
+func (w *fakeWorld) handIn(student int, assignmentID string) string {
+	w.t.Helper()
+	id, err := w.fc.HandIn(w.co.ID, w.seats[student].ID, assignmentID, "My answers.")
+	w.ok(err)
+	return id
+}
+
+func (w *fakeWorld) gradeAndPost(submissionID, score string) {
+	w.t.Helper()
+	_, err := w.fc.PostGrade(submissionID, score)
+	w.ok(err)
+}
+
+func (w *fakeWorld) assistant(perms map[string]string) (string, *mcpClient) {
+	w.t.Helper()
+	a, err := w.fc.AddAgent("Sato's class assistant", w.satoA.ID)
+	w.ok(err)
+	m, err := w.fc.Seat(a.ID, w.co.ID, SeatOptions{Preset: "delegate", Principal: w.sato.ID, StudentScope: scopeAll, Perms: perms})
+	w.ok(err)
+	return m.ID, w.client(a.Token)
+}
+
 // submit hands in the student's work on the canned HW1 (AddWork, whose
 // grade the roster does not show).
 func (w *fakeWorld) submit(student int) string {
