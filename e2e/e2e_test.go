@@ -38,6 +38,7 @@ var scenarios = []scenario{
 	{"drafts-shown", draftsShown},
 	{"stop-cancels-the-answer", stopCancelsTheAnswer},
 	{"long-answer-continued", longAnswerContinued},
+	{"a-thinking-model-forced-to-answer", aThinkingModelIsForcedToAnswer},
 	{"slides-as-their-pdf", slidesAsTheirPDF},
 	{"files-with-the-question", filesWithTheQuestion},
 	{"files-of-a-version", filesOfAVersion},

@@ -144,11 +144,19 @@ type Choice struct {
 	FinishReason string      `json:"finish_reason"`
 }
 
-// Usage is the token counts.
+// Usage is the token counts. A model that thinks counts its thinking in
+// CompletionTokens too, and says how much of them it was in
+// CompletionTokensDetails, as OpenAI's and DeepSeek's do.
 type Usage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
+	PromptTokens            int                      `json:"prompt_tokens"`
+	CompletionTokens        int                      `json:"completion_tokens"`
+	TotalTokens             int                      `json:"total_tokens"`
+	CompletionTokensDetails *CompletionTokensDetails `json:"completion_tokens_details,omitempty"`
+}
+
+// CompletionTokensDetails is what the completion tokens were.
+type CompletionTokensDetails struct {
+	ReasoningTokens int `json:"reasoning_tokens"`
 }
 
 // Error is an error body's error.

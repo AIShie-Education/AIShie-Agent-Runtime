@@ -419,3 +419,37 @@ func TestStreamThroughTheAdapter(t *testing.T) {
 		t.Errorf("the request %s", last.Raw)
 	}
 }
+
+// A model that thinks, as DeepSeek's do, streams its thinking before its
+// answer, and a turn its cap cut off while it thought streams nothing
+// else: the adapter reads the thinking as reasoning, not text, and the
+// completion tokens with the reasoning among them.
+func TestStreamedThinkingThroughTheAdapter(t *testing.T) {
+	cut := fakellm.ChatResponse{
+		Choices: []fakellm.Choice{{Message: fakellm.ChatMessage{Role: "assistant", Content: "",
+			ReasoningContent: "The student asks what problems there are. Let me weigh each document again"}, FinishReason: "length"}},
+		Usage: &fakellm.Usage{PromptTokens: 300, CompletionTokens: 500, TotalTokens: 800,
+			CompletionTokensDetails: &fakellm.CompletionTokensDetails{ReasoningTokens: 500}},
+	}
+	s := fakellm.NewScript(cut, cut).StreamEvery(time.Millisecond)
+	a := adapter(t, s)
+	req := &llm.Request{Messages: []llm.Message{llm.UserText("有什么问题吗?")}, Limits: llm.Limits{MaxOutputTokens: 500}}
+	var told []string
+	streamed, err := a.Stream(context.Background(), req, func(d string) { told = append(told, d) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	whole, err := a.Call(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, resp := range []*llm.Response{streamed, whole} {
+		if resp.Stop != llm.StopMaxTokens || resp.Text() != "" || len(resp.Parts) != 1 || resp.Parts[0].Type != llm.PartReasoning ||
+			!strings.HasPrefix(resp.Parts[0].Text, "The student asks") || resp.Usage.Output != 500 || resp.Usage.Reasoning != 500 {
+			t.Errorf("%+v", resp)
+		}
+	}
+	if len(told) != 0 {
+		t.Errorf("thinking was told as text: %q", told)
+	}
+}
