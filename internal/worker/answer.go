@@ -81,6 +81,10 @@ type claim struct {
 	// model and handed back when it ends; nil against a Core that takes no
 	// drafts.
 	d *drafter
+	// lang is the language of the pass's notices (notice): the one
+	// prompt.answer_language fixes, else the asker's, once the
+	// conversation is read (askerLang).
+	lang config.Lang
 }
 
 // then is what a pass leaves to the claim.
@@ -206,6 +210,9 @@ func (c *claim) pass(ctx context.Context, msgID string, shorter bool) passResult
 	defer cancel()
 	for switched := 0; ; switched++ {
 		r := passResult{msg: msgID}
+		// Before the conversation is read, a notice is in the language
+		// answers are fixed to, if any.
+		c.lang = config.NoticeLangOf(c.eff.Prompt.AnswerLanguage, "")
 		// 2. An attempt at msg still sending is sent again first.
 		atts, err := c.a.store().AttemptsFor(ctx, c.a.id, c.conv, msgID)
 		if err != nil {
@@ -353,6 +360,7 @@ func (c *claim) generate(ctx context.Context, r passResult, read *core.Messages,
 		return c.failedHere(r, "the memory could not be read", err)
 	}
 	r.hash = hash
+	c.lang = c.askerLang(read, r.msg)
 	hist, err := prompt.History(read.Messages, c.s.id, r.msg, read.More)
 	if err != nil {
 		return c.failedHere(r, "the question is not in the conversation read", err)
@@ -517,7 +525,7 @@ func (c *claim) post(ctx context.Context, r passResult, body, kind string, sourc
 	c.d.hold()
 	safe, rep := safety.Body(body, c.eff.Answer.MaxBodyChars)
 	if rep.Empty {
-		safe, _ = safety.Body(c.eff.Prompt.OnBudgetText, c.eff.Answer.MaxBodyChars)
+		safe, _ = safety.Body(c.notice(kindBudget), c.eff.Answer.MaxBodyChars)
 		kind = kindBudget
 	}
 	if rep.Truncated && kind == kindModel && !r.stats.Truncated {
@@ -905,7 +913,7 @@ func (c *claim) providersDown(ctx context.Context, r passResult) passResult {
 	if n >= maxProviderFailures {
 		c.s.providerRecovered(r.msg)
 		c.s.log.Warn("the providers failed again: the budget text is posted", "conversation", c.conv, "failures", n)
-		return c.post(ctx, r, c.eff.Prompt.OnBudgetText, kindBudget, nil)
+		return c.post(ctx, r, c.notice(kindBudget), kindBudget, nil)
 	}
 	c.s.holdBack(c.conv, c.a.now().Add(hold), "the model's providers could not be reached")
 	r.outcome = store.OutcomeError

@@ -488,8 +488,10 @@ func checkPrompt(is *issues, a *Agent) {
 		{"prompt.on_refusal_text", p.OnRefusalText}, {"prompt.on_budget_text", p.OnBudgetText}, {"prompt.on_quota_text", p.OnQuotaText},
 	} {
 		switch n := utf8.RuneCountInString(t.text); {
+		case t.text == "":
+			// The built-in notice, in the asker's language.
 		case strings.TrimSpace(t.text) == "":
-			is.add(t.path, "required: it is posted as an answer")
+			is.add(t.path, "holds no text; leave it out for the built-in notice, in the asker's language")
 		case n > maxBody:
 			is.add(t.path, "is %d characters; an answer has at most %d (answer.max_body_chars)", n, maxBody)
 		}

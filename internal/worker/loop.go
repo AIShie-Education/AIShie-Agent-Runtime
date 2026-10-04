@@ -328,16 +328,16 @@ func (l *loop) body(text string) loopEnd {
 }
 
 // spent ends a loop whose budget is spent with no text of the model's:
-// on_budget_text.
+// on_budget_text, or the built-in notice in the asker's language.
 func (l *loop) spent() loopEnd {
-	return loopEnd{body: l.c.eff.Prompt.OnBudgetText, kind: kindBudget}
+	return loopEnd{body: l.c.notice(kindBudget), kind: kindBudget}
 }
 
 // refused ends a loop the model refused, or its provider's filter stopped:
-// on_refusal_text. A refusal's tool calls, if any, were removed, and none
-// is run.
+// on_refusal_text, or the built-in notice in the asker's language. A
+// refusal's tool calls, if any, were removed, and none is run.
 func (l *loop) refused() loopEnd {
-	return loopEnd{body: l.c.eff.Prompt.OnRefusalText, kind: kindRefusal}
+	return loopEnd{body: l.c.notice(kindRefusal), kind: kindRefusal}
 }
 
 // spentOn names the budget spent, or "". The output tokens count as spent

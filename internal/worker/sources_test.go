@@ -686,8 +686,9 @@ func TestSaidOf(t *testing.T) {
 // The runtime's own notices rely on no course material, whatever the
 // model read first: on_budget_text, after the syllabus was read and the
 // turns ran out, the forced turn writing nothing, and nor its try more;
-// and the quota's notice, with no model call, once the
-// asker's one answer of the day, which relied on the syllabus, is posted.
+// and the quota's notice, with no model call, once the asker's one answer
+// of the day, which relied on the syllabus, is posted: in English and
+// Traditional Chinese, posted before the question is read.
 func TestTheRuntimesNoticesRelyOnNone(t *testing.T) {
 	w := newWorld(t)
 	tut := w.tutor("tutor")
@@ -709,7 +710,7 @@ func TestTheRuntimesNoticesRelyOnNone(t *testing.T) {
 	}
 	eventually(t, "the answer in the ledger", func() bool { return len(wk.st.outcomes(conv2)) == 1 })
 	conv3, _ := w.ask(0, tut, "And the exam?")
-	if a := w.waitAnswers(conv3, 1)[0]; a.Body != config.DefaultQuotaText || sourcesOf(a) != "none" {
+	if a := w.waitAnswers(conv3, 1)[0]; a.Body != config.QuotaNotice.In(config.LangUnknown) || sourcesOf(a) != "none" {
 		t.Errorf("the quota's notice %q relied on %s; want none", a.Body, sourcesOf(a))
 	}
 	if err := m.Err(); err != nil {

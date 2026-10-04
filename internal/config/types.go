@@ -178,14 +178,18 @@ type Prompt struct {
 	// AnswerLanguage is opener (answer in the asker's language) or
 	// fixed:<bcp47>.
 	AnswerLanguage string `yaml:"answer_language"`
-	OnRefusalText  string `yaml:"on_refusal_text"`
-	OnBudgetText   string `yaml:"on_budget_text"`
+	// OnRefusalText, OnBudgetText and OnQuotaText are the agent's own
+	// notices, posted as they are: of a refusal, of a spent budget or
+	// every provider down, of a spent quota. Unset, the built-in one is
+	// posted in the asker's language (notices.go).
+	OnRefusalText string `yaml:"on_refusal_text"`
+	OnBudgetText  string `yaml:"on_budget_text"`
 	// OnTruncatedText follows, on a line of its own, an answer posted cut
 	// short at its length: the model's output cap cut it off with no room
 	// left in the answer's budgets to continue it.
 	OnTruncatedText string `yaml:"on_truncated_text"`
 	// OnQuotaText is the canned notice posted when the asker, the agent or
-	// the tenant is out of quota.
+	// the tenant is out of quota; unset, the built-in one.
 	OnQuotaText string `yaml:"on_quota_text"`
 	// CloseReasonText was the reason given when the runtime closed a
 	// conversation after max_attempts. The runtime closes none now: it is

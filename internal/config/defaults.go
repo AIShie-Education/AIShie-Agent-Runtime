@@ -1,9 +1,8 @@
 package config
 
-import "strings"
-
 // Texts the runtime posts or gives when the model's answer cannot be used,
-// and the note it posts after an answer cut short.
+// in English (the built-in notices, in every language they are written
+// in, are in notices.go), and the note it posts after an answer cut short.
 const (
 	DefaultRefusalText = "I can't help with that here. Please ask your instructor."
 	DefaultBudgetText  = "I couldn't finish this one. Try a narrower question."
@@ -27,28 +26,10 @@ const (
 // SchoolQuotaText is the school plan's notice for an agent whose
 // prompt.answer_language is answerLanguage: text when the plan sets its
 // own, else the built-in one in the language answers are fixed to (English,
-// or Chinese in either script), else in English and Traditional Chinese.
+// or Chinese in either script), else in English and Traditional Chinese:
+// it is posted before the question is read (NoticeLangOf).
 func SchoolQuotaText(text, answerLanguage string) string {
-	if strings.TrimSpace(text) != "" {
-		return text
-	}
-	tag, fixed := strings.CutPrefix(answerLanguage, LanguageFixed)
-	if !fixed {
-		return SchoolQuotaTextEn + "\n\n" + SchoolQuotaTextZhHant
-	}
-	lang, rest, _ := strings.Cut(strings.ToLower(tag), "-")
-	switch lang {
-	case "en":
-		return SchoolQuotaTextEn
-	case "zh":
-		// Simplified where the tag says so, or names a region that
-		// writes it; Traditional otherwise.
-		if strings.HasPrefix(rest, "hans") || rest == "cn" || rest == "sg" || rest == "my" {
-			return SchoolQuotaTextZhHans
-		}
-		return SchoolQuotaTextZhHant
-	}
-	return SchoolQuotaTextEn + "\n\n" + SchoolQuotaTextZhHant
+	return NoticeText(text, SchoolQuotaNotice, NoticeLangOf(answerLanguage, ""))
 }
 
 // The MCP revisions Core answers (§1.2), and the one the runtime pins.
@@ -64,7 +45,9 @@ const DefaultMCPProtocol = "2025-11-25"
 // empty means the default list: the read tools of §2.3 and the gated
 // writes), writes off (a hosted agent's registry document turns them on)
 // and four calls at once; three attempts, then skip; the canned notice
-// when out of quota; 19,000 characters; the newest 30 messages; eight
+// when out of quota; the built-in notices, in the asker's language
+// (on_refusal_text, on_budget_text and on_quota_text left unset:
+// notices.go); 19,000 characters; the newest 30 messages; eight
 // answers at once per agent and four per course; per answer 8 turns, 12
 // tool calls of which at most 10 writes, 150,000 input and 12,000 output
 // tokens and 180 s; no daily quotas (a school key must set them); polling
@@ -87,10 +70,7 @@ func Defaults() map[string]any {
 		},
 		"prompt": map[string]any{
 			"answer_language":   LanguageOpener,
-			"on_refusal_text":   DefaultRefusalText,
-			"on_budget_text":    DefaultBudgetText,
 			"on_truncated_text": DefaultTruncatedText,
-			"on_quota_text":     DefaultQuotaText,
 		},
 		"tools": map[string]any{
 			"mode":               ToolsDerived,

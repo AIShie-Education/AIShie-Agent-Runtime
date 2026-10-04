@@ -130,7 +130,9 @@ func p95(costs []int64) int64 {
 
 // outOfQuota answers a question over quota: the canned notice under the
 // answer's own key, with no model call, so that the asker knows why; or,
-// when on_quota_exhausted is silent, nothing until the next UTC day. A
+// when on_quota_exhausted is silent, nothing until the next UTC day. The
+// conversation is not read: the notice is in the language answers are
+// fixed to, else in English and Traditional Chinese (claim.notice). A
 // quota of the school's key other than a tenant's is the school's plan's,
 // and its notice the plan's (config.SchoolQuotaText).
 func (c *claim) outOfQuota(ctx context.Context, r passResult, q *spentQuota) passResult {
@@ -142,7 +144,7 @@ func (c *claim) outOfQuota(ctx context.Context, r passResult, q *spentQuota) pas
 		r.outcome, r.kind = store.OutcomeQuota, kindQuota
 		return r
 	}
-	text := c.eff.Prompt.OnQuotaText
+	text := c.notice(kindQuota)
 	if q.school && !strings.HasPrefix(q.name, "tenant_") {
 		text = config.SchoolQuotaText(c.a.s.school().OnQuotaText, c.eff.Prompt.AnswerLanguage)
 	}

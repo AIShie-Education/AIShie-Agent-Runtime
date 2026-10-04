@@ -173,6 +173,42 @@ func TestAForcedTurnThatWritesNothingIsAskedOnceMore(t *testing.T) {
 	}
 }
 
+// A model that writes nothing gets the budget's notice, in the question's
+// language: Simplified Chinese, as the question of 2026-10-04 was. Cut
+// off before it wrote, its turn is tried with twice the cap where the
+// output tokens, less the reserve, allow; cut off so again, the last turn
+// is forced within what is left, the reserve; ending that with nothing,
+// it is asked once more within what is left; and then the notice, the
+// answer's output within its output tokens, and no more calls.
+func TestAModelThatNeverWritesGetsTheNoticeInTheAskersLanguage(t *testing.T) {
+	endsEmpty := scripted.WithUsage(scripted.Stop(llm.StopEnd, ""), llm.Usage{Input: 30000, Output: 300, Reasoning: 300})
+	model := scripted.New(
+		readingTurn(1500, getDocCall("d1")),
+		thinksToTheCap(), thinksToTheCap(), endsEmpty, thinksToTheCap(),
+	)
+	body, wk, line := answerTo(t, "有什么问题吗?", model, incident(nil))
+	if body != config.BudgetNotice.ZhHans {
+		t.Errorf("body %q, want %q", body, config.BudgetNotice.ZhHans)
+	}
+	reqs := model.Requests()
+	caps := []int{}
+	for _, r := range reqs {
+		caps = append(caps, r.Limits.MaxOutputTokens)
+	}
+	// 4,000; twice that, less what the reserve keeps (12,000 - 5,500 -
+	// 2,000); the reserve; what is left after the forced turn's 300.
+	if len(reqs) != 5 || caps[1] != 4000 || caps[2] != 4500 || caps[3] != 2000 || caps[4] != 1700 || !reqs[3].LeastReasoning || !reqs[4].LeastReasoning {
+		t.Errorf("%d calls, capped at %v", len(reqs), caps)
+	}
+	if line["outcome"] != store.OutcomeBudget || line["asked_again"] != true || line["output_tokens"] != 12000.0 {
+		t.Errorf("the answer's line: %v", line)
+	}
+	_, recs := wk.st.ledger()
+	if len(recs) != 1 || recs[0].Billable {
+		t.Errorf("the ledger: %+v", recs)
+	}
+}
+
 // A forced turn's one try more starts only while the input tokens are not
 // spent, as a continuation does: forced by them, a model that writes
 // nothing gets the budget's notice after the forced turn.
@@ -228,4 +264,26 @@ func TestAnAPIThatRefusesToThinkLeastIsAskedAsConfigured(t *testing.T) {
 	if !strings.Contains(wk.w.logs.String(), "refused a call asking it to think least") {
 		t.Error("not logged")
 	}
+}
+
+// answerTo runs the own agent with over merged into its settings and the
+// scripted model, asks question, and waits for its answer, its ledger row
+// and its log line.
+func answerTo(t *testing.T, question string, model *scripted.Adapter, over map[string]any) (string, *worker, map[string]any) {
+	t.Helper()
+	w := newWorld(t)
+	own := w.ownAgent("yuki-helper", 0)
+	wk := w.start(w.config(nil, w.agentDoc("yuki-helper", "m1", over, nil)), models{"m1": model}, workerOpts{})
+	conv, _ := w.ask(0, own, question)
+	body := w.waitAnswers(conv, 1)[0].Body
+	eventually(t, "the ledger's answer row", func() bool { return len(wk.st.outcomes(conv)) > 0 })
+	if err := model.Err(); err != nil {
+		t.Fatal(err)
+	}
+	var line map[string]any
+	eventually(t, "the answer's log line", func() bool {
+		line = logLine(w, "answer", conv)
+		return line != nil
+	})
+	return body, wk, line
 }
