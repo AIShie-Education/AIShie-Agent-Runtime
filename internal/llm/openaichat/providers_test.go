@@ -180,6 +180,73 @@ func TestProviderCorners(t *testing.T) {
 	}
 }
 
+// TestLeastReasoning holds what a call asking for the least reasoning
+// (ForceAnswer's, a continuation's) sends, provider by provider, beside an
+// ordinary turn's: DeepSeek's thinking switched off, as its API documents
+// it ({"thinking": {"type": "disabled"}}); a configured effort above low
+// sent as low where an effort is sent at all; nothing anywhere else.
+func TestLeastReasoning(t *testing.T) {
+	type sent struct{ Thinking, Effort, Reasoning string }
+	for _, c := range []struct {
+		name, base, model, effort string
+		auto, least               sent
+	}{
+		{"deepseek-flash, which thinks by default", deepseekBase, "deepseek-flash", "", sent{}, sent{Thinking: "disabled"}},
+		{"deepseek, an effort configured", deepseekBase, "deepseek-v4-pro", "high", sent{}, sent{Thinking: "disabled"}},
+		{"openai, a reasoning model at high", "", "o4-mini", "high", sent{Effort: "high"}, sent{Effort: "low"}},
+		{"openai, at minimal", "", "gpt-5-mini", "minimal", sent{Effort: "minimal"}, sent{Effort: "minimal"}},
+		{"openai, a model that does not reason", "", "gpt-4.1", "high", sent{}, sent{}},
+		{"azure at medium", azureBase, "tutor-prod", "medium", sent{Effort: "medium"}, sent{Effort: "low"}},
+		{"openrouter at high", openrouterBase, "deepseek/deepseek-v4-flash", "high", sent{Reasoning: "high"}, sent{Reasoning: "low"}},
+		{"openrouter, no effort", openrouterBase, "deepseek/deepseek-v4-flash", "", sent{}, sent{}},
+		{"kimi", moonshotBase, "kimi-k2-thinking", "high", sent{}, sent{}},
+		{"glm", glmBase, "glm-4.6", "", sent{}, sent{}},
+		{"qwen", qwenBase, "qwen3-max", "", sent{}, sent{}},
+		{"ollama", ollamaBase, "qwen3:8b", "", sent{}, sent{}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			conf := cfg(c.base, c.model)
+			conf.Reasoning = llm.Reasoning{Effort: c.effort}
+			a, err := New(conf)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sentBy := func(least bool) sent {
+				req := &llm.Request{System: system, Messages: toolRound(), Tools: tools, ToolMode: llm.ToolNone, LeastReasoning: least}
+				b, err := marshal(a.request(req))
+				if err != nil {
+					t.Fatal(err)
+				}
+				var body struct {
+					Thinking *struct {
+						Type string `json:"type"`
+					} `json:"thinking"`
+					Effort    string          `json:"reasoning_effort"`
+					Reasoning *reasoningParam `json:"reasoning"`
+				}
+				if err := json.Unmarshal(b, &body); err != nil {
+					t.Fatal(err)
+				}
+				var s sent
+				if body.Thinking != nil {
+					s.Thinking = body.Thinking.Type
+				}
+				s.Effort = body.Effort
+				if body.Reasoning != nil {
+					s.Reasoning = body.Reasoning.Effort
+				}
+				return s
+			}
+			if got := sentBy(false); got != c.auto {
+				t.Errorf("an ordinary call sent %+v, want %+v", got, c.auto)
+			}
+			if got := sentBy(true); got != c.least {
+				t.Errorf("a call asking for the least reasoning sent %+v, want %+v", got, c.least)
+			}
+		})
+	}
+}
+
 // TestArgumentsThatDidNotParseGoBackSafely holds that a model's malformed
 // arguments go back as written only where the API keeps them as a string.
 func TestArgumentsThatDidNotParseGoBackSafely(t *testing.T) {

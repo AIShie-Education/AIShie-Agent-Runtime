@@ -144,7 +144,13 @@ func (a *Adapter) encode(req *llm.Request) ([]byte, error) {
 	}
 	w.MaxOutputTokens = outputCap(req.Limits.MaxOutputTokens, a.params.MaxOutputTokens)
 	if a.effort != "" {
-		w.Reasoning = &wireReasoning{Effort: a.effort}
+		// A call asking for the least reasoning (ForceAnswer's, a
+		// continuation's) is made at low in place of medium or high.
+		effort := a.effort
+		if req.LeastReasoning {
+			effort = llm.LeastEffort(effort)
+		}
+		w.Reasoning = &wireReasoning{Effort: effort}
 		w.Include = []string{includeEncryptedReasoning}
 	}
 	body, err := json.Marshal(w)

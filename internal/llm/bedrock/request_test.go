@@ -163,22 +163,48 @@ func TestReasoning(t *testing.T) {
 		{"5, with no cap", "us.anthropic.claude-sonnet-5-20260801-v1:0", "high", 0, plain, adaptive("high")},
 		{"adaptive, a tool turn without its thinking", "anthropic.claude-opus-4-7", "high", 32000, withTool, ""},
 	}
+	// A call asking for the least reasoning (ForceAnswer's) is made at
+	// low in place of medium or high; with nothing configured, it asks
+	// for nothing still.
+	least := []struct {
+		name, model, effort string
+		maxTokens           int
+		msgs                []message
+		want                string
+	}{
+		{"least: high is low", "anthropic.claude-opus-4-1-20250805-v1:0", "high", 64000, plain, budget(2048)},
+		{"least: adaptive medium is low", "global.anthropic.claude-opus-4-6-v1", "medium", 4000, plain, adaptive("low")},
+		{"least: minimal stays", claude, "minimal", 4000, plain, budget(1024)},
+		{"least: no effort", claude, "", 4000, plain, ""},
+	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			a := newTestAdapter(t, func(c *llm.Config) { c.Model = tc.model; c.Reasoning.Effort = tc.effort })
-			got := a.reasoning(tc.maxTokens, tc.msgs)
-			if tc.want == "" {
-				if got != nil {
-					b, _ := json.Marshal(got)
-					t.Errorf("reasoning = %s, want nothing", b)
-				}
-				return
-			}
-			b, err := json.Marshal(got)
-			if err != nil || string(b) != tc.want {
-				t.Errorf("reasoning = %s, want %s", b, tc.want)
-			}
+			checkReasoning(t, tc.model, tc.effort, tc.maxTokens, tc.msgs, false, tc.want)
 		})
+	}
+	for _, tc := range least {
+		t.Run(tc.name, func(t *testing.T) {
+			checkReasoning(t, tc.model, tc.effort, tc.maxTokens, tc.msgs, true, tc.want)
+		})
+	}
+}
+
+// checkReasoning holds the reasoning asked of model at effort to want
+// ("" for nothing).
+func checkReasoning(t *testing.T, model, effort string, maxTokens int, msgs []message, least bool, want string) {
+	t.Helper()
+	a := newTestAdapter(t, func(c *llm.Config) { c.Model = model; c.Reasoning.Effort = effort })
+	got := a.reasoning(maxTokens, msgs, least)
+	if want == "" {
+		if got != nil {
+			b, _ := json.Marshal(got)
+			t.Errorf("reasoning = %s, want nothing", b)
+		}
+		return
+	}
+	b, err := json.Marshal(got)
+	if err != nil || string(b) != want {
+		t.Errorf("reasoning = %s, want %s", b, want)
 	}
 }
 

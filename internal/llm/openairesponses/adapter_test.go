@@ -669,3 +669,46 @@ func TestDecodeEdges(t *testing.T) {
 		}
 	}
 }
+
+// TestLeastReasoning: a call asking for the least reasoning (ForceAnswer's,
+// a continuation's) is made at low in place of a configured medium or
+// high; minimal and low stay; with no effort configured, none is sent.
+func TestLeastReasoning(t *testing.T) {
+	for _, c := range []struct{ effort, ordinary, least string }{
+		{"high", "high", "low"},
+		{"medium", "medium", "low"},
+		{"low", "low", "low"},
+		{"minimal", "minimal", "minimal"},
+		{"", "", ""},
+	} {
+		a, err := New(llm.Config{Model: "gpt-5", Reasoning: llm.Reasoning{Effort: c.effort}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sent := func(least bool) string {
+			body, err := a.encode(&llm.Request{Messages: []llm.Message{llm.UserText("Why did I lose marks?")}, ToolMode: llm.ToolNone,
+				LeastReasoning: least})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var w struct {
+				Reasoning *struct {
+					Effort string `json:"effort"`
+				} `json:"reasoning"`
+			}
+			if err := json.Unmarshal(body, &w); err != nil {
+				t.Fatal(err)
+			}
+			if w.Reasoning == nil {
+				return ""
+			}
+			return w.Reasoning.Effort
+		}
+		if got := sent(false); got != c.ordinary {
+			t.Errorf("%q: an ordinary call is made at %q, want %q", c.effort, got, c.ordinary)
+		}
+		if got := sent(true); got != c.least {
+			t.Errorf("%q: a call asking for the least reasoning is made at %q, want %q", c.effort, got, c.least)
+		}
+	}
+}

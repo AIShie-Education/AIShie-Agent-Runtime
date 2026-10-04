@@ -249,6 +249,25 @@ func goldenCases() []goldenCase {
 			"usage":{"prompt_tokens":300,"completion_tokens":50,"total_tokens":350,"prompt_cache_hit_tokens":256,"prompt_cache_miss_tokens":44,
 				"completion_tokens_details":{"reasoning_tokens":30}}}`},
 
+		// deepseek-flash thinks by default, its thinking counted in
+		// completion_tokens: a turn whose thinking reaches max_tokens stops
+		// at length with reasoning_content and an empty content (the
+		// answers of 2026-10-04 on test.aishie.app). It is max_tokens with
+		// no text, every token of it reasoning.
+		{name: "deepseek_thinking_cut_off_at_the_cap", cfg: cfg(deepseekBase, "deepseek-flash"), req: &llm.Request{System: system,
+			Messages: toolRound(), Tools: tools, ToolMode: llm.ToolAuto, Limits: llm.Limits{MaxOutputTokens: 4000}},
+			reply: `{"id":"ds-len","object":"chat.completion","model":"deepseek-flash",
+			"choices":[{"index":0,"message":{"role":"assistant","content":"","reasoning_content":"The student asks what problems there are. Let me weigh each document again…"},"logprobs":null,"finish_reason":"length"}],
+			"usage":{"prompt_tokens":30112,"completion_tokens":4000,"total_tokens":34112,"prompt_cache_hit_tokens":29952,"prompt_cache_miss_tokens":160,
+				"completion_tokens_details":{"reasoning_tokens":4000}}}`},
+		// ForceAnswer's call, asking for the least reasoning, switches
+		// deepseek-flash's thinking off, and its answer is text.
+		{name: "deepseek_force_answer_without_thinking", cfg: cfg(deepseekBase, "deepseek-flash"), req: &llm.Request{System: system,
+			Messages: toolRound(), Tools: tools, ToolMode: llm.ToolNone, Limits: llm.Limits{MaxOutputTokens: 3216}, LeastReasoning: true},
+			reply: `{"id":"ds-off","object":"chat.completion","model":"deepseek-flash",
+			"choices":[{"index":0,"message":{"role":"assistant","content":"You scored 7 out of 10 on HW3."},"logprobs":null,"finish_reason":"stop"}],
+			"usage":{"prompt_tokens":30140,"completion_tokens":12,"total_tokens":30152,"prompt_cache_hit_tokens":0,"prompt_cache_miss_tokens":30140}}`},
+
 		{name: "openrouter_reasoning_details", cfg: openrouter, req: withTools(
 			question(),
 			assistant(

@@ -26,7 +26,9 @@ type chatRequest struct {
 	TopP                *float64        `json:"top_p,omitempty"`
 	ReasoningEffort     string          `json:"reasoning_effort,omitempty"`
 	Reasoning           *reasoningParam `json:"reasoning,omitempty"`
-	Store               *bool           `json:"store,omitempty"`
+	// Thinking is DeepSeek's switch for its models' thinking.
+	Thinking *thinkingParam `json:"thinking,omitempty"`
+	Store    *bool          `json:"store,omitempty"`
 	// Provider is OpenRouter's upstream routing, to OpenRouter alone.
 	Provider *openrouter.Routing `json:"provider,omitempty"`
 	Stream   bool                `json:"stream"`
@@ -41,6 +43,10 @@ type streamOptions struct {
 
 type reasoningParam struct {
 	Effort string `json:"effort"`
+}
+
+type thinkingParam struct {
+	Type string `json:"type"`
 }
 
 // chatMessage is one message. Content is a string, a []contentPart, or nil
@@ -219,13 +225,29 @@ func (a *Adapter) request(req *llm.Request) *chatRequest {
 	// model that does not reason, so an effort configured for one is left
 	// out rather than stop every answer; an Azure deployment's name need
 	// not name its model, so Azure gets the effort its operator configured.
-	if a.effort != "" {
+	//
+	// A call asking for the least reasoning (ForceAnswer's, a
+	// continuation's) is made at low in place of a configured medium or
+	// high (llm.LeastEffort). DeepSeek documents a switch per request for
+	// its models' thinking, which deepseek-flash and deepseek-v4-pro do by
+	// default at high, counting it in completion_tokens: such a call is
+	// sent thinking {type: disabled} (api-docs.deepseek.com, Thinking Mode,
+	// read 2026-10), so that what is left of the answer's output tokens
+	// goes to the answer.
+	effort := a.effort
+	if req.LeastReasoning {
+		effort = llm.LeastEffort(effort)
+	}
+	if effort != "" {
 		switch {
 		case a.provider == llm.ProviderAzure, a.provider == llm.ProviderOpenAI && reasoningModel(a.model):
-			out.ReasoningEffort = a.effort
+			out.ReasoningEffort = effort
 		case a.provider == llm.ProviderOpenRouter:
-			out.Reasoning = &reasoningParam{Effort: a.effort}
+			out.Reasoning = &reasoningParam{Effort: effort}
 		}
+	}
+	if req.LeastReasoning && a.provider == llm.ProviderDeepSeek {
+		out.Thinking = &thinkingParam{Type: "disabled"}
 	}
 
 	// A school's data is not kept by OpenAI (§5.2). false is already the

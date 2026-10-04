@@ -213,7 +213,7 @@ func (a *Adapter) buildRequest(req *llm.Request) (*wireRequest, error) {
 		}
 	}
 
-	r := a.reasoning(w.Messages)
+	r := a.reasoning(w.Messages, req.LeastReasoning)
 	w.Thinking, w.OutputConfig = r.thinking, r.output
 	w.MaxTokens = outputCap(req.Limits.MaxOutputTokens, a.params.MaxOutputTokens) + r.allowance
 	// The API refuses temperature and top_p while the model thinks, and the
@@ -267,9 +267,22 @@ type reasoningConfig struct {
 // older ones with {type: enabled, budget_tokens}. Which shape each model
 // takes, and whether a newer model still accepts the older one, is
 // [UNVERIFIED] per model beyond Anthropic's documentation (familyOf).
-func (a *Adapter) reasoning(msgs []wireMessage) reasoningConfig {
+//
+// A call asking for the least reasoning (least: ForceAnswer's, a
+// continuation's) is made at low in place of medium or high
+// (llm.LeastEffort), and a model that thinks unasked is asked at low as
+// if low were configured, in the shape the adapter sends for it then:
+// never {type: disabled}, which some of those models refuse.
+func (a *Adapter) reasoning(msgs []wireMessage, least bool) reasoningConfig {
+	effort := a.effort
+	if least {
+		effort = llm.LeastEffort(effort)
+		if effort == "" && a.family.thinksByDefault {
+			effort = "low"
+		}
+	}
 	switch {
-	case a.effort == "":
+	case effort == "":
 		if a.family.thinksByDefault {
 			return reasoningConfig{allowance: defaultThinkingAllowance, on: true}
 		}
@@ -277,8 +290,8 @@ func (a *Adapter) reasoning(msgs []wireMessage) reasoningConfig {
 	case a.family.adaptive:
 		return reasoningConfig{
 			thinking:  &thinking{Type: "adaptive"},
-			output:    &outputConfig{Effort: adaptiveEffort[a.effort]},
-			allowance: thinkingBudgets[a.effort],
+			output:    &outputConfig{Effort: adaptiveEffort[effort]},
+			allowance: thinkingBudgets[effort],
 			on:        true,
 		}
 	case !turnThinks(msgs):
@@ -290,7 +303,7 @@ func (a *Adapter) reasoning(msgs []wireMessage) reasoningConfig {
 		// without thinking rather than fail.
 		return reasoningConfig{}
 	}
-	b := thinkingBudgets[a.effort]
+	b := thinkingBudgets[effort]
 	return reasoningConfig{thinking: &thinking{Type: "enabled", BudgetTokens: b}, allowance: b, on: true}
 }
 

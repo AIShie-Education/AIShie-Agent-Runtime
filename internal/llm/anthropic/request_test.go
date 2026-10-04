@@ -425,6 +425,47 @@ func TestReasoning(t *testing.T) {
 	}
 }
 
+// TestLeastReasoning: a call asking for the least reasoning (ForceAnswer's,
+// a continuation's) thinks at low in place of medium or high, and a model
+// that thinks unasked is asked at low, adaptively; one that does not think
+// is asked nothing.
+func TestLeastReasoning(t *testing.T) {
+	cases := []struct {
+		model     string
+		effort    string
+		thinking  *thinking
+		effortOut string
+		maxTokens int
+	}{
+		{"claude-sonnet-4-5", "medium", &thinking{Type: "enabled", BudgetTokens: 1024}, "", 2024},
+		{"claude-sonnet-4-5", "minimal", &thinking{Type: "enabled", BudgetTokens: 1024}, "", 2024},
+		{"claude-sonnet-4-5", "", nil, "", 1000},
+		{"claude-opus-4-8", "high", &thinking{Type: "adaptive"}, "low", 2024},
+		{"claude-opus-4-7", "", nil, "", 1000},
+		{"claude-opus-5", "", &thinking{Type: "adaptive"}, "low", 2024},
+		{"claude-fable-5-1", "high", &thinking{Type: "adaptive"}, "low", 2024},
+	}
+	for _, c := range cases {
+		t.Run(c.model+"/"+c.effort, func(t *testing.T) {
+			a := newAdapter(t, llm.Config{Model: c.model, Reasoning: llm.Reasoning{Effort: c.effort}, Params: llm.Params{MaxOutputTokens: 1000}})
+			w, err := a.buildRequest(&llm.Request{Messages: []llm.Message{question}, ToolMode: llm.ToolNone, LeastReasoning: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (w.Thinking == nil) != (c.thinking == nil) || (w.Thinking != nil && *w.Thinking != *c.thinking) {
+				t.Errorf("thinking = %+v, want %+v", w.Thinking, c.thinking)
+			}
+			var effort string
+			if w.OutputConfig != nil {
+				effort = w.OutputConfig.Effort
+			}
+			if effort != c.effortOut || w.MaxTokens != c.maxTokens {
+				t.Errorf("output_config.effort = %q, max_tokens = %d; want %q, %d", effort, w.MaxTokens, c.effortOut, c.maxTokens)
+			}
+		})
+	}
+}
+
 func TestMaxTokens(t *testing.T) {
 	cases := []struct {
 		name        string

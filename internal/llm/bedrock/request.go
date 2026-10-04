@@ -198,7 +198,7 @@ func (a *Adapter) translate(req *llm.Request) (*converseRequest, error) {
 		maxTokens = a.params.MaxOutputTokens
 	}
 	ic := inferenceConfig{MaxTokens: maxTokens, Temperature: a.params.Temperature, TopP: a.params.TopP}
-	out.AdditionalModelRequestFields = a.reasoning(maxTokens, out.Messages)
+	out.AdditionalModelRequestFields = a.reasoning(maxTokens, out.Messages, req.LeastReasoning)
 	if out.AdditionalModelRequestFields != nil || a.family.noSampling {
 		// Claude refuses a changed temperature or top_p while thinking,
 		// and its newest models refuse them always; the configured
@@ -433,13 +433,21 @@ const minThinkingBudget = 1024
 // Claude also refuses thinking when the last assistant turn holds a tool
 // call without the thinking that came with it (a turn another model made,
 // before a fallback), so such a turn gets no thinking either.
-func (a *Adapter) reasoning(maxTokens int, msgs []message) *additionalRequest {
-	budget, ok := thinkingBudgets[a.effort]
+//
+// A call asking for the least reasoning (least: ForceAnswer's, a
+// continuation's) is made at low in place of medium or high
+// (llm.LeastEffort).
+func (a *Adapter) reasoning(maxTokens int, msgs []message, least bool) *additionalRequest {
+	effort := a.effort
+	if least {
+		effort = llm.LeastEffort(effort)
+	}
+	budget, ok := thinkingBudgets[effort]
 	if !ok || !a.family.thinks || !lastToolTurnThinks(msgs) {
 		return nil
 	}
 	if a.family.adaptive {
-		return &additionalRequest{Thinking: &thinking{Type: "adaptive"}, OutputConfig: &outputConfig{Effort: adaptiveEffort[a.effort]}}
+		return &additionalRequest{Thinking: &thinking{Type: "adaptive"}, OutputConfig: &outputConfig{Effort: adaptiveEffort[effort]}}
 	}
 	if maxTokens <= 0 {
 		return nil

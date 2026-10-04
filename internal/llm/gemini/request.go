@@ -151,7 +151,7 @@ func (a *Adapter) buildRequest(req *llm.Request) (*wireRequest, error) {
 		}
 		w.ToolConfig = &wireToolConfig{FunctionCallingConfig: wireFunctionCallingConfig{Mode: mode}}
 	}
-	w.GenerationConfig = a.generation(req.Limits)
+	w.GenerationConfig = a.generation(req.Limits, req.LeastReasoning)
 	return w, nil
 }
 
@@ -448,14 +448,27 @@ func takesArguments(schema json.RawMessage) bool {
 // thinks is given the cap and its thinking allowance, as the anthropic
 // adapter gives max_tokens; the tokens it spends are counted in Usage.Output
 // all the same.
-func (a *Adapter) generation(l llm.Limits) *wireGeneration {
-	g := wireGeneration{Temperature: a.params.Temperature, TopP: a.params.TopP, ThinkingConfig: thinking(a.model, a.effort)}
+//
+// A call asking for the least reasoning (least: ForceAnswer's, a
+// continuation's) is made at low in place of medium or high
+// (llm.LeastEffort), and a model that thinks unasked is asked at low as if
+// low were configured: a budget of 1,024, which every 2.5 model that
+// thinks takes, or LOW, which every Gemini 3 model takes.
+func (a *Adapter) generation(l llm.Limits, least bool) *wireGeneration {
+	effort := a.effort
+	if least {
+		effort = llm.LeastEffort(effort)
+		if effort == "" && thinksUnasked(a.model) {
+			effort = "low"
+		}
+	}
+	g := wireGeneration{Temperature: a.params.Temperature, TopP: a.params.TopP, ThinkingConfig: thinking(a.model, effort)}
 	limit := a.params.MaxOutputTokens
 	if l.MaxOutputTokens > 0 {
 		limit = l.MaxOutputTokens
 	}
 	if limit > 0 {
-		g.MaxOutputTokens = outputCap(limit, thinkingAllowance(a.model, a.effort))
+		g.MaxOutputTokens = outputCap(limit, thinkingAllowance(a.model, effort))
 	}
 	if g == (wireGeneration{}) {
 		return nil

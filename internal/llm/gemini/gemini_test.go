@@ -502,6 +502,35 @@ func TestThinking(t *testing.T) {
 	}
 }
 
+// TestLeastReasoning: a call asking for the least reasoning (ForceAnswer's,
+// a continuation's) thinks at low in place of medium or high, with low's
+// allowance; a model that thinks unasked is asked at low; one that does
+// not is asked nothing.
+func TestLeastReasoning(t *testing.T) {
+	tests := []struct {
+		model, effort, thinking string
+		maxOut                  int
+	}{
+		{"gemini-2.5-flash", "", `{"includeThoughts":false,"thinkingBudget":1024}`, 2524},
+		{"gemini-2.5-pro", "high", `{"includeThoughts":false,"thinkingBudget":1024}`, 2524},
+		{"gemini-2.5-flash", "minimal", `{"includeThoughts":false,"thinkingBudget":512}`, 2012},
+		{"gemini-2.5-flash-lite", "", `null`, 1500},
+		{"gemini-3-pro-preview", "", `{"includeThoughts":false,"thinkingLevel":"LOW"}`, 1500 + defaultThinkingAllowance},
+		{"gemini-3.1-flash", "high", `{"includeThoughts":false,"thinkingLevel":"LOW"}`, 1500 + defaultThinkingAllowance},
+	}
+	for _, tc := range tests {
+		a := &Adapter{model: tc.model, effort: tc.effort}
+		g := a.generation(llm.Limits{MaxOutputTokens: 1500}, true)
+		got, err := json.Marshal(g.ThinkingConfig)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != tc.thinking || g.MaxOutputTokens != tc.maxOut {
+			t.Errorf("%s at %q: thinking %s, maxOutputTokens %d; want %s, %d", tc.model, tc.effort, got, g.MaxOutputTokens, tc.thinking, tc.maxOut)
+		}
+	}
+}
+
 func TestVersionOf(t *testing.T) {
 	tests := []struct {
 		model string
