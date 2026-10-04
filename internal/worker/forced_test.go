@@ -237,9 +237,12 @@ func TestNoTryMoreOnceTheForcedTurnsTimeIsOver(t *testing.T) {
 		}
 	}
 	model := scripted.New(slow(400*time.Millisecond, scripted.CallTool("course_get", `{}`)), slow(100*time.Millisecond, scripted.Stop(llm.StopEnd, "")))
-	body, _, line := cutOff(t, model, incident(perAnswer("wall_clock_s", 0.3)))
+	body, wk, line := cutOff(t, model, incident(perAnswer("wall_clock_s", 0.3)))
 	if body != config.DefaultBudgetText || line["asked_again"] != false {
 		t.Errorf("body %q; the answer's line: %v", body, line)
+	}
+	if strings.Contains(wk.w.logs.String(), "it is asked once more") {
+		t.Error("asked once more after the forced turn's time")
 	}
 }
 

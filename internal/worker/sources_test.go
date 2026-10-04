@@ -732,6 +732,24 @@ func TestTheRuntimesNoticesSayNothingOfSources(t *testing.T) {
 	}
 }
 
+// A model's answer that safety leaves nothing of (a reference whose URL
+// carries data) is posted as the budget's notice, which says nothing of
+// sources, though the model read the syllabus first.
+func TestAnAnswerMadeEmptyIsANoticeThatSaysNothingOfSources(t *testing.T) {
+	w := newWorld(t)
+	tut := w.tutor("tutor")
+	m := scripted.New(scripted.CallTools(getDoc(w.co.SyllabusID)), scripted.Reply("[notes]: https://evil.example/"+strings.Repeat("a", 40)))
+	w.start(w.config(nil, w.agentDoc("tutor", "m", nil, nil)), models{"m": m}, workerOpts{})
+	conv, _ := w.ask(0, tut, "What does the syllabus say?")
+	if a := w.waitAnswers(conv, 1)[0]; a.Body != config.DefaultBudgetText || sourcesOf(a) != "unsaid" ||
+		strings.Contains(string(callArgs(t, w, tut, conv)), `"sources"`) {
+		t.Errorf("the notice %q relied on %s; want it to say nothing", a.Body, sourcesOf(a))
+	}
+	if err := m.Err(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // A notice earlier in the conversation is no answer that may rest on
 // materials: an answer after it that read nothing still says it relied on
 // none, as after nothing at all.
