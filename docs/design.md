@@ -3223,7 +3223,7 @@ short, gives it more, or a lower effort.
     Gemini every tool of the pinned catalogue declared at 16 output
     tokens, Core's own schemas, in requests of at most 128 tools
     (`livetest.MaxTools`: OpenAI takes no more, and the catalogue has
-    167), so that the provider itself checks every schema. `live.yml` runs
+    169), so that the provider itself checks every schema. `live.yml` runs
     it nightly with the repository's keys, and its log names each provider
     tried or skipped; run it by hand when an adapter changes, or a
     provider's API or the default models do.

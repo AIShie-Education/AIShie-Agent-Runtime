@@ -24,8 +24,8 @@ func readCatalogue(t *testing.T) []byte {
 	return b
 }
 
-// TestCatalogueSnapshot holds the pinned catalogue to what it is: 167
-// tools, 63 reads, 99 writes and five ephemeral writes (conversation.draft,
+// TestCatalogueSnapshot holds the pinned catalogue to what it is: 169
+// tools, 64 reads, 100 writes and five ephemeral writes (conversation.draft,
 // the transcription service's document_text.queue and .renew, and the agent
 // runtime's agent_runtime.rendition_claim and .rendition_renew), every name
 // within [a-z_]+ and at most 64 characters, which every provider takes; the
@@ -37,8 +37,8 @@ func TestCatalogueSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	tools := c.Tools()
-	if len(tools) != 167 || c.Len() != 167 {
-		t.Fatalf("%d tools, want 167", len(tools))
+	if len(tools) != 169 || c.Len() != 169 {
+		t.Fatalf("%d tools, want 169", len(tools))
 	}
 	name := regexp.MustCompile(`^[a-z_]+$`)
 	reads, writes, ephemeral, longest := 0, 0, 0, 0
@@ -74,8 +74,8 @@ func TestCatalogueSnapshot(t *testing.T) {
 		}
 		longest = max(longest, len(tl.MCPName))
 	}
-	if reads != 63 || writes != 99 || ephemeral != 5 || longest != 34 {
-		t.Fatalf("%d reads, %d writes, %d ephemeral, the longest name %d; want 63, 99, 5, 34", reads, writes, ephemeral, longest)
+	if reads != 64 || writes != 100 || ephemeral != 5 || longest != 34 {
+		t.Fatalf("%d reads, %d writes, %d ephemeral, the longest name %d; want 64, 100, 5, 34", reads, writes, ephemeral, longest)
 	}
 	if !sort.SliceIsSorted(tools, func(i, j int) bool { return tools[i].MCPName < tools[j].MCPName }) {
 		t.Error("Tools is not sorted by MCP name")
@@ -252,7 +252,7 @@ func TestFetchCatalogue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Hash() != want.Hash() || c.Len() != 167 {
+	if c.Hash() != want.Hash() || c.Len() != 169 {
 		t.Fatalf("fetched %d tools, hash %s", c.Len(), c.Hash())
 	}
 

@@ -89,8 +89,8 @@ func TestCatalogueSnapshot(t *testing.T) {
 			reads++
 		}
 	}
-	if len(cat.tools) != 167 || reads != 63 || writes != 99 || ephemeral != 5 {
-		t.Errorf("%d tools, %d reads, %d writes, %d ephemeral; the snapshot holds 167, 63, 99, 5", len(cat.tools), reads, writes, ephemeral)
+	if len(cat.tools) != 169 || reads != 64 || writes != 100 || ephemeral != 5 {
+		t.Errorf("%d tools, %d reads, %d writes, %d ephemeral; the snapshot holds 169, 64, 100, 5", len(cat.tools), reads, writes, ephemeral)
 	}
 	for _, name := range []string{"agent_runtime.agent", "agent_runtime.check_owner", "agent_runtime.issue_token", "agent_runtime.revoke_token",
 		"agent_runtime.rendition_claim", "agent_runtime.rendition_file", "agent_runtime.rendition_renew",
@@ -1917,7 +1917,7 @@ func TestOwners(t *testing.T) {
 			} `json:"tools"`
 		} `json:"result"`
 	}
-	if err != nil || json.Unmarshal(l.Body, &list) != nil || len(list.Result.Tools) != 154 {
+	if err != nil || json.Unmarshal(l.Body, &list) != nil || len(list.Result.Tools) != 156 {
 		t.Fatalf("tools/list: %v %d %d", err, l.Status, len(list.Result.Tools))
 	}
 	for _, tl := range list.Result.Tools {
