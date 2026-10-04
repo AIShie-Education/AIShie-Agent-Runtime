@@ -64,7 +64,7 @@ func TestBudgets(t *testing.T) {
 		reqs := model.Requests()
 		last := reqs[2].Messages[len(reqs[2].Messages)-1]
 		if body != "Briefly: …" || reqs[2].ToolMode != llm.ToolNone || !reqs[2].LeastReasoning ||
-			last.Role != llm.RoleTool || last.Parts[len(last.Parts)-1].Text != prompt.AnswerNow(500) {
+			last.Role != llm.RoleTool || last.Parts[len(last.Parts)-1].Text != prompt.AnswerNow(500, "opener") {
 			t.Errorf("body %q; asked once more with %+v", body, last)
 		}
 		if line["turns"] != 2.0 || line["asked_again"] != true || line["outcome"] != store.OutcomePosted {

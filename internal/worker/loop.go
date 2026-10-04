@@ -432,8 +432,10 @@ func withAsk(msgs []llm.Message, ask string) []llm.Message {
 // answerNow tries once more a forced last turn that wrote nothing (it
 // thought until its cap, ended empty, or called tools it was told not
 // to), asking for less: the runtime's word to answer at once, briefly,
-// from what the model has read (prompt.AnswerNow), within what is left of
-// the output tokens, thinking least. Like a continuation it is the same
+// from what the model has read, in the language the system prompt tells
+// it to answer in, the one answer_language fixes or the asker's
+// (prompt.AnswerNow), within what is left of the output tokens, thinking
+// least. Like a continuation it is the same
 // turn, not another (turns, the hard cap, allow it); it starts only while
 // the input tokens are not spent and what is left can hold
 // minContinuation, and it ends when the forced turn's time does: it adds
@@ -446,7 +448,7 @@ func (l *loop) answerNow(tried *retries) bool {
 		return false
 	}
 	tried.answerNow = true
-	l.ask = prompt.AnswerNow(int(room))
+	l.ask = prompt.AnswerNow(int(room), l.c.eff.Prompt.AnswerLanguage)
 	l.c.s.log.Info("the forced last turn wrote nothing: it is asked once more, to answer now", "conversation", l.c.conv,
 		"budget", l.exhausted, "room", room)
 	return true

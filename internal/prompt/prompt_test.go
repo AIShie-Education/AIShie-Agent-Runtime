@@ -471,14 +471,28 @@ func TestContinue(t *testing.T) {
 }
 
 // AnswerNow tells a forced turn that wrote nothing to answer at once, from
-// what it read, in the question's language, briefly, within its room; and
-// to say so where what it read does not answer.
+// what it read, briefly, within its room, in the language the system
+// prompt tells it to answer in (the asker's, or the one answer_language
+// fixes, whatever the question's); and to say so where what it read does
+// not answer.
 func TestAnswerNow(t *testing.T) {
-	now := AnswerNow(3216)
+	now := AnswerNow(3216, "opener")
 	for _, want := range []string{"cannot look anything more up", "only about 3216 more tokens", "Answer the question now",
-		"from what you have already read", "in the language of the question", "in at most 300 words", "suggest a narrower question"} {
+		"from what you have already read", "in the language the person writes in", "in at most 300 words", "suggest a narrower question"} {
 		if !strings.Contains(now, want) {
 			t.Errorf("not told %q:\n%s", want, now)
+		}
+	}
+	for setting, want := range map[string]string{
+		"opener":        "Answer in the language the person writes in.",
+		"fixed:zh-Hant": "Answer in the language with the tag zh-Hant, whatever language the question is in.",
+		"fixed:en":      "Answer in the language with the tag en, whatever language the question is in.",
+	} {
+		said, _ := System(Input{Base: Builtin(false), AnswerLanguage: setting})
+		ask := AnswerNow(500, setting)
+		lang := strings.TrimSuffix(strings.TrimPrefix(strings.TrimSuffix(want, ", whatever language the question is in."), "Answer "), ".")
+		if !strings.Contains(said, want) || !strings.Contains(ask, "Answer the question now, from what you have already read, "+lang+":") {
+			t.Errorf("%s: the system prompt and the word to answer now disagree:\n%s\n%s", setting, said, ask)
 		}
 	}
 	for room, words := range map[int]int{100: 50, 200: 50, 400: 100, 1000: 250, 3216: 300, 12000: 300} {

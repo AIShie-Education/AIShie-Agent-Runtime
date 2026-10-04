@@ -1737,10 +1737,12 @@ For an inbox row (conversation X, question M, opener P):
      until its cap, ended empty, or called tools it was told not to. The
      same turn is asked again (not counted in `turns`, nor stopped by it;
      the answer's log line says `asked_again`), with the runtime's word to
-     answer now, from what it has read, in at most a quarter of the tokens
-     left in words, between 50 and 300 (`prompt.AnswerNow`), as one more
-     part of the last message (the question, or the tools' results), so
-     that no API meets two user messages in a row; thinking least, within
+     answer now, from what it has read, in the language the system prompt
+     tells it to answer in (the one `answer_language` fixes, else the
+     asker's), in at most a quarter of the tokens left in words, between
+     50 and 300 (`prompt.AnswerNow`), as one more part of the last
+     message (the question, or the tools' results), so that no API meets
+     two user messages in a row; thinking least, within
      what is left of the output tokens. Like a continuation, it starts only
      while the input tokens are not spent and at least 100 output tokens
      are left, and it ends when the forced turn's time does (its grace from
@@ -2815,8 +2817,10 @@ or cut short, gives it more, or a lower effort.
   tools' results, no turn, within what is left; a model that never
   writes given the notice after that, in the question's Simplified
   Chinese, within the output tokens; no try more once the input tokens
-  or the forced turn's time are spent; and an API that refuses to think
-  least asked as configured. Each adapter's least reasoning, configured
+  or the forced turn's time are spent; an API that refuses to think
+  least asked as configured; and an agent fixed to Traditional Chinese,
+  asked in English, asked once more in the language its system prompt
+  names, not the question's. Each adapter's least reasoning, configured
   or not: DeepSeek's thinking off in its three formats (a golden of the
   forced call; one of the length stop with `reasoning_content` and no
   content, all of it reasoning), and OpenRouter's for DeepSeek's and

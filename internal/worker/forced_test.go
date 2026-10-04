@@ -165,11 +165,41 @@ func TestAForcedTurnThatWritesNothingIsAskedOnceMore(t *testing.T) {
 			again.ToolMode, again.LeastReasoning, again.Limits.MaxOutputTokens, len(again.Messages), len(forced.Messages))
 	}
 	last := again.Messages[len(again.Messages)-1]
-	if want := prompt.AnswerNow(room); last.Role != llm.RoleTool || last.Parts[len(last.Parts)-1].Text != want {
+	if want := prompt.AnswerNow(room, "opener"); last.Role != llm.RoleTool || last.Parts[len(last.Parts)-1].Text != want {
 		t.Errorf("asked again with %+v, want %q", last, want)
 	}
 	if line["turns"] != 4.0 || line["asked_again"] != true || line["outcome"] != store.OutcomePosted || line["output_tokens"].(float64) > 12000 {
 		t.Errorf("the answer's line: %v", line)
+	}
+}
+
+// An agent whose answers are in a fixed language is asked once more in
+// that language, as its system prompt tells it, whatever the question's:
+// the two never tell the model opposite things. Asked in English, an agent
+// fixed to Traditional Chinese whose forced turn wrote nothing is told to
+// answer now in the language tagged zh-Hant.
+func TestAForcedTurnAskedOnceMoreKeepsTheFixedLanguage(t *testing.T) {
+	model := scripted.New(
+		thinksToTheCap(), thinksToTheCap(),
+		scripted.WithUsage(scripted.Stop(llm.StopEnd, ""), llm.Usage{Input: 30000, Output: 300, Reasoning: 300}),
+		scripted.Reply("HW1 是……"),
+	)
+	body, _, line := answerTo(t, "Tell me all about HW1.", model,
+		incident(map[string]any{"prompt": map[string]any{"answer_language": "fixed:zh-Hant"}}))
+	reqs := model.Requests()
+	if body != "HW1 是……" || len(reqs) != 4 || line["asked_again"] != true {
+		t.Fatalf("body %q after %d calls; the answer's line: %v", body, len(reqs), line)
+	}
+	again := reqs[3]
+	last := again.Messages[len(again.Messages)-1]
+	ask := last.Parts[len(last.Parts)-1].Text
+	if want := prompt.AnswerNow(again.Limits.MaxOutputTokens, "fixed:zh-Hant"); ask != want {
+		t.Errorf("asked again with %q, want %q", ask, want)
+	}
+	if !strings.Contains(again.System, "Answer in the language with the tag zh-Hant, whatever language the question is in.") ||
+		!strings.Contains(ask, "in the language with the tag zh-Hant") || strings.Contains(ask, "question's language") ||
+		strings.Contains(ask, "language of the question") || strings.Contains(ask, "the person writes in") {
+		t.Errorf("the system prompt and the word to answer now disagree on the language:\n%s\n%s", again.System, ask)
 	}
 }
 
