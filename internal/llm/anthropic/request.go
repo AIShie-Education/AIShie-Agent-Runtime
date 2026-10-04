@@ -272,8 +272,15 @@ type reasoningConfig struct {
 // continuation's) is made at low in place of medium or high
 // (llm.LeastEffort), and a model that thinks unasked is asked at low as
 // if low were configured, in the shape the adapter sends for it then:
-// never {type: disabled}, which some of those models refuse.
+// never {type: disabled}, which some of those models refuse. DeepSeek's
+// /anthropic, whose models think by default at high, documents
+// {type: disabled} as its switch per request in this format as in its
+// OpenAI one (api-docs.deepseek.com, Thinking Mode, read 2026-10): such a
+// call to it is sent that, configured or not.
 func (a *Adapter) reasoning(msgs []wireMessage, least bool) reasoningConfig {
+	if least && a.provider == llm.ProviderDeepSeek {
+		return reasoningConfig{thinking: &thinking{Type: "disabled"}}
+	}
 	effort := a.effort
 	if least {
 		effort = llm.LeastEffort(effort)

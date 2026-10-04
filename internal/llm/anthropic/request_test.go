@@ -428,26 +428,42 @@ func TestReasoning(t *testing.T) {
 // TestLeastReasoning: a call asking for the least reasoning (ForceAnswer's,
 // a continuation's) thinks at low in place of medium or high, and a model
 // that thinks unasked is asked at low, adaptively; one that does not think
-// is asked nothing.
+// is asked nothing. DeepSeek's /anthropic, whose models think unasked, is
+// sent its switch, thinking off, configured or not; an ordinary call to it
+// is sent what it was before.
 func TestLeastReasoning(t *testing.T) {
+	const deepseek = "https://api.deepseek.com/anthropic"
 	cases := []struct {
 		model     string
 		effort    string
 		thinking  *thinking
 		effortOut string
 		maxTokens int
+		base      string
 	}{
-		{"claude-sonnet-4-5", "medium", &thinking{Type: "enabled", BudgetTokens: 1024}, "", 2024},
-		{"claude-sonnet-4-5", "minimal", &thinking{Type: "enabled", BudgetTokens: 1024}, "", 2024},
-		{"claude-sonnet-4-5", "", nil, "", 1000},
-		{"claude-opus-4-8", "high", &thinking{Type: "adaptive"}, "low", 2024},
-		{"claude-opus-4-7", "", nil, "", 1000},
-		{"claude-opus-5", "", &thinking{Type: "adaptive"}, "low", 2024},
-		{"claude-fable-5-1", "high", &thinking{Type: "adaptive"}, "low", 2024},
+		{"deepseek-flash", "", &thinking{Type: "disabled"}, "", 1000, deepseek},
+		{"deepseek-v4-pro", "high", &thinking{Type: "disabled"}, "", 1000, deepseek},
+		{"claude-opus-5", "", &thinking{Type: "disabled"}, "", 1000, deepseek},
+		{"claude-sonnet-4-5", "medium", &thinking{Type: "enabled", BudgetTokens: 1024}, "", 2024, ""},
+		{"claude-sonnet-4-5", "minimal", &thinking{Type: "enabled", BudgetTokens: 1024}, "", 2024, ""},
+		{"claude-sonnet-4-5", "", nil, "", 1000, ""},
+		{"claude-opus-4-8", "high", &thinking{Type: "adaptive"}, "low", 2024, ""},
+		{"claude-opus-4-7", "", nil, "", 1000, ""},
+		{"claude-opus-5", "", &thinking{Type: "adaptive"}, "low", 2024, ""},
+		{"claude-fable-5-1", "high", &thinking{Type: "adaptive"}, "low", 2024, ""},
 	}
 	for _, c := range cases {
-		t.Run(c.model+"/"+c.effort, func(t *testing.T) {
-			a := newAdapter(t, llm.Config{Model: c.model, Reasoning: llm.Reasoning{Effort: c.effort}, Params: llm.Params{MaxOutputTokens: 1000}})
+		t.Run(c.model+"/"+c.effort+"/"+c.base, func(t *testing.T) {
+			a := newAdapter(t, llm.Config{Model: c.model, BaseURL: c.base, Reasoning: llm.Reasoning{Effort: c.effort}, Params: llm.Params{MaxOutputTokens: 1000}})
+			if c.base == deepseek {
+				ordinary, err := a.buildRequest(&llm.Request{Messages: []llm.Message{question}, ToolMode: llm.ToolNone})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if ordinary.Thinking != nil && ordinary.Thinking.Type == "disabled" {
+					t.Errorf("an ordinary call to DeepSeek is sent thinking %+v", ordinary.Thinking)
+				}
+			}
 			w, err := a.buildRequest(&llm.Request{Messages: []llm.Message{question}, ToolMode: llm.ToolNone, LeastReasoning: true})
 			if err != nil {
 				t.Fatal(err)

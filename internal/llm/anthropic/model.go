@@ -42,6 +42,12 @@ type family struct {
 // version has at most two digits so that a date is never read as one.
 var claudeID = regexp.MustCompile(`^claude-([a-z]+)-([0-9]+)(?:-([0-9]{1,2}))?(?:[-@:].*)?$`)
 
+// ThinksUnasked reports whether model, as Anthropic, OpenRouter
+// (anthropic/claude-opus-5) or Bedrock writes its id, is a Claude that
+// thinks when a request says nothing of thinking: Opus 5 and later,
+// Sonnet 5, Fable, Mythos.
+func ThinksUnasked(model string) bool { return familyOf(model).thinksByDefault }
+
 // familyOf names model's family from its id, as Anthropic, OpenRouter
 // (anthropic/claude-opus-4.7) or Bedrock (us.anthropic.claude-…) write it.
 //

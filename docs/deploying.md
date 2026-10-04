@@ -1153,11 +1153,18 @@ machine's loopback, should `HTTP_ADDR` listen wider).
   or `wall_clock_s`. `output_tokens` counts too a turn cut off by its cap
   before it wrote anything, which forces the last turn: a model that
   thinks, its thinking counted in its output (DeepSeek's `deepseek-flash`
-  and `deepseek-v4-pro`, Claude from Opus 5, Gemini 2.5 and 3), thought
-  through its cap. The forced turn tells it to think least, and is asked
-  once more for a short answer if it writes nothing (`asked_again` in the
-  answer's log line); answers of such a model often forced call for a
-  higher `params.max_output_tokens` and `output_tokens`, or a lower
+  and `deepseek-v4-pro`, Claude from Opus 5, Gemini 2.5 and 3, OpenAI's
+  reasoning models), thought through its cap. The forced turn tells it
+  to think least where its provider has a field for that, configured or
+  not: DeepSeek's thinking is switched off, and OpenAI's, Anthropic's and
+  Google's thinking models are asked at low, directly or through
+  OpenRouter, Azure (a deployment named for its model) or Bedrock. Kimi,
+  GLM and Qwen on their own endpoints, and local servers, are told
+  nothing, and a model there that thinks by default may think through
+  the forced turn too. A forced turn that writes nothing is asked once
+  more for a short answer (`asked_again` in the answer's log line).
+  Answers of such a model often forced call for a higher
+  `params.max_output_tokens` and `output_tokens`, or a lower
   `reasoning.effort` where its adapter sends one.
   A hosted agent's model calls are counted under the model's name as the
   price table gives it, or `other` when the table does not price it: the

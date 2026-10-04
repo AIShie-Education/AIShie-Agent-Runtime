@@ -148,8 +148,8 @@ func TestModelFamilies(t *testing.T) {
 		if got := developerRole(c.model); got != c.developer {
 			t.Errorf("developerRole(%q) = %v", c.model, got)
 		}
-		if got := !reasoningModel(c.model); got != c.samples {
-			t.Errorf("reasoningModel(%q) = %v", c.model, !got)
+		if got := !llm.OpenAIReasoningModel(c.model); got != c.samples {
+			t.Errorf("llm.OpenAIReasoningModel(%q) = %v", c.model, !got)
 		}
 	}
 }

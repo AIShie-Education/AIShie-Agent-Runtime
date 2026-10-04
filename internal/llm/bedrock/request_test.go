@@ -164,8 +164,9 @@ func TestReasoning(t *testing.T) {
 		{"adaptive, a tool turn without its thinking", "anthropic.claude-opus-4-7", "high", 32000, withTool, ""},
 	}
 	// A call asking for the least reasoning (ForceAnswer's) is made at
-	// low in place of medium or high; with nothing configured, it asks
-	// for nothing still.
+	// low in place of medium or high; with nothing configured, a Claude
+	// that thinks unasked (from Opus 5) is asked at low, adaptively, and
+	// any other is asked nothing still.
 	least := []struct {
 		name, model, effort string
 		maxTokens           int
@@ -176,6 +177,10 @@ func TestReasoning(t *testing.T) {
 		{"least: adaptive medium is low", "global.anthropic.claude-opus-4-6-v1", "medium", 4000, plain, adaptive("low")},
 		{"least: minimal stays", claude, "minimal", 4000, plain, budget(1024)},
 		{"least: no effort", claude, "", 4000, plain, ""},
+		{"least: opus 5, no effort", "us.anthropic.claude-opus-5-20260901-v1:0", "", 4000, plain, adaptive("low")},
+		{"least: sonnet 5, no effort, no cap", "us.anthropic.claude-sonnet-5-20260801-v1:0", "", 0, plain, adaptive("low")},
+		{"least: opus 4.7, no effort", "anthropic.claude-opus-4-7", "", 4000, plain, ""},
+		{"least: opus 5, a tool turn without its thinking", "global.anthropic.claude-opus-5-v1", "", 4000, withTool, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -290,8 +295,8 @@ func TestFamilyOf(t *testing.T) {
 		{"anthropic.claude-sonnet-4-20250514-v1:0", family{anthropic: true, thinks: true, toolStatus: true}},
 		{"global.anthropic.claude-opus-4-6-v1", family{anthropic: true, thinks: true, adaptive: true, toolStatus: true}},
 		{"arn:aws:bedrock:us-east-1:1:inference-profile/us.anthropic.claude-opus-4-7", family{anthropic: true, thinks: true, adaptive: true, noSampling: true, toolStatus: true}},
-		{"anthropic.claude-fable-1-v1:0", family{anthropic: true, thinks: true, adaptive: true, noSampling: true, toolStatus: true}},
-		{"us.anthropic.claude-opus-5-5-v1:0", family{anthropic: true, thinks: true, adaptive: true, noSampling: true, toolStatus: true}},
+		{"anthropic.claude-fable-1-v1:0", family{anthropic: true, thinks: true, adaptive: true, thinksByDefault: true, noSampling: true, toolStatus: true}},
+		{"us.anthropic.claude-opus-5-5-v1:0", family{anthropic: true, thinks: true, adaptive: true, thinksByDefault: true, noSampling: true, toolStatus: true}},
 		{nova, family{toolStatus: true}},
 		{"us.amazon.nova-lite-v1:0", family{toolStatus: true}},
 		{"meta.llama3-3-70b-instruct-v1:0", family{}},

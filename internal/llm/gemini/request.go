@@ -458,7 +458,7 @@ func (a *Adapter) generation(l llm.Limits, least bool) *wireGeneration {
 	effort := a.effort
 	if least {
 		effort = llm.LeastEffort(effort)
-		if effort == "" && thinksUnasked(a.model) {
+		if effort == "" && ThinksUnasked(a.model) {
 			effort = "low"
 		}
 	}

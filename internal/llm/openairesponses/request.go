@@ -107,6 +107,31 @@ type opaqueItem struct {
 	Phase string `json:"phase,omitempty"`
 }
 
+// reasoningEffort is the reasoning effort a call is made with, or "" for
+// none sent: the configured one, which an ordinary call is made with.
+//
+// A call asking for the least reasoning (least: ForceAnswer's, a
+// continuation's), which must write within what is left of the answer's
+// output tokens, is made at low in place of medium or high
+// (llm.LeastEffort), and at low on OpenAI or Azure for a reasoning model
+// with none configured, which reasons at medium unasked (on Azure, a
+// deployment whose name names one). DeepSeek, whose models think by
+// default at high, documents effort none in this format as switching
+// their thinking off (api-docs.deepseek.com, Thinking Mode, read
+// 2026-10): such a call to it is made so, configured or not.
+func (a *Adapter) reasoningEffort(least bool) string {
+	if !least {
+		return a.effort
+	}
+	switch {
+	case a.provider == llm.ProviderDeepSeek:
+		return "none"
+	case a.effort == "" && (a.provider == llm.ProviderOpenAI || a.provider == llm.ProviderAzure) && llm.OpenAIReasoningModel(a.model):
+		return "low"
+	}
+	return llm.LeastEffort(a.effort)
+}
+
 // encode builds the body of one call.
 func (a *Adapter) encode(req *llm.Request) ([]byte, error) {
 	tools := req.Tools
@@ -143,15 +168,11 @@ func (a *Adapter) encode(req *llm.Request) ([]byte, error) {
 		w.ParallelToolCalls = &parallel
 	}
 	w.MaxOutputTokens = outputCap(req.Limits.MaxOutputTokens, a.params.MaxOutputTokens)
-	if a.effort != "" {
-		// A call asking for the least reasoning (ForceAnswer's, a
-		// continuation's) is made at low in place of medium or high.
-		effort := a.effort
-		if req.LeastReasoning {
-			effort = llm.LeastEffort(effort)
-		}
+	if effort := a.reasoningEffort(req.LeastReasoning); effort != "" {
 		w.Reasoning = &wireReasoning{Effort: effort}
-		w.Include = []string{includeEncryptedReasoning}
+		if effort != "none" {
+			w.Include = []string{includeEncryptedReasoning}
+		}
 	}
 	body, err := json.Marshal(w)
 	if err != nil {

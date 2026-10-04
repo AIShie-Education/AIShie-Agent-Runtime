@@ -672,20 +672,34 @@ func TestDecodeEdges(t *testing.T) {
 
 // TestLeastReasoning: a call asking for the least reasoning (ForceAnswer's,
 // a continuation's) is made at low in place of a configured medium or
-// high; minimal and low stay; with no effort configured, none is sent.
+// high; minimal and low stay; with no effort configured, a reasoning
+// model of OpenAI's, or an Azure deployment named for one, is asked at
+// low, and any other is sent none. DeepSeek's thinking is switched off
+// (effort none), configured or not, and no reasoning items are asked for.
 func TestLeastReasoning(t *testing.T) {
-	for _, c := range []struct{ effort, ordinary, least string }{
-		{"high", "high", "low"},
-		{"medium", "medium", "low"},
-		{"low", "low", "low"},
-		{"minimal", "minimal", "minimal"},
-		{"", "", ""},
+	const deepseek = "https://api.deepseek.com"
+	for _, c := range []struct {
+		base, model, effort, ordinary, least string
+		include                              bool
+	}{
+		{"", "gpt-5", "high", "high", "low", true},
+		{"", "gpt-5", "medium", "medium", "low", true},
+		{"", "gpt-5", "low", "low", "low", true},
+		{"", "gpt-5", "minimal", "minimal", "minimal", true},
+		{"", "gpt-5", "", "", "low", true},
+		{"", "o4-mini", "", "", "low", true},
+		{"", "gpt-5-chat-latest", "", "", "", false},
+		{"", "gpt-4.1", "", "", "", false},
+		{"https://school.openai.azure.com/openai/v1", "o4-mini", "", "", "low", true},
+		{"https://school.openai.azure.com/openai/v1", "tutor-prod", "", "", "", false},
+		{deepseek, "deepseek-flash", "", "", "none", false},
+		{deepseek, "deepseek-v4-pro", "high", "high", "none", false},
 	} {
-		a, err := New(llm.Config{Model: "gpt-5", Reasoning: llm.Reasoning{Effort: c.effort}})
+		a, err := New(llm.Config{BaseURL: c.base, Model: c.model, Reasoning: llm.Reasoning{Effort: c.effort}})
 		if err != nil {
 			t.Fatal(err)
 		}
-		sent := func(least bool) string {
+		sent := func(least bool) (string, bool) {
 			body, err := a.encode(&llm.Request{Messages: []llm.Message{llm.UserText("Why did I lose marks?")}, ToolMode: llm.ToolNone,
 				LeastReasoning: least})
 			if err != nil {
@@ -695,20 +709,22 @@ func TestLeastReasoning(t *testing.T) {
 				Reasoning *struct {
 					Effort string `json:"effort"`
 				} `json:"reasoning"`
+				Include []string `json:"include"`
 			}
 			if err := json.Unmarshal(body, &w); err != nil {
 				t.Fatal(err)
 			}
 			if w.Reasoning == nil {
-				return ""
+				return "", len(w.Include) > 0
 			}
-			return w.Reasoning.Effort
+			return w.Reasoning.Effort, len(w.Include) > 0
 		}
-		if got := sent(false); got != c.ordinary {
-			t.Errorf("%q: an ordinary call is made at %q, want %q", c.effort, got, c.ordinary)
+		if got, _ := sent(false); got != c.ordinary {
+			t.Errorf("%s %q: an ordinary call is made at %q, want %q", c.model, c.effort, got, c.ordinary)
 		}
-		if got := sent(true); got != c.least {
-			t.Errorf("%q: a call asking for the least reasoning is made at %q, want %q", c.effort, got, c.least)
+		if got, include := sent(true); got != c.least || include != c.include {
+			t.Errorf("%s %q: a call asking for the least reasoning is made at %q, asking for reasoning items %v; want %q, %v",
+				c.model, c.effort, got, include, c.least, c.include)
 		}
 	}
 }

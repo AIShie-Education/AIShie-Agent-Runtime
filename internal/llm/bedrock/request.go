@@ -436,11 +436,17 @@ const minThinkingBudget = 1024
 //
 // A call asking for the least reasoning (least: ForceAnswer's, a
 // continuation's) is made at low in place of medium or high
-// (llm.LeastEffort).
+// (llm.LeastEffort), and a Claude that thinks unasked (from Opus 5) is
+// asked at low as if low were configured, adaptively, as the anthropic
+// adapter asks it: never {type: disabled}, which some of those models
+// refuse.
 func (a *Adapter) reasoning(maxTokens int, msgs []message, least bool) *additionalRequest {
 	effort := a.effort
 	if least {
 		effort = llm.LeastEffort(effort)
+		if effort == "" && a.family.thinksByDefault {
+			effort = "low"
+		}
 	}
 	budget, ok := thinkingBudgets[effort]
 	if !ok || !a.family.thinks || !lastToolTurnThinks(msgs) {

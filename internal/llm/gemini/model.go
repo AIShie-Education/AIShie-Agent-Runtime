@@ -101,10 +101,11 @@ func takesLevel(model string) bool {
 // Gemini 3 and later. Gemini 2.5 takes calls without one.
 func checksSignatures(model string) bool { return takesLevel(model) }
 
-// thinksUnasked reports whether a model thinks when not told to: every
+// ThinksUnasked reports whether a model thinks when not told to: every
 // Gemini 3, and 2.5 Pro and Flash. 2.5 Flash-Lite does not, nor do the
-// image and speech models, nor anything older.
-func thinksUnasked(model string) bool {
+// image and speech models, nor anything older. The id is Google's, or a
+// router's with a prefix (OpenRouter's google/gemini-3-flash).
+func ThinksUnasked(model string) bool {
 	v := versionOf(model)
 	switch {
 	case !v.known:
@@ -150,7 +151,7 @@ func thinkingAllowance(model, effort string) int {
 	switch {
 	case effort != "" && !takesLevel(model):
 		return budgets[effort]
-	case effort != "" || thinksUnasked(model):
+	case effort != "" || ThinksUnasked(model):
 		return defaultThinkingAllowance
 	}
 	return 0

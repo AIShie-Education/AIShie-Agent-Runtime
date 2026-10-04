@@ -182,9 +182,15 @@ func TestProviderCorners(t *testing.T) {
 
 // TestLeastReasoning holds what a call asking for the least reasoning
 // (ForceAnswer's, a continuation's) sends, provider by provider, beside an
-// ordinary turn's: DeepSeek's thinking switched off, as its API documents
-// it ({"thinking": {"type": "disabled"}}); a configured effort above low
-// sent as low where an effort is sent at all; nothing anywhere else.
+// ordinary turn's, whether or not an effort is configured: DeepSeek's
+// thinking switched off, as its API documents it ({"thinking": {"type":
+// "disabled"}}); OpenRouter's reasoning off (effort none) for DeepSeek's
+// and Qwen's models, which it only switches; low in place of a configured
+// effort above it, and low for a model that thinks unasked with none
+// configured, where an effort has a field (OpenAI's reasoning models, an
+// Azure deployment named for one, OpenRouter's thinking models, Gemini's);
+// nothing for a model that does not think unasked, which an effort would
+// make think, nor anywhere else.
 func TestLeastReasoning(t *testing.T) {
 	type sent struct{ Thinking, Effort, Reasoning string }
 	for _, c := range []struct {
@@ -195,10 +201,29 @@ func TestLeastReasoning(t *testing.T) {
 		{"deepseek, an effort configured", deepseekBase, "deepseek-v4-pro", "high", sent{}, sent{Thinking: "disabled"}},
 		{"openai, a reasoning model at high", "", "o4-mini", "high", sent{Effort: "high"}, sent{Effort: "low"}},
 		{"openai, at minimal", "", "gpt-5-mini", "minimal", sent{Effort: "minimal"}, sent{Effort: "minimal"}},
+		{"openai, a reasoning model, no effort", "", "gpt-5-mini", "", sent{}, sent{Effort: "low"}},
+		{"openai, an o-series model, no effort", "", "o4-mini", "", sent{}, sent{Effort: "low"}},
+		{"openai, gpt-5's chat variant, no effort", "", "gpt-5-chat-latest", "", sent{}, sent{}},
 		{"openai, a model that does not reason", "", "gpt-4.1", "high", sent{}, sent{}},
+		{"openai, a model that does not reason, no effort", "", "gpt-4.1", "", sent{}, sent{}},
 		{"azure at medium", azureBase, "tutor-prod", "medium", sent{Effort: "medium"}, sent{Effort: "low"}},
-		{"openrouter at high", openrouterBase, "deepseek/deepseek-v4-flash", "high", sent{Reasoning: "high"}, sent{Reasoning: "low"}},
-		{"openrouter, no effort", openrouterBase, "deepseek/deepseek-v4-flash", "", sent{}, sent{}},
+		{"azure, a deployment named for a reasoning model, no effort", azureBase, "o4-mini", "", sent{}, sent{Effort: "low"}},
+		{"azure, a deployment not named for its model, no effort", azureBase, "tutor-prod", "", sent{}, sent{}},
+		{"openrouter, deepseek at high", openrouterBase, "deepseek/deepseek-v4-flash", "high", sent{Reasoning: "high"}, sent{Reasoning: "none"}},
+		{"openrouter, deepseek, no effort", openrouterBase, "deepseek/deepseek-v4-flash", "", sent{}, sent{Reasoning: "none"}},
+		{"openrouter, qwen, no effort", openrouterBase, "qwen/qwen3-235b-a22b", "", sent{}, sent{Reasoning: "none"}},
+		{"openrouter, gemini at high", openrouterBase, "google/gemini-3.8-flash", "high", sent{Reasoning: "high"}, sent{Reasoning: "low"}},
+		{"openrouter, gemini 3, no effort", openrouterBase, "google/gemini-3.8-flash", "", sent{}, sent{Reasoning: "low"}},
+		{"openrouter, gemini 2.5 flash-lite, no effort", openrouterBase, "google/gemini-2.5-flash-lite", "", sent{}, sent{}},
+		{"openrouter, claude from opus 5, no effort", openrouterBase, "anthropic/claude-opus-5", "", sent{}, sent{Reasoning: "low"}},
+		{"openrouter, claude 4.5, no effort", openrouterBase, "anthropic/claude-sonnet-4.5", "", sent{}, sent{}},
+		{"openrouter, an openai reasoning model, no effort", openrouterBase, "openai/o4-mini", "", sent{}, sent{Reasoning: "low"}},
+		{"openrouter, gpt-4.1, no effort", openrouterBase, "openai/gpt-4.1", "", sent{}, sent{}},
+		{"openrouter, at minimal", openrouterBase, "openai/gpt-5-mini", "minimal", sent{Reasoning: "minimal"}, sent{Reasoning: "minimal"}},
+		{"openrouter, glm, no effort", openrouterBase, "z-ai/glm-4.6", "", sent{}, sent{}},
+		{"gemini, 3, no effort", geminiBase, "gemini-3-flash", "", sent{}, sent{Effort: "low"}},
+		{"gemini, 2.5 pro at high", geminiBase, "gemini-2.5-pro", "high", sent{}, sent{Effort: "low"}},
+		{"gemini, 2.5 flash-lite", geminiBase, "gemini-2.5-flash-lite", "", sent{}, sent{}},
 		{"kimi", moonshotBase, "kimi-k2-thinking", "high", sent{}, sent{}},
 		{"glm", glmBase, "glm-4.6", "", sent{}, sent{}},
 		{"qwen", qwenBase, "qwen3-max", "", sent{}, sent{}},
