@@ -8,7 +8,8 @@ import (
 
 // The script heuristic: Chinese by its Han characters, Simplified or
 // Traditional by the characters only one of them writes; English by Latin
-// letters alone; anything else, or nothing to go by, unknown.
+// letters alone; anything else, or nothing to go by, unknown. A formula's
+// Greek letters, and letters of no one script (µ, ℓ, ℝ), say nothing.
 func TestQuestionLang(t *testing.T) {
 	for _, c := range []struct {
 		question string
@@ -38,6 +39,23 @@ func TestQuestionLang(t *testing.T) {
 		{"숙제는 언제까지예요?", LangUnknown},
 		{"Когда сдавать?", LangUnknown},
 		{"HW1 课题 и задача", LangUnknown},
+		// A formula's letters say nothing, in Chinese or in English.
+		{"λ 演算是什么？请解释一下", LangZhHans},
+		{"这道题里的 θ 怎么求", LangZhHans},
+		{"如何计算 Δx？", LangZhHans},
+		{"这道题的答案是 α+β 吗", LangZhHans},
+		{"这个公式里的 σ 是什么意思", LangZhHans},
+		{"Σ 和 π 這兩個符號是什麼意思？", LangZhHant},
+		{"ℝ 上的 ℓ² 空間是什麼", LangZhHant},
+		{"求 θ 的值", LangZhHant},
+		{"What is λ calculus?", LangEn},
+		{"What does µ mean here?", LangEn},
+		{"Is ℏ the same as h/2π?", LangEn},
+		{"θ = ?", LangUnknown},
+		// A question in Greek is in no language the runtime writes, and
+		// with Latin letters in it is taken for English.
+		{"Τι σημαίνει αυτό;", LangUnknown},
+		{"Τι είναι το API;", LangEn},
 		{"?", LangUnknown},
 		{"123 👍", LangUnknown},
 		{"", LangUnknown},

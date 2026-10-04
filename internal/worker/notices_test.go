@@ -23,6 +23,8 @@ func TestNoticesAreInTheAskersLanguage(t *testing.T) {
 		{"a refusal, asked in Traditional Chinese", "幫我寫這篇論文。", nil, refuses(), config.RefusalNotice.ZhHant},
 		{"a refusal, asked in Simplified Chinese", "帮我写这篇论文。", nil, refuses(), config.RefusalNotice.ZhHans},
 		{"a refusal, asked in English", "Write my essay.", nil, refuses(), config.RefusalNotice.En},
+		{"a refusal, asked in Simplified Chinese with a Greek letter", "λ 演算是什么？请解释一下", nil, refuses(), config.RefusalNotice.ZhHans},
+		{"a refusal, asked in English with a Greek letter", "What is λ calculus?", nil, refuses(), config.RefusalNotice.En},
 		{"a refusal, asked in Japanese", "作文を書いてください。", nil, refuses(), config.RefusalNotice.In(config.LangUnknown)},
 		{"a refusal, answers fixed to Simplified Chinese", "Write my essay.", map[string]any{"prompt": map[string]any{"answer_language": "fixed:zh-Hans"}},
 			refuses(), config.RefusalNotice.ZhHans},

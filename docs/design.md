@@ -1779,11 +1779,15 @@ For an inbox row (conversation X, question M, opener P):
    only Simplified writes than of those only Traditional writes (a list
    of some 200 common pairs, 这/這, 么/麼, 问/問…, and Zhuyin as
    Traditional), Traditional otherwise; English where it holds Latin
-   letters alone; and where the question tells nothing ("?", a file) the
-   asker's message before it. A language it cannot tell (Japanese, a
-   language fixed to another) gets English and Traditional Chinese, the
-   school's two, as does the quota's notice under `opener`, posted before
-   the conversation is read. The built-in notices:
+   letters alone. Greek letters, and letters of no one script (µ, ℓ, ℝ),
+   say nothing, as digits do: a course's questions write θ, λ, π, Δ, Σ
+   and µ in Chinese and in English alike ("这道题里的 θ 怎么求", "What is
+   λ calculus?"). Where the question tells nothing ("?", a file, a
+   formula) the asker's message before it does. A language it cannot
+   tell (Japanese, a language fixed to another) gets English and
+   Traditional Chinese, the school's two, as does the quota's notice
+   under `opener`, posted before the conversation is read. The built-in
+   notices:
 
    | | English | 繁體中文 | 简体中文 |
    |---|---|---|---|
@@ -2839,7 +2843,8 @@ or cut short, gives it more, or a lower effort.
   try more, with no `sources` in Core.
 - Notices: the script heuristic (`config.QuestionLang`, Simplified,
   Traditional, mixed with English, Zhuyin, English, Spanish, Japanese,
-  Korean, Russian, nothing to go by) and its lists, pairs in both
+  Korean, Russian, nothing to go by, and Greek letters and µ, ℓ, ℝ in
+  Chinese and in English, which say nothing) and its lists, pairs in both
   scripts; each notice in each language, and the agent's own as it is;
   the refusal's and the budget's in the question's language, the one
   `answer_language` fixes, the asker's message before a question of no

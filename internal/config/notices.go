@@ -124,9 +124,16 @@ func NoticeLangOf(answerLanguage, question string) Lang {
 // and no Japanese kana nor Korean hangul, Simplified where more of them
 // are of the characters only Simplified Chinese writes than of those only
 // Traditional writes (simplifiedOnly, traditionalOnly, and Zhuyin as
-// Traditional), Traditional otherwise; English where it holds Latin letters and no other script
-// (any language in Latin script gets the English notice); LangUnknown for
-// anything else, and for no letters at all.
+// Traditional), Traditional otherwise; English where it holds Latin
+// letters and no other script (any language in Latin script gets the
+// English notice); LangUnknown for anything else, and for no letters at
+// all.
+//
+// Greek letters, and the letters of no one script (µ, ℓ, ℏ, ℝ, 𝑥), say
+// nothing, as digits and symbols do: a course's questions write θ, λ, π,
+// Δ, Σ and µ in Chinese and in English alike ("求 θ 的值", "What is λ
+// calculus?"). A question of those alone tells nothing, as one of digits
+// does.
 func QuestionLang(question string) Lang {
 	var han, latin, other, simp, trad int
 	for _, r := range question {
@@ -147,6 +154,8 @@ func QuestionLang(question string) Lang {
 			other++
 		case unicode.Is(unicode.Latin, r):
 			latin++
+		case unicode.In(r, unicode.Greek, unicode.Common):
+			// A formula's letters, neutral.
 		case unicode.IsLetter(r):
 			other++
 		}
