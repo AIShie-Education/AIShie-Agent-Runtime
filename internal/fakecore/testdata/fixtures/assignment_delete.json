@@ -1,0 +1,1010 @@
+{
+ "scenario": "assignment_delete",
+ "steps": [
+  {
+   "args": {
+    "assignment_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "assignment_id": "<id:1>",
+     "counts": {
+      "drafts": 0,
+      "files": 0,
+      "grades": 1,
+      "handed_in": 1,
+      "missing": 0,
+      "posted": 1,
+      "proposals": 0,
+      "submissions": 1,
+      "totals": 1
+     },
+     "in_grade": true,
+     "published": true,
+     "refusal": null,
+     "title": "Quiz 1"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "preview",
+   "text_is_envelope": true,
+   "tool": "assignment_delete_preview"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "assignment_id": "<id:1>",
+     "counts": {
+      "drafts": 0,
+      "files": 0,
+      "grades": 1,
+      "handed_in": 1,
+      "missing": 0,
+      "posted": 1,
+      "proposals": 0,
+      "submissions": 1,
+      "totals": 1
+     },
+     "in_grade": true,
+     "published": true,
+     "refusal": "people_only",
+     "title": "Quiz 1"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "preview_by_an_agent",
+   "text_is_envelope": true,
+   "tool": "assignment_delete_preview"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "assignment_id": "<id:1>",
+     "counts": {
+      "drafts": 0,
+      "files": 0,
+      "grades": 1,
+      "handed_in": 1,
+      "missing": 0,
+      "posted": 1,
+      "proposals": 0,
+      "submissions": 1,
+      "totals": 1
+     },
+     "in_grade": true,
+     "published": true,
+     "refusal": "student_out_of_scope",
+     "title": "Quiz 1"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "preview_by_an_agent_reaching_nobody",
+   "text_is_envelope": true,
+   "tool": "assignment_delete_preview"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "permission_denied"
+     },
+     "message": "not permitted"
+    },
+    "status": "denied"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "preview_by_the_course_tutor",
+   "text_is_envelope": true,
+   "tool": "assignment_delete_preview"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "permission_denied"
+     },
+     "message": "not permitted"
+    },
+    "status": "denied"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "preview_by_a_student",
+   "text_is_envelope": true,
+   "tool": "assignment_delete_preview"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:3>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "message": "no such assignment in this course"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "preview_of_no_assignment",
+   "text_is_envelope": true,
+   "tool": "assignment_delete_preview"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "idempotency_key": "tool:x:g:1",
+    "score": 9,
+    "submission_id": "<id:4>"
+   },
+   "envelope": {
+    "action_id": "<id:5>",
+    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected, action.changes_requested or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed. After action.changes_requested, read what to change in its result.decision.reason and propose again under a new key, with revises = this action_id.",
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "grade_proposed",
+   "text_is_envelope": true,
+   "tool": "grade_submit"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:1>",
+    "confirm": {
+     "drafts": 0,
+     "files": 0,
+     "grades": 1,
+     "handed_in": 1,
+     "missing": 0,
+     "posted": 1,
+     "proposals": 0,
+     "submissions": 1,
+     "totals": 1
+    },
+    "course_id": "<id:2>",
+    "idempotency_key": "tool:x:d:1"
+   },
+   "envelope": {
+    "action_id": "<id:6>",
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "people_only"
+     },
+     "message": "an agent does not delete an assignment that has work or grades; a person deletes it"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "deleted_by_an_agent",
+   "text_is_envelope": true,
+   "tool": "assignment_delete"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:1>",
+    "confirm": {
+     "drafts": 0,
+     "files": 0,
+     "grades": 1,
+     "handed_in": 1,
+     "missing": 0,
+     "posted": 1,
+     "proposals": 0,
+     "submissions": 1,
+     "totals": 1
+    },
+    "course_id": "<id:2>",
+    "idempotency_key": "tool:x:d:1"
+   },
+   "envelope": {
+    "action_id": "<id:7>",
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "student_out_of_scope"
+     },
+     "message": "not permitted"
+    },
+    "review_state": "none",
+    "status": "denied"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "deleted_by_an_agent_reaching_nobody",
+   "text_is_envelope": true,
+   "tool": "assignment_delete"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:1>",
+    "course_id": "<id:2>",
+    "idempotency_key": "delete:<id:1>:1"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "arguments do not match the schema of assignment.delete: validating root: required: missing properties: [\"confirm\"]"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "without_confirm",
+   "text_is_envelope": true,
+   "tool": "assignment_delete"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:1>",
+    "confirm": {
+     "drafts": 0,
+     "files": -1,
+     "grades": 1,
+     "handed_in": 1,
+     "missing": 0,
+     "posted": 1,
+     "proposals": 0,
+     "submissions": 1,
+     "totals": 1
+    },
+    "course_id": "<id:2>",
+    "idempotency_key": "delete:<id:1>:2"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "message": "confirm's counts are none of them below zero: send back the counts assignment.delete_preview gave"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "confirm_below_zero",
+   "text_is_envelope": true,
+   "tool": "assignment_delete"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:1>",
+    "confirm": {
+     "drafts": 0,
+     "files": 0,
+     "grades": 1,
+     "handed_in": 1,
+     "missing": 0,
+     "posted": 1,
+     "proposals": 0,
+     "submissions": 1,
+     "totals": 1
+    },
+    "course_id": "<id:2>",
+    "idempotency_key": "delete:<id:1>:3"
+   },
+   "envelope": {
+    "action_id": "<id:8>",
+    "error": {
+     "code": "conflict",
+     "details": {
+      "current": {
+       "drafts": 0,
+       "files": 0,
+       "grades": 1,
+       "handed_in": 1,
+       "missing": 0,
+       "posted": 1,
+       "proposals": 1,
+       "submissions": 1,
+       "totals": 1
+      },
+      "reason": "confirm_stale"
+     },
+     "message": "more would go with the assignment than you were shown; read what goes with it again (assignment.delete_preview) and confirm that"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "confirm_stale",
+   "text_is_envelope": true,
+   "tool": "assignment_delete"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "assignment_id": "<id:1>",
+     "counts": {
+      "drafts": 0,
+      "files": 0,
+      "grades": 1,
+      "handed_in": 1,
+      "missing": 0,
+      "posted": 1,
+      "proposals": 1,
+      "submissions": 1,
+      "totals": 1
+     },
+     "in_grade": true,
+     "published": true,
+     "refusal": null,
+     "title": "Quiz 1"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "preview_again",
+   "text_is_envelope": true,
+   "tool": "assignment_delete_preview"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:1>",
+    "confirm": {
+     "drafts": 0,
+     "files": 0,
+     "grades": 1,
+     "handed_in": 1,
+     "missing": 0,
+     "posted": 1,
+     "proposals": 1,
+     "submissions": 1,
+     "totals": 1
+    },
+    "course_id": "<id:2>",
+    "idempotency_key": "delete:<id:1>:4"
+   },
+   "envelope": {
+    "action_id": "<id:9>",
+    "result": {
+     "assignment_id": "<id:1>",
+     "deleted": true,
+     "files_queued": 0,
+     "proposals_cancelled": 1,
+     "removed": {
+      "files": 0,
+      "grades": 1,
+      "submissions": 1
+     },
+     "snapshots": 2,
+     "title": "Quiz 1"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "deleted",
+   "text_is_envelope": true,
+   "tool": "assignment_delete"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:1>",
+    "confirm": {
+     "drafts": 0,
+     "files": 0,
+     "grades": 1,
+     "handed_in": 1,
+     "missing": 0,
+     "posted": 1,
+     "proposals": 1,
+     "submissions": 1,
+     "totals": 1
+    },
+    "course_id": "<id:2>",
+    "idempotency_key": "delete:<id:1>:4"
+   },
+   "envelope": {
+    "action_id": "<id:9>",
+    "replayed": true,
+    "result": {
+     "assignment_id": "<id:1>",
+     "deleted": true,
+     "files_queued": 0,
+     "proposals_cancelled": 1,
+     "removed": {
+      "files": 0,
+      "grades": 1,
+      "submissions": 1
+     },
+     "snapshots": 2,
+     "title": "Quiz 1"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "replayed",
+   "text_is_envelope": true,
+   "tool": "assignment_delete"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:1>",
+    "confirm": {
+     "drafts": 0,
+     "files": 0,
+     "grades": 1,
+     "handed_in": 1,
+     "missing": 0,
+     "posted": 1,
+     "proposals": 1,
+     "submissions": 1,
+     "totals": 1
+    },
+    "course_id": "<id:2>",
+    "idempotency_key": "delete:<id:1>:5"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "details": {
+      "by_action_id": "<id:9>",
+      "deleted_at": "<time>",
+      "reason": "deleted"
+     },
+     "message": "the assignment was deleted for good"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "deleted_again",
+   "text_is_envelope": true,
+   "tool": "assignment_delete"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "details": {
+      "by_action_id": "<id:9>",
+      "deleted_at": "<time>",
+      "reason": "deleted"
+     },
+     "message": "the assignment was deleted for good"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "get_after",
+   "text_is_envelope": true,
+   "tool": "assignment_get"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "details": {
+      "by_action_id": "<id:9>",
+      "deleted_at": "<time>",
+      "reason": "deleted"
+     },
+     "message": "the assignment was deleted for good"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "preview_after",
+   "text_is_envelope": true,
+   "tool": "assignment_delete_preview"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:1>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "details": {
+      "by_action_id": "<id:9>",
+      "deleted_at": "<time>",
+      "reason": "deleted"
+     },
+     "message": "the assignment was deleted for good"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "roster_after",
+   "text_is_envelope": true,
+   "tool": "submission_roster"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "idempotency_key": "grade:<id:4>:1",
+    "score": 9,
+    "submission_id": "<id:4>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "message": "no such submission in this course"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "graded_after",
+   "text_is_envelope": true,
+   "tool": "grade_submit"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>",
+    "idempotency_key": "tool:x:g:1",
+    "score": 9,
+    "submission_id": "<id:4>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "details": {
+      "action_id": "<id:5>",
+      "by_action_id": "<id:9>",
+      "reason": "target_deleted"
+     },
+     "message": "what this grade.submit call was about has been deleted for good, and its record emptied"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "grade_replayed_after",
+   "text_is_envelope": true,
+   "tool": "grade_submit"
+  },
+  {
+   "args": {
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "actions": [
+      {
+       "action_type": "grade.submit",
+       "actor_id": "<id:10>",
+       "authz_result": "confirm_required",
+       "created_at": "<time>",
+       "id": "<id:5>",
+       "member_id": "<id:11>",
+       "payload": {},
+       "redacted": {
+        "at": "<time>",
+        "by_action_id": "<id:9>"
+       },
+       "review_state": "none",
+       "status": "cancelled",
+       "target_id": "<id:4>",
+       "target_type": "submission"
+      },
+      {
+       "action_type": "assignment.delete",
+       "actor_id": "<id:10>",
+       "authz_result": "autonomous",
+       "created_at": "<time>",
+       "id": "<id:6>",
+       "member_id": "<id:11>",
+       "payload": {
+        "assignment_id": "<id:1>",
+        "confirm": {
+         "drafts": 0,
+         "files": 0,
+         "grades": 1,
+         "handed_in": 1,
+         "missing": 0,
+         "posted": 1,
+         "proposals": 0,
+         "submissions": 1,
+         "totals": 1
+        },
+        "course_id": "<id:2>"
+       },
+       "result": {
+        "error": {
+         "code": "forbidden",
+         "details": {
+          "reason": "people_only"
+         },
+         "message": "an agent does not delete an assignment that has work or grades; a person deletes it"
+        }
+       },
+       "review_state": "none",
+       "status": "failed",
+       "target_id": "<id:1>",
+       "target_type": "assignment"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "mine",
+   "text_is_envelope": true,
+   "tool": "action_list_mine"
+  },
+  {
+   "events": [
+    {
+     "action_id": "<id:9>",
+     "occurred_at": "<time>",
+     "payload": {
+      "complete": false,
+      "component_id": "<id:12>",
+      "no_total": true
+     },
+     "student_member_id": "<id:13>",
+     "subject_id": "<id:14>",
+     "subject_type": "grade",
+     "type": "grade.total_updated"
+    },
+    {
+     "action_id": "<id:9>",
+     "occurred_at": "<time>",
+     "payload": {
+      "complete": false,
+      "component_id": "<id:15>",
+      "no_total": true
+     },
+     "student_member_id": "<id:13>",
+     "subject_id": "<id:16>",
+     "subject_type": "grade",
+     "type": "grade.total_updated"
+    },
+    {
+     "action_id": "<id:9>",
+     "occurred_at": "<time>",
+     "payload": {
+      "title": "Quiz 1"
+     },
+     "subject_id": "<id:1>",
+     "subject_type": "assignment",
+     "type": "assignment.deleted"
+    }
+   ],
+   "more": false,
+   "status": "executed",
+   "step": "news_for_a_student",
+   "tool": "event_list"
+  },
+  {
+   "events": [
+    {
+     "action_id": "<id:9>",
+     "occurred_at": "<time>",
+     "payload": {
+      "title": "Quiz 1"
+     },
+     "subject_id": "<id:1>",
+     "subject_type": "assignment",
+     "type": "assignment.deleted"
+    }
+   ],
+   "more": false,
+   "status": "executed",
+   "step": "news_for_the_course_tutor",
+   "tool": "event_list"
+  },
+  {
+   "events": [
+    {
+     "action_id": "<id:5>",
+     "occurred_at": "<time>",
+     "payload": {
+      "action_type": "grade.submit",
+      "by_action_id": "<id:9>",
+      "reason": "target_deleted"
+     },
+     "subject_id": "<id:5>",
+     "subject_type": "action",
+     "type": "action.cancelled"
+    },
+    {
+     "action_id": "<id:9>",
+     "occurred_at": "<time>",
+     "payload": {
+      "complete": false,
+      "component_id": "<id:12>",
+      "no_total": true
+     },
+     "student_member_id": "<id:13>",
+     "subject_id": "<id:14>",
+     "subject_type": "grade",
+     "type": "grade.total_updated"
+    },
+    {
+     "action_id": "<id:9>",
+     "occurred_at": "<time>",
+     "payload": {
+      "complete": false,
+      "component_id": "<id:15>",
+      "no_total": true
+     },
+     "student_member_id": "<id:13>",
+     "subject_id": "<id:16>",
+     "subject_type": "grade",
+     "type": "grade.total_updated"
+    },
+    {
+     "action_id": "<id:9>",
+     "occurred_at": "<time>",
+     "payload": {
+      "title": "Quiz 1"
+     },
+     "subject_id": "<id:1>",
+     "subject_type": "assignment",
+     "type": "assignment.deleted"
+    }
+   ],
+   "more": false,
+   "status": "executed",
+   "step": "news_for_the_agent",
+   "tool": "event_list"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:17>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "assignment_id": "<id:17>",
+     "counts": {
+      "drafts": 0,
+      "files": 0,
+      "grades": 0,
+      "handed_in": 0,
+      "missing": 0,
+      "posted": 0,
+      "proposals": 0,
+      "submissions": 0,
+      "totals": 0
+     },
+     "in_grade": true,
+     "published": false,
+     "refusal": null,
+     "title": "Quiz 2"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "empty_preview",
+   "text_is_envelope": true,
+   "tool": "assignment_delete_preview"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:17>",
+    "confirm": {
+     "drafts": 0,
+     "files": 0,
+     "grades": 0,
+     "handed_in": 0,
+     "missing": 0,
+     "posted": 0,
+     "proposals": 0,
+     "submissions": 0,
+     "totals": 0
+    },
+    "course_id": "<id:2>",
+    "idempotency_key": "tool:x:d:2"
+   },
+   "envelope": {
+    "action_id": "<id:18>",
+    "result": {
+     "assignment_id": "<id:17>",
+     "deleted": true,
+     "files_queued": 0,
+     "proposals_cancelled": 0,
+     "removed": {
+      "files": 0,
+      "grades": 0,
+      "submissions": 0
+     },
+     "snapshots": 0,
+     "title": "Quiz 2"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "empty_deleted_by_an_agent",
+   "text_is_envelope": true,
+   "tool": "assignment_delete"
+  },
+  {
+   "events": [
+    {
+     "action_id": "<id:18>",
+     "occurred_at": "<time>",
+     "payload": {
+      "title": "Quiz 2"
+     },
+     "subject_id": "<id:17>",
+     "subject_type": "assignment",
+     "type": "assignment.deleted_unreleased"
+    }
+   ],
+   "more": false,
+   "status": "executed",
+   "step": "news_of_the_empty_one",
+   "tool": "event_list"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:19>",
+    "course_id": "<id:2>"
+   },
+   "envelope": {
+    "result": {
+     "assignment_id": "<id:19>",
+     "counts": {
+      "drafts": 0,
+      "files": 0,
+      "grades": 0,
+      "handed_in": 0,
+      "missing": 0,
+      "posted": 0,
+      "proposals": 0,
+      "submissions": 0,
+      "totals": 1
+     },
+     "in_grade": true,
+     "published": true,
+     "refusal": null,
+     "title": "Quiz 3"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "third_preview",
+   "text_is_envelope": true,
+   "tool": "assignment_delete_preview"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:19>",
+    "confirm": {
+     "drafts": 0,
+     "files": 0,
+     "grades": 0,
+     "handed_in": 0,
+     "missing": 0,
+     "posted": 0,
+     "proposals": 0,
+     "submissions": 0,
+     "totals": 1
+    },
+    "course_id": "<id:2>",
+    "idempotency_key": "tool:x:d:3"
+   },
+   "envelope": {
+    "action_id": "<id:20>",
+    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected, action.changes_requested or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed. After action.changes_requested, read what to change in its result.decision.reason and propose again under a new key, with revises = this action_id.",
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "proposed_by_an_agent",
+   "text_is_envelope": true,
+   "tool": "assignment_delete"
+  },
+  {
+   "args": {
+    "action_id": "<id:20>",
+    "course_id": "<id:2>",
+    "decision": "approve",
+    "idempotency_key": "decide:<id:20>"
+   },
+   "envelope": {
+    "action_id": "<id:21>",
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "owner_would_be_refused",
+      "refusal": {
+       "code": "forbidden",
+       "details": {
+        "reason": "people_only"
+       },
+       "message": "an agent does not delete an assignment that has work or grades; a person deletes it"
+      }
+     },
+     "message": "you decide what your agent proposed only where you would do it yourself without anyone's confirmation, and approved now it would be refused (an agent does not delete an assignment that has work or grades; a person deletes it); take it back with action.withdraw, or someone else rejects it"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "its_owner_approves_after_work_came",
+   "text_is_envelope": true,
+   "tool": "action_decide"
+  },
+  {
+   "args": {
+    "action_id": "<id:20>",
+    "course_id": "<id:2>",
+    "decision": "approve",
+    "idempotency_key": "decide:<id:20>:mori"
+   },
+   "envelope": {
+    "action_id": "<id:22>",
+    "result": {
+     "action_id": "<id:20>",
+     "error": {
+      "code": "forbidden",
+      "details": {
+       "reason": "people_only"
+      },
+      "message": "an agent does not delete an assignment that has work or grades; a person deletes it"
+     },
+     "outcome": "failed"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "approved_after_work_came",
+   "text_is_envelope": true,
+   "tool": "action_decide"
+  }
+ ]
+}

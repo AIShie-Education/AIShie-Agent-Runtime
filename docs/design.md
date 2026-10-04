@@ -3016,9 +3016,16 @@ short, gives it more, or a lower effort.
   `model_writes` fixture recorded from Core; `member_add`, `member_get`,
   `member_list` and `member_lookup_actor`, held to `member_writes`;
   `grade_submit`, a draft grade on work handed in (shown to those who
-  grade, and told to them within their scope), held to `grade_since`; and
-  `submission_roster` and `document_versions`, held to `roster_reads`; and
-  serves the files `AddFile` puts in a course.
+  grade, and told to them within their scope), held to `grade_since`;
+  `submission_roster` and `document_versions`, held to `roster_reads`;
+  and `assignment_delete_preview` and `assignment_delete`, an assignment
+  deleted for good as AIShie-Core #73 has it (`deletion.go`: its work and
+  grades gone, its instructions left, an agent refused one anybody has
+  started on, a confirmation smaller than what would go refused, the
+  proposals about it cancelled and every action about it emptied, the
+  totals it counted in worked out again, and every call naming it after,
+  or replaying a key it emptied, told it was deleted), held to
+  `assignment_delete`; and serves the files `AddFile` puts in a course.
 - `ocr`: the engine against programs of the test's own (shell scripts
   standing in for pdftoppm and tesseract) under the real prlimit, so
   skipped where there is none, as on macOS (CI's Linux runners run them):

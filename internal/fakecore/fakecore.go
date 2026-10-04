@@ -37,7 +37,10 @@
 // escalation for someone other than whoever had a hand in it to close),
 // and document_create, member_add and grade_submit (grades.go, a draft
 // grade, whose proposal a newer draft entered while it waits refuses on
-// approval), writes a model makes through its seat's perms, and the roster
+// approval), and assignment_delete_preview and assignment_delete
+// (deletion.go, an assignment deleted for good with its work, which an
+// agent may delete only while nobody has started on it), writes a model
+// makes through its seat's perms, and the roster
 // a model reads (member_list, member_get,
 // member_lookup_actor). The model's other read tools (where students stand
 // on an assignment, submission_roster, and a document's versions among
@@ -212,7 +215,7 @@ type Core struct {
 // implemented is the fake's implementation of each tool it carries out, by
 // registry name.
 func implemented() map[string]*impl {
-	return map[string]*impl{
+	impls := map[string]*impl{
 		"me.get":                  meGet(),
 		"me.memberships":          meMemberships(),
 		"conversation.inbox":      conversationInbox(),
@@ -252,6 +255,9 @@ func implemented() map[string]*impl {
 		"conversation.upload_url": conversationUploadURL(),
 		"conversation.attachment": conversationAttachment(),
 	}
+	// Deleting an assignment for good (deletion.go).
+	impls["assignment.delete_preview"], impls[toolAssignmentDelete] = assignmentDeletePreview(), assignmentDelete()
+	return impls
 }
 
 // theCatalogue is the embedded catalogue with the fake's implementations,

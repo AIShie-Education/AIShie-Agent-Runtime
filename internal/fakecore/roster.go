@@ -40,9 +40,9 @@ func submissionRoster() *impl {
 	return define(spec[rosterIn]{
 		gate: gateSubmissions,
 		resolve: func(_ *Core, co *course, in rosterIn) (target, error) {
-			a := findAssignment(co, in.AssignmentID)
-			if a == nil {
-				return target{}, missing("no such assignment in this course")
+			a, err := findOrGone(co, in.AssignmentID)
+			if err != nil {
+				return target{}, err
 			}
 			return target{typ: "assignment", id: &a.id, scope: scope{assignments: []string{a.id}}}, nil
 		},

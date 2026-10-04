@@ -119,7 +119,18 @@ var visibility = map[string][]string{
 	"document.text_updated": {permDocumentRead}, "document.rubric_text_updated": {permRubricRead},
 	"document.draft_text_updated": {permDocumentReadDraft},
 	"document.purged":             {permDocumentReadDraft},
+	// A total worked out again is posted, as the total is.
+	"grade.total_updated": {permGradeRead},
+	// An assignment deleted for good (deletion.go): of one students could
+	// see, for everyone who reads the course; of one they could not, for
+	// those who write assignments.
+	"assignment.deleted": {permDocumentRead}, "assignment.deleted_unreleased": {permAssignmentWrite},
 }
+
+// unreleased are the types told of what students could not see, each by
+// its released type: a seat sees one only if it would see the other too
+// (Core's seesType).
+var unreleased = map[string]string{"assignment.deleted_unreleased": "assignment.deleted"}
 
 func (c *Core) visible(e *event, m *member) bool {
 	if e.subjectType == "conversation" {
@@ -132,13 +143,25 @@ func (c *Core) visible(e *event, m *member) bool {
 // seesType: m holds one of the permissions that see e's type, or caused
 // it.
 func (c *Core) seesType(e *event, m *member) bool {
-	for _, p := range visibility[e.typ] {
-		if m.perm(p).allowed() {
-			return true
-		}
+	if typeSeen(e.typ, m) {
+		return true
 	}
 	if e.actionID != nil {
 		if a := c.actions[*e.actionID]; a != nil && a.member == m {
+			return true
+		}
+	}
+	return false
+}
+
+// typeSeen: m holds one of the permissions that see typ, and, for an
+// unreleased type, one of those that see its released type.
+func typeSeen(typ string, m *member) bool {
+	if released, ok := unreleased[typ]; ok && !typeSeen(released, m) {
+		return false
+	}
+	for _, p := range visibility[typ] {
+		if m.perm(p).allowed() {
 			return true
 		}
 	}
@@ -246,9 +269,18 @@ type actionView struct {
 	Result             json.RawMessage `json:"result,omitempty"`
 	CreatedAt          time.Time       `json:"created_at"`
 	RevisesActionID    *string         `json:"revises_action_id,omitempty"`
+	// Redacted is set on an action about an assignment deleted for good:
+	// its payload and result were emptied then.
+	Redacted *actionRedaction `json:"redacted,omitempty"`
 }
 
-func viewAction(a *action) actionView {
+// actionRedaction says which deletion emptied an action, and when it ran.
+type actionRedaction struct {
+	ByActionID string     `json:"by_action_id"`
+	At         *time.Time `json:"at,omitempty"`
+}
+
+func (c *Core) viewAction(a *action) actionView {
 	v := actionView{ID: a.id, ActorID: a.actor.id, ActionType: a.actionType, TargetType: a.targetType, TargetID: a.targetID,
 		Payload: a.payload, AuthzResult: a.authz.String(), Status: a.status, DecidedAt: a.decidedAt, ReviewState: a.reviewState,
 		ReviewedAt: a.reviewedAt, ExecutedAt: a.executedAt, Result: a.result, CreatedAt: a.createdAt}
@@ -267,6 +299,12 @@ func viewAction(a *action) actionView {
 	if a.revises != "" {
 		id := a.revises
 		v.RevisesActionID = &id
+	}
+	if a.redactedBy != "" {
+		v.Redacted = &actionRedaction{ByActionID: a.redactedBy}
+		if by := c.actions[a.redactedBy]; by != nil {
+			v.Redacted.At = by.executedAt
+		}
 	}
 	return v
 }
@@ -309,7 +347,7 @@ func actionListMine() *impl {
 				if a.course != rc.course || a.member != rc.member || a.id <= after || slices.Contains(in.ExcludeTypes, a.actionType) {
 					continue
 				}
-				out.Actions = append(out.Actions, viewAction(a))
+				out.Actions = append(out.Actions, c.viewAction(a))
 			}
 			if n := len(out.Actions); n > 0 && n == limit {
 				id := out.Actions[n-1].ID
@@ -672,9 +710,9 @@ func assignmentGet() *impl {
 	return define(spec[assignmentGetIn]{
 		gate: gateDocumentRead,
 		resolve: func(_ *Core, co *course, in assignmentGetIn) (target, error) {
-			a := findAssignment(co, in.AssignmentID)
-			if a == nil {
-				return target{}, missing("no such assignment in this course")
+			a, err := findOrGone(co, in.AssignmentID)
+			if err != nil {
+				return target{}, err
 			}
 			return target{typ: "assignment", id: &a.id, scope: scope{assignments: []string{a.id}}}, nil
 		},
