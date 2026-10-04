@@ -1795,21 +1795,33 @@ For an inbox row (conversation X, question M, opener P):
    (`on_quota_text`, or the school plan's). An agent's own text, when it
    sets one, is posted as it is. Unset, as by default, the built-in one is
    posted in the asker's language: the one `answer_language` fixes, where
-   it fixes English or Chinese; else the question's, told by its script
-   (`config.QuestionLang`): Chinese where it holds Han characters and no
-   kana or hangul, Simplified where more of them are of the characters
-   only Simplified writes than of those only Traditional writes (a list
-   of some 200 common pairs, 这/這, 么/麼, 问/問…, and Zhuyin as
-   Traditional), Traditional otherwise; English where it holds Latin
-   letters alone. Greek letters, and letters of no one script (µ, ℓ, ℝ),
-   say nothing, as digits do: a course's questions write θ, λ, π, Δ, Σ
-   and µ in Chinese and in English alike ("这道题里的 θ 怎么求", "What is
-   λ calculus?"). Where the question tells nothing ("?", a file, a
-   formula) the asker's message before it does. A language it cannot
-   tell (Japanese, a language fixed to another) gets English and
-   Traditional Chinese, the school's two, as does the quota's notice
-   under `opener`, posted before the conversation is read. The built-in
-   notices:
+   it fixes English or Chinese; else the question's, told by its letters
+   (`config.QuestionLang`). Greek letters, and letters of no one script
+   (µ, ℓ, ℏ, ℝ, 𝑥), count for nothing, as digits and symbols do: a
+   course's questions write θ, λ, π, Δ, Σ and µ in Chinese and in English
+   alike ("这道题里的 θ 怎么求", "What is λ calculus?"). Of the rest:
+   - A letter of any script but Han, Zhuyin and Latin (kana, hangul,
+     Cyrillic, Arabic…) makes the question's language one it cannot
+     tell, whatever else it holds ("宿題はいつまでですか", "HW1 课题 и
+     задача").
+   - Else Han characters or Zhuyin make it Chinese, Latin letters beside
+     them or not ("請問 deadline 是幾時?"): Simplified where more of its
+     characters are among the 195 common ones only Simplified writes
+     than among the 202 only Traditional writes (the 195 pairs, 这/這,
+     么/麼, 问/問…, and 後, 裡, 臺, 隻, 麵, 髮 and 係, whose Simplified
+     forms both scripts write), Zhuyin counting as Traditional;
+     Traditional otherwise, a tie and characters both scripts write
+     ("你好") included.
+   - Else Latin letters make it English, as for any language in Latin
+     script ("¿Qué hay que entregar?").
+   - Else it has no letter that tells ("?", "θ = ?", a file), and the
+     asker's newest message before it that tells, of those not
+     retracted, does; with none, the language is one it cannot tell.
+
+   A language it cannot tell (Japanese, Russian, a language fixed to
+   another) gets English and Traditional Chinese, the school's two, as
+   does the quota's notice under `opener`, posted before the conversation
+   is read. The built-in notices:
 
    | | English | 繁體中文 | 简体中文 |
    |---|---|---|---|

@@ -119,21 +119,23 @@ func NoticeLangOf(answerLanguage, question string) Lang {
 	return LangUnknown
 }
 
-// QuestionLang tells the language of question from its script, as far as
-// the runtime's notices need it: Chinese where it holds Han characters
-// and no Japanese kana nor Korean hangul, Simplified where more of them
-// are of the characters only Simplified Chinese writes than of those only
-// Traditional writes (simplifiedOnly, traditionalOnly, and Zhuyin as
-// Traditional), Traditional otherwise; English where it holds Latin
-// letters and no other script (any language in Latin script gets the
-// English notice); LangUnknown for anything else, and for no letters at
-// all.
-//
-// Greek letters, and the letters of no one script (µ, ℓ, ℏ, ℝ, 𝑥), say
-// nothing, as digits and symbols do: a course's questions write θ, λ, π,
-// Δ, Σ and µ in Chinese and in English alike ("求 θ 的值", "What is λ
-// calculus?"). A question of those alone tells nothing, as one of digits
-// does.
+// QuestionLang tells the language of question from its letters, as far as
+// the runtime's notices need it. Greek letters, and the letters of no one
+// script (µ, ℓ, ℏ, ℝ, 𝑥), count for nothing, as digits and symbols do: a
+// course's questions write θ, λ, π, Δ, Σ and µ in Chinese and in English
+// alike ("求 θ 的值", "What is λ calculus?"). Of the rest:
+//   - A letter of any script but Han, Zhuyin and Latin (Japanese kana,
+//     Korean hangul, Cyrillic, …) makes it LangUnknown, whatever else the
+//     question holds.
+//   - Else Han characters or Zhuyin make it Chinese, Latin letters beside
+//     them or not: Simplified where more of its characters are of those
+//     only Simplified Chinese writes than of those only Traditional
+//     writes (simplifiedOnly, traditionalOnly, and Zhuyin as
+//     Traditional), Traditional otherwise.
+//   - Else Latin letters make it English: any language in Latin script
+//     gets the English notice.
+//   - Else, with no letter that tells (a formula alone, digits, "?"), it
+//     is LangUnknown.
 func QuestionLang(question string) Lang {
 	var han, latin, other, simp, trad int
 	for _, r := range question {
