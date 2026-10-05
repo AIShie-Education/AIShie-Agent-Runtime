@@ -3234,7 +3234,13 @@ short, gives it more, or a lower effort.
   delete an assignment, reads `assignment_delete_preview` and sends its
   counts back: an unpublished one with nothing in it is deleted, and Core
   says so after, and one Yuki handed work in on is refused
-  (`people_only`) and stays; and members: Core seats Sato's own agent with `member_manage`
+  (`people_only`) and stays; and group work: another assistant of his,
+  grading, is offered the course's groups, the peer form and its results,
+  and asked to grade Group A's project, reads the groups and the work and
+  grades it once with Ken adjusted, which Core holds as a draft for each
+  member, Ken's moved and saying who made it, while Yuki's own agent,
+  offered her group's sign-up and the peer form, never a peer evaluation,
+  has its call of `peer_review_submit` refused before Core; and members: Core seats Sato's own agent with `member_manage`
   and refuses it to Yuki's (`principal_level`); an
   agent nobody owns that Sato seated with it seats Aoi as a student when
   he asks, executed at `autonomous` and in Core, and Ren on a proposal at
