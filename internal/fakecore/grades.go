@@ -19,12 +19,15 @@ import (
 // in on its assignment, which has no rubric, and a grade tree whose two
 // components are rolled up, so that a grade on either is refused as Core
 // refuses one; and no uploads, so that a feedback file is refused as a
-// document's are (errNoDocumentUploads). grade.post, which posts a draft,
+// document's are (errNoDocumentUploads). On a group's work it writes a
+// group grade and each member's draft from it, adjusted or not, as Core's
+// tools/grade_group.go does (groups.go). grade.post, which posts a draft,
 // is not carried out here.
 
 // decimal is a decimal number as Core's decimal.Decimal takes and gives
-// it: read exactly from a JSON number or a string, written as a string
-// with no exponent and no trailing zeros.
+// it: read exactly from a JSON number or a string, written as a JSON
+// number with no exponent and no trailing zeros, as Core writes one
+// (decimal.MarshalJSONWithoutQuotes).
 type decimal struct{ r *big.Rat }
 
 func (d *decimal) UnmarshalJSON(b []byte) error {
@@ -42,7 +45,7 @@ func (d *decimal) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-func (d decimal) MarshalJSON() ([]byte, error) { return json.Marshal(d.String()) }
+func (d decimal) MarshalJSON() ([]byte, error) { return []byte(d.String()), nil }
 
 // rat is the number, 0 for none.
 func (d decimal) rat() *big.Rat {
@@ -156,16 +159,26 @@ type gradeSubmitIn struct {
 	StudentMemberID *uuid.UUID `json:"student_member_id,omitempty"`
 	ForMissing      *bool      `json:"for_missing,omitempty"`
 	gradeContent
+	// Adjustments and Members are a group's work's (groups.go): members
+	// whose grade differs from the group's, and whose work it is, which a
+	// proposal records.
+	Adjustments []adjustmentIn `json:"adjustments,omitempty"`
+	Members     []uuid.UUID    `json:"members,omitzero"`
 }
 
 // gradeSubject is what a grade is for: a submission, or a component for a
-// student (Core's gradeSubject).
+// student (Core's gradeSubject). A group's work has no one student:
+// members are whose work it is.
 type gradeSubject struct {
 	student    *member
+	members    []*member
 	submission *submission
 	assignment *assignment
 	component  *component
 }
+
+// group says whether s is a group's work.
+func (s gradeSubject) group() bool { return s.submission != nil && s.submission.group != nil }
 
 // pointsPossible is what the work is worth: the assignment's points. The
 // canned tree's components are rolled up and worth nothing of their own,
@@ -178,7 +191,13 @@ func (s gradeSubject) pointsPossible() decimal {
 }
 
 func (s gradeSubject) target() target {
-	t := target{scope: scope{students: []string{s.student.id}}}
+	var t target
+	if s.group() {
+		// A grade lands on each member: every one of them.
+		t.scope.students = s.submission.studentIDs()
+	} else {
+		t.scope.students = []string{s.student.id}
+	}
 	if s.submission != nil {
 		t.typ, t.id = "submission", &s.submission.id
 		t.scope.assignments = []string{s.assignment.id}
@@ -203,7 +222,7 @@ func (c *Core) loadSubject(co *course, in gradeSubmitIn) (gradeSubject, error) {
 		if sub == nil {
 			return s, missing("no such submission in this course")
 		}
-		s.student, s.submission, s.assignment = sub.student, sub, sub.assignment
+		s.student, s.submission, s.assignment, s.members = sub.student, sub, sub.assignment, sub.students()
 	default:
 		if in.StudentMemberID == nil {
 			return s, invalid("student_member_id is required with component_id")
@@ -284,6 +303,12 @@ func gradeSubmit() *impl {
 			if in.ForMissing != nil && in.SubmissionID == nil {
 				return invalid("for_missing is for a grade on a submission")
 			}
+			if (len(in.Adjustments) > 0 || in.Members != nil) && in.SubmissionID == nil {
+				return errNotAGroupAssignment
+			}
+			if err := checkAdjustments(in.Adjustments); err != nil {
+				return err
+			}
 			return in.check()
 		},
 		resolve: func(c *Core, co *course, in gradeSubmitIn) (target, error) {
@@ -306,7 +331,11 @@ func gradeSubmit() *impl {
 			if err := checkSubject(s, in.ForMissing); err != nil {
 				return err
 			}
-			return checkContent(s, in.gradeContent)
+			if err := checkContent(s, in.gradeContent); err != nil {
+				return err
+			}
+			_, err = in.memberAdjustments(m.course, s, m)
+			return err
 		},
 		// A draft entered while the proposal waited has been in front of
 		// nobody who asked for this one to replace it.
@@ -334,13 +363,24 @@ func gradeSubmit() *impl {
 				most := s.pointsPossible()
 				in.OutOf = &most
 			}
-			if in.RubricVersionID != nil || s.assignment == nil {
-				return in, nil
+			if in.RubricVersionID == nil && s.assignment != nil {
+				if in.NoRubric {
+					if err := checkContent(s, in.gradeContent); err != nil {
+						return in, err
+					}
+				}
+				in.NoRubric = true
 			}
-			if in.NoRubric {
-				return in, checkContent(s, in.gradeContent)
+			if s.group() {
+				// Whose work it is, and each member's adjustment as it will
+				// be written, carried ones named: approving it writes what
+				// was proposed.
+				adjs, err := in.memberAdjustments(m.course, s, m)
+				if err != nil {
+					return in, err
+				}
+				in.Members, in.Adjustments = pinnedMembers(s.members, adjs)
 			}
-			in.NoRubric = true
 			return in, nil
 		},
 		execute: func(c *Core, ec *execCtx, in gradeSubmitIn) (any, error) {
@@ -368,6 +408,9 @@ func gradeSubmit() *impl {
 				if err := noNewerDraft(ec.course, s, ec.createdAt); err != nil {
 					return nil, err
 				}
+			}
+			if s.group() {
+				return in.gradeGroupWork(c, ec, s)
 			}
 			id := newID()
 			for _, g := range ec.course.grades {

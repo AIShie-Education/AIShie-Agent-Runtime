@@ -2,6 +2,7 @@ package fakecore
 
 import (
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -251,6 +252,14 @@ type scope struct {
 	// spans marks a target of a student's that belongs to no single
 	// assignment: a member limited to listed assignments may not touch it.
 	spans bool
+	// anyStudents marks a target that belongs to several students
+	// together, a group's work, for those who read or write it: within
+	// scope when the seat reaches at least one of anyOf, and, for a
+	// delegate, its principal at least one too (Core's
+	// authz.Target.AnyStudents). A listed seat reaches nobody through
+	// none. Grading it is a students target instead: every one.
+	anyStudents bool
+	anyOf       []string
 }
 
 // checkScope is steps 4 and 5; a delegate reaches only what it and its
@@ -269,6 +278,9 @@ func checkOwnScope(m *member, t scope) string {
 				return reasonStudentScope
 			}
 		}
+	}
+	if t.anyStudents && m.studentScope != scopeAll && !slices.ContainsFunc(t.anyOf, func(id string) bool { return m.students[id] }) {
+		return reasonStudentScope
 	}
 	if t.spans && m.assignmentScope != scopeAll {
 		return reasonAssignmentScope

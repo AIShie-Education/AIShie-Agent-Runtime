@@ -3044,7 +3044,19 @@ short, gives it more, or a lower effort.
   proposals about it cancelled and every action about it emptied, the
   totals it counted in worked out again, and every call naming it after,
   or replaying a key it emptied, told it was deleted), held to
-  `assignment_delete`; and serves the files `AddFile` puts in a course.
+  `assignment_delete`; group assignments as AIShie-Core b5d6b43 has them
+  (`groups.go`: `group_set_list` and `group_set_get`, members named to a
+  reader of the member list and to a member; a group's work, handed in
+  once for its members and reached through any of them, as
+  `submission_get`, `submission_list` and `submission_roster` show it;
+  `grade_submit` on it, a group grade and each member's draft from it,
+  adjustments carried, a proposal pinned with the work's members and
+  refused on approval by a newer draft; grades that say the group's score
+  and the member's adjustment, who made it to those who grade alone;
+  `peer_form_get` with a student's own task, `peer_review_results`
+  canned, no sheet ever written, and `peer_review_submit` refused to an
+  agent, `people_only`), held to `group_work`, its decimals JSON numbers
+  as Core writes them; and serves the files `AddFile` puts in a course.
 - `ocr`: the engine against programs of the test's own (shell scripts
   standing in for pdftoppm and tesseract) under the real prlimit, so
   skipped where there is none, as on macOS (CI's Linux runners run them):

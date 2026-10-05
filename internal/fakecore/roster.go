@@ -21,13 +21,15 @@ type rosterIn struct {
 // shows it: the name and seat status only to a caller who reads the
 // member list.
 type rosterEntry struct {
-	StudentMemberID string     `json:"student_member_id"`
-	DisplayName     *string    `json:"display_name,omitempty"`
-	MemberStatus    *string    `json:"member_status,omitempty"`
-	State           string     `json:"state"`
-	SubmissionID    *string    `json:"submission_id,omitempty"`
-	Attempt         *int       `json:"attempt,omitempty"`
-	SubmittedAt     *time.Time `json:"submitted_at,omitempty"`
+	StudentMemberID string  `json:"student_member_id"`
+	DisplayName     *string `json:"display_name,omitempty"`
+	MemberStatus    *string `json:"member_status,omitempty"`
+	// GroupID is a group assignment's: the student's group in its set now.
+	GroupID      *string    `json:"group_id,omitempty"`
+	State        string     `json:"state"`
+	SubmissionID *string    `json:"submission_id,omitempty"`
+	Attempt      *int       `json:"attempt,omitempty"`
+	SubmittedAt  *time.Time `json:"submitted_at,omitempty"`
 }
 
 // submissionRoster is Core's submission.roster: every current student the
@@ -50,6 +52,9 @@ func submissionRoster() *impl {
 			a := findAssignment(rc.course, in.AssignmentID)
 			if a.publishedAt == nil && !rc.member.perm(permAssignmentWrite).allowed() {
 				return nil, missing("no such assignment in this course")
+			}
+			if a.groupSet != nil {
+				return groupRoster(c, rc, a, in), nil
 			}
 			limit, after := pageLimit(in.Limit), in.after()
 			var students []*member
@@ -159,4 +164,98 @@ func documentVersions() *impl {
 			return out, nil
 		},
 	})
+}
+
+// rosterGroup is where one group stands on a group assignment (Core's
+// RosterGroup).
+type rosterGroup struct {
+	GroupID             string       `json:"group_id"`
+	Name                string       `json:"name"`
+	Members             []workMember `json:"members"`
+	State               string       `json:"state"`
+	SubmissionID        *string      `json:"submission_id,omitempty"`
+	Attempt             *int         `json:"attempt,omitempty"`
+	SubmittedAt         *time.Time   `json:"submitted_at,omitempty"`
+	SubmittedByMemberID *string      `json:"submitted_by_member_id,omitempty"`
+}
+
+// groupRoster is submission.roster on a group assignment (Core's
+// groupRoster): each student the caller reaches, in order of their seats'
+// ids, with their group and where the work they are part of stands
+// (no_group for a student in no group of its set); and, on the first page,
+// each group of the set with a member the caller reaches (every group to
+// one who reaches the whole class), its members they reach, and its latest
+// work they may read. The fake's group work is handed in once, never a
+// draft.
+func groupRoster(c *Core, rc *readCtx, a *assignment, in rosterIn) any {
+	limit, after := pageLimit(in.Limit), in.after()
+	names := rc.member.perm(permMemberRead).allowed()
+	var students []*member
+	for _, m := range c.memberList {
+		if m.course == rc.course && m.role == "student" && m.status != statusRemoved && m.id > after && reaches(rc.member, m.id) {
+			students = append(students, m)
+		}
+	}
+	students = byID(students)
+	out := struct {
+		Students []rosterEntry `json:"students"`
+		Groups   []rosterGroup `json:"groups,omitempty"`
+		Next     *string       `json:"next,omitempty"`
+	}{Students: []rosterEntry{}}
+	for _, m := range students {
+		if len(out.Students) == limit {
+			break
+		}
+		e := rosterEntry{StudentMemberID: m.id, State: "not_started"}
+		if names {
+			name, status := m.actor.name, m.status
+			e.DisplayName, e.MemberStatus = &name, &status
+		}
+		if g := a.groupSet.groupOf(m); g != nil {
+			e.GroupID = &g.id
+		}
+		switch s := workOf(rc.course, a, m); {
+		case s != nil:
+			id, attempt, at := s.id, 1, s.submittedAt
+			e.State, e.SubmissionID, e.Attempt, e.SubmittedAt = "submitted", &id, &attempt, &at
+		case e.GroupID == nil:
+			e.State = "no_group"
+		}
+		out.Students = append(out.Students, e)
+	}
+	if n := len(out.Students); n > 0 && n == limit {
+		out.Next = &out.Students[n-1].StudentMemberID
+	}
+	if in.After != nil {
+		return out
+	}
+	every := reachesEvery(rc.member)
+	for _, g := range a.groupSet.groups {
+		rg := rosterGroup{GroupID: g.id, Name: g.name, Members: []workMember{}, State: "not_started"}
+		for _, m := range byName(g.liveMembers(rc.now)) {
+			if !reaches(rc.member, m.id) {
+				continue
+			}
+			wm := workMember{MemberID: m.id}
+			if names {
+				name := m.actor.name
+				wm.DisplayName = &name
+			}
+			rg.Members = append(rg.Members, wm)
+		}
+		if len(rg.Members) == 0 && !every {
+			continue
+		}
+		for _, s := range rc.course.submissions {
+			if s.assignment == a && s.group == g && readsWork(rc.member, s) {
+				id, attempt, at := s.id, 1, s.submittedAt
+				rg.State, rg.SubmissionID, rg.Attempt, rg.SubmittedAt = "submitted", &id, &attempt, &at
+				if s.submittedBy != nil {
+					rg.SubmittedByMemberID = &s.submittedBy.id
+				}
+			}
+		}
+		out.Groups = append(out.Groups, rg)
+	}
+	return out
 }

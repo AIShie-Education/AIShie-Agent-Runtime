@@ -40,7 +40,12 @@
 // approval), and assignment_delete_preview and assignment_delete
 // (deletion.go, an assignment deleted for good with its work, which an
 // agent may delete only while nobody has started on it), writes a model
-// makes through its seat's perms, and the roster
+// makes through its seat's perms; group assignments as AIShie-Core
+// b5d6b43 has them (groups.go): the course's group sets, a group's work,
+// handed in once for its members and reached through any of them, graded
+// once with grade_submit (a group grade, and each member's draft from it,
+// adjusted or not), its peer form, and a peer evaluation refused to an
+// agent (people_only); and the roster
 // a model reads (member_list, member_get,
 // member_lookup_actor). The model's other read tools (where students stand
 // on an assignment, submission_roster, and a document's versions among
@@ -257,6 +262,9 @@ func implemented() map[string]*impl {
 	}
 	// Deleting an assignment for good (deletion.go).
 	impls["assignment.delete_preview"], impls[toolAssignmentDelete] = assignmentDeletePreview(), assignmentDelete()
+	// Group assignments and peer evaluation (groups.go).
+	impls["group_set.list"], impls["group_set.get"] = groupSetList(), groupSetGet()
+	impls["peer_form.get"], impls["peer_review.results"], impls["peer_review.submit"] = peerFormGet(), peerReviewResults(), peerReviewSubmit()
 	return impls
 }
 

@@ -562,7 +562,7 @@ func (c *Core) findDocument(co *course, id uuid.UUID) *document {
 func ownerScope(doc *document) scope {
 	switch {
 	case doc.submission != nil:
-		return scope{students: []string{doc.submission.student.id}, assignments: []string{doc.submission.assignment.id}}
+		return workScope(doc.submission)
 	case doc.grade != nil:
 		return scope{students: []string{doc.grade.student.id}, assignments: []string{doc.grade.assignment.id}}
 	}
@@ -631,22 +631,37 @@ func documentGet() *impl {
 }
 
 type assignmentView struct {
-	ID                     string     `json:"id"`
-	ComponentID            *string    `json:"component_id,omitempty"`
-	Title                  string     `json:"title"`
-	InstructionsDocumentID *string    `json:"instructions_document_id,omitempty"`
-	PointsPossible         string     `json:"points_possible"`
-	DueAt                  *time.Time `json:"due_at,omitempty"`
-	PublishedAt            *time.Time `json:"published_at,omitempty"`
+	ID                     string      `json:"id"`
+	ComponentID            *string     `json:"component_id,omitempty"`
+	Title                  string      `json:"title"`
+	InstructionsDocumentID *string     `json:"instructions_document_id,omitempty"`
+	PointsPossible         json.Number `json:"points_possible"`
+	DueAt                  *time.Time  `json:"due_at,omitempty"`
+	PublishedAt            *time.Time  `json:"published_at,omitempty"`
+	// GroupSetID is a group assignment's set, and MyGroup assignment.get's
+	// caller's group in it now (a student's own agent's, its student's).
+	GroupSetID *string      `json:"group_set_id,omitempty"`
+	MyGroup    *myGroupView `json:"my_group,omitempty"`
 }
 
+type myGroupView struct {
+	GroupID string `json:"group_id"`
+	Name    string `json:"name"`
+}
+
+// viewAssignment is an assignment as Core shows it, its points a JSON
+// number, as Core writes a decimal.
 func viewAssignment(a *assignment) assignmentView {
-	v := assignmentView{ID: a.id, Title: a.title, PointsPossible: a.points, DueAt: a.dueAt, PublishedAt: a.publishedAt}
+	v := assignmentView{ID: a.id, Title: a.title, PointsPossible: json.Number(decimalOf(a.points).String()), DueAt: a.dueAt,
+		PublishedAt: a.publishedAt}
 	if a.component != nil {
 		v.ComponentID = &a.component.id
 	}
 	if a.instructions != nil {
 		v.InstructionsDocumentID = &a.instructions.id
+	}
+	if a.groupSet != nil {
+		v.GroupSetID = &a.groupSet.id
 	}
 	return v
 }
@@ -717,28 +732,52 @@ func assignmentGet() *impl {
 			return target{typ: "assignment", id: &a.id, scope: scope{assignments: []string{a.id}}}, nil
 		},
 		query: func(_ *Core, rc *readCtx, in assignmentGetIn) (any, error) {
-			return viewAssignment(findAssignment(rc.course, in.AssignmentID)), nil
+			a := findAssignment(rc.course, in.AssignmentID)
+			v := viewAssignment(a)
+			if a.groupSet != nil {
+				if g := a.groupSet.groupOf(selfOf(rc.member)); g != nil {
+					v.MyGroup = &myGroupView{GroupID: g.id, Name: g.name}
+				}
+			}
+			return v, nil
 		},
 	})
 }
 
 type submissionView struct {
-	ID              string     `json:"id"`
-	AssignmentID    string     `json:"assignment_id"`
-	StudentMemberID string     `json:"student_member_id"`
-	Attempt         int        `json:"attempt"`
-	Body            *string    `json:"body,omitempty"`
-	State           string     `json:"state"`
-	SubmittedAt     *time.Time `json:"submitted_at,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
+	ID              string  `json:"id"`
+	AssignmentID    string  `json:"assignment_id"`
+	StudentMemberID *string `json:"student_member_id,omitempty"`
+	// GroupID, GroupName and Members are a group's work's: whose it is,
+	// as it was handed in (groups.go).
+	GroupID             *string      `json:"group_id,omitempty"`
+	GroupName           *string      `json:"group_name,omitempty"`
+	Members             []workMember `json:"members,omitempty"`
+	Attempt             int          `json:"attempt"`
+	Body                *string      `json:"body,omitempty"`
+	State               string       `json:"state"`
+	SubmittedAt         *time.Time   `json:"submitted_at,omitempty"`
+	SubmittedByMemberID *string      `json:"submitted_by_member_id,omitempty"`
+	// Revision counts a draft's changes; the fake's work, handed in as it
+	// was written, is at its first.
+	Revision  int       `json:"revision"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
-// viewSubmission is a submission as submission_get shows it, body and all;
-// submission_list leaves the body out, as Core's does.
-func viewSubmission(s *submission, withBody bool) submissionView {
+// viewSubmission is a submission as submission_get shows it to reader,
+// body and all; submission_list leaves the body out, as Core's does.
+func viewSubmission(s *submission, withBody bool, reader *member) submissionView {
 	at := s.submittedAt
-	v := submissionView{ID: s.id, AssignmentID: s.assignment.id, StudentMemberID: s.student.id, Attempt: 1,
-		State: "submitted", SubmittedAt: &at, CreatedAt: s.createdAt}
+	v := submissionView{ID: s.id, AssignmentID: s.assignment.id, Attempt: 1, State: "submitted", SubmittedAt: &at,
+		Revision: 1, CreatedAt: s.createdAt}
+	if s.student != nil {
+		v.StudentMemberID = &s.student.id
+	} else {
+		v.GroupID, v.GroupName, v.Members = &s.group.id, &s.group.name, workMembers(s, reader)
+	}
+	if s.submittedBy != nil {
+		v.SubmittedByMemberID = &s.submittedBy.id
+	}
 	if withBody {
 		body := s.body
 		v.Body = &body
@@ -746,10 +785,25 @@ func viewSubmission(s *submission, withBody bool) submissionView {
 	return v
 }
 
+// workScope is a submission as a target of reading it: a student's own,
+// its student; a group's, any of its students, so that each member's own
+// seat reaches it (Core's workScope).
+func workScope(s *submission) scope {
+	t := scope{assignments: []string{s.assignment.id}}
+	if s.student != nil {
+		t.students = []string{s.student.id}
+	} else {
+		t.anyStudents, t.anyOf = true, s.studentIDs()
+	}
+	return t
+}
+
 type workListIn struct {
 	inCourse
 	AssignmentID    *uuid.UUID `json:"assignment_id,omitempty"`
 	StudentMemberID *uuid.UUID `json:"student_member_id,omitempty"`
+	// GroupID is submission.list's: a group's work.
+	GroupID *uuid.UUID `json:"group_id,omitempty"`
 	pageIn
 }
 
@@ -769,9 +823,8 @@ func submissionList() *impl {
 				Next        *string          `json:"next,omitempty"`
 			}{Submissions: []submissionView{}}
 			for _, s := range rc.course.submissions {
-				if len(out.Submissions) < limit && s.id > after && in.matches(s.student.id, s.assignment.id) &&
-					inScope(rc.member, s.student.id, s.assignment.id) {
-					out.Submissions = append(out.Submissions, viewSubmission(s, false))
+				if len(out.Submissions) < limit && s.id > after && in.matchesWork(s) && checkScope(rc.member, workScope(s)) == "" {
+					out.Submissions = append(out.Submissions, viewSubmission(s, false, rc.member))
 				}
 			}
 			if n := len(out.Submissions); n > 0 && n == limit {
@@ -804,10 +857,10 @@ func submissionGet() *impl {
 			if s == nil {
 				return target{}, missing("no such submission in this course")
 			}
-			return target{typ: "submission", id: &s.id, scope: scope{students: []string{s.student.id}, assignments: []string{s.assignment.id}}}, nil
+			return target{typ: "submission", id: &s.id, scope: workScope(s)}, nil
 		},
 		query: func(_ *Core, rc *readCtx, in submissionGetIn) (any, error) {
-			return viewSubmission(findSubmission(rc.course, in.SubmissionID), true), nil
+			return viewSubmission(findSubmission(rc.course, in.SubmissionID), true, rc.member), nil
 		},
 	})
 }
@@ -818,7 +871,7 @@ type gradeView struct {
 	SubmissionID      *string         `json:"submission_id,omitempty"`
 	AssignmentID      *string         `json:"assignment_id,omitempty"`
 	Origin            string          `json:"origin"`
-	Score             string          `json:"score"`
+	Score             json.Number     `json:"score"`
 	Feedback          *string         `json:"feedback,omitempty"`
 	Breakdown         json.RawMessage `json:"breakdown,omitempty"`
 	GraderMemberID    string          `json:"grader_member_id"`
@@ -827,14 +880,18 @@ type gradeView struct {
 	PostedAt          *time.Time      `json:"posted_at,omitempty"`
 	SupersededBy      *string         `json:"superseded_by,omitempty"`
 	CreatedAt         time.Time       `json:"created_at"`
+	// Group is a member's grade's given from a group grade (groups.go).
+	Group *gradeGroupView `json:"group,omitempty"`
 }
 
-// viewGrade is a grade as Core shows it, its state read off the two facts
-// that define it.
-func viewGrade(g *grade) gradeView {
-	v := gradeView{ID: g.id, StudentMemberID: g.student.id, AssignmentID: &g.assignment.id, Origin: "entered", Score: g.score,
-		Feedback: g.feedback, Breakdown: g.breakdown, GraderMemberID: g.grader.id, CreatedByActionID: g.actionID,
-		State: g.state(), PostedAt: g.postedAt, SupersededBy: g.supersededBy, CreatedAt: g.createdAt}
+// viewGrade is a grade as Core shows it to reader, its state read off the
+// two facts that define it, its score a JSON number, as Core writes a
+// decimal.
+func viewGrade(g *grade, reader *member) gradeView {
+	v := gradeView{ID: g.id, StudentMemberID: g.student.id, AssignmentID: &g.assignment.id, Origin: "entered",
+		Score: json.Number(decimalOf(g.score).String()), Feedback: g.feedback, Breakdown: g.breakdown, GraderMemberID: g.grader.id,
+		CreatedByActionID: g.actionID, State: g.state(), PostedAt: g.postedAt, SupersededBy: g.supersededBy, CreatedAt: g.createdAt,
+		Group: viewGradeGroup(g, seesDrafts(reader))}
 	if g.submission != nil {
 		v.SubmissionID = &g.submission.id
 	}
@@ -870,7 +927,7 @@ func gradeList() *impl {
 			for _, g := range rc.course.grades {
 				if len(out.Grades) < limit && g.id > after && in.matches(g.student.id, g.assignment.id) &&
 					(drafts || g.standing()) && inScope(rc.member, g.student.id, g.assignment.id) {
-					out.Grades = append(out.Grades, viewGrade(g))
+					out.Grades = append(out.Grades, viewGrade(g, rc.member))
 				}
 			}
 			if n := len(out.Grades); n > 0 && n == limit {
@@ -911,7 +968,7 @@ func gradeGet() *impl {
 				// To a student an unposted grade does not exist yet.
 				return nil, missing("no such grade in this course")
 			}
-			return viewGrade(g), nil
+			return viewGrade(g, rc.member), nil
 		},
 	})
 }

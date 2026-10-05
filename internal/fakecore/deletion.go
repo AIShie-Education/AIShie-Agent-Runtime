@@ -175,8 +175,10 @@ func (c *Core) readDeletion(co *course, a *assignment) doomed {
 		d.counts.Submissions++
 		// The fake's work is handed in: none is a draft or missing.
 		d.counts.HandedIn++
-		if !slices.Contains(d.students, s.student.id) {
-			d.students = append(d.students, s.student.id)
+		for _, st := range s.studentIDs() {
+			if !slices.Contains(d.students, st) {
+				d.students = append(d.students, st)
+			}
 		}
 	}
 	for _, g := range co.grades {
@@ -185,6 +187,9 @@ func (c *Core) readDeletion(co *course, a *assignment) doomed {
 		}
 		d.grades = append(d.grades, g)
 		ids[g.id] = true
+		if g.groupGrade != nil {
+			ids[g.groupGrade.id] = true
+		}
 		if g.supersededBy == nil {
 			d.counts.Grades++
 			if g.postedAt != nil {
@@ -247,7 +252,7 @@ func (c *Core) actionsAbout(co *course, ids map[string]bool) []*action {
 			continue
 		}
 		if (a.targetID != nil && ids[*a.targetID]) || names(a.payload, "assignment_id", "submission_id", "grade_id", "document_id") ||
-			names(a.result, "id", "submission_id", "grade_id", "document_id") {
+			names(a.result, "id", "submission_id", "grade_id", "document_id", "group_grade_id") {
 			in[a.id] = true
 		}
 	}

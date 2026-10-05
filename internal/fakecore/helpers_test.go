@@ -118,6 +118,28 @@ func (a toolAnswer) str(path ...string) string {
 	return s
 }
 
+// num is the number at path, as Core writes it (a decimal is a JSON
+// number), or "" when there is none.
+func (a toolAnswer) num(path ...string) string {
+	var v any = a.Structured
+	for _, p := range path {
+		switch x := v.(type) {
+		case map[string]any:
+			v = x[p]
+		case []any:
+			i, err := strconv.Atoi(p)
+			if err != nil || i < 0 || i >= len(x) {
+				return ""
+			}
+			v = x[i]
+		default:
+			return ""
+		}
+	}
+	n, _ := v.(json.Number)
+	return string(n)
+}
+
 func (m *mcpClient) call(ctx context.Context, tool string, args any) (toolAnswer, error) {
 	h, err := m.post(ctx, map[string]any{"jsonrpc": "2.0", "id": m.id.Add(1), "method": "tools/call",
 		"params": map[string]any{"name": tool, "arguments": args}})

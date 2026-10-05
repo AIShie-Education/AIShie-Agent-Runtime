@@ -26,7 +26,8 @@ func TestDecimal(t *testing.T) {
 		if got := d.String(); got != c.want {
 			t.Errorf("%s: %s, want %s", c.in, got, c.want)
 		}
-		if b, _ := json.Marshal(d); string(b) != `"`+c.want+`"` {
+		// A JSON number, as Core writes a decimal.
+		if b, _ := json.Marshal(d); string(b) != c.want {
 			t.Errorf("%s written %s", c.in, b)
 		}
 	}
@@ -91,8 +92,8 @@ func TestGradeDrafts(t *testing.T) {
 		t.Errorf("Sato's grade_list after Mori's draft: %v", got)
 	}
 	g := mustCall(t, sato, "grade_get", inCourseArgs(w, "grade_id", g1))
-	if g.str("result", "superseded_by") != g2 || g.str("result", "feedback") != "Good." || g.str("result", "score") != "85" ||
-		g.str("result", "breakdown", "0", "points") != "40" || g.str("result", "posted_at") != "" {
+	if g.str("result", "superseded_by") != g2 || g.str("result", "feedback") != "Good." || g.num("result", "score") != "85" ||
+		g.num("result", "breakdown", "0", "points") != "40" || g.str("result", "posted_at") != "" {
 		t.Errorf("grade_get of the first draft: %s", g.Text)
 	}
 	if got := grades(t, w, yuki); len(got) != 1 || got[work.GradeID] != "posted" {
@@ -173,7 +174,8 @@ func TestGradeSince(t *testing.T) {
 	for _, p := range w.fc.Proposals(w.co.ID) {
 		var args map[string]any
 		w.ok(json.Unmarshal(p.Args, &args))
-		if p.ActionID == first && (args["for_missing"] != false || args["out_of"] != "100" || args["no_rubric"] != true || args["score"] != "80") {
+		// Pinned as Core pins it, its decimals JSON numbers.
+		if p.ActionID == first && (args["for_missing"] != false || args["out_of"] != 100.0 || args["no_rubric"] != true || args["score"] != 80.0) {
 			t.Errorf("the proposal is kept as %s", p.Args)
 		}
 	}

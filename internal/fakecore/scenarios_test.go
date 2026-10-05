@@ -131,6 +131,23 @@ type world interface {
 	// an instructor seats an assistant who works with the whole class: its
 	// seat and its client.
 	assistant(perms map[string]string) (seat string, c *mcpClient)
+	// groupSet is Sato making a group set of the groups named, in order,
+	// and placing the students named in each: its id, and its groups' ids
+	// in order.
+	groupSet(name string, groups ...groupSpec) (setID string, groupIDs []string)
+	// groupAssignment is Sato putting up a published group assignment
+	// worth 20 points that uses the set, in the component HW1 counts
+	// toward: its id.
+	groupAssignment(title, setID string) string
+	// groupHandIn is a student starting their group's work on the
+	// assignment and handing it in: its submission's id.
+	groupHandIn(student int, assignmentID string) string
+	// peerForm is Sato giving the group assignment a peer form: shares of
+	// 100, open to each group once it has handed in, closing a week from
+	// now, counting at 20%.
+	peerForm(assignmentID string)
+	// post is Sato posting grades.
+	post(gradeIDs ...string)
 }
 
 // steps is what a scenario recorded, in order.
@@ -1225,6 +1242,7 @@ var scenarios = []scenario{
 	escalations,
 	gradeSince,
 	assignmentDeletion,
+	groupWork,
 }
 
 // escalations are reviews of the tutor's answers proposed by an agent

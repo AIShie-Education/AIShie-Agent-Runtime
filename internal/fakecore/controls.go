@@ -1218,6 +1218,9 @@ func (c *Core) HandIn(courseID, studentID, assignmentID, body string) (string, e
 	if a == nil {
 		return "", fmt.Errorf("fakecore: HandIn: no assignment %s in the course", assignmentID)
 	}
+	if a.groupSet != nil {
+		return "", errors.New("fakecore: HandIn: a group assignment takes a group's work (group_assignment): HandInGroupWork")
+	}
 	now := c.now()
 	s := &submission{id: newID(), assignment: a, student: student, body: body, createdAt: now, submittedAt: now}
 	co.submissions = append(co.submissions, s)

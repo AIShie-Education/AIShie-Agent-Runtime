@@ -1,0 +1,1861 @@
+{
+ "scenario": "group_work",
+ "steps": [
+  {
+   "args": {
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "sets": [
+      {
+       "assignments": [
+        {
+         "assignment_id": "<id:2>",
+         "published": true,
+         "title": "Project"
+        }
+       ],
+       "created_at": "<time>",
+       "groups": [
+        {
+         "created_at": "<time>",
+         "full": false,
+         "id": "<id:3>",
+         "name": "Group A",
+         "size": 2
+        },
+        {
+         "created_at": "<time>",
+         "full": false,
+         "id": "<id:4>",
+         "name": "Group B",
+         "size": 0
+        }
+       ],
+       "id": "<id:5>",
+       "name": "Project groups",
+       "signup": {
+        "joinable": false,
+        "open": false,
+        "reason": "signup_closed"
+       },
+       "updated_at": "<time>"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "sets_as_the_course_tutor",
+   "text_is_envelope": true,
+   "tool": "group_set_list"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "sets": [
+      {
+       "assignments": [
+        {
+         "assignment_id": "<id:2>",
+         "published": true,
+         "title": "Project"
+        }
+       ],
+       "created_at": "<time>",
+       "groups": [
+        {
+         "created_at": "<time>",
+         "full": false,
+         "id": "<id:3>",
+         "members": [
+          {
+           "display_name": "Ken",
+           "member_id": "<id:6>"
+          },
+          {
+           "display_name": "Yuki",
+           "member_id": "<id:7>"
+          }
+         ],
+         "name": "Group A",
+         "size": 2
+        },
+        {
+         "created_at": "<time>",
+         "full": false,
+         "id": "<id:4>",
+         "name": "Group B",
+         "size": 0
+        }
+       ],
+       "id": "<id:5>",
+       "my_group_id": "<id:3>",
+       "name": "Project groups",
+       "signup": {
+        "joinable": false,
+        "open": false,
+        "reason": "signup_closed"
+       },
+       "updated_at": "<time>"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "sets_as_a_members_own_agent",
+   "text_is_envelope": true,
+   "tool": "group_set_list"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "sets": [
+      {
+       "assignments": [
+        {
+         "assignment_id": "<id:2>",
+         "published": true,
+         "title": "Project"
+        }
+       ],
+       "created_at": "<time>",
+       "groups": [
+        {
+         "created_at": "<time>",
+         "full": false,
+         "id": "<id:3>",
+         "members": [
+          {
+           "display_name": "Ken",
+           "joined_at": "<time>",
+           "joined_how": "assigned",
+           "member_id": "<id:6>"
+          },
+          {
+           "display_name": "Yuki",
+           "joined_at": "<time>",
+           "joined_how": "assigned",
+           "member_id": "<id:7>"
+          }
+         ],
+         "name": "Group A",
+         "size": 2
+        },
+        {
+         "created_at": "<time>",
+         "full": false,
+         "id": "<id:4>",
+         "name": "Group B",
+         "size": 0
+        }
+       ],
+       "id": "<id:5>",
+       "name": "Project groups",
+       "signup": {
+        "joinable": false,
+        "open": false,
+        "reason": "signup_closed"
+       },
+       "unassigned_count": 0,
+       "updated_at": "<time>"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "sets_as_an_assistant",
+   "text_is_envelope": true,
+   "tool": "group_set_list"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "set_id": "<id:5>"
+   },
+   "envelope": {
+    "result": {
+     "assignments": [
+      {
+       "assignment_id": "<id:2>",
+       "published": true,
+       "title": "Project"
+      }
+     ],
+     "created_at": "<time>",
+     "groups": [
+      {
+       "created_at": "<time>",
+       "full": false,
+       "id": "<id:3>",
+       "name": "Group A",
+       "size": 2
+      },
+      {
+       "created_at": "<time>",
+       "full": false,
+       "id": "<id:4>",
+       "name": "Group B",
+       "size": 0
+      }
+     ],
+     "id": "<id:5>",
+     "name": "Project groups",
+     "signup": {
+      "joinable": false,
+      "open": false,
+      "reason": "signup_closed"
+     },
+     "updated_at": "<time>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "set_as_the_course_tutor",
+   "text_is_envelope": true,
+   "tool": "group_set_get"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "set_id": "<id:5>"
+   },
+   "envelope": {
+    "result": {
+     "assignments": [
+      {
+       "assignment_id": "<id:2>",
+       "published": true,
+       "title": "Project"
+      }
+     ],
+     "created_at": "<time>",
+     "groups": [
+      {
+       "created_at": "<time>",
+       "full": false,
+       "id": "<id:3>",
+       "members": [
+        {
+         "display_name": "Ken",
+         "member_id": "<id:6>"
+        },
+        {
+         "display_name": "Yuki",
+         "member_id": "<id:7>"
+        }
+       ],
+       "name": "Group A",
+       "size": 2,
+       "work": [
+        {
+         "assignment_id": "<id:2>",
+         "attempt": 1,
+         "state": "submitted",
+         "submission_id": "<id:8>",
+         "title": "Project"
+        }
+       ]
+      },
+      {
+       "created_at": "<time>",
+       "full": false,
+       "id": "<id:4>",
+       "name": "Group B",
+       "size": 0
+      }
+     ],
+     "id": "<id:5>",
+     "my_group_id": "<id:3>",
+     "name": "Project groups",
+     "signup": {
+      "joinable": false,
+      "open": false,
+      "reason": "signup_closed"
+     },
+     "updated_at": "<time>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "set_as_a_members_own_agent",
+   "text_is_envelope": true,
+   "tool": "group_set_get"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "include_history": true,
+    "set_id": "<id:5>"
+   },
+   "envelope": {
+    "result": {
+     "assignments": [
+      {
+       "assignment_id": "<id:2>",
+       "published": true,
+       "title": "Project"
+      }
+     ],
+     "created_at": "<time>",
+     "groups": [
+      {
+       "created_at": "<time>",
+       "full": false,
+       "id": "<id:3>",
+       "members": [
+        {
+         "display_name": "Ken",
+         "joined_at": "<time>",
+         "joined_how": "assigned",
+         "member_id": "<id:6>"
+        },
+        {
+         "display_name": "Yuki",
+         "joined_at": "<time>",
+         "joined_how": "assigned",
+         "member_id": "<id:7>"
+        }
+       ],
+       "name": "Group A",
+       "size": 2,
+       "work": [
+        {
+         "assignment_id": "<id:2>",
+         "attempt": 1,
+         "state": "submitted",
+         "submission_id": "<id:8>",
+         "title": "Project"
+        }
+       ]
+      },
+      {
+       "created_at": "<time>",
+       "full": false,
+       "id": "<id:4>",
+       "name": "Group B",
+       "size": 0
+      }
+     ],
+     "history": [
+      {
+       "display_name": "Ken",
+       "group_id": "<id:3>",
+       "id": "<id:9>",
+       "joined_at": "<time>",
+       "joined_by_member_id": "<id:10>",
+       "joined_how": "assigned",
+       "member_id": "<id:6>"
+      },
+      {
+       "display_name": "Yuki",
+       "group_id": "<id:3>",
+       "id": "<id:11>",
+       "joined_at": "<time>",
+       "joined_by_member_id": "<id:10>",
+       "joined_how": "assigned",
+       "member_id": "<id:7>"
+      }
+     ],
+     "id": "<id:5>",
+     "name": "Project groups",
+     "signup": {
+      "joinable": false,
+      "open": false,
+      "reason": "signup_closed"
+     },
+     "unassigned_count": 0,
+     "updated_at": "<time>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "set_as_an_assistant",
+   "text_is_envelope": true,
+   "tool": "group_set_get"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "set_id": "<id:12>"
+   },
+   "envelope": {
+    "error": {
+     "code": "not_found",
+     "message": "no such group set in this course"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "no_such_set",
+   "text_is_envelope": true,
+   "tool": "group_set_get"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:2>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "component_id": "<id:13>",
+     "group_set_id": "<id:5>",
+     "id": "<id:2>",
+     "my_group": {
+      "group_id": "<id:3>",
+      "name": "Group A"
+     },
+     "points_possible": 20,
+     "published_at": "<time>",
+     "title": "Project"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "assignment_as_a_members_own_agent",
+   "text_is_envelope": true,
+   "tool": "assignment_get"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:2>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "component_id": "<id:13>",
+     "group_set_id": "<id:5>",
+     "id": "<id:2>",
+     "points_possible": 20,
+     "published_at": "<time>",
+     "title": "Project"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "assignment_as_the_course_tutor",
+   "text_is_envelope": true,
+   "tool": "assignment_get"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "submission_id": "<id:8>"
+   },
+   "envelope": {
+    "result": {
+     "assignment_id": "<id:2>",
+     "attempt": 1,
+     "body": "Our project.",
+     "created_at": "<time>",
+     "group_id": "<id:3>",
+     "group_name": "Group A",
+     "id": "<id:8>",
+     "members": [
+      {
+       "display_name": "Ken",
+       "member_id": "<id:6>"
+      },
+      {
+       "display_name": "Yuki",
+       "member_id": "<id:7>"
+      }
+     ],
+     "revision": 1,
+     "state": "submitted",
+     "submitted_at": "<time>",
+     "submitted_by_member_id": "<id:7>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "work_as_an_assistant",
+   "text_is_envelope": true,
+   "tool": "submission_get"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "submission_id": "<id:8>"
+   },
+   "envelope": {
+    "result": {
+     "assignment_id": "<id:2>",
+     "attempt": 1,
+     "body": "Our project.",
+     "created_at": "<time>",
+     "group_id": "<id:3>",
+     "group_name": "Group A",
+     "id": "<id:8>",
+     "members": [
+      {
+       "display_name": "Ken",
+       "member_id": "<id:6>"
+      },
+      {
+       "display_name": "Yuki",
+       "member_id": "<id:7>"
+      }
+     ],
+     "revision": 1,
+     "state": "submitted",
+     "submitted_at": "<time>",
+     "submitted_by_member_id": "<id:7>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "work_as_a_members_own_agent",
+   "text_is_envelope": true,
+   "tool": "submission_get"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "submission_id": "<id:8>"
+   },
+   "envelope": {
+    "result": {
+     "assignment_id": "<id:2>",
+     "attempt": 1,
+     "body": "Our project.",
+     "created_at": "<time>",
+     "group_id": "<id:3>",
+     "group_name": "Group A",
+     "id": "<id:8>",
+     "members": [
+      {
+       "member_id": "<id:7>"
+      },
+      {
+       "member_id": "<id:6>"
+      }
+     ],
+     "revision": 1,
+     "state": "submitted",
+     "submitted_at": "<time>",
+     "submitted_by_member_id": "<id:7>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "work_as_a_tutor_listed_for_one_member",
+   "text_is_envelope": true,
+   "tool": "submission_get"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:2>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "submissions": [
+      {
+       "assignment_id": "<id:2>",
+       "attempt": 1,
+       "created_at": "<time>",
+       "group_id": "<id:3>",
+       "group_name": "Group A",
+       "id": "<id:8>",
+       "members": [
+        {
+         "display_name": "Ken",
+         "member_id": "<id:6>"
+        },
+        {
+         "display_name": "Yuki",
+         "member_id": "<id:7>"
+        }
+       ],
+       "revision": 1,
+       "state": "submitted",
+       "submitted_at": "<time>",
+       "submitted_by_member_id": "<id:7>"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "work_listed",
+   "text_is_envelope": true,
+   "tool": "submission_list"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:2>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "submissions": [
+      {
+       "assignment_id": "<id:2>",
+       "attempt": 1,
+       "created_at": "<time>",
+       "group_id": "<id:3>",
+       "group_name": "Group A",
+       "id": "<id:8>",
+       "members": [
+        {
+         "display_name": "Ken",
+         "member_id": "<id:6>"
+        },
+        {
+         "display_name": "Yuki",
+         "member_id": "<id:7>"
+        }
+       ],
+       "revision": 1,
+       "state": "submitted",
+       "submitted_at": "<time>",
+       "submitted_by_member_id": "<id:7>"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "work_listed_for_a_members_own_agent",
+   "text_is_envelope": true,
+   "tool": "submission_list"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:2>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "groups": [
+      {
+       "attempt": 1,
+       "group_id": "<id:3>",
+       "members": [
+        {
+         "display_name": "Ken",
+         "member_id": "<id:6>"
+        },
+        {
+         "display_name": "Yuki",
+         "member_id": "<id:7>"
+        }
+       ],
+       "name": "Group A",
+       "state": "submitted",
+       "submission_id": "<id:8>",
+       "submitted_at": "<time>",
+       "submitted_by_member_id": "<id:7>"
+      },
+      {
+       "group_id": "<id:4>",
+       "members": [],
+       "name": "Group B",
+       "state": "not_started"
+      }
+     ],
+     "students": [
+      {
+       "attempt": 1,
+       "display_name": "Yuki",
+       "group_id": "<id:3>",
+       "member_status": "active",
+       "state": "submitted",
+       "student_member_id": "<id:7>",
+       "submission_id": "<id:8>",
+       "submitted_at": "<time>"
+      },
+      {
+       "attempt": 1,
+       "display_name": "Ken",
+       "group_id": "<id:3>",
+       "member_status": "active",
+       "state": "submitted",
+       "student_member_id": "<id:6>",
+       "submission_id": "<id:8>",
+       "submitted_at": "<time>"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "roster",
+   "text_is_envelope": true,
+   "tool": "submission_roster"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:2>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "groups": [
+      {
+       "attempt": 1,
+       "group_id": "<id:3>",
+       "members": [
+        {
+         "member_id": "<id:6>"
+        }
+       ],
+       "name": "Group A",
+       "state": "submitted",
+       "submission_id": "<id:8>",
+       "submitted_at": "<time>",
+       "submitted_by_member_id": "<id:7>"
+      }
+     ],
+     "students": [
+      {
+       "attempt": 1,
+       "group_id": "<id:3>",
+       "state": "submitted",
+       "student_member_id": "<id:6>",
+       "submission_id": "<id:8>",
+       "submitted_at": "<time>"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "roster_for_a_tutor_listed_for_one_member",
+   "text_is_envelope": true,
+   "tool": "submission_roster"
+  },
+  {
+   "args": {
+    "adjustments": [
+     {
+      "kind": "delta",
+      "points": "-2",
+      "reason": "Missed two of the group's meetings.",
+      "student_member_id": "<id:6>"
+     }
+    ],
+    "course_id": "<id:1>",
+    "feedback": "Clear and well argued.",
+    "idempotency_key": "tool:g:1",
+    "score": "16",
+    "submission_id": "<id:8>"
+   },
+   "envelope": {
+    "action_id": "<id:14>",
+    "result": {
+     "group_grade_id": "<id:15>",
+     "member_grades": [
+      {
+       "grade_id": "<id:16>",
+       "score": 16,
+       "student_member_id": "<id:7>"
+      },
+      {
+       "adjustment": {
+        "by_member_id": "<id:17>",
+        "kind": "delta",
+        "points": -2,
+        "reason": "Missed two of the group's meetings."
+       },
+       "grade_id": "<id:18>",
+       "score": 14,
+       "student_member_id": "<id:6>"
+      }
+     ]
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "graded",
+   "text_is_envelope": true,
+   "tool": "grade_submit"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "idempotency_key": "tool:g:2",
+    "score": "18",
+    "submission_id": "<id:8>"
+   },
+   "envelope": {
+    "action_id": "<id:19>",
+    "result": {
+     "group_grade_id": "<id:20>",
+     "member_grades": [
+      {
+       "grade_id": "<id:21>",
+       "score": 18,
+       "student_member_id": "<id:7>"
+      },
+      {
+       "adjustment": {
+        "by_member_id": "<id:17>",
+        "kind": "delta",
+        "points": -2,
+        "reason": "Missed two of the group's meetings."
+       },
+       "grade_id": "<id:22>",
+       "score": 16,
+       "student_member_id": "<id:6>"
+      }
+     ]
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "graded_again",
+   "text_is_envelope": true,
+   "tool": "grade_submit"
+  },
+  {
+   "events": [
+    {
+     "action_id": "<id:14>",
+     "assignment_id": "<id:2>",
+     "occurred_at": "<time>",
+     "payload": {
+      "group_grade_id": "<id:15>"
+     },
+     "student_member_id": "<id:7>",
+     "subject_id": "<id:16>",
+     "subject_type": "grade",
+     "type": "grade.created"
+    },
+    {
+     "action_id": "<id:14>",
+     "assignment_id": "<id:2>",
+     "occurred_at": "<time>",
+     "payload": {
+      "group_grade_id": "<id:15>"
+     },
+     "student_member_id": "<id:6>",
+     "subject_id": "<id:18>",
+     "subject_type": "grade",
+     "type": "grade.created"
+    },
+    {
+     "action_id": "<id:19>",
+     "assignment_id": "<id:2>",
+     "occurred_at": "<time>",
+     "payload": {
+      "group_grade_id": "<id:20>"
+     },
+     "student_member_id": "<id:7>",
+     "subject_id": "<id:21>",
+     "subject_type": "grade",
+     "type": "grade.created"
+    },
+    {
+     "action_id": "<id:19>",
+     "assignment_id": "<id:2>",
+     "occurred_at": "<time>",
+     "payload": {
+      "group_grade_id": "<id:20>"
+     },
+     "student_member_id": "<id:6>",
+     "subject_id": "<id:22>",
+     "subject_type": "grade",
+     "type": "grade.created"
+    }
+   ],
+   "more": false,
+   "status": "executed",
+   "step": "news_of_the_grades",
+   "tool": "event_list"
+  },
+  {
+   "args": {
+    "adjustments": [
+     {
+      "kind": "replace",
+      "points": "10",
+      "reason": "Not in the group.",
+      "student_member_id": "<id:23>"
+     }
+    ],
+    "course_id": "<id:1>",
+    "idempotency_key": "tool:g:3",
+    "score": "18",
+    "submission_id": "<id:8>"
+   },
+   "envelope": {
+    "action_id": "<id:24>",
+    "error": {
+     "code": "failed_precondition",
+     "details": {
+      "member_id": "<id:23>",
+      "reason": "not_a_member_of_work"
+     },
+     "message": "<id:23> is not a member of this work"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "adjusting_a_non_member",
+   "text_is_envelope": true,
+   "tool": "grade_submit"
+  },
+  {
+   "args": {
+    "adjustments": [
+     {
+      "kind": "delta",
+      "points": "1",
+      "student_member_id": "<id:7>"
+     }
+    ],
+    "course_id": "<id:1>",
+    "idempotency_key": "tool:g:4",
+    "score": "18",
+    "submission_id": "<id:8>"
+   },
+   "envelope": {
+    "error": {
+     "code": "invalid_argument",
+     "details": {
+      "reason": "bad_adjustment"
+     },
+     "message": "an adjustment says why, in 1 to 500 characters: reason"
+    },
+    "status": "error"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "adjustment_without_a_reason",
+   "text_is_envelope": true,
+   "tool": "grade_submit"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "idempotency_key": "tool:g:5",
+    "members": [
+     "<id:7>"
+    ],
+    "score": "18",
+    "submission_id": "<id:8>"
+   },
+   "envelope": {
+    "action_id": "<id:25>",
+    "error": {
+     "code": "conflict",
+     "details": {
+      "reason": "members_changed"
+     },
+     "message": "the group's members have changed since this was proposed; look again, and propose it again"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "members_named_wrongly",
+   "text_is_envelope": true,
+   "tool": "grade_submit"
+  },
+  {
+   "args": {
+    "adjustments": [
+     {
+      "kind": "delta",
+      "points": "1",
+      "reason": "Extra.",
+      "student_member_id": "<id:7>"
+     }
+    ],
+    "course_id": "<id:1>",
+    "idempotency_key": "tool:g:6",
+    "score": "90",
+    "submission_id": "<id:26>"
+   },
+   "envelope": {
+    "action_id": "<id:27>",
+    "error": {
+     "code": "failed_precondition",
+     "details": {
+      "reason": "not_a_group_assignment"
+     },
+     "message": "this assignment is not a group assignment: work is each student's own"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "adjusting_a_students_own_work",
+   "text_is_envelope": true,
+   "tool": "grade_submit"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:2>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "grades": [
+      {
+       "assignment_id": "<id:2>",
+       "created_at": "<time>",
+       "created_by_action_id": "<id:14>",
+       "feedback": "Clear and well argued.",
+       "grader_member_id": "<id:17>",
+       "group": {
+        "group_grade_id": "<id:15>",
+        "group_id": "<id:3>",
+        "group_name": "Group A",
+        "score": 16
+       },
+       "id": "<id:16>",
+       "origin": "entered",
+       "score": 16,
+       "state": "superseded",
+       "student_member_id": "<id:7>",
+       "submission_id": "<id:8>",
+       "superseded_by": "<id:21>"
+      },
+      {
+       "assignment_id": "<id:2>",
+       "created_at": "<time>",
+       "created_by_action_id": "<id:14>",
+       "feedback": "Clear and well argued.",
+       "grader_member_id": "<id:17>",
+       "group": {
+        "adjustment": {
+         "by_member_id": "<id:17>",
+         "kind": "delta",
+         "points": -2,
+         "reason": "Missed two of the group's meetings."
+        },
+        "group_grade_id": "<id:15>",
+        "group_id": "<id:3>",
+        "group_name": "Group A",
+        "score": 16
+       },
+       "id": "<id:18>",
+       "origin": "entered",
+       "score": 14,
+       "state": "superseded",
+       "student_member_id": "<id:6>",
+       "submission_id": "<id:8>",
+       "superseded_by": "<id:22>"
+      },
+      {
+       "assignment_id": "<id:2>",
+       "created_at": "<time>",
+       "created_by_action_id": "<id:19>",
+       "grader_member_id": "<id:17>",
+       "group": {
+        "group_grade_id": "<id:20>",
+        "group_id": "<id:3>",
+        "group_name": "Group A",
+        "score": 18
+       },
+       "id": "<id:21>",
+       "origin": "entered",
+       "score": 18,
+       "state": "draft",
+       "student_member_id": "<id:7>",
+       "submission_id": "<id:8>"
+      },
+      {
+       "assignment_id": "<id:2>",
+       "created_at": "<time>",
+       "created_by_action_id": "<id:19>",
+       "grader_member_id": "<id:17>",
+       "group": {
+        "adjustment": {
+         "by_member_id": "<id:17>",
+         "kind": "delta",
+         "points": -2,
+         "reason": "Missed two of the group's meetings."
+        },
+        "group_grade_id": "<id:20>",
+        "group_id": "<id:3>",
+        "group_name": "Group A",
+        "score": 18
+       },
+       "id": "<id:22>",
+       "origin": "entered",
+       "score": 16,
+       "state": "draft",
+       "student_member_id": "<id:6>",
+       "submission_id": "<id:8>"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "drafts",
+   "text_is_envelope": true,
+   "tool": "grade_list"
+  },
+  {
+   "args": {
+    "adjustments": [
+     {
+      "kind": "none",
+      "student_member_id": "<id:6>"
+     }
+    ],
+    "course_id": "<id:1>",
+    "idempotency_key": "tool:g:7",
+    "score": "19",
+    "submission_id": "<id:8>"
+   },
+   "envelope": {
+    "action_id": "<id:28>",
+    "note": "Not executed. This action needs a person's confirmation and has been queued as the action_id above. This is the normal outcome at your permission level, not an error: do not retry it under a new idempotency key. Carry on with other work, and look for action.approved, action.rejected, action.changes_requested or action.cancelled carrying this action_id in event_list, or check action_list_mine. action.approved says in its payload whether the outcome was executed or failed. After action.changes_requested, read what to change in its result.decision.reason and propose again under a new key, with revises = this action_id.",
+    "review_state": "none",
+    "status": "proposed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "proposed",
+   "text_is_envelope": true,
+   "tool": "grade_submit"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "idempotency_key": "grade:<id:8>:1",
+    "score": "17",
+    "submission_id": "<id:8>"
+   },
+   "envelope": {
+    "action_id": "<id:29>",
+    "result": {
+     "group_grade_id": "<id:30>",
+     "member_grades": [
+      {
+       "grade_id": "<id:31>",
+       "score": 17,
+       "student_member_id": "<id:7>"
+      },
+      {
+       "adjustment": {
+        "by_member_id": "<id:17>",
+        "kind": "delta",
+        "points": -2,
+        "reason": "Missed two of the group's meetings."
+       },
+       "grade_id": "<id:32>",
+       "score": 15,
+       "student_member_id": "<id:6>"
+      }
+     ]
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "newer_draft_by_a_person",
+   "text_is_envelope": true,
+   "tool": "grade_submit"
+  },
+  {
+   "args": {
+    "action_id": "<id:28>",
+    "course_id": "<id:1>",
+    "decision": "approve",
+    "idempotency_key": "decide:<id:28>"
+   },
+   "envelope": {
+    "action_id": "<id:33>",
+    "result": {
+     "action_id": "<id:28>",
+     "error": {
+      "code": "failed_precondition",
+      "message": "a newer draft was entered for this work after this grade was proposed; look at it, and propose again if it should still be replaced"
+     },
+     "outcome": "failed"
+    },
+    "review_state": "none",
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "approved_after_a_newer_draft",
+   "text_is_envelope": true,
+   "tool": "action_decide"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "actions": [
+      {
+       "action_type": "grade.submit",
+       "actor_id": "<id:34>",
+       "authz_result": "autonomous",
+       "created_at": "<time>",
+       "executed_at": "<time>",
+       "id": "<id:14>",
+       "member_id": "<id:17>",
+       "payload": {
+        "adjustments": [
+         {
+          "kind": "delta",
+          "points": "-2",
+          "reason": "Missed two of the group's meetings.",
+          "student_member_id": "<id:6>"
+         }
+        ],
+        "course_id": "<id:1>",
+        "feedback": "Clear and well argued.",
+        "score": "16",
+        "submission_id": "<id:8>"
+       },
+       "result": {
+        "group_grade_id": "<id:15>",
+        "member_grades": [
+         {
+          "grade_id": "<id:16>",
+          "score": 16,
+          "student_member_id": "<id:7>"
+         },
+         {
+          "adjustment": {
+           "by_member_id": "<id:17>",
+           "kind": "delta",
+           "points": -2,
+           "reason": "Missed two of the group's meetings."
+          },
+          "grade_id": "<id:18>",
+          "score": 14,
+          "student_member_id": "<id:6>"
+         }
+        ]
+       },
+       "review_state": "none",
+       "status": "executed",
+       "target_id": "<id:8>",
+       "target_type": "submission"
+      },
+      {
+       "action_type": "grade.submit",
+       "actor_id": "<id:34>",
+       "authz_result": "autonomous",
+       "created_at": "<time>",
+       "executed_at": "<time>",
+       "id": "<id:19>",
+       "member_id": "<id:17>",
+       "payload": {
+        "course_id": "<id:1>",
+        "score": "18",
+        "submission_id": "<id:8>"
+       },
+       "result": {
+        "group_grade_id": "<id:20>",
+        "member_grades": [
+         {
+          "grade_id": "<id:21>",
+          "score": 18,
+          "student_member_id": "<id:7>"
+         },
+         {
+          "adjustment": {
+           "by_member_id": "<id:17>",
+           "kind": "delta",
+           "points": -2,
+           "reason": "Missed two of the group's meetings."
+          },
+          "grade_id": "<id:22>",
+          "score": 16,
+          "student_member_id": "<id:6>"
+         }
+        ]
+       },
+       "review_state": "none",
+       "status": "executed",
+       "target_id": "<id:8>",
+       "target_type": "submission"
+      },
+      {
+       "action_type": "grade.submit",
+       "actor_id": "<id:34>",
+       "authz_result": "autonomous",
+       "created_at": "<time>",
+       "id": "<id:24>",
+       "member_id": "<id:17>",
+       "payload": {
+        "adjustments": [
+         {
+          "kind": "replace",
+          "points": "10",
+          "reason": "Not in the group.",
+          "student_member_id": "<id:23>"
+         }
+        ],
+        "course_id": "<id:1>",
+        "score": "18",
+        "submission_id": "<id:8>"
+       },
+       "result": {
+        "error": {
+         "code": "failed_precondition",
+         "details": {
+          "member_id": "<id:23>",
+          "reason": "not_a_member_of_work"
+         },
+         "message": "<id:23> is not a member of this work"
+        }
+       },
+       "review_state": "none",
+       "status": "failed",
+       "target_id": "<id:8>",
+       "target_type": "submission"
+      },
+      {
+       "action_type": "grade.submit",
+       "actor_id": "<id:34>",
+       "authz_result": "autonomous",
+       "created_at": "<time>",
+       "id": "<id:25>",
+       "member_id": "<id:17>",
+       "payload": {
+        "course_id": "<id:1>",
+        "members": [
+         "<id:7>"
+        ],
+        "score": "18",
+        "submission_id": "<id:8>"
+       },
+       "result": {
+        "error": {
+         "code": "conflict",
+         "details": {
+          "reason": "members_changed"
+         },
+         "message": "the group's members have changed since this was proposed; look again, and propose it again"
+        }
+       },
+       "review_state": "none",
+       "status": "failed",
+       "target_id": "<id:8>",
+       "target_type": "submission"
+      },
+      {
+       "action_type": "grade.submit",
+       "actor_id": "<id:34>",
+       "authz_result": "autonomous",
+       "created_at": "<time>",
+       "id": "<id:27>",
+       "member_id": "<id:17>",
+       "payload": {
+        "adjustments": [
+         {
+          "kind": "delta",
+          "points": "1",
+          "reason": "Extra.",
+          "student_member_id": "<id:7>"
+         }
+        ],
+        "course_id": "<id:1>",
+        "score": "90",
+        "submission_id": "<id:26>"
+       },
+       "result": {
+        "error": {
+         "code": "failed_precondition",
+         "details": {
+          "reason": "not_a_group_assignment"
+         },
+         "message": "this assignment is not a group assignment: work is each student's own"
+        }
+       },
+       "review_state": "none",
+       "status": "failed",
+       "target_id": "<id:26>",
+       "target_type": "submission"
+      },
+      {
+       "action_type": "grade.submit",
+       "actor_id": "<id:34>",
+       "authz_result": "confirm_required",
+       "created_at": "<time>",
+       "decided_at": "<time>",
+       "decided_by_member_id": "<id:35>",
+       "id": "<id:28>",
+       "member_id": "<id:17>",
+       "payload": {
+        "adjustments": [
+         {
+          "kind": "none",
+          "student_member_id": "<id:7>"
+         },
+         {
+          "kind": "none",
+          "student_member_id": "<id:6>"
+         }
+        ],
+        "course_id": "<id:1>",
+        "for_missing": false,
+        "members": [
+         "<id:7>",
+         "<id:6>"
+        ],
+        "no_rubric": true,
+        "out_of": 20,
+        "score": 19,
+        "submission_id": "<id:8>"
+       },
+       "result": {
+        "error": {
+         "code": "failed_precondition",
+         "message": "a newer draft was entered for this work after this grade was proposed; look at it, and propose again if it should still be replaced"
+        }
+       },
+       "review_state": "none",
+       "status": "failed",
+       "target_id": "<id:8>",
+       "target_type": "submission"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "mine",
+   "text_is_envelope": true,
+   "tool": "action_list_mine"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:2>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "grades": [
+      {
+       "assignment_id": "<id:2>",
+       "created_at": "<time>",
+       "created_by_action_id": "<id:29>",
+       "grader_member_id": "<id:10>",
+       "group": {
+        "group_grade_id": "<id:30>",
+        "group_id": "<id:3>",
+        "group_name": "Group A",
+        "score": 17
+       },
+       "id": "<id:31>",
+       "origin": "entered",
+       "posted_at": "<time>",
+       "score": 17,
+       "state": "posted",
+       "student_member_id": "<id:7>",
+       "submission_id": "<id:8>"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "grades_as_a_member",
+   "text_is_envelope": true,
+   "tool": "grade_list"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "grade_id": "<id:32>"
+   },
+   "envelope": {
+    "result": {
+     "assignment_id": "<id:2>",
+     "created_at": "<time>",
+     "created_by_action_id": "<id:29>",
+     "grader_member_id": "<id:10>",
+     "group": {
+      "adjustment": {
+       "kind": "delta",
+       "points": -2,
+       "reason": "Missed two of the group's meetings."
+      },
+      "group_grade_id": "<id:30>",
+      "group_id": "<id:3>",
+      "group_name": "Group A",
+      "score": 17
+     },
+     "id": "<id:32>",
+     "origin": "entered",
+     "posted_at": "<time>",
+     "score": 15,
+     "state": "posted",
+     "student_member_id": "<id:6>",
+     "submission_id": "<id:8>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "adjusted_grade_as_its_member",
+   "text_is_envelope": true,
+   "tool": "grade_get"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:2>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "grades": [
+      {
+       "assignment_id": "<id:2>",
+       "created_at": "<time>",
+       "created_by_action_id": "<id:29>",
+       "grader_member_id": "<id:10>",
+       "group": {
+        "group_grade_id": "<id:30>",
+        "group_id": "<id:3>",
+        "group_name": "Group A",
+        "score": 17
+       },
+       "id": "<id:31>",
+       "origin": "entered",
+       "posted_at": "<time>",
+       "score": 17,
+       "state": "posted",
+       "student_member_id": "<id:7>",
+       "submission_id": "<id:8>"
+      }
+     ]
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "grades_as_a_members_own_agent",
+   "text_is_envelope": true,
+   "tool": "grade_list"
+  },
+  {
+   "args": {
+    "course_id": "<id:1>",
+    "grade_id": "<id:32>"
+   },
+   "envelope": {
+    "result": {
+     "assignment_id": "<id:2>",
+     "created_at": "<time>",
+     "created_by_action_id": "<id:29>",
+     "grader_member_id": "<id:10>",
+     "group": {
+      "adjustment": {
+       "by_member_id": "<id:17>",
+       "kind": "delta",
+       "points": -2,
+       "reason": "Missed two of the group's meetings."
+      },
+      "group_grade_id": "<id:30>",
+      "group_id": "<id:3>",
+      "group_name": "Group A",
+      "score": 17
+     },
+     "id": "<id:32>",
+     "origin": "entered",
+     "posted_at": "<time>",
+     "score": 15,
+     "state": "posted",
+     "student_member_id": "<id:6>",
+     "submission_id": "<id:8>"
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "adjusted_grade_as_an_assistant",
+   "text_is_envelope": true,
+   "tool": "grade_get"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:2>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "form": {
+      "assignment_id": "<id:2>",
+      "closes_at": "<time>",
+      "enabled": true,
+      "kind": "share",
+      "opens": "on_hand_in",
+      "self_evaluation": false,
+      "share_with_students": "none",
+      "students_see": [
+       "own_sheet",
+       "own_adjustment"
+      ],
+      "updated_at": "<time>",
+      "version": 1,
+      "visible_to": [
+       "graders",
+       "action_record"
+      ],
+      "weight": 20
+     },
+     "task": {
+      "circle": [
+       {
+        "display_name": "Ken",
+        "member_id": "<id:6>"
+       },
+       {
+        "display_name": "Yuki",
+        "member_id": "<id:7>"
+       }
+      ],
+      "group_id": "<id:3>",
+      "group_name": "Group A",
+      "to_evaluate": [
+       "<id:6>"
+      ],
+      "window": {
+       "closes_at": "<time>",
+       "opens": "on_hand_in",
+       "state": "open"
+      }
+     }
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "peer_form_as_a_members_own_agent",
+   "text_is_envelope": true,
+   "tool": "peer_form_get"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:2>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "form": {
+      "assignment_id": "<id:2>",
+      "closes_at": "<time>",
+      "enabled": true,
+      "in_use": false,
+      "kind": "share",
+      "opens": "on_hand_in",
+      "self_evaluation": false,
+      "share_with_students": "none",
+      "students_see": [
+       "own_sheet",
+       "own_adjustment"
+      ],
+      "updated_at": "<time>",
+      "version": 1,
+      "visible_to": [
+       "graders",
+       "action_record"
+      ],
+      "weight": 20
+     }
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "peer_form_as_an_assistant",
+   "text_is_envelope": true,
+   "tool": "peer_form_get"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:2>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "form": {
+      "assignment_id": "<id:2>",
+      "closes_at": "<time>",
+      "enabled": true,
+      "kind": "share",
+      "opens": "on_hand_in",
+      "self_evaluation": false,
+      "share_with_students": "none",
+      "students_see": [
+       "own_sheet",
+       "own_adjustment"
+      ],
+      "updated_at": "<time>",
+      "version": 1,
+      "visible_to": [
+       "graders",
+       "action_record"
+      ],
+      "weight": 20
+     }
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "peer_form_as_the_course_tutor",
+   "text_is_envelope": true,
+   "tool": "peer_form_get"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:36>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result": {
+     "form": null
+    },
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "peer_form_of_a_students_own_work",
+   "text_is_envelope": true,
+   "tool": "peer_form_get"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:2>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "result_fields": [
+     "form",
+     "groups"
+    ],
+    "status": "executed"
+   },
+   "http_status": 200,
+   "is_error": false,
+   "step": "peer_results",
+   "text_is_envelope": true,
+   "tool": "peer_review_results"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:2>",
+    "course_id": "<id:1>"
+   },
+   "envelope": {
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "permission_denied"
+     },
+     "message": "not permitted"
+    },
+    "status": "denied"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "peer_results_as_the_course_tutor",
+   "text_is_envelope": true,
+   "tool": "peer_review_results"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:2>",
+    "course_id": "<id:1>",
+    "entries": [
+     {
+      "share": 100,
+      "student_member_id": "<id:6>"
+     }
+    ],
+    "idempotency_key": "tool:p:2"
+   },
+   "envelope": {
+    "action_id": "<id:37>",
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "permission_denied"
+     },
+     "message": "not permitted"
+    },
+    "review_state": "none",
+    "status": "denied"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "peer_review_by_an_agent_without_submission_write",
+   "text_is_envelope": true,
+   "tool": "peer_review_submit"
+  },
+  {
+   "args": {
+    "assignment_id": "<id:2>",
+    "course_id": "<id:1>",
+    "entries": [
+     {
+      "share": 100,
+      "student_member_id": "<id:6>"
+     }
+    ],
+    "idempotency_key": "tool:p:2"
+   },
+   "envelope": {
+    "action_id": "<id:38>",
+    "error": {
+     "code": "forbidden",
+     "details": {
+      "reason": "people_only"
+     },
+     "message": "a peer evaluation is a person's judgment of their classmates; an agent writes none"
+    },
+    "review_state": "none",
+    "status": "failed"
+   },
+   "http_status": 200,
+   "is_error": true,
+   "step": "peer_review_by_an_agent",
+   "text_is_envelope": true,
+   "tool": "peer_review_submit"
+  }
+ ]
+}
