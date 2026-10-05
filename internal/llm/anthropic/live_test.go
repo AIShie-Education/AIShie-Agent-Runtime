@@ -78,8 +78,8 @@ func TestLive(t *testing.T) {
 // a schema that is an object.
 func TestCatalogueCanBeDeclared(t *testing.T) {
 	tools := livetest.CatalogueTools(t, true)
-	if len(tools) != 169 {
-		t.Fatalf("%d tools in the catalogue, want 169", len(tools))
+	if len(tools) != 185 {
+		t.Fatalf("%d tools in the catalogue, want 185", len(tools))
 	}
 	a := newAdapter(t, llm.Config{})
 	w, err := a.buildRequest(&llm.Request{Messages: []llm.Message{question}, Tools: tools, ToolMode: llm.ToolAuto})

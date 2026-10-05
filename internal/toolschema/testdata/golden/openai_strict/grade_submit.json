@@ -1,6 +1,48 @@
 {
   "additionalProperties": false,
   "properties": {
+    "adjustments": {
+      "description": "a group's work: members whose grade differs from the group's — a score of their own (replace) or plus or minus (delta), each with a reason — or none, taking away one carried from their earlier grade. Each member's adjustment is otherwise carried from their earlier grade on the work. A proposal records every member's, as it will be written (optional; omit or null)",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "description": "replace: a score of their own; delta: plus or minus the group's; none: no adjustment, taking away one carried from their earlier grade",
+            "type": "string"
+          },
+          "points": {
+            "description": "replace: their score; delta: what is added to the group's score, below zero to take away (a decimal number as a string, e.g. \"87.5\") (optional; omit or null)",
+            "pattern": "^[-+]?([0-9]{1,40}(\\.[0-9]{0,40})?|\\.[0-9]{1,40})([eE][-+]?[0-9]{1,2})?$",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "description": "why, 1 to 500 characters: shown to the member, and kept (optional; omit or null)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "student_member_id": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "points",
+          "reason",
+          "student_member_id"
+        ],
+        "type": "object"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
     "allow_extra": {
       "description": "permit a score above the points possible (optional; omit or null)",
       "type": [
@@ -100,6 +142,17 @@
         "null"
       ]
     },
+    "members": {
+      "description": "a group's work: whose work it is, its members; if given, they must be. A proposal records them, and is refused on approval if they have changed (members_changed) (optional; omit or null)",
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
     "no_rubric": {
       "description": "that the grader was shown no rubric; filled in when the grade is proposed and no rubric is published, and the grade then records none, whatever is published before it is approved. A call giving it is refused if a rubric is published (optional; omit or null)",
       "type": [
@@ -146,12 +199,14 @@
     }
   },
   "required": [
+    "adjustments",
     "allow_extra",
     "breakdown",
     "component_id",
     "feedback",
     "feedback_files",
     "for_missing",
+    "members",
     "no_rubric",
     "out_of",
     "rubric_version_id",
