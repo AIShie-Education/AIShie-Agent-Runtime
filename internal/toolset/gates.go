@@ -103,6 +103,21 @@ var Gates = map[string]Gate{
 	// assignment_write, as Core gates it and the deletion. A model reads
 	// it before assignment_delete, which takes its counts back.
 	"assignment_delete_preview": {Any: []string{"assignment_write"}},
+	// A course's group sets, their groups and sign-up, and one set with
+	// who is in no group, each group's work and its history: on
+	// document_read, as Core gates them. Core names the members only to a
+	// seat that reads the roster, within its student scope, and to a
+	// student (or a student's own agent) their own group's.
+	"group_set_list": {Any: []string{"document_read"}},
+	"group_set_get":  {Any: []string{"document_read"}},
+	// A group assignment's peer form, and to a student in a group of its
+	// set (or their own agent) their own task: whom they evaluate, the
+	// window, their own sheet. On document_read, as Core gates it.
+	"peer_form_get": {Any: []string{"document_read"}},
+	// Every sheet of a group, raters named, and what each member received:
+	// evidence for grading, on either grade permission, as Core gates it,
+	// of the groups wholly within the seat's student scope.
+	"peer_review_results": {Any: []string{"grade_submit", "grade_post"}},
 }
 
 // WriteGates are the gates of the writes a model may be offered, where the
@@ -140,6 +155,23 @@ var WriteGates = map[string]Gate{
 	"document_add_version": {Any: []string{"document_write", "submission_write", "grade_submit"}},
 	"document_publish":     {Any: []string{"document_write", "submission_write", "grade_submit"}},
 	"document_archive":     {Any: []string{"document_write", "submission_write", "grade_submit"}},
+	// Forming groups: sets and groups made, changed and archived, students
+	// placed and split among them, on assignment_write, as Core gates them
+	// (groups exist for group work and grant nothing). Core holds a split
+	// to a seat that reaches every student, and a placement that touches a
+	// group's work to a call that says so (affects_work).
+	"group_set_create":  {Any: []string{"assignment_write"}},
+	"group_set_update":  {Any: []string{"assignment_write"}},
+	"group_create":      {Any: []string{"assignment_write"}},
+	"group_update":      {Any: []string{"assignment_write"}},
+	"group_set_members": {Any: []string{"assignment_write"}},
+	"group_split":       {Any: []string{"assignment_write"}},
+	// A group assignment's peer form, part of setting the work.
+	"peer_form_set": {Any: []string{"assignment_write"}},
+	// A student signing up to a group, switching or leaving it: on
+	// submission_write, scoped to the student, as Core gates it; a
+	// student's own agent proposes it, and the student confirms.
+	"group_sign_up": {Any: []string{"submission_write"}},
 	// Renaming a document or moving it in the list, and bringing back one
 	// archived: whoever may archive it, as document_archive.
 	"document_update":    {Any: []string{"document_write", "submission_write", "grade_submit"}},
@@ -147,6 +179,14 @@ var WriteGates = map[string]Gate{
 	"grade_submit":       {Any: []string{"grade_submit"}},
 	"grade_post":         {Any: []string{"grade_post"}},
 	"grade_regrade":      {All: []string{"grade_submit", "grade_post"}},
+	// One member's adjustment of a grade given from a group's: a draft's
+	// on grade_submit, a posted grade's as a regrade, at the lower of the
+	// two, which Core decides by the grade it names (its gate is either).
+	"grade_adjust": {Any: []string{"grade_submit", "grade_post"}},
+	// Peer evaluation counted in each member's grade at the form's weight:
+	// it writes drafts and regrades posted grades, gated as a regrade, on
+	// both grade permissions at the lower of their levels.
+	"grade_apply_peer": {All: []string{"grade_submit", "grade_post"}},
 	// A total overridden, its override cleared, or its feedback written:
 	// each writes what a student is shown at once, and Core gates them as
 	// a regrade, on both grade permissions at the lower of their levels.
@@ -168,6 +208,10 @@ var WriteGates = map[string]Gate{
 	"member_pause":                {Any: []string{"member_manage"}},
 	"member_resume":               {Any: []string{"member_manage"}},
 	"member_remove":               {Any: []string{"member_manage"}},
+	// Whose work a group's submission is, corrected: gated as correcting
+	// lateness is, since with whom a student handed work in is not theirs
+	// to declare.
+	"submission_set_members": {Any: []string{"grade_submit"}},
 	// A seat's roster role, a fact of the roster that grants nothing, is
 	// changed as any other member write, and kept off the same seats.
 	"member_set_role": {Any: []string{"member_manage"}},
@@ -189,14 +233,16 @@ var DefaultAllow = append(slices.Clone(defaultReads), sortedKeys(WriteGates)...)
 
 // defaultReads are the read tools of §2.3, the versions of a document and
 // where students stand on an assignment, the roster's, the queues of
-// proposals, the course's join links, and what deleting an assignment
-// would take.
+// proposals, the course's join links, what deleting an assignment would
+// take, the course's groups, and a group assignment's peer form and its
+// results.
 var defaultReads = []string{
 	"course_get", "document_list", "document_get", "document_versions", "assignment_list", "assignment_get", "assignment_delete_preview",
 	"submission_list", "submission_get", "submission_roster", "grade_list", "grade_get", "component_tree", "gradebook_get",
 	"member_list", "member_get", "member_lookup_actor",
 	"action_list_proposed", "action_list_pending_review", "action_get",
 	"course_join_link_list",
+	"group_set_list", "group_set_get", "peer_form_get", "peer_review_results",
 }
 
 // BuiltinDeny is never offered to a model, whatever the configuration or
@@ -325,6 +371,11 @@ var BuiltinDeny = []string{
 	// alone: a provider's client secret is a credential, and a change
 	// decides who signs in.
 	"sso_*",
+	// A peer evaluation is a person's judgment of their classmates' part
+	// in their group's work: a student writes their own sheet, and Core
+	// refuses an agent's whatever it holds (people_only). Reading the form,
+	// and the results for those who grade, is gated.
+	"peer_review_submit",
 }
 
 // BuiltinDenied reports whether name is on the built-in deny list.

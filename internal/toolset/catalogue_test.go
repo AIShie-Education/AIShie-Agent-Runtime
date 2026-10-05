@@ -23,17 +23,22 @@ func TestBuild(t *testing.T) {
 		want  []string
 	}{
 		{
-			name: "a course tutor reads the material and nobody's work: no roster of submissions, no drafts, no proposals", perms: tutorPerms,
-			want: []string{"assignment_get", "assignment_list", "course_get", "document_get", "document_list"},
+			name:  "a course tutor reads the material and the course's groups, and nobody's work: no roster of submissions, no drafts, no proposals, no peer results",
+			perms: tutorPerms,
+			want: []string{"assignment_get", "assignment_list", "course_get", "document_get", "document_list", "group_set_get",
+				"group_set_list", "peer_form_get"},
 		},
 		{
-			name: "a student's own agent reads its principal's work too, and where they stand on an assignment", perms: delegatePerms,
+			name:  "a student's own agent reads its principal's work too, where they stand on an assignment, their group and their peer task",
+			perms: delegatePerms,
 			want: []string{"assignment_get", "assignment_list", "component_tree", "course_get", "document_get",
-				"document_list", "grade_get", "grade_list", "gradebook_get", "submission_get", "submission_list", "submission_roster"},
+				"document_list", "grade_get", "grade_list", "gradebook_get", "group_set_get", "group_set_list", "peer_form_get",
+				"submission_get", "submission_list", "submission_roster"},
 		},
 		{
 			name: "document_read_draft reads a document's versions", perms: map[string]string{"document_read": "autonomous", "document_read_draft": "autonomous"},
-			want: []string{"assignment_get", "assignment_list", "course_get", "document_get", "document_list", "document_versions"},
+			want: []string{"assignment_get", "assignment_list", "course_get", "document_get", "document_list", "document_versions",
+				"group_set_get", "group_set_list", "peer_form_get"},
 		},
 		{
 			name:  "action_decide reads the queues of proposals and one in full, and decides none where writes are not",
@@ -53,7 +58,7 @@ func TestBuild(t *testing.T) {
 			perms: map[string]string{"document_read": "confirm_required", "submission_read": "pending_review",
 				"grade_read": "denied"},
 			want: []string{"assignment_get", "assignment_list", "course_get", "document_get", "document_list",
-				"submission_get", "submission_list", "submission_roster"},
+				"group_set_get", "group_set_list", "peer_form_get", "submission_get", "submission_list", "submission_roster"},
 		},
 		{
 			name:  "member_read reads the roster, and member_manage alone looks up whom to seat",
@@ -64,6 +69,16 @@ func TestBuild(t *testing.T) {
 			name:  "assignment_write alone reads what deleting an assignment would take, and deletes nothing where writes are not",
 			perms: map[string]string{"assignment_write": "autonomous"},
 			want:  []string{"assignment_delete_preview"},
+		},
+		{
+			name:  "grade_submit alone reads peer evaluation's results, and adjusts or grades nothing where writes are not",
+			perms: map[string]string{"grade_submit": "confirm_required"},
+			want:  []string{"peer_review_results"},
+		},
+		{
+			name:  "grade_post alone reads them too",
+			perms: map[string]string{"grade_post": "autonomous", "grade_submit": "denied"},
+			want:  []string{"peer_review_results"},
 		},
 		{
 			name:  "member_manage alone looks up whom to seat, and offers no write where writes are not",
@@ -81,13 +96,14 @@ func TestBuild(t *testing.T) {
 			name: "deny takes tools away", perms: delegatePerms,
 			cfg: config.Tools{Deny: []string{"document_get", "grade_get", "not_a_tool"}},
 			want: []string{"assignment_get", "assignment_list", "component_tree", "course_get",
-				"document_list", "grade_list", "gradebook_get", "submission_get", "submission_list", "submission_roster"},
+				"document_list", "grade_list", "gradebook_get", "group_set_get", "group_set_list", "peer_form_get", "submission_get",
+				"submission_list", "submission_roster"},
 		},
 		{
 			name: "a deny entry ending in * takes every tool it begins", perms: delegatePerms,
 			cfg: config.Tools{Deny: []string{"grade_*", "submission_*", "gradebook"}},
 			want: []string{"assignment_get", "assignment_list", "component_tree", "course_get", "document_get",
-				"document_list", "gradebook_get"},
+				"document_list", "gradebook_get", "group_set_get", "group_set_list", "peer_form_get"},
 		},
 		{
 			name: "allow names tools exactly", perms: delegatePerms,
@@ -204,10 +220,12 @@ var (
 // reads.
 func TestBuildWrites(t *testing.T) {
 	cat := snapshot(t)
-	reads := []string{"assignment_get", "assignment_list", "course_get", "document_get", "document_list"}
-	// ownerReads are the instructor's own agent's: it reads drafts, and
-	// the queues of proposals.
-	ownerReads := append(slices.Clone(reads), "action_get", "action_list_pending_review", "action_list_proposed", "document_versions")
+	reads := []string{"assignment_get", "assignment_list", "course_get", "document_get", "document_list", "group_set_get",
+		"group_set_list", "peer_form_get"}
+	// ownerReads are the instructor's own agent's: it reads drafts, the
+	// queues of proposals, and, posting grades, peer evaluation's results.
+	ownerReads := append(slices.Clone(reads), "action_get", "action_list_pending_review", "action_list_proposed", "document_versions",
+		"peer_review_results")
 	slices.Sort(ownerReads)
 	docWrites := []string{"document_add_version", "document_archive", "document_create", "document_publish", "document_unarchive",
 		"document_update"}
@@ -233,8 +251,9 @@ func TestBuildWrites(t *testing.T) {
 		{
 			name: "its owner's conversation is offered the writes the seat's perms allow", perms: ownerPerms,
 			cfg: config.Tools{Writes: true}, access: ReadWrite,
-			want:       withOwnerReads(append(append([]string{"grade_post", "grade_undo_ungraded_as_zero"}, docWrites...), decides...)...),
-			wantWrites: append(append(slices.Clone(docWrites), "grade_post", "grade_undo_ungraded_as_zero"), decides...),
+			want: withOwnerReads(append(append([]string{"grade_adjust", "grade_post", "grade_undo_ungraded_as_zero"}, docWrites...),
+				decides...)...),
+			wantWrites: append(append(slices.Clone(docWrites), "grade_adjust", "grade_post", "grade_undo_ungraded_as_zero"), decides...),
 		},
 		{
 			name: "anyone else's conversation is offered none", perms: ownerPerms,
@@ -248,8 +267,9 @@ func TestBuildWrites(t *testing.T) {
 			name: "a denied permission offers none of its writes, and a gate of both needs both",
 			perms: map[string]string{"grade_submit": "denied", "grade_post": "autonomous", "assignment_write": "denied",
 				"submission_write": "denied", "document_write": "denied"},
-			cfg: config.Tools{Writes: true}, access: ReadWrite, want: []string{"grade_post", "grade_undo_ungraded_as_zero"},
-			wantWrites: []string{"grade_post", "grade_undo_ungraded_as_zero"},
+			cfg: config.Tools{Writes: true}, access: ReadWrite,
+			want:       []string{"grade_adjust", "grade_post", "grade_undo_ungraded_as_zero", "peer_review_results"},
+			wantWrites: []string{"grade_adjust", "grade_post", "grade_undo_ungraded_as_zero"},
 		},
 		{
 			name:  "every level but denied allows a write",
@@ -257,9 +277,11 @@ func TestBuildWrites(t *testing.T) {
 			cfg:   config.Tools{Writes: true}, access: ReadWrite,
 			want: []string{"assignment_create", "assignment_delete", "assignment_delete_preview", "assignment_publish",
 				"assignment_unpublish", "assignment_update", "component_create", "component_move", "component_update", "document_add_version", "document_archive",
-				"document_create", "document_publish", "document_unarchive", "document_update", "grade_clear_override",
-				"grade_comment_total", "grade_override_total", "grade_post", "grade_regrade", "grade_submit",
-				"grade_undo_ungraded_as_zero", "submission_record_missing", "submission_set_lateness"},
+				"document_create", "document_publish", "document_unarchive", "document_update", "grade_adjust", "grade_apply_peer",
+				"grade_clear_override", "grade_comment_total", "grade_override_total", "grade_post", "grade_regrade", "grade_submit",
+				"grade_undo_ungraded_as_zero", "group_create", "group_set_create", "group_set_members", "group_set_update", "group_split",
+				"group_update", "peer_form_set", "peer_review_results", "submission_record_missing", "submission_set_lateness",
+				"submission_set_members"},
 		},
 		{
 			name: "a level the runtime does not know allows no write", perms: map[string]string{"document_write": "always"},
@@ -274,7 +296,7 @@ func TestBuildWrites(t *testing.T) {
 			name: "deny takes writes away, by name or beginning", perms: ownerPerms,
 			cfg: config.Tools{Writes: true, Deny: []string{"document_archive", "grade_*", "action_*"}}, access: ReadWrite,
 			want: withReads("document_add_version", "document_create", "document_publish", "document_unarchive", "document_update",
-				"document_versions"),
+				"document_versions", "peer_review_results"),
 		},
 		{
 			name: "mode none offers no write either", perms: ownerPerms,
@@ -389,7 +411,7 @@ func TestBuildMissingTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Has("grade_get") || s.Len() != 11 {
+	if s.Has("grade_get") || s.Len() != 14 {
 		t.Errorf("offered %v, want the defaults but grade_get", s.Names())
 	}
 }
@@ -403,8 +425,8 @@ func TestDeclarations(t *testing.T) {
 			t.Fatal(err)
 		}
 		decls := s.Declarations()
-		if len(decls) != 12 {
-			t.Fatalf("%s: %d declarations, want 12", d, len(decls))
+		if len(decls) != 15 {
+			t.Fatalf("%s: %d declarations, want 15", d, len(decls))
 		}
 		for i, decl := range decls {
 			if decl.Name != s.Names()[i] {
@@ -445,7 +467,7 @@ func TestDeclarations(t *testing.T) {
 			t.Errorf("%s: a caller's change reached the set", d)
 		}
 	}
-	if cache.Len() != 12*len(toolschema.Dialects) {
+	if cache.Len() != 15*len(toolschema.Dialects) {
 		t.Errorf("the cache holds %d schemas, want one per tool and dialect", cache.Len())
 	}
 }
@@ -573,7 +595,7 @@ func TestBuiltinDenied(t *testing.T) {
 		"agent_runtime_agent", "agent_runtime_check_owner", "agent_runtime_issue_token", "agent_runtime_revoke_token",
 		"agent_runtime_rendition_claim", "agent_runtime_rendition_file", "agent_runtime_rendition_renew",
 		"agent_runtime_rendition_upload_url", "agent_runtime_rendition_complete", "document_rendition_retry",
-		"conversation_rendition_retry", "conversation_export", "conversation_export_file"}
+		"conversation_rendition_retry", "conversation_export", "conversation_export_file", "peer_review_submit"}
 	for _, name := range denied {
 		if !BuiltinDenied(name) {
 			t.Errorf("%s is not denied", name)
@@ -585,7 +607,9 @@ func TestBuiltinDenied(t *testing.T) {
 		"member_lookup_actor", "member_add_delegates", "action_decide", "action_review", "action_get", "action_list_proposed",
 		"member_set_role", "course_update_details", "course_join_link_list", "course_join_link_revoke", "document_update",
 		"document_unarchive", "grade_override_total", "grade_clear_override", "grade_comment_total", "grade_undo_ungraded_as_zero",
-		"assignment_delete", "assignment_delete_preview"} {
+		"assignment_delete", "assignment_delete_preview", "group_set_list", "group_set_get", "group_set_create", "group_set_update",
+		"group_create", "group_update", "group_set_members", "group_split", "group_sign_up", "submission_set_members", "grade_adjust",
+		"peer_form_get", "peer_form_set", "peer_review_results", "grade_apply_peer", "peer_review_submits", "peer_reviews"} {
 		if BuiltinDenied(name) {
 			t.Errorf("%s is denied", name)
 		}
@@ -637,6 +661,52 @@ func TestBuiltinDenyNamesTheirOwn(t *testing.T) {
 			[]llm.Part{{Type: llm.PartToolCall, ID: "c1", Name: name, Args: json.RawMessage(`{}`)}})
 		if err != nil || len(parts) != 1 || !parts[0].IsError {
 			t.Errorf("a call of %s: %+v %v", name, parts, err)
+		}
+	}
+	if calls := fc.recorded(); len(calls) != 0 {
+		t.Errorf("Core was called: %+v", calls)
+	}
+}
+
+// TestPeerReviewNeverOffered: a peer evaluation is a person's judgment of
+// their classmates, which Core refuses an agent (people_only). A student's
+// own agent that hands work in for them, in its owner's conversation with
+// writes on and peer_review_submit allowed by name, is offered its
+// group's sign-up and work and the peer form, never the sheet; a model
+// that calls it anyway reaches nobody. A seat that grades reads the
+// results and writes no sheet either.
+func TestPeerReviewNeverOffered(t *testing.T) {
+	cat := snapshot(t)
+	student := map[string]string{"conversation_answer": "autonomous", "document_read": "autonomous", "submission_read": "autonomous",
+		"submission_write": "confirm_required", "grade_read": "autonomous"}
+	allow := []string{"peer_review_submit", "peer_form_get", "group_sign_up", "group_set_get", "submission_update_draft"}
+	s, err := cat.Build(student, config.Tools{Writes: true, Allow: allow}, ReadWrite, toolschema.OpenAI, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := s.Names(), []string{"group_set_get", "group_sign_up", "peer_form_get", "submission_update_draft"}; !slices.Equal(got, want) {
+		t.Errorf("a student's own agent is offered %v, want %v", got, want)
+	}
+	if got := s.Writes(); !slices.Equal(got, []string{"group_sign_up", "submission_update_draft"}) {
+		t.Errorf("writes %v", got)
+	}
+	grader := map[string]string{"document_read": "autonomous", "submission_write": "autonomous", "grade_submit": "autonomous",
+		"grade_post": "autonomous"}
+	g, err := cat.Build(grader, config.Tools{Writes: true, Allow: []string{"peer_review_submit", "peer_review_results", "grade_apply_peer"}},
+		ReadWrite, toolschema.OpenAI, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := g.Names(); !slices.Equal(got, []string{"grade_apply_peer", "peer_review_results"}) {
+		t.Errorf("a grader is offered %v", got)
+	}
+	fc := &fakeCore{}
+	for _, set := range []*Set{s, g} {
+		parts, err := set.Run(context.Background(), Runner{Client: core.NewClient(fc)}, courseID,
+			[]llm.Part{{Type: llm.PartToolCall, ID: "c1", Name: "peer_review_submit",
+				Args: json.RawMessage(`{"assignment_id":"0190a8f0-0000-7000-8000-000000000001","entries":[]}`)}})
+		if err != nil || len(parts) != 1 || !parts[0].IsError {
+			t.Errorf("a call of peer_review_submit: %+v %v", parts, err)
 		}
 	}
 	if calls := fc.recorded(); len(calls) != 0 {

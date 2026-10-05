@@ -35,7 +35,8 @@ func TestCoreCatalogue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"assignment_get", "assignment_list", "course_get", "document_get", "document_list"}; !slices.Equal(s.Names(), want) {
+	if want := []string{"assignment_get", "assignment_list", "course_get", "document_get", "document_list", "group_set_get", "group_set_list",
+		"peer_form_get"}; !slices.Equal(s.Names(), want) {
 		t.Errorf("a tutor is offered %v, want %v", s.Names(), want)
 	}
 	if err := CheckCatalogue(nil); err == nil {

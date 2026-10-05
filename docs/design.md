@@ -322,13 +322,20 @@ seat that holds `member_read`; the roster: `member_list` and `member_get` on
 `member_read`, `member_lookup_actor` on `member_manage`; the queues of
 proposals, `action_list_proposed`, `action_list_pending_review` and
 `action_get`, on `action_decide`; the course's join links,
-`course_join_link_list`, on `member_invite`, never a token; and
+`course_join_link_list`, on `member_invite`, never a token;
 `assignment_delete_preview`, what deleting an assignment would take with
 it, counted, never naming a person, and what Core would refuse the seat
-now, on `assignment_write`; each as Core gates it), `toolset.WriteGates`
-for the writes: `assignment_create`, `_update`, `_publish`, `_unpublish`,
-`_delete` and `component_create`, `_update`, `_move` on
-`assignment_write`; `document_create`, `_add_version`,
+now, on `assignment_write`; the course's groups, `group_set_list` and
+`group_set_get`, and a group assignment's peer form, `peer_form_get`, on
+`document_read`, Core naming a group's members only to a seat that reads
+the roster and to a student, or a student's own agent, their own group's;
+and `peer_review_results`, every sheet of a group with its raters, on
+either of `grade_submit` and `grade_post`; each as Core gates it),
+`toolset.WriteGates` for the writes: `assignment_create`, `_update`,
+`_publish`, `_unpublish`, `_delete`, `component_create`, `_update`,
+`_move`, the forming of groups (`group_set_create`, `_update`,
+`group_create`, `_update`, `group_set_members`, `group_split`) and
+`peer_form_set` on `assignment_write`; `document_create`, `_add_version`,
 `_publish`, `_archive`, and `document_update` (a rename, or a place in the
 list) and `document_unarchive`, as `document_archive`, on any of
 `document_write`, `submission_write` and `grade_submit` (the document's
@@ -338,8 +345,15 @@ the lower of their levels, and so `grade_override_total`,
 `grade_clear_override` and `grade_comment_total`, which write what a
 student is shown of a total at once, as a regrade does;
 `grade_undo_ungraded_as_zero` on `grade_post`, as posting as final is;
-`submission_create`, `_update_draft`, `_submit` on `submission_write`;
-`submission_set_lateness`, `_record_missing` on `grade_submit`;
+`grade_adjust`, one member's adjustment of a grade given from a group's,
+on either grade permission (a draft's governed by `grade_submit`, a
+posted grade's by the lower of both, which Core decides by the grade);
+`grade_apply_peer`, peer evaluation counted in members' grades, on both,
+as a regrade; `submission_create`, `_update_draft`, `_submit` and
+`group_sign_up` (a student joining, switching or leaving a group, scoped
+to the student) on `submission_write`; `submission_set_lateness`,
+`_record_missing` and `_set_members` (whose work a group's submission is)
+on `grade_submit`;
 `member_add`, `member_update_perms`, `member_update_perms_bulk`,
 `member_rescope`, `member_pause`, `member_resume`, `member_remove` and
 `member_set_role` (a seat's roster role, which grants nothing) on
@@ -540,6 +554,11 @@ by `Run`; each entry has its reason beside it in the code:
   changed, switched, removed and tested by the platform's administrators
   alone: a provider's client secret is a credential, and a change decides
   who signs in.
+- `peer_review_submit`: a peer evaluation is a person's judgment of their
+  classmates' part in their group's work. A student writes their own
+  sheet, and Core refuses an agent's whatever it holds (`people_only`).
+  Reading the form (`peer_form_get`), and the results for those who grade
+  (`peer_review_results`), is gated.
 
 `deny` entries ending in `*` cover every tool they begin. The model sees
 each tool through `toolschema`: bound arguments removed (`course_id`,
