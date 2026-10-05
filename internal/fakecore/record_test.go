@@ -28,7 +28,7 @@ import (
 //
 // It runs only when asked, against a Core of the test's own:
 //
-//	CORE_RATE_LIMIT_PER_MINUTE=600 PROPOSAL_TTL=20s CORE_BIN=… DATABASE_URL=… scripts/ci-core.sh start
+//	CORE_RATE_LIMIT_PER_MINUTE=600 CORE_PROPOSAL_TTL=20s CORE_BIN=… DATABASE_URL=… scripts/ci-core.sh start
 //	. "$CORE_DIR/env"
 //	RECORD_FIXTURES=1 RECORD_PROPOSAL_TTL=20s go test -run TestRecordFixtures ./internal/fakecore/
 //
@@ -366,6 +366,11 @@ func (w *liveWorld) archiveCourse() {
 // ownAgent is Yuki's own agent, seated as Core seats a student's: Yuki asks
 // for it (a proposal, her agent_delegate being confirm_required) and Sato
 // approves.
+//
+// Yuki is one person in every world, and Core lets a person have no more
+// than five agents that are not suspended (agent.create refuses the sixth),
+// while more worlds than that give her one: so she suspends each world's
+// when the world is done, as agent.create's refusal tells her to.
 func (w *liveWorld) ownAgent() *mcpClient {
 	w.t.Helper()
 	if w.own != nil {
@@ -373,6 +378,7 @@ func (w *liveWorld) ownAgent() *mcpClient {
 	}
 	yuki := w.people[0]
 	id, token, _ := w.lc.runtimeAgent(yuki.token, "Yuki's helper")
+	w.t.Cleanup(func() { w.lc.result(yuki.token, "POST", "/v1/me/agents/"+id+"/suspend", map[string]any{}) })
 	a := w.lc.raw(yuki.token, "POST", w.path("/delegates"), map[string]any{"actor_id": id, "preset": "delegate"})
 	var prop struct {
 		Status   string `json:"status"`
