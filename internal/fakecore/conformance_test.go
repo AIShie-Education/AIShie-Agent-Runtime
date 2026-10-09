@@ -428,3 +428,42 @@ func httptestServer(t *testing.T, fc *Core) string {
 	t.Cleanup(srv.Close)
 	return srv.URL
 }
+
+func (w *fakeWorld) groupSet(name string, groups ...groupSpec) (string, []string) {
+	w.t.Helper()
+	specs := make([]GroupSpec, len(groups))
+	for i, g := range groups {
+		specs[i].Name = g.name
+		for _, st := range g.students {
+			specs[i].Members = append(specs[i].Members, w.seats[st].ID)
+		}
+	}
+	set, err := w.fc.AddGroupSet(w.co.ID, name, specs...)
+	w.ok(err)
+	return set.ID, set.GroupIDs
+}
+
+func (w *fakeWorld) groupAssignment(title, setID string) string {
+	w.t.Helper()
+	id, err := w.fc.AddGroupAssignment(w.co.ID, title, "20", setID)
+	w.ok(err)
+	return id
+}
+
+func (w *fakeWorld) groupHandIn(student int, assignmentID string) string {
+	w.t.Helper()
+	id, err := w.fc.HandInGroupWork(w.co.ID, w.seats[student].ID, assignmentID, "Our project.")
+	w.ok(err)
+	return id
+}
+
+func (w *fakeWorld) peerForm(assignmentID string) {
+	w.t.Helper()
+	w.ok(w.fc.SetPeerForm(assignmentID, PeerForm{Kind: "share", Opens: "on_hand_in", ClosesAt: w.fc.now().Add(7 * 24 * time.Hour),
+		Weight: 20}))
+}
+
+func (w *fakeWorld) post(gradeIDs ...string) {
+	w.t.Helper()
+	w.ok(w.fc.PostGrades(gradeIDs...))
+}

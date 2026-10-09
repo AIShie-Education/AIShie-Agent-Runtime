@@ -144,10 +144,12 @@ func TestLiveCore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// A student's delegate reads what she reads, and is offered no write
-	// in a conversation that may have none.
+	// A student's delegate reads what she reads, her group sets and peer
+	// forms among them, and is offered no write in a conversation that may
+	// have none.
 	reads := []string{"assignment_get", "assignment_list", "component_tree", "course_get", "document_get", "document_list",
-		"grade_get", "grade_list", "gradebook_get", "submission_get", "submission_list", "submission_roster"}
+		"grade_get", "grade_list", "gradebook_get", "group_set_get", "group_set_list", "peer_form_get", "submission_get",
+		"submission_list", "submission_roster"}
 	if !slices.Equal(set.Names(), reads) {
 		t.Fatalf("a delegate is offered %v, want %v", set.Names(), reads)
 	}
@@ -168,6 +170,8 @@ func TestLiveCore(t *testing.T) {
 		call("10", "component_tree", `{}`),
 		call("11", "gradebook_get", `{"student_member_id":"`+yukiMember+`","treat_ungraded_as_zero":null}`),
 		call("12", "document_get", `{"document_id":"`+wordDoc+`","version_id":null}`),
+		call("13", "group_set_list", `{"include_archived":null}`),
+		call("14", "peer_form_get", `{"assignment_id":"`+hw+`"}`),
 	}
 	r := Runner{Client: client, Files: NewHTTPFetcher(nil), FileInput: true}
 	parts, err := set.Run(ctx, r, courseID, calls)

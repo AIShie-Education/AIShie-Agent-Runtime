@@ -28,7 +28,7 @@ import (
 //
 // It runs only when asked, against a Core of the test's own:
 //
-//	CORE_RATE_LIMIT_PER_MINUTE=600 PROPOSAL_TTL=20s CORE_BIN=… DATABASE_URL=… scripts/ci-core.sh start
+//	CORE_RATE_LIMIT_PER_MINUTE=600 CORE_PROPOSAL_TTL=20s CORE_BIN=… DATABASE_URL=… scripts/ci-core.sh start
 //	. "$CORE_DIR/env"
 //	RECORD_FIXTURES=1 RECORD_PROPOSAL_TTL=20s go test -run TestRecordFixtures ./internal/fakecore/
 //
@@ -366,6 +366,11 @@ func (w *liveWorld) archiveCourse() {
 // ownAgent is Yuki's own agent, seated as Core seats a student's: Yuki asks
 // for it (a proposal, her agent_delegate being confirm_required) and Sato
 // approves.
+//
+// Yuki is one person in every world, and Core lets a person have no more
+// than five agents that are not suspended (agent.create refuses the sixth),
+// while more worlds than that give her one: so she suspends each world's
+// when the world is done, as agent.create's refusal tells her to.
 func (w *liveWorld) ownAgent() *mcpClient {
 	w.t.Helper()
 	if w.own != nil {
@@ -373,6 +378,7 @@ func (w *liveWorld) ownAgent() *mcpClient {
 	}
 	yuki := w.people[0]
 	id, token, _ := w.lc.runtimeAgent(yuki.token, "Yuki's helper")
+	w.t.Cleanup(func() { w.lc.result(yuki.token, "POST", "/v1/me/agents/"+id+"/suspend", map[string]any{}) })
 	a := w.lc.raw(yuki.token, "POST", w.path("/delegates"), map[string]any{"actor_id": id, "preset": "delegate"})
 	var prop struct {
 		Status   string `json:"status"`
@@ -694,4 +700,71 @@ func (w *liveWorld) material() string {
 	w.syllabus = str(res, "document_id")
 	w.lc.result(w.sato.token, "POST", w.path("/documents/"+w.syllabus+"/publish"), map[string]any{"version_id": str(res, "version_id")})
 	return w.syllabus
+}
+
+// groupSet is Sato making a group set (group_set.create), its groups
+// (group.create), and placing the students named (group.set_members).
+func (w *liveWorld) groupSet(name string, groups ...groupSpec) (string, []string) {
+	w.t.Helper()
+	set := str(w.lc.result(w.sato.token, "POST", w.path("/group-sets"), map[string]any{"name": name}), "id")
+	specs := make([]map[string]any, len(groups))
+	for i, g := range groups {
+		specs[i] = map[string]any{"name": g.name}
+	}
+	res := w.lc.result(w.sato.token, "POST", w.path("/group-sets/"+set+"/groups"), map[string]any{"groups": specs})
+	list, _ := res["group_ids"].([]any)
+	ids := make([]string, 0, len(list))
+	for _, id := range list {
+		s, _ := id.(string)
+		ids = append(ids, s)
+	}
+	if len(ids) != len(groups) {
+		w.t.Fatalf("group.create: %v", res)
+	}
+	var placements []map[string]any
+	for i, g := range groups {
+		for _, st := range g.students {
+			placements = append(placements, map[string]any{"student_member_id": w.seats[st], "group_id": ids[i]})
+		}
+	}
+	if len(placements) > 0 {
+		w.lc.result(w.sato.token, "POST", w.path("/group-sets/"+set+"/members"), map[string]any{"placements": placements})
+	}
+	return set, ids
+}
+
+// groupAssignment is Sato making a group assignment of the set worth 20
+// points in the component HW1 counts toward, and publishing it.
+func (w *liveWorld) groupAssignment(title, setID string) string {
+	w.t.Helper()
+	w.assignment()
+	id := str(w.lc.result(w.sato.token, "POST", w.path("/assignments"), map[string]any{"title": title, "points_possible": 20,
+		"component_id": w.bucket, "group_set_id": setID}), "id")
+	w.lc.result(w.sato.token, "POST", w.path("/assignments/"+id+"/publish"), map[string]any{})
+	return id
+}
+
+// groupHandIn is a student starting their group's work (a draft of the
+// group's) and handing it in.
+func (w *liveWorld) groupHandIn(student int, assignmentID string) string {
+	w.t.Helper()
+	id := str(w.lc.result(w.people[student].token, "POST", w.path("/submissions"), map[string]any{"assignment_id": assignmentID,
+		"body": "Our project."}), "submission_id")
+	w.lc.result(w.people[student].token, "POST", w.path("/submissions/"+id+"/submit"), map[string]any{})
+	return id
+}
+
+// peerForm is Sato setting a share peer form on the assignment
+// (peer_form.set): open to each group once it has handed in, closing a
+// week from now, counting at 20%.
+func (w *liveWorld) peerForm(assignmentID string) {
+	w.t.Helper()
+	w.lc.result(w.sato.token, "POST", w.path("/assignments/"+assignmentID+"/peer-form"), map[string]any{"kind": "share",
+		"opens": "on_hand_in", "closes_at": time.Now().Add(7 * 24 * time.Hour).UTC().Format(time.RFC3339), "weight": 20})
+}
+
+// post is Sato posting grades (grade.post).
+func (w *liveWorld) post(gradeIDs ...string) {
+	w.t.Helper()
+	w.lc.result(w.sato.token, "POST", w.path("/grades/post"), map[string]any{"grade_ids": gradeIDs})
 }

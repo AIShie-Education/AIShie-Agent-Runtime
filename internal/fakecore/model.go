@@ -3,6 +3,7 @@ package fakecore
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -181,6 +182,9 @@ type course struct {
 	// the assignments deleted for good, by id.
 	totals    map[string]bool
 	deletions map[string]*deletion
+	// groupSets are the course's sets of groups, in the order made
+	// (groups.go).
+	groupSets []*groupSet
 }
 
 type component struct {
@@ -197,6 +201,10 @@ type assignment struct {
 	points       string
 	dueAt        *time.Time
 	publishedAt  *time.Time
+	// groupSet is the set a group assignment uses, nil for a student's
+	// own work; peer its peer form, if it has one (groups.go).
+	groupSet *groupSet
+	peer     *peerForm
 }
 
 // document is a document with one version, published unless it is a
@@ -241,13 +249,40 @@ type versionFile struct {
 }
 
 type submission struct {
-	id          string
-	assignment  *assignment
+	id         string
+	assignment *assignment
+	// student is whose own work it is; nil for a group's, whose group is
+	// group and whose members are those it was handed in for, frozen
+	// then (groups.go).
 	student     *member
+	group       *group
+	members     []*member
+	submittedBy *member
 	body        string
 	createdAt   time.Time
 	submittedAt time.Time
 }
+
+// students are whose work s is: its student, or its group's members as it
+// was handed in.
+func (s *submission) students() []*member {
+	if s.student != nil {
+		return []*member{s.student}
+	}
+	return s.members
+}
+
+// studentIDs are the ids of s's students.
+func (s *submission) studentIDs() []string {
+	var out []string
+	for _, m := range s.students() {
+		out = append(out, m.id)
+	}
+	return out
+}
+
+// has reports whether m is one of s's students.
+func (s *submission) has(m *member) bool { return slices.Contains(s.students(), m) }
 
 // grade is a grade on a student's work: posted, or a draft (grades.go),
 // which a later draft of the same work supersedes.
@@ -264,6 +299,10 @@ type grade struct {
 	createdAt    time.Time
 	postedAt     *time.Time
 	supersededBy *string
+	// groupGrade is the group grade a member's grade was given from, and
+	// adjust the member's adjustment of it, if any (groups.go).
+	groupGrade *groupGrade
+	adjust     *adjustment
 }
 
 // member is one actor's seat in one course.

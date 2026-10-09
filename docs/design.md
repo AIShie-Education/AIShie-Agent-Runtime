@@ -322,13 +322,20 @@ seat that holds `member_read`; the roster: `member_list` and `member_get` on
 `member_read`, `member_lookup_actor` on `member_manage`; the queues of
 proposals, `action_list_proposed`, `action_list_pending_review` and
 `action_get`, on `action_decide`; the course's join links,
-`course_join_link_list`, on `member_invite`, never a token; and
+`course_join_link_list`, on `member_invite`, never a token;
 `assignment_delete_preview`, what deleting an assignment would take with
 it, counted, never naming a person, and what Core would refuse the seat
-now, on `assignment_write`; each as Core gates it), `toolset.WriteGates`
-for the writes: `assignment_create`, `_update`, `_publish`, `_unpublish`,
-`_delete` and `component_create`, `_update`, `_move` on
-`assignment_write`; `document_create`, `_add_version`,
+now, on `assignment_write`; the course's groups, `group_set_list` and
+`group_set_get`, and a group assignment's peer form, `peer_form_get`, on
+`document_read`, Core naming a group's members only to a seat that reads
+the roster and to a student, or a student's own agent, their own group's;
+and `peer_review_results`, every sheet of a group with its raters, on
+either of `grade_submit` and `grade_post`; each as Core gates it),
+`toolset.WriteGates` for the writes: `assignment_create`, `_update`,
+`_publish`, `_unpublish`, `_delete`, `component_create`, `_update`,
+`_move`, the forming of groups (`group_set_create`, `_update`,
+`group_create`, `_update`, `group_set_members`, `group_split`) and
+`peer_form_set` on `assignment_write`; `document_create`, `_add_version`,
 `_publish`, `_archive`, and `document_update` (a rename, or a place in the
 list) and `document_unarchive`, as `document_archive`, on any of
 `document_write`, `submission_write` and `grade_submit` (the document's
@@ -338,8 +345,15 @@ the lower of their levels, and so `grade_override_total`,
 `grade_clear_override` and `grade_comment_total`, which write what a
 student is shown of a total at once, as a regrade does;
 `grade_undo_ungraded_as_zero` on `grade_post`, as posting as final is;
-`submission_create`, `_update_draft`, `_submit` on `submission_write`;
-`submission_set_lateness`, `_record_missing` on `grade_submit`;
+`grade_adjust`, one member's adjustment of a grade given from a group's,
+on either grade permission (a draft's governed by `grade_submit`, a
+posted grade's by the lower of both, which Core decides by the grade);
+`grade_apply_peer`, peer evaluation counted in members' grades, on both,
+as a regrade; `submission_create`, `_update_draft`, `_submit` and
+`group_sign_up` (a student joining, switching or leaving a group, scoped
+to the student) on `submission_write`; `submission_set_lateness`,
+`_record_missing` and `_set_members` (whose work a group's submission is)
+on `grade_submit`;
 `member_add`, `member_update_perms`, `member_update_perms_bulk`,
 `member_rescope`, `member_pause`, `member_resume`, `member_remove` and
 `member_set_role` (a seat's roster role, which grants nothing) on
@@ -540,6 +554,11 @@ by `Run`; each entry has its reason beside it in the code:
   changed, switched, removed and tested by the platform's administrators
   alone: a provider's client secret is a credential, and a change decides
   who signs in.
+- `peer_review_submit`: a peer evaluation is a person's judgment of their
+  classmates' part in their group's work. A student writes their own
+  sheet, and Core refuses an agent's whatever it holds (`people_only`).
+  Reading the form (`peer_form_get`), and the results for those who grade
+  (`peer_review_results`), is gated.
 
 `deny` entries ending in `*` cover every tool they begin. The model sees
 each tool through `toolschema`: bound arguments removed (`course_id`,
@@ -3025,7 +3044,19 @@ short, gives it more, or a lower effort.
   proposals about it cancelled and every action about it emptied, the
   totals it counted in worked out again, and every call naming it after,
   or replaying a key it emptied, told it was deleted), held to
-  `assignment_delete`; and serves the files `AddFile` puts in a course.
+  `assignment_delete`; group assignments as AIShie-Core b5d6b43 has them
+  (`groups.go`: `group_set_list` and `group_set_get`, members named to a
+  reader of the member list and to a member; a group's work, handed in
+  once for its members and reached through any of them, as
+  `submission_get`, `submission_list` and `submission_roster` show it;
+  `grade_submit` on it, a group grade and each member's draft from it,
+  adjustments carried, a proposal pinned with the work's members and
+  refused on approval by a newer draft; grades that say the group's score
+  and the member's adjustment, who made it to those who grade alone;
+  `peer_form_get` with a student's own task, `peer_review_results`
+  canned, no sheet ever written, and `peer_review_submit` refused to an
+  agent, `people_only`), held to `group_work`, its decimals JSON numbers
+  as Core writes them; and serves the files `AddFile` puts in a course.
 - `ocr`: the engine against programs of the test's own (shell scripts
   standing in for pdftoppm and tesseract) under the real prlimit, so
   skipped where there is none, as on macOS (CI's Linux runners run them):
@@ -3203,7 +3234,13 @@ short, gives it more, or a lower effort.
   delete an assignment, reads `assignment_delete_preview` and sends its
   counts back: an unpublished one with nothing in it is deleted, and Core
   says so after, and one Yuki handed work in on is refused
-  (`people_only`) and stays; and members: Core seats Sato's own agent with `member_manage`
+  (`people_only`) and stays; and group work: another assistant of his,
+  grading, is offered the course's groups, the peer form and its results,
+  and asked to grade Group A's project, reads the groups and the work and
+  grades it once with Ken adjusted, which Core holds as a draft for each
+  member, Ken's moved and saying who made it, while Yuki's own agent,
+  offered her group's sign-up and the peer form, never a peer evaluation,
+  has its call of `peer_review_submit` refused before Core; and members: Core seats Sato's own agent with `member_manage`
   and refuses it to Yuki's (`principal_level`); an
   agent nobody owns that Sato seated with it seats Aoi as a student when
   he asks, executed at `autonomous` and in Core, and Ren on a proposal at
@@ -3237,7 +3274,7 @@ short, gives it more, or a lower effort.
     Gemini every tool of the pinned catalogue declared at 16 output
     tokens, Core's own schemas, in requests of at most 128 tools
     (`livetest.MaxTools`: OpenAI takes no more, and the catalogue has
-    169), so that the provider itself checks every schema. `live.yml` runs
+    185), so that the provider itself checks every schema. `live.yml` runs
     it nightly with the repository's keys, and its log names each provider
     tried or skipped; run it by hand when an adapter changes, or a
     provider's API or the default models do.
