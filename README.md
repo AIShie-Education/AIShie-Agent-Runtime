@@ -238,7 +238,7 @@ DATABASE_URL=postgres:///aishie_runtime bin/aishie-runtime run
 
 ## Development
 
-Go 1.27 and PostgreSQL 13 or later. `make help` lists the targets:
+Go 1.27.2 and PostgreSQL 13 or later. `make help` lists the targets:
 
 - `make test` runs the unit and integration tests. They run against a fake
   Core held to fixtures recorded from the real one, and against scripted

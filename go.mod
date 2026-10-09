@@ -1,6 +1,6 @@
 module github.com/AIShie-Education/AIShie-Agent-Runtime
 
-go 1.27.1
+go 1.27.2
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.47.1
