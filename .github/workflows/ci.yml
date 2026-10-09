@@ -33,7 +33,7 @@ defaults:
     shell: bash
 
 env:
-  GOLANGCI_LINT_VERSION: v2.13.2
+  GOLANGCI_LINT_VERSION: v2.14.0
   # Makes the store's Postgres tests fail, rather than skip, if the database
   # is missing.
   CI: "true"
