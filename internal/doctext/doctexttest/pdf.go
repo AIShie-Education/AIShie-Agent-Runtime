@@ -451,7 +451,7 @@ func (e *encrypter) encrypt(num int, data []byte) []byte {
 		plain := append(bytes.Clone(data), bytes.Repeat([]byte{byte(n)}, n)...)
 		iv := []byte("0123456789ABCDEF")
 		out := make([]byte, len(plain))
-		cipher.NewCBCEncrypter(block, iv).CryptBlocks(out, plain)
+		cipher.NewCBCEncrypter(block, iv).CryptBlocks(out, plain) //nolint:gosec // a fixed IV, so a test's file is the same every run.
 		return append(bytes.Clone(iv), out...)
 	}
 	h := md5.New() //nolint:gosec // Algorithm 1.
@@ -463,7 +463,7 @@ func (e *encrypter) encrypt(num int, data []byte) []byte {
 func aesWrap(kek, key []byte) []byte {
 	block, _ := aes.NewCipher(kek)
 	out := make([]byte, len(key))
-	cipher.NewCBCEncrypter(block, make([]byte, aes.BlockSize)).CryptBlocks(out, key)
+	cipher.NewCBCEncrypter(block, make([]byte, aes.BlockSize)).CryptBlocks(out, key) //nolint:gosec // ISO 32000-2's Algorithms 8 and 9 wrap the key with a zero IV.
 	return out
 }
 
