@@ -4,7 +4,7 @@
 # target, which keeps multi-arch builds fast (no emulation for the Go step).
 # The Go is go.mod's, to the patch release, as the one CI checks with
 # govulncheck: the image will not fetch another (GOTOOLCHAIN=local).
-FROM --platform=$BUILDPLATFORM golang:1.27.2 AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.3 AS build
 ARG TARGETOS
 ARG TARGETARCH
 ARG VERSION=dev
