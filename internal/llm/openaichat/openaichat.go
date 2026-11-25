@@ -85,6 +85,11 @@ func New(cfg llm.Config) (*Adapter, error) {
 	if provider == "" {
 		provider = llm.DetectProvider(llm.AdapterOpenAIChat, configured)
 	}
+	if provider == llm.ProviderOpenAI {
+		if _, constrained, supported := llm.OpenAIChatToolEffort(model); constrained && !supported {
+			return nil, fmt.Errorf("openaichat: %s cannot call tools through OpenAI Chat Completions, even with reasoning_effort none; use openai_responses", model)
+		}
+	}
 	caps, dialect := llm.Defaults(llm.AdapterOpenAIChat, provider)
 	caps = cfg.Capabilities.Apply(caps)
 	switch {

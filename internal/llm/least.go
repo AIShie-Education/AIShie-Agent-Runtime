@@ -73,6 +73,28 @@ var openAILeast = map[string]string{
 	"gpt-5.1": "", "gpt-5.2": "", "gpt-5.4": "", "gpt-5.4-mini": "", "gpt-5.4-nano": "",
 }
 
+// openAIChatToolEfforts is OpenAI's Chat Completions tool-call constraint,
+// by base model id. From GPT-5.4 on, the listed models take tool calls only
+// at reasoning_effort none. An empty effort means the model does not take
+// none and therefore cannot call tools through Chat Completions at all.
+var openAIChatToolEfforts = map[string]string{
+	"gpt-5.4": "none", "gpt-5.4-mini": "none", "gpt-5.4-nano": "none",
+	"gpt-5.5": "none", "gpt-5.6-luna": "none", "gpt-5.6-sol": "none", "gpt-5.6-terra": "none",
+	"gpt-6-sol": "none", "gpt-6-luna": "none",
+	"gpt-5.4-pro": "", "gpt-5.5-pro": "", "gpt-6-astra": "", "gpt-6.1-sol": "",
+}
+
+// OpenAIChatToolEffort returns the reasoning_effort a direct OpenAI Chat
+// Completions model must be sent to make tool calls. constrained is false
+// for a model without a documented constraint. supported is false for one
+// that takes no tool calls there, even at none; it belongs on the Responses
+// API. The required effort is sent on every call of a constrained model, so
+// ordinary and forced turns behave alike.
+func OpenAIChatToolEffort(model string) (effort string, constrained, supported bool) {
+	effort, constrained = openAIChatToolEfforts[openAIBaseID(model)]
+	return effort, constrained, !constrained || effort != ""
+}
+
 // snapshotDate is a dated snapshot's suffix: gpt-5.1-2025-11-13.
 var snapshotDate = regexp.MustCompile(`-\d{4}-\d{2}-\d{2}$`)
 

@@ -1174,6 +1174,15 @@ machine's loopback, should `HTTP_ADDR` listen wider).
   Answers of such a model often forced call for a higher
   `params.max_output_tokens` and `output_tokens`, or a lower
   `reasoning.effort` where its adapter sends one.
+  For GPT-5.4 and later on OpenAI's own endpoint, use `openai_responses`
+  for an agent that calls tools. OpenAI documents Chat Completions tool
+  calls for these models as taking only `reasoning_effort: none`. Where a
+  model the runtime knows accepts that setting, `openai_chat` sends `none`
+  on every call, ordinary and forced, regardless of the configured effort.
+  GPT-5.4 Pro, GPT-5.5 Pro, GPT-6 Astra and GPT-6.1 Sol take no tool calls
+  there even at `none`, so `openai_chat` refuses them at load with a message
+  pointing to `openai_responses`. This OpenAI-specific constraint is not
+  applied to Azure or OpenRouter.
   A hosted agent's model calls are counted under the model's name as the
   price table gives it, or `other` when the table does not price it: the
   model its owner typed is never a label.
