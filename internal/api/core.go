@@ -16,14 +16,15 @@ import (
 // The API asks Core about an agent at CORE_BASE_URL and nowhere else, with
 // the runtime's own credential (Options.Runtime, Core's agent_runtime
 // service): whether the person signed in owns it and may host it here
-// (check_owner), and, as its hosting ends, to revoke the token the runtime
-// was issued for it (revoke_token). The API is never issued a token: the
+// (check_owner), whether they may ask it in a course (check_ask), and, as its
+// hosting ends, to revoke the token the runtime was issued for it
+// (revoke_token). The API is never issued a token: the
 // worker that runs the agent is (package worker).
 
 // Deadlines of what a request asks of Core.
 const (
 	// askTimeout bounds asking Core about an agent: the service's
-	// catalogue and check_owner.
+	// catalogue, check_owner and check_ask.
 	askTimeout = 20 * time.Second
 	// revokeTimeout bounds revoking an agent's token in Core.
 	revokeTimeout = 15 * time.Second

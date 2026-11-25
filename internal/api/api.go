@@ -68,9 +68,14 @@ type Options struct {
 	Vault *vault.Vault
 	// Runtime is the runtime's client of Core's agent_runtime service,
 	// with its own credential (CORE_SERVICE_CREDENTIAL): whether a person
-	// owns an agent and may host it, and revoking its token as its hosting
-	// ends. Nil when the runtime has no credential: nothing is hosted.
+	// owns an agent and may host it, whether they may ask it in a course,
+	// and revoking its token as its hosting ends. Nil when the runtime has
+	// no credential: nothing is hosted.
 	Runtime *core.RuntimeService
+	// AskPermission checks whether a person may ask an agent in a course.
+	// Nil uses Runtime. A separate test double can hold the privacy route to
+	// an exact Core authorization decision without replacing hosting calls.
+	AskPermission AskPermission
 	// Actors says which of the worker's agents runs as a Core actor (the
 	// supervisor); nil knows of none.
 	Actors Actors
@@ -112,6 +117,12 @@ type Options struct {
 	// Location is the school's time zone learned from Core, for daily
 	// quotas, reports and price effective dates. Nil means UTC.
 	Location func() *time.Location
+}
+
+// AskPermission is Core's authorization decision for a question, used by the
+// provider disclosure. *core.RuntimeService implements it.
+type AskPermission interface {
+	CheckAsk(ctx context.Context, actorID, agentID, courseID string) (bool, error)
 }
 
 // Actors says which agent of the worker's runs as a Core actor at a Core:
@@ -201,6 +212,7 @@ func New(o Options) *Server {
 	s.mux.Handle("POST "+Prefix+"agents/inspect", s.authedBody(s.limited(s.token, s.audited("agent.inspect", s.inspect))))
 	s.mux.Handle("POST "+Prefix+"agents", s.authedBody(s.limited(s.token, s.audited("agent.host", s.host))))
 	s.mux.Handle("GET "+Prefix+"agents", s.authed(s.list))
+	s.mux.Handle("GET "+Prefix+"agents/{id}/privacy", s.authedBody(s.limited(s.token, s.privacy)))
 	s.mux.Handle("GET "+Prefix+"agents/{id}", s.authed(s.get))
 	s.mux.Handle("POST "+Prefix+"agents/{id}/token", s.authed(s.limited(s.token, s.audited("agent.token_renew", s.renewToken))))
 	s.mux.Handle("POST "+Prefix+"agents/{id}/pause", s.authed(s.audited("agent.pause", s.pause(true))))

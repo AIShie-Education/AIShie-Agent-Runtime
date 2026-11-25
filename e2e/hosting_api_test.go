@@ -204,6 +204,27 @@ func hostingThroughTheAPI(t *testing.T, w *world) {
 		return got
 	}
 	waitStatus(api.StatusRunning)
+	// Before the first question, the privacy disclosure names the provider
+	// of the model just configured. The pinned Core may predate check_ask:
+	// that version must fail closed and leave the front end's generic wording
+	// in place; a Core with the companion contract answers the real provider.
+	privacyAnswer := call("GET", "agents/"+w.own.id+"/privacy?course_id="+w.course, "")
+	if privacyAnswer.code == http.StatusUnprocessableEntity && reason(privacyAnswer) == "core_too_old" {
+		t.Log("this Core has no agent_runtime.check_ask yet: provider privacy correctly fails closed")
+	} else {
+		var disclosure api.AgentPrivacy
+		decodeAs(privacyAnswer, 200, &disclosure)
+		if disclosure.AgentID != w.own.id || disclosure.Primary == nil || disclosure.Primary.Plan != "own" ||
+			disclosure.Primary.Provider != "openai" || disclosure.Primary.ProviderLabel == nil || *disclosure.Primary.ProviderLabel != "OpenAI" ||
+			disclosure.Primary.SchoolOfferLabel != nil || disclosure.Fallback != nil {
+			t.Errorf("provider privacy before asking: %+v (%s)", disclosure, privacyAnswer.body)
+		}
+		for _, secret := range []string{w.modelKey, "e2e-model", "base_url", "key_hint", "owner_actor_id"} {
+			if strings.Contains(string(privacyAnswer.body), secret) {
+				t.Errorf("provider privacy contains %q: %s", secret, privacyAnswer.body)
+			}
+		}
+	}
 	// The worker was issued its token by its id, and keeps it sealed in
 	// its row: the one Core holds live for it.
 	issued := func() string {
