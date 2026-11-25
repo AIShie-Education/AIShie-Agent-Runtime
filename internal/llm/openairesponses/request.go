@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm/openaichat"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolschema"
 )
 
@@ -120,9 +121,10 @@ type opaqueItem struct {
 // for a deployment whose name names its model. DeepSeek, whose models
 // think by default at high, documents effort none in this format as
 // switching their thinking off (api-docs.deepseek.com, Thinking Mode, read
-// 2026-10): such a call to it is made so, configured or not. Any other
-// model, its family not documented here, is made at the configured effort
-// no higher than low (llm.LeastEffort), and with none configured at none
+// 2026-10): such a call to it is made so, configured or not. OpenRouter uses
+// the same per-maker table as openai_chat, shared by LeastOpenRouterEffort.
+// Any other model, its family not documented here, is made at the configured
+// effort no higher than low (llm.LeastEffort), and with none configured at none
 // sent, which a model that does not think unasked would be made to think
 // by.
 func (a *Adapter) reasoningEffort(least bool) string {
@@ -136,6 +138,8 @@ func (a *Adapter) reasoningEffort(least bool) string {
 		if effort, known := llm.OpenAILeastEffort(a.model); known {
 			return effort
 		}
+	case llm.ProviderOpenRouter:
+		return openaichat.LeastOpenRouterEffort(a.effort, a.model)
 	}
 	return llm.LeastEffort(a.effort)
 }

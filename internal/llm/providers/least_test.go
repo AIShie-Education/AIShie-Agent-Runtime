@@ -51,25 +51,25 @@ func TestLeastReasoningNeverThinksMore(t *testing.T) {
 		ordinary, least              string
 	}{
 		// OpenAI's own: the lowest effort each model page lists, and
-		// nothing where that is the model's default.
+		// nothing where that is the model's default. From GPT-5.4, Chat
+		// Completions takes tools only at reasoning_effort none, so those
+		// models are sent none on every call. Ones that cannot take none
+		// belong on openai_responses and are refused by openaichat.New.
 		{"openai_chat", openAI, "gpt-5.1", "", "", ""},
 		{"openai_chat", openAI, "gpt-5.1", "high", "effort=high", ""},
 		{"openai_chat", openAI, "gpt-5.1-2025-11-13", "", "", ""},
 		{"openai_chat", openAI, "gpt-5.2", "", "", ""},
-		{"openai_chat", openAI, "gpt-5.4-mini", "medium", "effort=medium", ""},
-		{"openai_chat", openAI, "gpt-5.5", "", "", "effort=none"},
-		{"openai_chat", openAI, "gpt-5.5", "medium", "effort=medium", "effort=none"},
-		{"openai_chat", openAI, "gpt-5.6-sol", "", "", "effort=none"},
-		{"openai_chat", openAI, "gpt-6-luna", "", "", "effort=none"},
-		{"openai_chat", openAI, "gpt-6-astra", "", "", "effort=low"},
-		{"openai_chat", openAI, "gpt-6.1-sol", "", "", "effort=low"},
+		{"openai_chat", openAI, "gpt-5.4", "", "effort=none", "effort=none"},
+		{"openai_chat", openAI, "gpt-5.4-mini", "medium", "effort=none", "effort=none"},
+		{"openai_chat", openAI, "gpt-5.5", "", "effort=none", "effort=none"},
+		{"openai_chat", openAI, "gpt-5.5", "medium", "effort=none", "effort=none"},
+		{"openai_chat", openAI, "gpt-5.6-sol", "", "effort=none", "effort=none"},
+		{"openai_chat", openAI, "gpt-6-luna", "", "effort=none", "effort=none"},
 		{"openai_chat", openAI, "gpt-5", "", "", "effort=minimal"},
 		{"openai_chat", openAI, "gpt-5-mini", "high", "effort=high", "effort=minimal"},
 		{"openai_chat", openAI, "gpt-5-nano-2025-08-07", "", "", "effort=minimal"},
 		{"openai_chat", openAI, "gpt-5-pro", "high", "effort=high", ""},
 		{"openai_chat", openAI, "gpt-5.2-pro", "", "", "effort=medium"},
-		{"openai_chat", openAI, "gpt-5.5-pro", "high", "effort=high", "effort=medium"},
-		{"openai_chat", openAI, "gpt-5.4-pro", "", "", ""},
 		{"openai_chat", openAI, "gpt-5.3-codex", "", "", "effort=low"},
 		{"openai_chat", openAI, "o4-mini", "", "", "effort=low"},
 		{"openai_chat", openAI, "o3", "high", "effort=high", "effort=low"},
@@ -141,6 +141,17 @@ func TestLeastReasoningNeverThinksMore(t *testing.T) {
 		{"openai_responses", azure, "tutor-prod", "medium", "reasoning=medium", "reasoning=low"},
 		{"openai_responses", azure, "gpt-5.1", "", "", ""},
 		{"openai_responses", deepSeek, "deepseek-flash", "", "", "reasoning=none"},
+		// OpenRouter uses the same per-maker table as openai_chat, not the
+		// generic configured-effort fallback.
+		{"openai_responses", openRouter, "openai/gpt-5.5", "", "", "reasoning=none"},
+		{"openai_responses", openRouter, "openai/gpt-5-mini", "high", "reasoning=high", "reasoning=minimal"},
+		{"openai_responses", openRouter, "deepseek/deepseek-v4-flash", "", "", "reasoning=none"},
+		{"openai_responses", openRouter, "deepseek/deepseek-v4-flash", "high", "reasoning=high", "reasoning=none"},
+		{"openai_responses", openRouter, "anthropic/claude-opus-5", "", "", "reasoning=low"},
+		{"openai_responses", openRouter, "anthropic/claude-sonnet-4.5", "medium", "reasoning=medium", ""},
+		{"openai_responses", openRouter, "google/gemini-2.5-flash", "", "", "reasoning=none"},
+		{"openai_responses", openRouter, "qwen/qwen3-max", "", "", "reasoning=none"},
+		{"openai_responses", openRouter, "z-ai/glm-4.6", "high", "reasoning=high", "reasoning=low"},
 		{"openai_responses", localResp, "tutor-local", "high", "reasoning=high", "reasoning=low"},
 		{"openai_responses", localResp, "tutor-local", "", "", ""},
 

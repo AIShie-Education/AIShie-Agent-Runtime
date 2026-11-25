@@ -49,6 +49,31 @@ func TestOpenAILeastEffort(t *testing.T) {
 	}
 }
 
+// TestOpenAIChatToolEffort holds OpenAI's Chat Completions tool-call
+// constraint to model ids, including snapshots and fine-tunes. An unknown
+// newer model is not guessed at; a model that cannot take none is not
+// supported there at all.
+func TestOpenAIChatToolEffort(t *testing.T) {
+	for _, c := range []struct {
+		model, effort          string
+		constrained, supported bool
+	}{
+		{"gpt-5.3", "", false, true},
+		{"gpt-5.4", "none", true, true},
+		{"GPT-5.5-2026-10-01", "none", true, true},
+		{"ft:gpt-6-luna:school::a1b2", "none", true, true},
+		{"gpt-6-astra", "", true, false},
+		{"gpt-6.1-sol:batch", "", true, false},
+		{"gpt-5.4-pro", "", true, false},
+		{"gpt-7", "", false, true},
+	} {
+		effort, constrained, supported := OpenAIChatToolEffort(c.model)
+		if effort != c.effort || constrained != c.constrained || supported != c.supported {
+			t.Errorf("OpenAIChatToolEffort(%q) = %q, %v, %v; want %q, %v, %v", c.model, effort, constrained, supported, c.effort, c.constrained, c.supported)
+		}
+	}
+}
+
 // TestLeastEffort: a configured effort on a model whose family is not
 // known goes no higher than low, and nothing stays nothing.
 func TestLeastEffort(t *testing.T) {

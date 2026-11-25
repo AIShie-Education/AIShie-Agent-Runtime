@@ -105,6 +105,10 @@ func TestProviderCorners(t *testing.T) {
 			auto:  shape{System: "developer", MaxField: "max_completion_tokens", Tools: true, Effort: "low", Store: "false", ToolHistory: true},
 			force: shape{System: "developer", MaxField: "max_completion_tokens", Tools: true, ToolChoice: "none", Effort: "low", Store: "false", ToolHistory: true},
 		}},
+		{"openai, GPT-6 Luna is a reasoning model", "", "gpt-6-luna", llm.CapabilityOverrides{}, turns{
+			auto:  shape{System: "developer", MaxField: "max_completion_tokens", Tools: true, Effort: "none", Store: "false", ToolHistory: true},
+			force: shape{System: "developer", MaxField: "max_completion_tokens", Tools: true, ToolChoice: "none", Effort: "none", Store: "false", ToolHistory: true},
+		}},
 		{"openai, parallel calls turned off", "", "gpt-5-chat-latest", llm.CapabilityOverrides{ParallelToolCalls: no()}, turns{
 			auto:  shape{System: "developer", MaxField: "max_completion_tokens", Tools: true, Parallel: "false", Store: "false", Temperature: true, ToolHistory: true},
 			force: shape{System: "developer", MaxField: "max_completion_tokens", Tools: true, ToolChoice: "none", Parallel: "false", Store: "false", Temperature: true, ToolHistory: true},
@@ -205,7 +209,9 @@ func TestLeastReasoning(t *testing.T) {
 		{"openai, an o-series model, no effort", "", "o4-mini", "", sent{}, sent{Effort: "low"}},
 		{"openai, gpt-5.1, which reasons not unasked, no effort", "", "gpt-5.1", "", sent{}, sent{}},
 		{"openai, gpt-5.1 at high", "", "gpt-5.1", "high", sent{Effort: "high"}, sent{}},
-		{"openai, gpt-5.5, no effort", "", "gpt-5.5", "", sent{}, sent{Effort: "none"}},
+		{"openai, gpt-5.5, no effort", "", "gpt-5.5", "", sent{Effort: "none"}, sent{Effort: "none"}},
+		{"openai, gpt-5.5 at high, still none for tools", "", "gpt-5.5", "high", sent{Effort: "none"}, sent{Effort: "none"}},
+		{"openai, gpt-6 Luna, no effort", "", "gpt-6-luna", "", sent{Effort: "none"}, sent{Effort: "none"}},
 		{"openai, gpt-5's chat variant, no effort", "", "gpt-5-chat-latest", "", sent{}, sent{}},
 		{"openai, a model that does not reason", "", "gpt-4.1", "high", sent{}, sent{}},
 		{"openai, a model that does not reason, no effort", "", "gpt-4.1", "", sent{}, sent{}},

@@ -83,6 +83,10 @@ func TestNewRefusesBadConfiguration(t *testing.T) {
 		{"another scheme", llm.Config{Model: "m", BaseURL: "ftp://example.com/v1"}, "absolute"},
 		{"credentials in the base", llm.Config{Model: "m", BaseURL: "https://user:sk-secret-in-url@example.com/v1"}, "credentials"},
 		{"an unknown dialect", llm.Config{Model: "m", Dialect: "yaml"}, "dialect"},
+		{"GPT-6 Astra cannot call tools here", llm.Config{Model: "gpt-6-astra"}, "openai_responses"},
+		{"GPT-6.1 Sol cannot call tools here", llm.Config{Model: "gpt-6.1-sol"}, "openai_responses"},
+		{"GPT-5.4 Pro cannot take the required none", llm.Config{Model: "gpt-5.4-pro"}, "openai_responses"},
+		{"GPT-5.5 Pro cannot take the required none", llm.Config{Model: "gpt-5.5-pro"}, "openai_responses"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			c.cfg.APIKey = testKey
@@ -140,6 +144,10 @@ func TestModelFamilies(t *testing.T) {
 		{"gpt-5-mini", true, false},
 		{"gpt-5.1", true, false},
 		{"gpt-5-chat-latest", true, true},
+		{"gpt-6-luna", true, false},
+		{"GPT-6-Astra-2026-10-01", true, false},
+		{"ft:gpt-6.1-sol:school::abc123", true, false},
+		{"gpt-6-chat-latest", true, true},
 		{"omni-moderation", false, true},
 		{"tutor-deployment", false, true},
 		{"ft:gpt-4.1-mini:school::abc123", false, true},

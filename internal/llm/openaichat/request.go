@@ -288,11 +288,20 @@ func (a *Adapter) askReasoning(out *chatRequest, least bool) {
 		if least {
 			effort = leastOf(effort, llm.OpenAILeastEffort, a.model)
 		}
+		// OpenAI documents Chat Completions tool calls from GPT-5.4 on as
+		// taking reasoning_effort none alone. Send it on every call, not only
+		// a forced one, so an ordinary turn with tools works too. Models that
+		// cannot take none were refused by New and belong on openai_responses.
+		if a.provider == llm.ProviderOpenAI {
+			if required, constrained, _ := llm.OpenAIChatToolEffort(a.model); constrained {
+				effort = required
+			}
+		}
 		out.ReasoningEffort = effort
 	case llm.ProviderOpenRouter:
 		effort := a.effort
 		if least {
-			effort = leastOf(effort, openRouterLeast, a.model)
+			effort = LeastOpenRouterEffort(effort, a.model)
 		}
 		if effort != "" {
 			out.Reasoning = &reasoningParam{Effort: effort}
@@ -317,6 +326,14 @@ func leastOf(effort string, of func(string) (string, bool), model string) string
 		return least
 	}
 	return llm.LeastEffort(effort)
+}
+
+// LeastOpenRouterEffort is the effort an OpenRouter call asking for the
+// least reasoning is made with. It shares openRouterLeast and leastOf with
+// the Responses adapter, so both adapters use the same per-maker table and
+// the same configured-effort fallback for a model the table does not know.
+func LeastOpenRouterEffort(effort, model string) string {
+	return leastOf(effort, openRouterLeast, model)
 }
 
 // openRouterLeast is the effort that asks model, an id of OpenRouter's
@@ -347,8 +364,8 @@ func openRouterLeast(model string) (string, bool) {
 	return "", false
 }
 
-// systemRole is developer for OpenAI's reasoning models and the GPT-5
-// family, which take their instructions under that role, and system
+// systemRole is developer for OpenAI's reasoning models and the GPT-5 and
+// GPT-6 families, which take their instructions under that role, and system
 // everywhere else. An Azure deployment is matched by its name, which
 // usually names its model; one that does not gets system, which Azure
 // still accepts.
@@ -360,9 +377,10 @@ func (a *Adapter) systemRole() string {
 }
 
 // developerRole reports whether model is an o-series reasoning model (o1,
-// o3, o4-mini, …) or of the GPT-5 family, its chat variants too.
+// o3, o4-mini, …) or of the GPT-5 or GPT-6 family, its chat variants too.
 func developerRole(model string) bool {
-	return llm.OpenAIReasoningModel(model) || strings.HasPrefix(family(model), "gpt-5")
+	family := family(model)
+	return llm.OpenAIReasoningModel(model) || strings.HasPrefix(family, "gpt-5") || strings.HasPrefix(family, "gpt-6")
 }
 
 // family is a model id as its family names it: lower case, without the

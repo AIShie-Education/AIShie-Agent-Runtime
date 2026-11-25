@@ -1776,6 +1776,17 @@ For an inbox row (conversation X, question M, opener P):
      takes it, as for a model whose reasoning is mandatory) is taken for
      its API refusing it. The call is made again as configured, as is the
      rest of the answer, logged.
+
+     OpenAI's own Chat Completions endpoint has one further constraint from
+     GPT-5.4 on: its tool calls take `reasoning_effort: none` alone. For the
+     documented models that accept `none`, `openai_chat` sends it on every
+     call, ordinary as well as forced, whatever effort is configured.
+     GPT-5.4 Pro, GPT-5.5 Pro, GPT-6 Astra and GPT-6.1 Sol take no tool
+     calls there even at `none`; `openaichat.New` refuses them with a
+     message to use `openai_responses`. Azure and OpenRouter keep their own
+     behaviour, and the Responses adapter uses the same per-maker table as
+     Chat Completions when pointed at OpenRouter
+     (`openaichat.LeastOpenRouterEffort`).
    - *A forced turn that writes nothing is asked once more*: it thought
      until its cap, ended empty, or called tools it was told not to. The
      same turn is asked again (not counted in `turns`, nor stopped by it;
@@ -2887,8 +2898,9 @@ short, gives it more, or a lower effort.
   (`TestLeastReasoningNeverThinksMore`): DeepSeek's thinking off in its
   three formats (a golden of the forced call; one of the length stop
   with `reasoning_content` and no content, all of it reasoning); nothing
-  for GPT-5.1, 5.2 and 5.4, configured or not, on OpenAI, Azure, the
-  Responses API and OpenRouter; none for GPT-5.5, 5.6 and 6 Sol and Luna,
+  for GPT-5.1 and 5.2, and for GPT-5.4 away from OpenAI's own constrained
+  Chat Completions endpoint; none on every direct Chat Completions call
+  from GPT-5.4 where tools require it; none for GPT-5.5, 5.6 and 6 Sol and Luna,
   minimal for GPT-5, low for the o series and GPT-6 Astra, medium for the
   Pro models that take no less, nothing for GPT-5 Pro and the chat
   models; Claude that thinks unasked at low, adaptively, and Claude 4 to
