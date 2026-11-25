@@ -1451,6 +1451,18 @@ and its owner active: nothing is declared (the runtime no longer calls
 `me_site_chat`, which Core no longer has), and the token's revocation
 stops the asking.
 
+`me_get` also names Core's optional `time_zone` (AIShie-Core #72), an IANA
+zone validated with `time.LoadLocation`. The supervisor shares it through
+`Location`: daily quotas and hold-backs use the actual instant of the
+school's midnight (`schoolday.Day`), with `AddDate` for the next day across
+23- and 25-hour daylight-saving days. The API, `/status` and the transcriber
+use the same location for today's counts and reports; `CostQuery.Location`
+makes memstore and pgstore group costs by the same day, the SQL zone passed
+as a bound parameter. A price's `from` remains a `DATE`, so no migration is
+needed: `LookupIn`, `PricedAsIn` and `ModelsIn` compare its civil date in the
+school's zone (`schoolday.CivilDate`), which starts it at the school's
+midnight. An unset zone, or no agent started yet, means UTC throughout.
+
 It reads memberships again every
 `memberships_s`, and at once after a `forbidden`, `not_found` or `denied`,
 and records each seat as it then is (course, status, `answers_course`,
@@ -3917,7 +3929,8 @@ time: not money) stay `runtime.yaml`'s.
     `details.http_status` (null for none). Anyone but an administrator is
     403 `not_admin`; a query of no model, or one that is not `author/slug`,
     is 400 at `model`, any other parameter `unknown_parameter`. Not audited.
-  - `PUT /admin/school-plan/quotas` sets every quota, in answers a UTC day
+  - `PUT /admin/school-plan/quotas` sets every quota, in answers a school
+    day (UTC when Core names no zone)
     from 1 to 1,000,000, `per_day` null for none, and in dollars
     (`per_owner_day_usd`, `per_asker_day_usd`, `per_day_usd`: a decimal
     string or number, more than 0, at most 1,000,000, to six places; null
@@ -3963,7 +3976,8 @@ time: not money) stay `runtime.yaml`'s.
     `runtime.defaults`' again. Audited as `agent_budgets.update` and
     `.reset`.
   - `GET /admin/costs?since=&until=&group=&key_source=&limit=&after=`:
-    what the ledger recorded in a span of UTC days (`since` to `until`,
+    what the ledger recorded in a span of school days, UTC when Core names
+    no zone (`since` to `until`,
     both counted; the last 30 days to today unless given; at most 366),
     as a whole and by `day`, `tenant` (a person's with their name),
     `agent` (with its name while it is configured), `model` (key source,
@@ -3992,7 +4006,7 @@ time: not money) stay `runtime.yaml`'s.
     it refused it), what it does now (`state`: `off`, `running`,
     `standby`, `blocked`, with `blocked_reason`: `no_credential`,
     `credential_rejected`, `no_offer`, `offer_unavailable`,
-    `quota_exhausted`), and the UTC day's pages, documents done, failed and
+    `quota_exhausted`), and the school day's pages, documents done, failed and
     skipped (a job each, a file of a version since AIShie-Core #49), and
     cost. It is not turned on where it cannot run (422
     `transcription_unavailable`); an offer the plan has not (runtime.yaml's
@@ -4215,7 +4229,8 @@ the runtime through the API.
   tried again until another is given); no offer, or one the plan no longer
   offers or whose model takes no files (`offer_unavailable`); the day's
   pages all spent, or the plan's dollars across the school's key
-  (`quota_exhausted`, until the next UTC day).
+  (`quota_exhausted`, until the next school day, UTC when Core names no
+  zone).
 - **Dropped work.** Core refusing a renewal or the completion because the
   claim was lost (`lease_lost`: a retranscription broke it, or it lapsed),
   staff wrote the text meanwhile (`edited_by_staff`), the course or the

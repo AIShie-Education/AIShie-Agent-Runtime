@@ -15,7 +15,7 @@ import (
 
 // GET /admin/school-plan/usage: today's use of the school's plan (D8), per
 // owner, for the runtime's administrators alone (D4): what the store's
-// reports sum of the school's key since the start of the UTC day, and the
+// reports sum of the school's key since the start of the school day (UTC when Core names no zone), and the
 // plan's quotas. Counts and costs, never what anyone wrote.
 
 // SchoolPlanUsage is the route's answer: since when, the plan's quotas
@@ -28,7 +28,7 @@ type SchoolPlanUsage struct {
 	Owners []OwnerPlanUse   `json:"owners"`
 }
 
-// SchoolPlanLimits are the plan's quotas a UTC day: in answers (per_day
+// SchoolPlanLimits are the plan's quotas a school day (UTC when Core names no zone): in answers (per_day
 // null for no ceiling), and in dollars, each a decimal with six places, or
 // null for none.
 type SchoolPlanLimits struct {
@@ -70,7 +70,7 @@ func (s *Server) schoolPlanUsage(w http.ResponseWriter, r *http.Request, c *Call
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), storeTimeout)
 	defer cancel()
-	since := store.UTCDay(s.o.Now())
+	since := s.day(s.o.Now())
 	rows, err := s.o.Store.TenantUsage(ctx, config.KeySchool, since, since.AddDate(0, 0, 1))
 	if err != nil {
 		s.storeUnavailable(w, "the school's plan's use", err)

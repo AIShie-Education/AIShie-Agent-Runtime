@@ -167,12 +167,12 @@ func (s *Service) account(m *model, resp *llm.Response, err error, took time.Dur
 	var version string
 	priced := false
 	if resp != nil {
-		if price, ok := prices.Lookup(m.ad.Provider(), m.ad.Model(), now); ok {
+		if price, ok := prices.LookupIn(m.ad.Provider(), m.ad.Model(), now, s.location()); ok {
 			c, version, priced = price.Cost(resp.Usage), price.Version, true
 		}
 	}
 	if s.o.Metrics != nil {
-		s.o.Metrics.ObserveLLM(m.ad.Name(), metricModel(m, prices, now), resp, err, float64(c)/1e12, config.KeySchool)
+		s.o.Metrics.ObserveLLM(m.ad.Name(), metricModel(m, prices, now, s.location()), resp, err, float64(c)/1e12, config.KeySchool)
 	}
 	if resp == nil {
 		return
@@ -198,11 +198,11 @@ func (s *Service) account(m *model, resp *llm.Response, err error, took time.Dur
 // as its operator wrote it; a site's, as the price table names it, and
 // other where no row prices it, so that no administrator's text is a
 // label.
-func metricModel(m *model, prices *pricing.Table, at time.Time) string {
+func metricModel(m *model, prices *pricing.Table, at time.Time, loc *time.Location) string {
 	if !m.site {
 		return m.ad.Model()
 	}
-	if name, ok := prices.PricedAs(m.ad.Provider(), m.ad.Model(), at); ok {
+	if name, ok := prices.PricedAsIn(m.ad.Provider(), m.ad.Model(), at, loc); ok {
 		return name
 	}
 	return "other"

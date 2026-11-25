@@ -1354,10 +1354,10 @@
       "openWorldHint": false,
       "readOnlyHint": true
      },
-     "description_sha256": "7a9d7d56a4f45ac0f506552cfb5fa9c954ecbd7236da627002d227903f608916",
+     "description_sha256": "bc47610427b487b520e73efdd25e57e5cd5372a2dfa090217a1094311ac2d0bf",
      "input_schema_sha256": "cd1a463c46d6264134447db17a8c3c7abe5b9a2488c6d759fea66da1f96b133e",
      "name": "me_get",
-     "output_schema_sha256": "8e1ec21c2afdf7b0085b28de601d987f445f9f692431062cd6f6e952c8fe2363"
+     "output_schema_sha256": "cf63dbada3f5a87bd9c05e7abc8c2d3a523c96d20cb57f5fe4e043e995282203"
     },
     {
      "annotations": {

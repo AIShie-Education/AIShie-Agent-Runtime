@@ -109,6 +109,9 @@ type Options struct {
 	Log *slog.Logger
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
+	// Location is the school's time zone learned from Core, for daily
+	// quotas, reports and price effective dates. Nil means UTC.
+	Location func() *time.Location
 }
 
 // Actors says which agent of the worker's runs as a Core actor at a Core:

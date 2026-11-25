@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/schoolday"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
@@ -43,7 +44,7 @@ const (
 )
 
 // CostReport is GET /admin/costs' answer: the span, its first and last
-// UTC days (YYYY-MM-DD, both counted); how it is grouped, and the key
+// school days (YYYY-MM-DD, both counted, UTC when Core names no zone); how it is grouped, and the key
 // source it is held to (null for both); the total of the whole span; a
 // page of groups, by key; and the cursor of the next page (after), null
 // after the last. A day, a tenant or an agent with nothing recorded has no
@@ -125,7 +126,7 @@ func costSum(r store.CostRow) CostSum {
 }
 
 // costQuery reads GET /admin/costs' parameters, answering a refusal:
-// since and until, UTC days, until the last counted (today, and 30 days
+// since and until, school days (UTC when Core names no zone), until the last counted (today, and 30 days
 // before it, unless given), at most 366 days; group, one of
 // store.CostBy* (day unless given); key_source, school or own (both
 // unless given); limit, 1 to 500 (100 unless given); after, the key a page
@@ -140,29 +141,31 @@ func (s *Server) costQuery(w http.ResponseWriter, r *http.Request) (store.CostQu
 		WriteError(w, *fieldError(CodeInvalidArgument, ReasonInvalidField, field, msg))
 		return q, false
 	}
+	loc := s.location()
 	day := func(field string, def time.Time) (time.Time, bool) {
 		v, given := p[field]
 		if !given {
 			return def, true
 		}
-		t, err := time.Parse(time.DateOnly, v)
+		t, err := time.ParseInLocation(time.DateOnly, v, loc)
 		return t, err == nil
 	}
-	until, ok := day("until", store.UTCDay(s.o.Now()))
+	until, ok := day("until", s.day(s.o.Now()))
 	if !ok {
-		return refuse("until", "until is the last day counted, YYYY-MM-DD, in UTC")
+		return refuse("until", "until is the last day counted, YYYY-MM-DD, in the school's time zone")
 	}
 	since, ok := day("since", until.AddDate(0, 0, 1-defaultCostDays))
 	if !ok {
-		return refuse("since", "since is the first day counted, YYYY-MM-DD, in UTC")
+		return refuse("since", "since is the first day counted, YYYY-MM-DD, in the school's time zone")
 	}
-	switch days := int(until.Sub(since).Hours()/24) + 1; {
+	switch days := schoolday.Days(since, until, loc) + 1; {
 	case days < 1:
 		return refuse("since", "since is on or before until")
 	case days > maxCostDays:
 		return refuse("since", "a report spans at most 366 days")
 	}
 	q.Since, q.Until = since, until.AddDate(0, 0, 1)
+	q.Location = loc
 	q.Group = store.CostByDay
 	if g, given := p["group"]; given {
 		if !slices.Contains([]string{store.CostByTotal, store.CostByDay, store.CostByTenant, store.CostByAgent, store.CostByModel,
@@ -217,7 +220,7 @@ func (s *Server) costs(w http.ResponseWriter, r *http.Request, c *Caller) {
 		s.storeUnavailable(w, "the cost report", err)
 		return
 	}
-	out := CostReport{Since: utcDay(q.Since), Until: utcDay(q.Until.AddDate(0, 0, -1)), Group: q.Group, KeySource: strPtr(q.KeySource),
+	out := CostReport{Since: s.date(q.Since), Until: s.date(q.Until.AddDate(0, 0, -1)), Group: q.Group, KeySource: strPtr(q.KeySource),
 		Total: costSum(store.CostRow{}), Rows: []CostGroup{}}
 	if len(total) > 0 {
 		out.Total = costSum(total[0])
@@ -237,7 +240,7 @@ func (s *Server) costs(w http.ResponseWriter, r *http.Request, c *Caller) {
 		g := CostGroup{Key: row.Key, CostSum: costSum(row)}
 		switch q.Group {
 		case store.CostByDay:
-			g.Day = strPtr(utcDay(row.Day))
+			g.Day = strPtr(s.date(row.Day))
 		case store.CostByAgent:
 			g.AgentID, g.AgentName = strPtr(row.AgentID), names.agents[row.AgentID]
 			g.TenantID = strPtr(row.TenantID)

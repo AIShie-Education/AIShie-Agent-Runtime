@@ -80,6 +80,9 @@ type Options struct {
 	ProposalTTL time.Duration
 	// Now is the clock; nil is time.Now.
 	Now func() time.Time
+	// TimeZone is the school's IANA zone returned by me.get, as Core's
+	// SCHOOL_TIME_ZONE says. Empty omits it, preserving UTC behavior.
+	TimeZone string
 	// BaseURL is where the fake is served, for the download URLs it hands
 	// out; empty takes it from each request.
 	BaseURL string

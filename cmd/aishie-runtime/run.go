@@ -154,7 +154,7 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 		return exitFailure
 	}
 	transcriber, err := newTranscriber(ctx, env, transcribe.Options{Store: st, Keeps: h.pg != nil && v != nil, CoreHTTP: client,
-		Secrets: res, ModelHTTP: client, HostedHTTP: hostedClient, Office: converter, Metrics: m, Log: log, Holder: sup.WorkerID()})
+		Secrets: res, ModelHTTP: client, HostedHTTP: hostedClient, Office: converter, Metrics: m, Log: log, Holder: sup.WorkerID(), Location: sup.Location})
 	if err != nil {
 		log.Error("TRANSCRIBE=on, and the transcriber cannot run here", "err", err)
 		return exitFailure
@@ -165,7 +165,7 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 		log.Error("HTTP_ADDR cannot be listened on", "addr", env.HTTPAddr, "err", err)
 		return exitFailure
 	}
-	apiSrv, err := newAPI(env, apiDeps{client: client, models: hostedClient, st: st, vault: v, actors: sup, hosting: h, ocr: recognizer,
+	apiSrv, err := newAPI(env, apiDeps{client: client, models: hostedClient, st: st, vault: v, actors: sup, hosting: h, ocr: recognizer, location: sup.Location,
 		transcriber: transcriber, runtime: runtimeService(env, client, credential, bucket)}, reg, log)
 	if err != nil {
 		log.Error("the API", "err", err)
@@ -297,6 +297,7 @@ type apiDeps struct {
 	ocr         api.OCR
 	transcriber api.Transcriber
 	runtime     *core.RuntimeService
+	location    func() *time.Location
 }
 
 // Core's agent_runtime service allows its one actor, the runtime, 600 calls
@@ -380,6 +381,7 @@ func newAPI(env config.Env, d apiDeps, reg prometheus.Registerer, log *slog.Logg
 		TrustedProxies: proxies,
 		Registerer:     reg,
 		Log:            log,
+		Location:       d.location,
 	}), nil
 }
 

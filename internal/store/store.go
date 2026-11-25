@@ -32,6 +32,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/schoolday"
 )
 
 // Store is all of it.
@@ -1152,6 +1154,8 @@ type CostQuery struct {
 	KeySource    string
 	After        string
 	Limit        int
+	// Location is the calendar zone used to group by day. Nil means UTC.
+	Location *time.Location
 }
 
 // MaxCostRows bounds CostQuery.Limit.
@@ -1266,8 +1270,10 @@ func CheckSpan(agentID string, since, until time.Time) error {
 	return nil
 }
 
-// UTCDay is the start of t's UTC day, as reports group by.
-func UTCDay(t time.Time) time.Time {
-	y, m, d := t.UTC().Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
-}
+// Day is the instant of midnight at the start of t's day in loc. Nil loc is
+// UTC, preserving the behavior of a Core without a school time zone.
+func Day(t time.Time, loc *time.Location) time.Time { return schoolday.Day(t, loc) }
+
+// UTCDay is the start of t's UTC day, as reports group by when Core names no
+// school time zone.
+func UTCDay(t time.Time) time.Time { return schoolday.Day(t, time.UTC) }

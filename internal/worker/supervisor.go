@@ -43,6 +43,9 @@ type Supervisor struct {
 	kick    chan struct{}
 	running atomic.Bool
 	prices  atomic.Pointer[pricing.Table]
+	// location is the school's time zone learned from me_get; nil means UTC
+	// until an agent starts, and for a Core that names none.
+	location atomic.Pointer[time.Location]
 
 	mu      sync.Mutex
 	cfg     *config.Config
@@ -178,6 +181,29 @@ func (s *Supervisor) Running() bool { return s.running.Load() }
 
 // WorkerID is this worker's name in leases.
 func (s *Supervisor) WorkerID() string { return s.o.WorkerID }
+
+// Location is the school's time zone learned from Core's me_get. It is UTC
+// before an agent starts and when Core leaves time_zone unset.
+func (s *Supervisor) Location() *time.Location {
+	if loc := s.location.Load(); loc != nil {
+		return loc
+	}
+	return time.UTC
+}
+
+// setTimeZone puts Core's IANA time zone in force for every day boundary.
+func (s *Supervisor) setTimeZone(name string) error {
+	if name == "" {
+		s.location.Store(time.UTC)
+		return nil
+	}
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		return err
+	}
+	s.location.Store(loc)
+	return nil
+}
 
 // Run leases and runs agents until ctx is done, then stops every agent,
 // giving answers in progress Env.ShutdownGrace to finish, releases their

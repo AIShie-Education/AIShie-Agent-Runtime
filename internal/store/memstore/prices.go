@@ -169,7 +169,7 @@ func (s *Store) CostReport(_ context.Context, q store.CostQuery) ([]store.CostRo
 		transcription := c.KindOf() == store.CallTranscription
 		switch q.Group {
 		case store.CostByDay:
-			r.Day = store.UTCDay(c.At)
+			r.Day = store.Day(c.At, q.Location)
 			r.Key = r.Day.Format(time.DateOnly)
 		case store.CostByTenant:
 			r.Key, r.TenantID = c.TenantID, c.TenantID

@@ -788,6 +788,17 @@ What stays the operator's, in the env file and `runtime.yaml`:
   owners': `keys check` and `keys rewrap` cover them, and a backup of the
   database is no use without it ([below](#the-key-that-seals-secrets)).
 
+**The school's day.** Core's optional `SCHOOL_TIME_ZONE` is an IANA zone
+such as `Asia/Hong_Kong`. The runtime reads it as `time_zone` from `me.get`
+as each agent starts, and uses the school's midnight for agents' daily
+quotas and budgets, school-plan usage, the transcriber's page and dollar
+ceilings, `/status`, and cost reports' days. A price's `from` stays a civil
+date (`YYYY-MM-DD`) but starts at that date's midnight in the school's
+zone. Before an agent has started, and with a Core whose setting is unset,
+the day stays UTC exactly as before. Restart the runtime after changing the
+zone so every agent uses the same day boundary; agents of one runtime
+should use Cores configured for the same school zone.
+
 The site's quotas stand in place of `school:`'s, answers and dollars,
 until an administrator resets them to `school:`'s, which the front end
 shows beside them. A quota in dollars needs a price for every model it
@@ -827,7 +838,8 @@ not this runtime made it, and the file itself otherwise.
   admin/settings`'s `transcription`): the switch; the offer of the school's
   plan it transcribes with, whose model must take files (PDFs, or pages
   as pictures), on the school's key; the most pages a document may have
-  (300), the pages a UTC day across the site (no limit unless set), and
+  (300), the pages a school day across the site (UTC when Core has no
+  zone, no limit unless set), and
   how many documents at once (2). Its costs are in the ledger as their
   own kind: they count against the plan's ceiling across the school's key
   (`per_day_usd`), not against any owner's or asker's quota, and the cost

@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/schoolday"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
@@ -243,6 +244,13 @@ func (s *Store) CostReport(ctx context.Context, q store.CostQuery) ([]store.Cost
 		return nil, err
 	}
 	g := costGroups[q.Group]
+	args := []any{q.Since, q.Until, q.KeySource, q.After, q.Limit}
+	if q.Group == store.CostByDay {
+		// The zone is a bound parameter, never interpolated into SQL.
+		g.key = `to_char(at AT TIME ZONE $6, 'YYYY-MM-DD')`
+		g.cols = `min(date_trunc('day', at AT TIME ZONE $6)) AT TIME ZONE $6, '', '', '', '', ''`
+		args = append(args, schoolday.Location(q.Location).String())
+	}
 	// The sums of each kind of call: an answer's (a row of a release
 	// before the kind is one too), and the transcriber's.
 	sums := func(kind string) string {
@@ -263,7 +271,7 @@ func (s *Store) CostReport(ctx context.Context, q store.CostQuery) ([]store.Cost
 		                          t_cost)
 		 WHERE $4::text = '' OR k COLLATE "C" > $4::text
 		 ORDER BY k COLLATE "C"
-		 LIMIT $5`, q.Since, q.Until, q.KeySource, q.After, q.Limit)
+		 LIMIT $5`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("store: the cost report: %w", err)
 	}

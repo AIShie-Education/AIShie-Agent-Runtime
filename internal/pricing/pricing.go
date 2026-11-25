@@ -15,7 +15,7 @@
 //	prices:
 //	  - provider: anthropic           # as llm.DetectProvider names it
 //	    model: claude-sonnet-4*       # exact, or a glob where * is any text
-//	    from: 2025-05-22              # the date the price starts, UTC
+//	    from: 2025-05-22              # the civil date the price starts (UTC by default)
 //	    id: sonnet-4                  # optional; the row's name in versions
 //	    usd_per_mtok: {input: 3, cache_read: "0.30", cache_write: 3.75, output: 15}
 package pricing
@@ -37,6 +37,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/schoolday"
 )
 
 // PUSDPerUSD is how many pico-dollars make a dollar.
@@ -262,6 +263,12 @@ func (t *Table) Lookup(provider, model string, at time.Time) (Price, bool) {
 	return r.price, true
 }
 
+// LookupIn is Lookup on at's civil date in loc. A price's from remains a
+// DATE, but takes effect at midnight in the school's zone rather than UTC.
+func (t *Table) LookupIn(provider, model string, at time.Time, loc *time.Location) (Price, bool) {
+	return t.Lookup(provider, model, schoolday.CivilDate(at, loc))
+}
+
 // PricedAs is what the row Lookup takes for provider's model at at names:
 // the model itself, when a row names it exactly, or the glob that prices
 // it; false when none does. It is always the table's own text, whatever
@@ -272,6 +279,11 @@ func (t *Table) PricedAs(provider, model string, at time.Time) (string, bool) {
 		return "", false
 	}
 	return r.model, true
+}
+
+// PricedAsIn is PricedAs on at's civil date in loc.
+func (t *Table) PricedAsIn(provider, model string, at time.Time, loc *time.Location) (string, bool) {
+	return t.PricedAs(provider, model, schoolday.CivilDate(at, loc))
 }
 
 // lookup is the row Lookup takes, nil for none.
@@ -327,6 +339,11 @@ func (t *Table) Models(provider string, at time.Time) []string {
 		out = append(out, r.model)
 	}
 	return out
+}
+
+// ModelsIn is Models on at's civil date in loc.
+func (t *Table) ModelsIn(provider string, at time.Time, loc *time.Location) []string {
+	return t.Models(provider, schoolday.CivilDate(at, loc))
 }
 
 // Match reports whether s matches pattern, where * stands for any run of

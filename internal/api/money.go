@@ -12,6 +12,7 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/schoolday"
 )
 
 // The money the runtime's administrators manage (D4; docs/design.md
@@ -238,5 +239,27 @@ func (s *Server) checkUnpriced(ctx context.Context, w http.ResponseWriter, cur, 
 	return true
 }
 
-// utcDay is t's UTC day as YYYY-MM-DD.
+// location is the school's time zone learned from Core, UTC when unset.
+func (s *Server) location() *time.Location {
+	if s.o.Location != nil {
+		if loc := s.o.Location(); loc != nil {
+			return loc
+		}
+	}
+	return time.UTC
+}
+
+// day is the instant of the school's midnight for t.
+func (s *Server) day(t time.Time) time.Time { return schoolday.Day(t, s.location()) }
+
+// date is t's calendar date in the school's zone as YYYY-MM-DD.
+func (s *Server) date(t time.Time) string { return t.In(s.location()).Format(time.DateOnly) }
+
+// lookup prices a model by the civil date in the school's zone: a from row
+// starts at that zone's midnight without changing the DATE storage format.
+func (s *Server) lookup(table *pricing.Table, provider, model string, at time.Time) (pricing.Price, bool) {
+	return table.LookupIn(provider, model, at, s.location())
+}
+
+// utcDay is t's UTC day as YYYY-MM-DD, the stored form of a price's from.
 func utcDay(t time.Time) string { return t.UTC().Format(time.DateOnly) }

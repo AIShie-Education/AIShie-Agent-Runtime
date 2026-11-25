@@ -199,6 +199,9 @@ func (a *Agent) start(ctx context.Context) (err error) {
 		return &blockedError{reason: store.ReasonTokenOtherAgent,
 			msg: "Core names another actor than core.agent_id for the token it issued the runtime for it"}
 	}
+	if err := a.s.setTimeZone(me.TimeZone); err != nil {
+		return fmt.Errorf("me_get: time_zone: %w", err)
+	}
 	primary, _, err := a.models(ctx, a.cfg.Model)
 	if err != nil {
 		return err

@@ -39,7 +39,7 @@ type spentQuota struct {
 // plan's ceiling across everything on the school's key. The school's are
 // counted on the school's key alone, and checked after the agent's own,
 // which count every answer. Each counts answers and dollars since the
-// start of the UTC day; dollars are checked with the p95 of the agent's
+// start of the school day (UTC when Core names no zone); dollars are checked with the p95 of the agent's
 // recent answers added to what is spent, so that the answer about to be
 // written is likely to fit too. It returns the first quota that is spent,
 // or none.
@@ -65,7 +65,7 @@ func (c *claim) quota(ctx context.Context) (*spentQuota, error) {
 		scopes = append(scopes, quotaScope{name: "school_day", quota: school.PerDay, school: true,
 			scope: store.SpendScope{KeySource: config.KeySchool}})
 	}
-	since := startOfDay(c.a.now())
+	since := startOfDayIn(c.a.now(), c.a.s.Location())
 	var next int64
 	predicted := false
 	for _, q := range scopes {
@@ -130,7 +130,7 @@ func p95(costs []int64) int64 {
 
 // outOfQuota answers a question over quota: the canned notice under the
 // answer's own key, with no model call, so that the asker knows why; or,
-// when on_quota_exhausted is silent, nothing until the next UTC day. The
+// when on_quota_exhausted is silent, nothing until the next school day (UTC when Core names no zone). The
 // conversation is not read: the notice is in the language answers are
 // fixed to, else in English and Traditional Chinese (claim.notice). A
 // quota of the school's key other than a tenant's is the school's plan's,
@@ -140,7 +140,7 @@ func (c *claim) outOfQuota(ctx context.Context, r passResult, q *spentQuota) pas
 	c.s.log.Info("the asker, the agent or the tenant is out of quota", "conversation", c.conv, "opener", c.opener,
 		"quota", q.name, "on_quota_exhausted", c.eff.Answer.OnQuotaExhausted)
 	if c.eff.Answer.OnQuotaExhausted == config.OnQuotaSilent {
-		c.s.holdBack(c.conv, nextDay(c.a.now()), "out of quota ("+q.name+")")
+		c.s.holdBack(c.conv, nextDayIn(c.a.now(), c.a.s.Location()), "out of quota ("+q.name+")")
 		r.outcome, r.kind = store.OutcomeQuota, kindQuota
 		return r
 	}

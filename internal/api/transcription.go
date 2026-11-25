@@ -190,7 +190,7 @@ func (s *Server) transcriptionOffer(eff *config.Config, siteOffers []store.Schoo
 	if transcribe.InputOf(m) == transcribe.InputNone {
 		return offer, OfferStatusNoFileInput
 	}
-	if _, ok := s.pricesOf(eff).Lookup(m.EffectiveProvider(), m.Model, s.o.Now()); !ok {
+	if _, ok := s.lookup(s.pricesOf(eff), m.EffectiveProvider(), m.Model, s.o.Now()); !ok {
 		return offer, OfferStatusNotPriced
 	}
 	return offer, OfferStatusOK
@@ -211,7 +211,7 @@ func (s *Server) transcriptionView(ctx context.Context, t config.SiteTranscripti
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return TranscriptionSettings{}, err
 	}
-	day, err := s.o.Store.TranscriptionDay(ctx, store.UTCDay(s.o.Now()))
+	day, err := s.o.Store.TranscriptionDay(ctx, s.day(s.o.Now()))
 	if err != nil {
 		return TranscriptionSettings{}, err
 	}
