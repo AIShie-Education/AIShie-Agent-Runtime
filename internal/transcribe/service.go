@@ -79,8 +79,11 @@ type Options struct {
 	// Holder names this worker in the lease and the jobs.
 	Holder string
 	// Now is the clock; nil is time.Now.
-	Now    func() time.Time
-	Timing Timing
+	Now func() time.Time
+	// Location is the school's time zone learned from Core, for page and
+	// dollar quotas and price effective dates. Nil means UTC.
+	Location func() *time.Location
+	Timing   Timing
 }
 
 // Timing is how the transcriber paces itself; a zero field is its default.
@@ -140,7 +143,7 @@ type Setting struct {
 	// Dir is where the runtime's relative references resolve: the
 	// offer's key_ref, for one of runtime.yaml's.
 	Dir string
-	// PerDayUSD is the plan's ceiling across the school's key, a UTC day,
+	// PerDayUSD is the plan's ceiling across the school's key, a school day (UTC when Core names no zone),
 	// which the transcriber's costs count against: nil for none.
 	PerDayUSD *float64
 	// Prices is the price table in force.
@@ -249,6 +252,16 @@ func New(o Options) *Service {
 	s := &Service{o: o, t: o.Timing.withDefaults(), now: o.Now, log: o.Log.With("module", "transcribe"), wake: make(chan struct{})}
 	s.avail = s.environment()
 	return s
+}
+
+// location is the school's zone, UTC before Core names one.
+func (s *Service) location() *time.Location {
+	if s.o.Location != nil {
+		if loc := s.o.Location(); loc != nil {
+			return loc
+		}
+	}
+	return time.UTC
 }
 
 // environment is what the operator's environment allows, before Core is
@@ -614,11 +627,11 @@ func (s *Service) clientOf(ctx context.Context, cat *core.Catalogue, secretID st
 }
 
 // dayFull reports whether the day's quotas leave no room for a page more:
-// the site's pages a day (the jobs' pages since the start of the UTC day,
+// the site's pages a day (the jobs' pages since the start of the school day (UTC when Core names no zone),
 // and those the jobs in progress hold), and the plan's dollars across the
 // school's key.
 func (s *Service) dayFull(ctx context.Context, st Setting) (bool, error) {
-	day := store.UTCDay(s.now())
+	day := store.Day(s.now(), s.location())
 	if limit := st.Site.PerDayPages; limit != nil {
 		d, err := s.o.Store.TranscriptionDay(ctx, day)
 		if err != nil {
@@ -659,7 +672,7 @@ func (s *Service) reserve(ctx context.Context, st Setting, pages int) (bool, err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	day := store.UTCDay(s.now())
+	day := store.Day(s.now(), s.location())
 	if !s.reservedOn.Equal(day) {
 		s.reservedOn, s.reserved = day, 0
 	}

@@ -285,4 +285,24 @@ func testCostReport(t *testing.T, open Opener) {
 			t.Errorf("CostReport(%+v) was taken", bad)
 		}
 	}
+
+	t.Run("days start at the school's midnight", func(t *testing.T) {
+		hk, err := time.LoadLocation("Asia/Hong_Kong")
+		if err != nil {
+			t.Fatal(err)
+		}
+		before := time.Date(2026, 9, 1, 15, 30, 0, 0, time.UTC) // 23:30 on 1 September in Hong Kong.
+		after := time.Date(2026, 9, 1, 16, 30, 0, 0, time.UTC)  // 00:30 on 2 September in Hong Kong.
+		record(t, s, []store.LLMCall{
+			c("before-school-midnight", before, yuki, 10, "m-zone", "v1/zone"),
+			c("after-school-midnight", after, yuki, 20, "m-zone", "v1/zone"),
+		}, nil)
+		rows := report(store.CostQuery{Group: store.CostByDay, Location: hk,
+			Since: store.Day(d1, hk), Until: store.Day(d2, hk).AddDate(0, 0, 1)})
+		if len(rows) != 2 || rows[0].Key != "2026-09-01" || rows[1].Key != "2026-09-02" ||
+			!rows[0].Day.Equal(store.Day(d1, hk)) || rows[0].ModelCalls != 3 || rows[0].CostPUSD != 310 ||
+			rows[1].ModelCalls != 3 || rows[1].CostPUSD != 70 {
+			t.Errorf("by the school day: %+v", rows)
+		}
+	})
 }

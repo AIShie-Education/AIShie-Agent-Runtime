@@ -182,7 +182,7 @@ func (s *Server) view(ctx context.Context, row *store.HostedAgent) (*HostedAgent
 	v := &HostedAgent{
 		ID: row.ID, Version: row.Version, CoreActorID: row.CoreActorID, OwnerActorID: row.OwnerActorID,
 		DisplayName: row.DisplayName, Status: status, Problem: problem, Paused: row.Paused,
-		Model: ModelSlots{Own: ownModelView(own, s.pricesOf(eff), now), School: schoolModelView(school, sc, own != nil && row.KeySecretID != "")},
+		Model: ModelSlots{Own: ownModelView(own, s.pricesOf(eff), now, s.location()), School: schoolModelView(school, sc, own != nil && row.KeySecretID != "")},
 		Tools: ToolsView{Writes: registry.WritesOf(row.Settings)},
 		Seats: []Seat{}, CreatedAt: row.CreatedAt.UTC(), UpdatedAt: row.UpdatedAt.UTC(),
 	}
@@ -211,7 +211,7 @@ func (s *Server) view(ctx context.Context, row *store.HostedAgent) (*HostedAgent
 		v.Seats = append(v.Seats, seat)
 	}
 	sortSeats(v.Seats)
-	since := store.UTCDay(now)
+	since := s.day(now)
 	spend, err := s.o.Store.Spend(ctx, store.SpendScope{AgentID: row.ID}, since)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errStore, err)

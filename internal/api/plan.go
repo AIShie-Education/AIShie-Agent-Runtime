@@ -153,7 +153,7 @@ func (s *Server) agentsOn(ctx context.Context) (map[string]int, error) {
 
 // configOfferView is an offer of runtime.yaml's as the administrators
 // read it, priced by the table in force, prices.
-func configOfferView(o config.SchoolOffer, prices *pricing.Table, agents int, now time.Time) PlanOffer {
+func configOfferView(o config.SchoolOffer, prices *pricing.Table, agents int, now time.Time, loc *time.Location) PlanOffer {
 	m := o.AsModel()
 	v := PlanOffer{ID: o.ID, Source: SourceConfig, Label: o.Label, Provider: m.EffectiveProvider(), Adapter: o.Adapter, Model: o.Model,
 		Enabled: true, Status: OfferOffered, Agents: agents, ReasoningEffort: strPtr(o.Reasoning.Effort), OpenRouter: o.OpenRouter.Canonical()}
@@ -161,7 +161,7 @@ func configOfferView(o config.SchoolOffer, prices *pricing.Table, agents int, no
 	if n := o.Params.MaxOutputTokens; n > 0 {
 		v.MaxOutputTokens = &n
 	}
-	_, v.Priced = prices.Lookup(v.Provider, v.Model, now)
+	_, v.Priced = prices.LookupIn(v.Provider, v.Model, now, loc)
 	return v
 }
 
@@ -181,7 +181,7 @@ func (s *Server) siteOfferView(o store.SchoolOffer, eff *config.Config, agents i
 	case why != "":
 		v.Status = why
 	}
-	_, v.Priced = s.pricesOf(eff).Lookup(v.Provider, v.Model, now)
+	_, v.Priced = s.lookup(s.pricesOf(eff), v.Provider, v.Model, now)
 	status := KeyUntested
 	if o.KeyTested {
 		status = KeyTested
@@ -215,7 +215,7 @@ func (s *Server) schoolPlan(ctx context.Context) (*SchoolPlan, error) {
 		QuotasSet: eff.Runtime.Site.Quotas != nil}
 	prices := s.pricesOf(eff)
 	for _, o := range s.yaml().Runtime.School.Offers {
-		out.Offers = append(out.Offers, configOfferView(o, prices, agents[o.ID], now))
+		out.Offers = append(out.Offers, configOfferView(o, prices, agents[o.ID], now, s.location()))
 	}
 	for _, o := range offers {
 		out.Offers = append(out.Offers, s.siteOfferView(o, eff, agents[o.ID], now))
@@ -306,7 +306,7 @@ func (s *Server) getOffer(w http.ResponseWriter, r *http.Request, c *Caller) {
 		s.storeUnavailable(w, "the hosted agents", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, configOfferView(yo, s.pricesOf(eff), agents[id], s.o.Now()))
+	writeJSON(w, http.StatusOK, configOfferView(yo, s.pricesOf(eff), agents[id], s.o.Now(), s.location()))
 }
 
 // offerRequest is POST /admin/school-plan/offers' body: the offer's id,
@@ -387,7 +387,7 @@ func (s *Server) allowedOffer(eff *config.Config, o store.SchoolOffer, field str
 			Message: "the school's model lists do not allow this model on the school's key (runtime.yaml's allowed_models, denied_models)",
 			Details: map[string]any{"field": field}}
 	}
-	if _, priced := s.pricesOf(eff).Lookup(o.Provider, o.Model, s.o.Now()); eff.Runtime.School.USD() && !priced {
+	if _, priced := s.lookup(s.pricesOf(eff), o.Provider, o.Model, s.o.Now()); eff.Runtime.School.USD() && !priced {
 		return &Error{Code: CodeFailedPrecondition, Reason: ReasonOfferNotPriced,
 			Message: "the plan has a quota in dollars, and the price table has no price for this model: add one (POST /admin/prices)",
 			Details: map[string]any{"field": field, "offers": []string{o.ID}}}

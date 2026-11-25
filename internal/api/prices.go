@@ -162,13 +162,13 @@ func (s *Server) priceTable(ctx context.Context) (*PriceTable, error) {
 	now := s.o.Now()
 	for _, o := range s.yaml().Runtime.School.Offers {
 		m := o.AsModel()
-		if _, ok := table.Lookup(m.EffectiveProvider(), m.Model, now); !ok {
+		if _, ok := s.lookup(table, m.EffectiveProvider(), m.Model, now); !ok {
 			out.UnpricedOffers = append(out.UnpricedOffers, UnpricedOffer{ID: o.ID, Source: SourceConfig, Provider: m.EffectiveProvider(),
 				Model: m.Model, Enabled: true})
 		}
 	}
 	for _, o := range offers {
-		if _, ok := table.Lookup(o.Provider, o.Model, now); !ok {
+		if _, ok := s.lookup(table, o.Provider, o.Model, now); !ok {
 			out.UnpricedOffers = append(out.UnpricedOffers, UnpricedOffer{ID: o.ID, Source: SourceSite, Provider: o.Provider, Model: o.Model,
 				Enabled: o.Enabled})
 		}
@@ -343,7 +343,7 @@ func priceShape(provider, model, from string) (time.Time, *Error) {
 	}
 	day, err := time.Parse(time.DateOnly, from)
 	if err != nil || day.Year() < 2000 || day.Year() > 2100 {
-		return time.Time{}, fieldError(CodeInvalidArgument, ReasonInvalidField, "/from", "from is the day the price starts, YYYY-MM-DD, in UTC")
+		return time.Time{}, fieldError(CodeInvalidArgument, ReasonInvalidField, "/from", "from is the day the price starts, YYYY-MM-DD, in the school's time zone (UTC when Core names none)")
 	}
 	return day, nil
 }

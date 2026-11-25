@@ -63,13 +63,13 @@ type SchoolLimits struct {
 
 // schoolOffers are the offers of the school's plan sc, as GET /models
 // lists them, priced by prices.
-func schoolOffers(sc config.School, prices *pricing.Table, now time.Time) SchoolKeyOffers {
+func schoolOffers(sc config.School, prices *pricing.Table, now time.Time, loc *time.Location) SchoolKeyOffers {
 	owner, asker := sc.OwnerQuota(), sc.AskerQuota()
 	out := SchoolKeyOffers{Offered: sc.Offered(), Offers: []SchoolOffer{},
 		Limits: SchoolLimits{PerOwnerDay: *owner.Answers, PerAskerDay: *asker.Answers}}
 	for _, o := range sc.Offers {
 		m := o.AsModel()
-		_, priced := prices.Lookup(m.EffectiveProvider(), m.Model, now)
+		_, priced := prices.LookupIn(m.EffectiveProvider(), m.Model, now, loc)
 		out.Offers = append(out.Offers, SchoolOffer{ID: o.ID, Label: o.Label, Provider: m.EffectiveProvider(), Model: o.Model, Priced: priced})
 	}
 	return out
@@ -123,7 +123,7 @@ func (s *Server) models(w http.ResponseWriter, r *http.Request, _ *Caller) {
 		return
 	}
 	prices, rt := s.pricesOf(eff), eff.Runtime
-	out := Models{OwnKey: OwnKeyOffers{Offered: true, Providers: []ProviderOffer{}}, SchoolKey: schoolOffers(rt.School, prices, now)}
+	out := Models{OwnKey: OwnKeyOffers{Offered: true, Providers: []ProviderOffer{}}, SchoolKey: schoolOffers(rt.School, prices, now, s.location())}
 	for _, o := range registry.Offers() {
 		p := ProviderOffer{Provider: o.Provider, Label: o.Label, Adapters: o.Adapters, SuggestedModels: []SuggestedModel{},
 			Endpoint: EndpointOffer{Kind: o.Endpoint.Kind, BaseURL: o.Endpoint.BaseURL, Pattern: o.Endpoint.Pattern,
@@ -135,11 +135,11 @@ func (s *Server) models(w http.ResponseWriter, r *http.Request, _ *Caller) {
 			kp := o.KeyPrefix
 			p.KeyPrefix = &kp
 		}
-		for _, m := range prices.Models(o.Provider, now) {
+		for _, m := range prices.ModelsIn(o.Provider, now, s.location()) {
 			if _, denied := config.DeniedModel(rt, o.Adapters[0], o.Provider, m); denied {
 				continue
 			}
-			_, priced := prices.Lookup(o.Provider, m, now)
+			_, priced := s.lookup(prices, o.Provider, m, now)
 			p.SuggestedModels = append(p.SuggestedModels, SuggestedModel{Model: m, Priced: priced})
 		}
 		out.OwnKey.Providers = append(out.OwnKey.Providers, p)

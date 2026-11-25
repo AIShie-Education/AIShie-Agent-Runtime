@@ -21,6 +21,9 @@ type Actor struct {
 	// Hosting is how an agent is hosted, for good: HostingRuntime or
 	// HostingMCP; "" for a person, and on a Core from before it said so.
 	Hosting string `json:"hosting,omitempty"`
+	// TimeZone is the school's IANA time zone, when Core names one. Empty
+	// preserves the runtime's UTC day (AIShie-Core #72).
+	TimeZone string `json:"time_zone,omitempty"`
 }
 
 // KindAgent is an agent's Actor.Kind; a person's is "human".

@@ -485,7 +485,7 @@ func (j *job) hold1(ctx context.Context, pages int) (result, bool) {
 	if !ok {
 		return skipped(ReasonQuotaExhausted), false
 	}
-	j.held, j.heldOn = pages, store.UTCDay(j.s.now())
+	j.held, j.heldOn = pages, store.Day(j.s.now(), j.s.location())
 	return result{}, true
 }
 

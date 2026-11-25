@@ -224,7 +224,7 @@ type AgentStatus struct {
 	Seats            []SeatStatus `json:"seats,omitempty"`
 }
 
-// Spend is what an agent used since the start of the UTC day.
+// Spend is what an agent used since the start of the school day (UTC when Core names no zone).
 type Spend struct {
 	Answers  int     `json:"answers"`
 	CostPUSD int64   `json:"cost_pusd"`
@@ -274,7 +274,7 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 			a.Seats = append(a.Seats, SeatStatus{SeatStatus: seat})
 		}
 	}
-	since := startOfDay(now)
+	since := store.Day(now, s.sup.Location())
 	for id, a := range byID {
 		if sp, err := s.st.Spend(ctx, store.SpendScope{AgentID: id}, since); err == nil {
 			a.Today = Spend{Answers: sp.Answers, CostPUSD: sp.CostPUSD, CostUSD: pricing.USD(sp.CostPUSD)}
@@ -332,11 +332,6 @@ func redactAgent(a AgentStatus) AgentStatus {
 		s.Tools = tools
 	}
 	return a
-}
-
-func startOfDay(t time.Time) time.Time {
-	t = t.UTC()
-	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

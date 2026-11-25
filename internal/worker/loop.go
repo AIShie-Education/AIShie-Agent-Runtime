@@ -592,11 +592,11 @@ const otherModel = "other"
 // model, or the glob that prices it), and otherModel when no row prices
 // it, so that no owner's text becomes a label, and the labels are no more
 // than the table's rows.
-func modelLabel(cfg *config.Agent, prices *pricing.Table, ad llm.Adapter, at time.Time) string {
+func modelLabel(cfg *config.Agent, prices *pricing.Table, ad llm.Adapter, at time.Time, loc *time.Location) string {
 	if cfg.Hosted == nil {
 		return ad.Model()
 	}
-	if name, ok := prices.PricedAs(ad.Provider(), ad.Model(), at); ok {
+	if name, ok := prices.PricedAsIn(ad.Provider(), ad.Model(), at, loc); ok {
 		return name
 	}
 	return otherModel
@@ -611,11 +611,11 @@ func (l *loop) account(resp *llm.Response, err error, took time.Duration) {
 	var cost int64
 	var version string
 	if resp != nil {
-		if price, ok := prices.Lookup(ad.Provider(), ad.Model(), now); ok {
+		if price, ok := prices.LookupIn(ad.Provider(), ad.Model(), now, a.s.Location()); ok {
 			cost, version = price.Cost(resp.Usage), price.Version
 		}
 	}
-	a.s.o.Metrics.ObserveLLM(ad.Name(), modelLabel(a.cfg, prices, ad, now), resp, err, float64(cost)/1e12, l.m.keySource)
+	a.s.o.Metrics.ObserveLLM(ad.Name(), modelLabel(a.cfg, prices, ad, now, a.s.Location()), resp, err, float64(cost)/1e12, l.m.keySource)
 	if resp == nil {
 		return
 	}

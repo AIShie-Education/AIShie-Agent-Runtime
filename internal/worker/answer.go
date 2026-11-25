@@ -930,7 +930,7 @@ func (c *claim) providersDown(ctx context.Context, r passResult) passResult {
 // closes no conversation: answer.on_attempts_exhausted is skip, and close,
 // from a configuration written before, is taken as skip.
 func (c *claim) exhausted(r passResult) passResult {
-	c.s.holdBack(c.conv, nextDay(c.a.now()), "its attempts are spent")
+	c.s.holdBack(c.conv, nextDayIn(c.a.now(), c.a.s.Location()), "its attempts are spent")
 	r.outcome = store.OutcomeSkipped
 	return r
 }
@@ -1023,11 +1023,17 @@ func deref(p *string) string {
 	return *p
 }
 
-// startOfDay is the start of t's UTC day: where daily quotas start.
-func startOfDay(t time.Time) time.Time {
-	t = t.UTC()
-	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
-}
+// startOfDay is the start of t's UTC day, kept for the default behavior.
+func startOfDay(t time.Time) time.Time { return store.Day(t, time.UTC) }
+
+// startOfDayIn is the instant of the school's midnight for t.
+func startOfDayIn(t time.Time, loc *time.Location) time.Time { return store.Day(t, loc) }
 
 // nextDay is the start of the UTC day after t's.
 func nextDay(t time.Time) time.Time { return startOfDay(t).AddDate(0, 0, 1) }
+
+// nextDayIn is the start of the school day after t's. AddDate respects
+// daylight-saving transitions; a school day is not always 24 hours.
+func nextDayIn(t time.Time, loc *time.Location) time.Time {
+	return startOfDayIn(t, loc).AddDate(0, 0, 1)
+}

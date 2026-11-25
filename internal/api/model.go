@@ -155,7 +155,7 @@ type OwnModel struct {
 
 // ownModelView is the model section own as its owner reads it, priced by
 // prices; nil for none.
-func ownModelView(own *modelSection, prices *pricing.Table, now time.Time) *OwnModel {
+func ownModelView(own *modelSection, prices *pricing.Table, now time.Time, loc *time.Location) *OwnModel {
 	if own == nil {
 		return nil
 	}
@@ -179,6 +179,6 @@ func ownModelView(own *modelSection, prices *pricing.Table, now time.Time) *OwnM
 	if own.Reasoning != nil {
 		v.ReasoningEffort = str(own.Reasoning.Effort)
 	}
-	_, v.PriceKnown = prices.Lookup(v.Provider, v.Model, now)
+	_, v.PriceKnown = prices.LookupIn(v.Provider, v.Model, now, loc)
 	return v
 }

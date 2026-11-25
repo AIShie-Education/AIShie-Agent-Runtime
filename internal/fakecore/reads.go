@@ -31,8 +31,9 @@ func meGet() *impl {
 				OwnerActorID *string `json:"owner_actor_id,omitempty"`
 				// Hosting is an agent's, runtime or mcp; absent for a
 				// person.
-				Hosting *string `json:"hosting,omitempty"`
-			}{ID: a.id, Kind: a.kind, DisplayName: a.name, Status: a.status}
+				Hosting  *string `json:"hosting,omitempty"`
+				TimeZone string  `json:"time_zone,omitempty"`
+			}{ID: a.id, Kind: a.kind, DisplayName: a.name, Status: a.status, TimeZone: c.opts.TimeZone}
 			if a.owner != nil {
 				out.OwnerActorID = &a.owner.id
 			}
