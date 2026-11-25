@@ -89,10 +89,10 @@ func TestCatalogueSnapshot(t *testing.T) {
 			reads++
 		}
 	}
-	if len(cat.tools) != 185 || reads != 68 || writes != 112 || ephemeral != 5 {
-		t.Errorf("%d tools, %d reads, %d writes, %d ephemeral; the snapshot holds 185, 68, 112, 5", len(cat.tools), reads, writes, ephemeral)
+	if len(cat.tools) != 186 || reads != 69 || writes != 112 || ephemeral != 5 {
+		t.Errorf("%d tools, %d reads, %d writes, %d ephemeral; the snapshot holds 186, 69, 112, 5", len(cat.tools), reads, writes, ephemeral)
 	}
-	for _, name := range []string{"agent_runtime.agent", "agent_runtime.check_owner", "agent_runtime.issue_token", "agent_runtime.revoke_token",
+	for _, name := range []string{"agent_runtime.agent", "agent_runtime.check_owner", "agent_runtime.check_ask", "agent_runtime.issue_token", "agent_runtime.revoke_token",
 		"agent_runtime.rendition_claim", "agent_runtime.rendition_file", "agent_runtime.rendition_renew",
 		"agent_runtime.rendition_upload_url", "agent_runtime.rendition_complete"} {
 		if tl := cat.byName[name]; tl == nil || !tl.restOnly || tl.service != scopeAgentRuntime {
@@ -121,9 +121,9 @@ func TestCatalogueSnapshot(t *testing.T) {
 	if len(before.tools) != len(cat.tools)-1 || before.byName["conversation.draft"] != nil {
 		t.Errorf("the catalogue without conversation.draft has %d tools", len(before.tools))
 	}
-	// The service's four tools of hosting, the five of its renditions, and
-	// the two that send a rendition back.
-	if len(older.tools) != len(cat.tools)-11 || older.byName["agent_runtime.issue_token"] != nil || older.byName["document.rendition_retry"] != nil ||
+	// The service's five tools of hosting and asking, the five of its
+	// renditions, and the two that send a rendition back.
+	if len(older.tools) != len(cat.tools)-12 || older.byName["agent_runtime.issue_token"] != nil || older.byName["document.rendition_retry"] != nil ||
 		older.byName["agent_runtime.rendition_claim"] != nil {
 		t.Errorf("the catalogue without the agent runtime's service has %d tools", len(older.tools))
 	}

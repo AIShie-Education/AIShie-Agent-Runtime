@@ -342,7 +342,7 @@ func TestLiveContract(t *testing.T) {
 	// services' own, which Core serves over REST alone, to their own
 	// credentials: the agent runtime's hosting and renditions, and the
 	// transcriber's queue.
-	restOnly := []string{ToolRuntimeAgent, ToolRuntimeCheckOwner, ToolRuntimeIssueToken, ToolRuntimeRevokeToken,
+	restOnly := []string{ToolRuntimeAgent, ToolRuntimeCheckOwner, ToolRuntimeCheckAsk, ToolRuntimeIssueToken, ToolRuntimeRevokeToken,
 		ToolRenditionClaim, ToolRenditionFile, ToolRenditionRenew, ToolRenditionUploadURL, ToolRenditionComplete,
 		ToolTextQueue, ToolTextFile, ToolTextRenew, ToolTextComplete}
 	offered := map[string]bool{}

@@ -204,6 +204,21 @@ func hostingThroughTheAPI(t *testing.T, w *world) {
 		return got
 	}
 	waitStatus(api.StatusRunning)
+	// Before the first question, the privacy disclosure names the real
+	// provider of the model just configured through Core's check_ask.
+	privacyAnswer := call("GET", "agents/"+w.own.id+"/privacy?course_id="+w.course, "")
+	var disclosure api.AgentPrivacy
+	decodeAs(privacyAnswer, 200, &disclosure)
+	if disclosure.AgentID != w.own.id || disclosure.Primary == nil || disclosure.Primary.Plan != "own" ||
+		disclosure.Primary.Provider != "openai" || disclosure.Primary.ProviderLabel == nil || *disclosure.Primary.ProviderLabel != "OpenAI" ||
+		disclosure.Primary.SchoolOfferLabel != nil || disclosure.Fallback != nil {
+		t.Errorf("provider privacy before asking: %+v (%s)", disclosure, privacyAnswer.body)
+	}
+	for _, secret := range []string{w.modelKey, "e2e-model", "base_url", "key_hint", "owner_actor_id"} {
+		if strings.Contains(string(privacyAnswer.body), secret) {
+			t.Errorf("provider privacy contains %q: %s", secret, privacyAnswer.body)
+		}
+	}
 	// The worker was issued its token by its id, and keeps it sealed in
 	// its row: the one Core holds live for it.
 	issued := func() string {

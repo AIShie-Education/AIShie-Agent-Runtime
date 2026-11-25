@@ -2645,7 +2645,7 @@ short, gives it more, or a lower effort.
   runtime to be issued the agent's token, or, asking before a worker
   starts, have it issued as an earlier run would have). It hosts agents as
   AIShie-Core #52 does (`hosting.go`): each `runtime` or `mcp` for
-  good; the `agent_runtime` service's four REST tools, offered to no
+  good; the `agent_runtime` service's five REST tools, offered to no
   model, taken with a service credential of that scope alone; one runtime
   token per agent, which issuing replaces and revokes; and a Core from
   before it (`WithoutHosting`), whose catalogue has no such service.
@@ -3597,7 +3597,8 @@ without the runtime's own credential (`CORE_SERVICE_CREDENTIAL`, §11.6).
   `keys/test` 6 a minute, bursts of 3, and 100 a UTC day), answered 429
   with `Retry-After`; the assertion; a query (none is taken, but the
   parameters of the administrators' `GET /admin/tenants`, `GET
-  /admin/costs` and `GET /admin/transcription/jobs`, each once, any other
+  /admin/costs` and `GET /admin/transcription/jobs`, and `course_id` of
+  `GET /agents/{id}/privacy`, each once, any other
   `unknown_parameter`: a route that reads a body refuses one too)
   and a body (JSON only, at most 64 KB, no key twice, in one case or in
   two, no member the route does not take by exactly its name, since
@@ -3621,8 +3622,9 @@ without the runtime's own credential (`CORE_SERVICE_CREDENTIAL`, §11.6).
   and the school's plan, when the runtime's settings offer a model on it).
   `GET /me`: the person's actor id and name, whether they are an
   administrator, and how many agents they host; it records the person
-  (`person`), at most every five minutes. The rest are a hosted agent's
-  life, each the owner's alone (another's agent is 404, never 403):
+  (`person`), at most every five minutes. The hosted-agent lifecycle routes
+  are each the owner's alone (another's agent is 404, never 403), except the
+  asker-authorized provider disclosure explicitly described below:
   - `POST /agents/inspect` and `POST /agents` take an agent's id in Core,
     `{agent_id}`, and ask Core, with the runtime's own credential, whether
     the caller owns it and what it is (`agent_runtime.check_owner`, §11.6):
@@ -3658,6 +3660,28 @@ without the runtime's own credential (`CORE_SERVICE_CREDENTIAL`, §11.6).
     written a state for the row's version, then the state's own, with the
     reason the worker wrote (`token_refused`, `settings_rejected`,
     `agent_suspended`, `owner_changed`, …).
+  - `GET /agents/{id}/privacy?course_id={course_id}` is the one read here
+    for an asker, not an owner. Its `id` is the agent's Core actor UUID (the
+    id the chat already has), not the owner-only `agt_…` row id. With the
+    caller's assertion and the runtime's service credential, it asks Core's
+    read-only `agent_runtime.check_ask(actor_id, agent_id, course_id)`, which
+    applies the same authorization as a real question without creating a
+    conversation or message. False, an unknown id and a caller without
+    permission all get the same 404 `agent_not_found`, before the runtime
+    reads the agent's settings; Core or its credential failing is never a
+    grant. An allowed request answers only
+    `{agent_id, primary, fallback}`. `primary` is null when no model can
+    answer in that course, else `{plan: school|own, provider,
+    provider_label, school_offer_label}`; `fallback` is null or `{provider,
+    provider_label}` when another provider may answer. The provider label is
+    the existing provider catalogue's, null for a custom or self-hosted
+    endpoint with no trustworthy company label; a school offer's real label
+    is included when available. The projection uses the course's effective
+    worker configuration, including per-course overrides and a withdrawn
+    offer's own-key replacement. It never includes a model name, offer id,
+    API key or hint, endpoint URL, key reference, quota, owner, token or any
+    other model setting. A Core before `check_ask` answers 422
+    `core_too_old`; a front end must retain its generic provider wording.
   - `PATCH /agents/{id}`, by merge-patch and only with `If-Match` (428
     without, 412 at another version): the owner's model, from the
     provider offers of `GET /models`, and their key, sealed; the offer of
@@ -4059,8 +4083,9 @@ an `mcp` agent is never hosted here.
 
 - **The runtime's own credential.** The runtime is a site service of
   Core's, `agent_runtime`, with a credential of its own (`aissvc_…`), which
-  Core takes at the service's REST routes alone, its four of hosting and,
-  since Core's migration 0026, its five of renditions (§13) (never over
+  Core takes at the service's REST routes alone, its four of hosting, its
+  read-only `check_ask` authorization query (§11.4) and, since Core's
+  migration 0026, its five of renditions (§13) (never over
   MCP, and never any other tool): `CORE_SERVICE_CREDENTIAL`, a reference
   (`secret://…`, `env://…` or `file://…`; never `sealed://`, since it is the
   operator's), `secret://core/agent_runtime` by default, the file
@@ -4081,6 +4106,9 @@ an `mcp` agent is never hosted here.
   agent, and the agent as Core hosts it), `agent` (the agent: its hosting,
   standing, owner's standing, live seats, whether it is hostable and why
   not, the runtime token Core holds for it, and whether people may ask it),
+  `check_ask` (only `{may_ask}`: whether the assertion's person may ask this
+  agent in this course under the real conversation-ask authorization, with
+  no reason, other actor's information or conversation/message created),
   `issue_token` (the agent's one token, under a fresh idempotency key each
   time: Core's replay of a call carried out before comes back without the
   token, and is issued again under another key, which revokes the token

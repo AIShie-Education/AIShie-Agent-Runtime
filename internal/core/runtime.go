@@ -20,8 +20,9 @@ import (
 // a runtime agent is run by the site's agent runtime and nothing else. The
 // runtime is a site service of Core's, agent_runtime, with a credential of
 // its own (aissvc_…, CORE_SERVICE_CREDENTIAL), which Core takes at the
-// service's four REST routes alone. With it the runtime hosts an agent by
-// the agent's id: it asks whether the person signed in to it owns the agent
+// service's REST routes alone. With it the runtime asks the read-only
+// check_ask authorization query and hosts an agent by the agent's id: it
+// asks whether the person signed in to it owns the agent
 // (agent_runtime.check_owner), reads the agent as it hosts it
 // (agent_runtime.agent), is issued the agent's one token
 // (agent_runtime.issue_token), which revokes the one before, and revokes
@@ -35,6 +36,7 @@ import (
 const (
 	ToolRuntimeAgent       = "agent_runtime_agent"
 	ToolRuntimeCheckOwner  = "agent_runtime_check_owner"
+	ToolRuntimeCheckAsk    = "agent_runtime_check_ask"
 	ToolRuntimeIssueToken  = "agent_runtime_issue_token"
 	ToolRuntimeRevokeToken = "agent_runtime_revoke_token" // #nosec G101 -- a tool's name, not a credential.
 )
@@ -108,8 +110,9 @@ type IssuedToken struct {
 	Replaced     []string `json:"replaced,omitempty"`
 }
 
-// HasRuntimeService reports whether cat offers the agent runtime's
-// service: a Core since AIShie-Core #52.
+// HasRuntimeService reports whether cat offers the agent runtime's base
+// hosting service: a Core since AIShie-Core #52. CheckAsk is detected apart,
+// so a Core before that companion can still host agents.
 func HasRuntimeService(cat *Catalogue) bool {
 	if cat == nil {
 		return false
@@ -122,9 +125,10 @@ func HasRuntimeService(cat *Catalogue) bool {
 	return true
 }
 
-// RuntimeService is the agent runtime's typed client: its four calls, over
-// a Caller that carries the service's credential (RuntimeCaller, a
-// RESTCaller: the service's tools are REST's alone).
+// RuntimeService is the agent runtime's typed client: its four hosting calls
+// and the read-only CheckAsk, over a Caller that carries the service's
+// credential (RuntimeCaller, a RESTCaller: the service's tools are REST's
+// alone).
 type RuntimeService struct {
 	c Caller
 }
@@ -159,6 +163,22 @@ func (s *RuntimeService) CheckOwner(ctx context.Context, actorID, agentID string
 		return false, nil, nil
 	}
 	return true, r.Agent, nil
+}
+
+// CheckAsk says whether the person actorID (an assertion's sub) may ask the
+// agent agentID in course courseID now, under the same authorization as a
+// real conversation ask. False covers an agent, course or seat that is not
+// there as well as one the person may not ask; Core gives no reason or other
+// actor's information. The call creates no conversation or message.
+func (s *RuntimeService) CheckAsk(ctx context.Context, actorID, agentID, courseID string) (bool, error) {
+	var r struct {
+		MayAsk bool `json:"may_ask"`
+	}
+	args := map[string]any{"actor_id": actorID, "agent_id": agentID, "course_id": courseID}
+	if err := serviceCall(ctx, s.c, ToolRuntimeCheckAsk, args, &r); err != nil {
+		return false, err
+	}
+	return r.MayAsk, nil
 }
 
 // issueAttempts bounds IssueToken's calls when Core answers one with the
@@ -295,6 +315,12 @@ func (r *runtimeCaller) Call(ctx context.Context, tool string, args json.RawMess
 	if !HasRuntimeService(cat) {
 		return nil, &ServiceError{Tool: tool, Status: StatusError, Code: CodeNotFound, Reason: ReasonCoreTooOld,
 			Message: "Core has no agent_runtime service: it is older than AIShie-Core #52"}
+	}
+	if tool == ToolRuntimeCheckAsk {
+		if _, ok := cat.Tool(tool); !ok {
+			return nil, &ServiceError{Tool: tool, Status: StatusError, Code: CodeNotFound, Reason: ReasonCoreTooOld,
+				Message: "Core has no agent_runtime.check_ask: it must be upgraded for answer-provider privacy"}
+		}
 	}
 	token, err := r.o.Credential(ctx)
 	if err != nil {

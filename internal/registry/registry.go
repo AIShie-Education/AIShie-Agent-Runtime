@@ -337,6 +337,18 @@ func Check(_ context.Context, yaml *config.Config, row store.HostedAgent, course
 	return err
 }
 
+// ForCourse is the hosted agent's effective configuration in courseID, as
+// Build gives it to the worker. It is Check's same path, including the
+// runtime's defaults, the school's offer in force and the course's overrides,
+// for a caller that needs a fact about the model that would answer there.
+func ForCourse(_ context.Context, yaml *config.Config, row store.HostedAgent, courses []store.HostedCourse, o Options, courseID string) (*config.Effective, error) {
+	a, err := check(yaml, row, courses, o)
+	if err != nil {
+		return nil, err
+	}
+	return a.ForCourse(courseID)
+}
+
 // CheckPriced is Check, and the agent's quotas in dollars held to the
 // price table in force, prices, at at, as run holds a hosted agent's: one
 // whose model, or fallback, no row prices is not run.
