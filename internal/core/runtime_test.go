@@ -18,13 +18,6 @@ func TestRuntimeServiceCheckAsk(t *testing.T) {
 	)
 	path := "/v1/services/agent_runtime/actors/" + actor + "/courses/" + course + "/agents/" + agent + "/may-ask"
 	cat := testCatalogue(t)
-	// The pinned catalogue predates check_ask. Add the companion contract to
-	// this client test without changing the recorded Core fixture globally.
-	cat.index[ToolRuntimeCheckAsk] = len(cat.tools)
-	cat.tools = append(cat.tools, CatalogueTool{
-		Name: "agent_runtime.check_ask", MCPName: ToolRuntimeCheckAsk, Kind: KindRead, Method: http.MethodGet,
-		Path: "/v1/services/agent_runtime/actors/{actor_id}/courses/{course_id}/agents/{agent_id}/may-ask",
-	})
 	answer := true
 	srv, seen := newFakeREST(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != path {
@@ -57,7 +50,15 @@ func TestRuntimeServiceCheckAsk(t *testing.T) {
 // A Core before the companion route fails closed as core_too_old before the
 // runtime resolves its credential or sends a request to a made-up endpoint.
 func TestRuntimeServiceCheckAskCoreTooOld(t *testing.T) {
-	cat := testCatalogue(t)
+	current := testCatalogue(t)
+	cat := &Catalogue{index: map[string]int{}, hash: current.hash}
+	for _, tool := range current.tools {
+		if tool.MCPName == ToolRuntimeCheckAsk {
+			continue
+		}
+		cat.index[tool.MCPName] = len(cat.tools)
+		cat.tools = append(cat.tools, tool)
+	}
 	credentialCalls := 0
 	svc := NewRuntimeService(RuntimeCaller(RuntimeOptions{BaseURL: "http://127.0.0.1:1", Catalogue: cat, Once: true,
 		Credential: func(context.Context) (string, error) { credentialCalls++; return "aissvc_unused", nil }}))

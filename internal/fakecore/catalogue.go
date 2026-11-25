@@ -104,7 +104,7 @@ func loadCatalogue(raw []byte) (*catalogue, error) {
 // The site services, each one's tools named by its scope, which Core serves
 // over REST alone and to that service alone: the transcription service's
 // queue, file, renew and complete, and the agent runtime's agent,
-// check_owner, issue_token and revoke_token.
+// check_owner, check_ask, issue_token and revoke_token.
 const (
 	scopeDocumentText = "document_text"
 	scopeAgentRuntime = "agent_runtime"

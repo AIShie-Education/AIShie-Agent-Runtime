@@ -36,6 +36,24 @@ func TestRuntimeService(t *testing.T) {
 			t.Errorf("CheckOwner(%s, %s) = %v %+v %v", c[0], c[1], owns, a, err)
 		}
 	}
+	actions := len(w.fc.actionList)
+	if mayAsk, err := rs.CheckAsk(ctx, w.people[0].ID, w.tutorA.ID, w.co.ID); err != nil || !mayAsk {
+		t.Errorf("Yuki may ask the course tutor: %v, %v", mayAsk, err)
+	}
+	otherCourse := w.fc.AddCourse("OTHER")
+	for _, c := range [][3]string{
+		{w.people[0].ID, w.tutorA.ID, otherCourse.ID},
+		{w.people[0].ID, w.people[0].ID, w.co.ID},
+		{w.people[0].ID, "0192f3c1-0000-7000-8000-00000000abcd", w.co.ID},
+		{"0192f3c1-0000-7000-8000-00000000abcd", w.tutorA.ID, w.co.ID},
+	} {
+		if mayAsk, err := rs.CheckAsk(ctx, c[0], c[1], c[2]); err != nil || mayAsk {
+			t.Errorf("CheckAsk(%s, %s, %s) = %v, %v", c[0], c[1], c[2], mayAsk, err)
+		}
+	}
+	if len(w.fc.actionList) != actions {
+		t.Error("check_ask wrote an action")
+	}
 	if _, err := rs.Agent(ctx, w.people[0].ID); !core.IsNotFound(err) {
 		t.Errorf("Agent of a person: %v", err)
 	}

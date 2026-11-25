@@ -2645,7 +2645,7 @@ short, gives it more, or a lower effort.
   runtime to be issued the agent's token, or, asking before a worker
   starts, have it issued as an earlier run would have). It hosts agents as
   AIShie-Core #52 does (`hosting.go`): each `runtime` or `mcp` for
-  good; the `agent_runtime` service's four REST tools, offered to no
+  good; the `agent_runtime` service's five REST tools, offered to no
   model, taken with a service credential of that scope alone; one runtime
   token per agent, which issuing replaces and revokes; and a Core from
   before it (`WithoutHosting`), whose catalogue has no such service.

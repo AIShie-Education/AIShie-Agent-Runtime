@@ -23,11 +23,12 @@ import (
 // agent_not_hosted. There is no me.site_chat any more (AIShie-Core #61):
 // MCP lists no such tool, and a call of it is an unknown tool's.
 //
-// The agent runtime's four tools are REST's alone, and the agent_runtime
+// The agent runtime's five tools are REST's alone, and the agent_runtime
 // service's (a site service of its own, beside the transcription
 // service): agent and check_owner read an agent as the runtime hosts it,
-// issue_token issues its one token, revoking the one before, and
-// revoke_token revokes it. A replay of issue_token comes back without the
+// check_ask answers the boolean ask authorization question, issue_token
+// issues its one token, revoking the one before, and revoke_token revokes
+// it. A replay of issue_token comes back without the
 // token, which is shown once.
 
 // An agent's hosting.
@@ -224,15 +225,46 @@ func (c *Core) revokeRuntime(a *actor, now time.Time) []string {
 	return revoked
 }
 
-// invokeRuntime carries out one of the agent runtime's four tools, called
+// mayAsk is agent_runtime.check_ask's read-only authorization question. It
+// uses conversation.open/ask's caller gate and the same addressing and
+// hosting checks, but creates no conversation, message or action. Every
+// expected refusal and unknown id is false, with no reason.
+func (c *Core) mayAsk(actorID, agentID, courseID string, now time.Time) bool {
+	actor := c.actors[strings.ToLower(actorID)]
+	agent := c.agentByID(agentID)
+	course := c.courses[strings.ToLower(courseID)]
+	if actor == nil || agent == nil || course == nil {
+		return false
+	}
+	var opener, respondent *member
+	for _, m := range c.memberList {
+		if m.course != course {
+			continue
+		}
+		switch m.actor {
+		case actor:
+			opener = m
+		case agent:
+			respondent = m
+		}
+	}
+	if opener == nil || respondent == nil ||
+		!evaluate(actor, course, opener, []string{permConversationAsk}, true, now).level.allowed() {
+		return false
+	}
+	return c.checkOpen(opener, respondent) == nil
+}
+
+// invokeRuntime carries out one of the agent runtime's five tools, called
 // by the service caller. A write is an action of the service's, recorded
 // and replayed under its key; one about no agent is never attempted.
 // Called with the lock held.
 func (c *Core) invokeRuntime(caller *actor, t *toolDef, raw []byte, key string, now time.Time) outcome {
 	var in struct {
-		ActorID string  `json:"actor_id"`
-		AgentID string  `json:"agent_id"`
-		Label   *string `json:"label"`
+		ActorID  string  `json:"actor_id"`
+		AgentID  string  `json:"agent_id"`
+		CourseID string  `json:"course_id"`
+		Label    *string `json:"label"`
 	}
 	_ = json.Unmarshal(raw, &in)
 	switch t.Name {
@@ -248,6 +280,8 @@ func (c *Core) invokeRuntime(caller *actor, t *toolDef, raw []byte, key string, 
 			return executed(map[string]any{"owns": false})
 		}
 		return executed(map[string]any{"owns": true, "agent": c.runtimeView(a, now)})
+	case "agent_runtime.check_ask":
+		return executed(map[string]any{"may_ask": c.mayAsk(in.ActorID, in.AgentID, in.CourseID, now)})
 	}
 	if err := checkKey(t, key); err != nil {
 		return c.failure(err)
