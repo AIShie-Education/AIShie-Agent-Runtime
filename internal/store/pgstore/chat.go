@@ -131,7 +131,7 @@ func chatSnapshotQ(ctx context.Context, q chatQuerier, course, conv, actor strin
 	if err != nil {
 		return store.ChatSnapshot{}, err
 	}
-	messages := make([]store.ChatMessage, 0, limit)
+	messages := []store.ChatMessage{}
 	for rows.Next() {
 		m, err := scanChatMessage(rows)
 		if err != nil {
