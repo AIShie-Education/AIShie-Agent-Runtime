@@ -5,17 +5,14 @@ import (
 	"errors"
 	"log/slog"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/pgstore"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/transcribe"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/worker"
 )
 
@@ -40,15 +37,8 @@ type hosting struct {
 	site     config.Site
 	// reported are the agents last reported not run.
 	reported []string
-	// ocr is the worker's OCR, which the site's setting is put in force
-	// in (applyOCR), and ocrSet the setting last put in force, or tried;
-	// nil before the worker has one.
-	ocr    *ocr.Service
-	ocrSet *ocr.Setting
-	// transcriber is the worker's transcriber, which the site's setting,
-	// and what of the plan in force it needs, is put in force in
-	// (applyTranscribe); nil before the worker has one.
-	transcriber *transcribe.Service
+	// tokens owns issuance/sealing and leases, independently of chat polling.
+	tokens *tokenManager
 }
 
 // YAML is the operator's configuration as last loaded, for the API.
@@ -94,9 +84,7 @@ func (h *hosting) build(ctx context.Context) (*config.Config, int64, error) {
 		return h.withLastHosted(), 0, err
 	}
 	h.site = cfg.Runtime.Site
-	h.applyOCR()
 	table := h.table()
-	h.applyTranscribe(cfg.Runtime, table)
 	kept := cfg.Agents[:0]
 	for _, a := range cfg.Agents {
 		if a.Hosted != nil {
@@ -126,6 +114,14 @@ func (h *hosting) build(ctx context.Context) (*config.Config, int64, error) {
 // rows as last read. Called with mu held.
 func (h *hosting) table() *pricing.Table { return h.site.PriceTable(h.prices) }
 
+// currentPrices is the concurrency-safe dynamic table for chat usage/cost
+// recording. The table itself is immutable once returned.
+func (h *hosting) currentPrices() *pricing.Table {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.table()
+}
+
 // withLastHosted is the YAML with the site's settings and the hosted
 // agents as last read, less any whose id a YAML agent now has. Called with
 // mu held.
@@ -141,62 +137,6 @@ func (h *hosting) withLastHosted() *config.Config {
 		}
 	}
 	return cfg
-}
-
-// setOCR is the worker's OCR, in which the site's setting as last read is
-// put in force now, and at each build after.
-func (h *hosting) setOCR(o *ocr.Service) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.ocr = o
-	h.applyOCR()
-}
-
-// applyOCR puts the site's OCR setting as last read in force in the
-// worker's OCR, when it changed: on unless the site turns it off, in the
-// site's languages or else the environment's. Languages not installed
-// here are refused, logged once, and the setting before stays. With
-// OCR=off, or its programs missing, it changes nothing. Called with mu
-// held.
-func (h *hosting) applyOCR() {
-	if h.ocr == nil {
-		return
-	}
-	s := h.site.OCR
-	st := ocr.Setting{Enabled: s.Enabled == nil || *s.Enabled, Languages: strings.Join(s.Languages, "+")}
-	if h.ocrSet != nil && *h.ocrSet == st {
-		return
-	}
-	first := h.ocrSet == nil
-	h.ocrSet = &st
-	if err := h.ocr.Set(st); err != nil {
-		h.log.Warn("the site's OCR languages are not all installed here: OCR goes on as it was", "languages", st.Languages, "err", err)
-		return
-	}
-	if !first || st != (ocr.Setting{Enabled: true}) {
-		h.log.Info("OCR as the site's settings say", "on", st.Enabled, "languages", h.ocr.Languages(), "ocr", h.ocr.String())
-	}
-}
-
-// setTranscriber is the worker's transcriber, in which the site's setting
-// as last built is put in force now, and at each build after.
-func (h *hosting) setTranscriber(t *transcribe.Service) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.transcriber = t
-	h.applyTranscribe(h.yaml.Runtime.WithSite(h.site), h.table())
-}
-
-// applyTranscribe puts the site's transcription setting in force in the
-// worker's transcriber, with the offer of the plan in force rt it names
-// (none when the plan no longer offers it), the plan's ceiling in dollars
-// across the school's key, and the price table in force. Called with mu
-// held.
-func (h *hosting) applyTranscribe(rt config.Runtime, table *pricing.Table) {
-	if h.transcriber == nil {
-		return
-	}
-	h.transcriber.Set(transcribe.SettingOf(rt, h.yaml.Dir, table))
 }
 
 // report logs the hosted agents that run and those that are not run, when
@@ -234,6 +174,11 @@ func (h *hosting) reload(ctx context.Context, sup *worker.Supervisor) {
 	}
 	sup.SetPrices(h.table())
 	sup.Reload(cfg)
+	if h.tokens != nil {
+		if err := h.tokens.Sync(ctx, cfg); err != nil {
+			h.log.Warn("SIGHUP: agent token reconciliation was incomplete; it will retry")
+		}
+	}
 	h.log.Info("SIGHUP: the configuration was read again", "agents", len(cfg.Agents), "hosted", len(h.hosted), "prices", l.pricesPath)
 	warnNoAgents(h.log, cfg)
 }
@@ -250,6 +195,11 @@ func (h *hosting) update(ctx context.Context, sup *worker.Supervisor) (int64, er
 	}
 	sup.SetPrices(h.table())
 	sup.Update(cfg)
+	if h.tokens != nil {
+		if err := h.tokens.Sync(ctx, cfg); err != nil {
+			h.log.Warn("registry: agent token reconciliation was incomplete; it will retry")
+		}
+	}
 	h.log.Info("the registry of hosted agents changed", "rev", rev, "hosted", len(h.hosted), "not_run", len(cfg.Rejected))
 	return rev, nil
 }

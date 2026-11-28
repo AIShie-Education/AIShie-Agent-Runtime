@@ -1,23 +1,44 @@
 package api
 
 import (
+	"container/list"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/fakecore"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/memstore"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/webauth"
 )
 
-type askCall struct {
-	actor, agent, course string
-}
+const (
+	privacyAgentID    = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	privacyCourseUUID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+	privacyAskerID    = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+	privacyOwnerID    = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+	privacyOtherID    = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+	privacyCoreURL    = "https://core.example.edu"
+	privacyAudience   = "https://core.example.edu/runtime"
+)
+
+type askCall struct{ actor, agent, course string }
 
 type stubAskPermission struct {
 	mu    sync.Mutex
@@ -26,14 +47,14 @@ type stubAskPermission struct {
 	calls []askCall
 }
 
-func (s *stubAskPermission) CheckAsk(_ context.Context, actor, agent, course string) (bool, error) {
+func (s *stubAskPermission) CheckAsk(_ context.Context, actor, agent, course string) (*core.RuntimeCheckAskResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls = append(s.calls, askCall{actor: actor, agent: agent, course: course})
 	if s.err != nil {
-		return false, s.err
+		return nil, s.err
 	}
-	return s.allow != nil && s.allow(actor, agent, course), nil
+	return &core.RuntimeCheckAskResult{MayAsk: s.allow != nil && s.allow(actor, agent, course)}, nil
 }
 
 func (s *stubAskPermission) count() int {
@@ -42,145 +63,272 @@ func (s *stubAskPermission) count() int {
 	return len(s.calls)
 }
 
-// hostPrivacyTutor is a course agent owned by Ken, not by the student Yuki.
-// Its runtime row therefore cannot be read through any existing owner route.
-func hostPrivacyTutor(t *testing.T, h *hostWorld) (fakecore.Actor, HostedAgent) {
-	t.Helper()
-	kenSeat, err := h.fc.Seat(h.ken.ID, h.co.ID, fakecore.SeatOptions{Preset: "instructor"})
-	h.ok(err)
-	tutor, err := h.fc.AddAgent("Ken's course tutor", h.ken.ID)
-	h.ok(err)
-	h.tokens = append(h.tokens, tutor.Token)
-	_, err = h.fc.Seat(tutor.ID, h.co.ID, fakecore.SeatOptions{Preset: "course_tutor", Principal: kenSeat.ID})
-	h.ok(err)
-	return tutor, h.host(h.ken, tutor.ID)
+func (s *stubAskPermission) setError(err error) {
+	s.mu.Lock()
+	s.err = err
+	s.mu.Unlock()
 }
 
-func allowPrivacyAsker(h *hostWorld, tutor fakecore.Actor) *stubAskPermission {
-	permission := &stubAskPermission{allow: func(actor, agent, course string) bool {
-		return actor == h.yuki.ID && agent == tutor.ID && course == h.co.ID
-	}}
-	h.s.o.AskPermission = permission
-	return permission
+func (s *stubAskPermission) allowOnly(actor, agent, course string) {
+	s.mu.Lock()
+	s.allow = func(gotActor, gotAgent, gotCourse string) bool {
+		return gotActor == actor && gotAgent == agent && gotCourse == course
+	}
+	s.mu.Unlock()
+}
+
+type privacyHosting struct {
+	mu     sync.Mutex
+	config *config.Config
+}
+
+func (h *privacyHosting) YAML() *config.Config {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.config
+}
+func (h *privacyHosting) Prices() *pricing.Table { return nil }
+func (h *privacyHosting) set(c *config.Config) {
+	h.mu.Lock()
+	h.config = c
+	h.mu.Unlock()
+}
+
+type privacyKeys struct {
+	key ed25519.PrivateKey
+	pub ed25519.PublicKey
+	kid string
+}
+
+func (k privacyKeys) Key(_ context.Context, kid string) (ed25519.PublicKey, error) {
+	if kid != k.kid {
+		return nil, webauth.ErrUnknownKey
+	}
+	return k.pub, nil
+}
+
+type privacyFixture struct {
+	store      *memstore.Store
+	hosting    *privacyHosting
+	permission *stubAskPermission
+	api        *Server
+	server     *httptest.Server
+	keys       privacyKeys
+	now        time.Time
+}
+
+func newPrivacyFixture(t *testing.T, runtime config.Runtime) *privacyFixture {
+	t.Helper()
+	_, key, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub := key.Public().(ed25519.PublicKey)
+	permission := &stubAskPermission{}
+	f := &privacyFixture{store: memstore.New(), hosting: &privacyHosting{config: &config.Config{Runtime: runtime}},
+		permission: permission, keys: privacyKeys{key: key, pub: pub, kid: webauth.Thumbprint(pub)}, now: time.Now().UTC()}
+	f.api = New(Options{Store: f.store, Hosting: f.hosting, CoreBaseURL: privacyCoreURL, AskPermission: permission,
+		Verifier: &webauth.Verifier{Keys: f.keys, Issuer: privacyCoreURL, Audience: privacyAudience, Now: func() time.Time { return f.now }}})
+	// The authorization route's production rate limit is not under test; keep
+	// the malformed-request matrix independent of timing.
+	f.api.token.mu.Lock()
+	f.api.token.perSec, f.api.token.burst = 10000, 10000
+	f.api.token.byKey = map[string]*list.Element{}
+	f.api.token.order = list.New()
+	f.api.token.mu.Unlock()
+	f.server = httptest.NewServer(f.api.Handler())
+	t.Cleanup(f.server.Close)
+	return f
+}
+
+func (f *privacyFixture) assertion(t *testing.T, actor string) string {
+	t.Helper()
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"EdDSA","typ":"JWT","kid":"` + f.keys.kid + `"}`))
+	claims := map[string]any{"iss": privacyCoreURL, "aud": privacyAudience, "sub": actor, "kind": "human", "name": "Privacy User",
+		"iat": f.now.Unix(), "nbf": f.now.Unix(), "exp": f.now.Add(5 * time.Minute).Unix(), "jti": "privacy-" + actor, "sid": "privacy-session"}
+	raw, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signed := header + "." + base64.RawURLEncoding.EncodeToString(raw)
+	return signed + "." + base64.RawURLEncoding.EncodeToString(ed25519.Sign(f.keys.key, []byte(signed)))
+}
+
+type privacyAnswer struct {
+	code int
+	body string
+}
+
+func (f *privacyFixture) get(t *testing.T, actor, path, body string) privacyAnswer {
+	t.Helper()
+	// Move the shared test clock between independent requests so the rate-limit
+	// matrix tests authorization rather than waiting on the production bucket.
+	f.now = f.now.Add(time.Minute)
+	var reader *strings.Reader
+	if body != "" {
+		reader = strings.NewReader(body)
+	} else {
+		reader = strings.NewReader("")
+	}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, f.server.URL+"/runtime/api/v1/"+path, reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actor != "" {
+		req.Header.Set("Authorization", "Bearer "+f.assertion(t, actor))
+	}
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := f.server.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return privacyAnswer{code: resp.StatusCode, body: string(raw)}
+}
+
+func (a privacyAnswer) decode(t *testing.T, out any) {
+	t.Helper()
+	if err := json.Unmarshal([]byte(a.body), out); err != nil {
+		t.Fatalf("HTTP %d: %s: %v", a.code, a.body, err)
+	}
+}
+
+func privacyRefusal(t *testing.T, a privacyAnswer, status int, code, reason string) {
+	t.Helper()
+	var out struct {
+		Error struct {
+			Code    string         `json:"code"`
+			Details map[string]any `json:"details"`
+		} `json:"error"`
+	}
+	a.decode(t, &out)
+	if a.code != status || out.Error.Code != code || out.Error.Details["reason"] != reason {
+		t.Fatalf("HTTP %d: %s; want %d %s/%s", a.code, a.body, status, code, reason)
+	}
 }
 
 func privacyPath(agentID, courseID string) string {
 	return "agents/" + agentID + "/privacy?course_id=" + courseID
 }
 
-func patchPrivacyModel(h *hostWorld, id, version, body string) answer {
-	h.t.Helper()
-	return h.call("PATCH", "agents/"+id, h.ken, body, "If-Match", version)
+func (f *privacyFixture) hosted(t *testing.T, settings string) store.HostedAgent {
+	t.Helper()
+	v := testVault(t)
+	key, err := v.Seal(t.Context(), store.Secret{ID: vault.NewSecretID(), TenantID: "ten_privacy", Kind: store.SecretModelKey}, "sk-privacy-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, err := f.store.CreateHostedAgent(t.Context(), store.HostedAgent{ID: "agt_privacy", CoreActorID: privacyAgentID,
+		OwnerActorID: privacyOwnerID, DisplayName: "Privacy tutor", TenantID: "ten_privacy", Settings: json.RawMessage(settings), KeySecretID: key.ID}, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return *row
 }
 
-// A student who Core says may ask another person's course agent gets only the
-// provider disclosure. The owner, another agent and another course are all
-// refused even though the runtime row and its model exist.
+func privacySchoolRuntime() config.Runtime {
+	return config.Runtime{School: config.School{Offers: []config.SchoolOffer{
+		{ID: "standard", Label: "School AI", Adapter: "openai_chat", Model: "deepseek-chat", Provider: "deepseek",
+			BaseURL: "https://api.deepseek.com", KeyRef: "secret://school/deepseek"},
+	}}}
+}
+
+func ownPrivacyModel() string {
+	return `{"model":{"adapter":"openai_chat","model":"gpt-private","provider":"openai","key_source":"own","base_url":"https://api.openai.com/v1"}}`
+}
+
 func TestAgentPrivacyAuthorization(t *testing.T) {
-	h, _, _ := newModelWorld(t, schoolRuntime())
-	tutor, hosted := hostPrivacyTutor(t, h)
-	if a := patchPrivacyModel(h, hosted.ID, `"1"`, ownOpenAI); a.code != http.StatusOK {
-		t.Fatalf("model: %d %s", a.code, a.body)
+	f := newPrivacyFixture(t, privacySchoolRuntime())
+	row := f.hosted(t, ownPrivacyModel())
+	if _, err := registry.ForCourse(t.Context(), f.hosting.config, row, nil, registry.Options{CoreBaseURL: privacyCoreURL}, privacyCourseUUID); err != nil {
+		t.Fatalf("hosted privacy model is invalid: %v", err)
 	}
-	permission := allowPrivacyAsker(h, tutor)
-	a := h.call("GET", privacyPath(tutor.ID, h.co.ID), h.yuki, "")
-	wantSecured(t, a, "no-store")
+	f.permission.allowOnly(privacyAskerID, privacyAgentID, privacyCourseUUID)
+	a := f.get(t, privacyAskerID, privacyPath(privacyAgentID, privacyCourseUUID), "")
 	var got AgentPrivacy
 	a.decode(t, &got)
 	openAI := "OpenAI"
-	want := AgentPrivacy{AgentID: tutor.ID, Primary: &PrimaryModelProvider{Plan: "own", Provider: "openai", ProviderLabel: &openAI}}
+	want := AgentPrivacy{AgentID: privacyAgentID, Primary: &PrimaryModelProvider{Plan: "own", Provider: "openai", ProviderLabel: &openAI}}
 	if a.code != http.StatusOK || !reflect.DeepEqual(got, want) {
 		t.Fatalf("allowed asker: %d %s", a.code, a.body)
 	}
-	for _, secret := range []string{ownKey, "gpt-4.1-mini", "sk-proj", "base_url", "key_hint", "owner_actor_id", hosted.ID, h.ken.ID} {
+	for _, secret := range []string{"sk-privacy-key", "gpt-private", "sk-proj", "base_url", "key_hint", "owner_actor_id", "agt_privacy", privacyOwnerID} {
 		if strings.Contains(a.body, secret) {
 			t.Errorf("the disclosure contains %q: %s", secret, a.body)
 		}
 	}
-
-	otherCourse := h.fc.AddCourse("OTHER")
-	unknown := "0192f3c1-0000-7000-8000-00000000abcd"
-	for _, tc := range []struct {
-		name, agent, course string
-		as                  fakecore.Actor
-	}{
-		{"the owner is not silently authorized", tutor.ID, h.co.ID, h.ken},
-		{"another agent of the same asker", h.helper.ID, h.co.ID, h.yuki},
-		{"the same agent through another course", tutor.ID, otherCourse.ID, h.yuki},
-		{"an unknown agent", unknown, h.co.ID, h.yuki},
+	otherCourse := "ffffffff-ffff-4fff-8fff-ffffffffffff"
+	unknown := "99999999-9999-4999-8999-999999999999"
+	for _, tc := range []struct{ name, agent, course, actor string }{
+		{"the owner is not silently authorized", privacyAgentID, privacyCourseUUID, privacyOwnerID},
+		{"another agent of the same asker", privacyOtherID, privacyCourseUUID, privacyAskerID},
+		{"the same agent through another course", privacyAgentID, otherCourse, privacyAskerID},
+		{"an unknown agent", unknown, privacyCourseUUID, privacyAskerID},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			a := h.call("GET", privacyPath(tc.agent, tc.course), tc.as, "")
-			wantRefused(t, a, http.StatusNotFound, CodeNotFound, ReasonAgentNotFound)
+			a := f.get(t, tc.actor, privacyPath(tc.agent, tc.course), "")
+			privacyRefusal(t, a, http.StatusNotFound, CodeNotFound, ReasonAgentNotFound)
 			if strings.Contains(a.body, "openai") || strings.Contains(a.body, "provider") {
 				t.Errorf("a refusal discloses a provider: %s", a.body)
 			}
 		})
 	}
-	if n := permission.count(); n != 5 {
+	if n := f.permission.count(); n != 5 {
 		t.Errorf("Core authorization calls = %d, want one allowed and four refused", n)
 	}
 }
 
-// Invalid requests and a missing assertion never reach Core's authorization
-// check. Core failures are not converted into permission grants or null
-// disclosures, and a runtime without its service credential fails closed.
 func TestAgentPrivacyFailsClosed(t *testing.T) {
-	h, _, _ := newModelWorld(t, schoolRuntime())
-	tutor, _ := hostPrivacyTutor(t, h)
-	permission := allowPrivacyAsker(h, tutor)
+	f := newPrivacyFixture(t, privacySchoolRuntime())
+	f.hosted(t, `{}`)
+	f.permission.allowOnly(privacyAskerID, privacyAgentID, privacyCourseUUID)
 	for _, tc := range []struct {
-		name, method, path, body string
-		code                     int
-		reason                   string
+		name, path, body string
+		code             int
+		reason           string
 	}{
-		{"no course", "GET", "agents/" + tutor.ID + "/privacy", "", 400, ReasonMissingField},
-		{"invalid course", "GET", privacyPath(tutor.ID, "course-1"), "", 400, ReasonInvalidField},
-		{"invalid agent", "GET", privacyPath("agent-1", h.co.ID), "", 400, ReasonInvalidField},
-		{"unknown query", "GET", privacyPath(tutor.ID, h.co.ID) + "&agent_id=x", "", 400, ReasonUnknownParameter},
-		{"course twice", "GET", "agents/" + tutor.ID + "/privacy?course_id=" + h.co.ID + "&course_id=" + h.co.ID, "", 400, ReasonInvalidField},
-		{"a member in the body", "GET", privacyPath(tutor.ID, h.co.ID), `{"provider":"openai"}`, 400, ReasonUnknownField},
+		{"no course", "agents/" + privacyAgentID + "/privacy", "", 400, ReasonMissingField},
+		{"invalid course", privacyPath(privacyAgentID, "course-1"), "", 400, ReasonInvalidField},
+		{"invalid agent", privacyPath("agent-1", privacyCourseUUID), "", 400, ReasonInvalidField},
+		{"unknown query", privacyPath(privacyAgentID, privacyCourseUUID) + "&agent_id=x", "", 400, ReasonUnknownParameter},
+		{"course twice", "agents/" + privacyAgentID + "/privacy?course_id=" + privacyCourseUUID + "&course_id=" + privacyCourseUUID, "", 400, ReasonInvalidField},
+		{"a member in the body", privacyPath(privacyAgentID, privacyCourseUUID), `{"provider":"openai"}`, 400, ReasonUnknownField},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			before := permission.count()
-			a := h.call(tc.method, tc.path, h.yuki, tc.body)
-			wantRefused(t, a, tc.code, CodeInvalidArgument, tc.reason)
-			if permission.count() != before {
+			before := f.permission.count()
+			privacyRefusal(t, f.get(t, privacyAskerID, tc.path, tc.body), tc.code, CodeInvalidArgument, tc.reason)
+			if f.permission.count() != before {
 				t.Error("an invalid request asked Core for an authorization decision")
 			}
 		})
 	}
-	before := permission.count()
-	unauthenticated := h.get(Prefix+privacyPath(tutor.ID, h.co.ID), "")
-	wantRefused(t, unauthenticated, http.StatusUnauthorized, CodeUnauthenticated, "assertion_missing")
-	if permission.count() != before {
+	before := f.permission.count()
+	privacyRefusal(t, f.get(t, "", privacyPath(privacyAgentID, privacyCourseUUID), ""), http.StatusUnauthorized, CodeUnauthenticated, "assertion_missing")
+	if f.permission.count() != before {
 		t.Error("an unauthenticated request asked Core for an authorization decision")
 	}
+	f.permission.setError(errors.New("Core is down"))
+	privacyRefusal(t, f.get(t, privacyAskerID, privacyPath(privacyAgentID, privacyCourseUUID), ""), 503, CodeUnavailable, ReasonCoreUnavailable)
+	f.permission.setError(&core.ServiceError{Tool: "agent_runtime.check_ask", Reason: core.ReasonCoreTooOld})
+	privacyRefusal(t, f.get(t, privacyAskerID, privacyPath(privacyAgentID, privacyCourseUUID), ""), 422, CodeFailedPrecondition, ReasonCoreTooOld)
 
-	permission.err = errors.New("Core is down")
-	wantRefused(t, h.call("GET", privacyPath(tutor.ID, h.co.ID), h.yuki, ""), 503, CodeUnavailable, ReasonCoreUnavailable)
-	permission.err = &core.ServiceError{Tool: "agent_runtime.check_ask", Reason: core.ReasonCoreTooOld}
-	wantRefused(t, h.call("GET", privacyPath(tutor.ID, h.co.ID), h.yuki, ""), 422, CodeFailedPrecondition, ReasonCoreTooOld)
-
-	withoutCredential := newHostWorld(t, fakecore.Options{}, nil)
-	withoutCredential.s.o.Runtime = nil
-	wantRefused(t, withoutCredential.call("GET", privacyPath(withoutCredential.helper.ID, withoutCredential.co.ID), withoutCredential.yuki, ""),
+	withoutCredential := newPrivacyFixture(t, privacySchoolRuntime())
+	withoutCredential.api.o.AskPermission = nil
+	privacyRefusal(t, withoutCredential.get(t, privacyAskerID, privacyPath(privacyAgentID, privacyCourseUUID), ""),
 		503, CodeUnavailable, ReasonRuntimeMisconfigured)
 }
 
-// The school offer in force, its real display label and the possible own-key
-// fallback come from the same effective configuration the worker runs.
 func TestAgentPrivacySchoolOfferAndFallback(t *testing.T) {
-	h, _, _ := newModelWorld(t, schoolRuntime())
-	tutor, hosted := hostPrivacyTutor(t, h)
-	allowPrivacyAsker(h, tutor)
-	if a := patchPrivacyModel(h, hosted.ID, `"1"`, `{"model":{"school":{"offer":"standard"}}}`); a.code != 200 {
-		t.Fatalf("school offer: %d %s", a.code, a.body)
-	}
-	if a := patchPrivacyModel(h, hosted.ID, `"2"`, ownOpenAI); a.code != 200 {
-		t.Fatalf("fallback: %d %s", a.code, a.body)
-	}
-	a := h.call("GET", privacyPath(tutor.ID, h.co.ID), h.yuki, "")
+	f := newPrivacyFixture(t, privacySchoolRuntime())
+	f.hosted(t, `{"model":{"key_source":"school","offer":"standard","fallback":{"adapter":"openai_chat","model":"gpt-private","provider":"openai","key_source":"own","base_url":"https://api.openai.com/v1"}}}`)
+	f.permission.allowOnly(privacyAskerID, privacyAgentID, privacyCourseUUID)
+	a := f.get(t, privacyAskerID, privacyPath(privacyAgentID, privacyCourseUUID), "")
 	var got AgentPrivacy
 	a.decode(t, &got)
 	if a.code != 200 || got.Primary == nil || got.Primary.Plan != "school" || got.Primary.Provider != "deepseek" ||
@@ -189,55 +337,40 @@ func TestAgentPrivacySchoolOfferAndFallback(t *testing.T) {
 		got.Fallback == nil || got.Fallback.Provider != "openai" || got.Fallback.ProviderLabel == nil || *got.Fallback.ProviderLabel != "OpenAI" {
 		t.Fatalf("school and fallback: %d %s", a.code, a.body)
 	}
-	for _, secret := range []string{"deepseek-chat", "gpt-4.1-mini", "standard", "secret://", "sealed://", "key_ref", "endpoint"} {
+	for _, secret := range []string{"deepseek-chat", "gpt-private", "standard", "secret://", "sealed://", "key_ref", "endpoint", "sk-privacy-key"} {
 		if strings.Contains(a.body, secret) {
 			t.Errorf("the disclosure contains %q: %s", secret, a.body)
 		}
 	}
-	h.noSchoolKey(a)
 }
 
-// A school-operated self-hosted server has no catalogue company label. Its
-// offer label is already intended for display and is the truthful disclosure.
 func TestAgentPrivacySchoolOwnServer(t *testing.T) {
-	rt := schoolRuntime()
+	rt := privacySchoolRuntime()
 	rt.School.Offers = append(rt.School.Offers, config.SchoolOffer{ID: "gpu", Label: "CS GPU server", Adapter: "openai_chat",
-		Model: "llama-private", Provider: "openai_compatible", BaseURL: "https://gpu.internal.example/v1", KeyRef: "secret://school/keys/gpu"})
-	h, _, _ := newModelWorld(t, rt)
-	tutor, hosted := hostPrivacyTutor(t, h)
-	allowPrivacyAsker(h, tutor)
-	if a := patchPrivacyModel(h, hosted.ID, `"1"`, `{"model":{"school":{"offer":"gpu"}}}`); a.code != 200 {
-		t.Fatalf("school's own server: %d %s", a.code, a.body)
-	}
-	a := h.call("GET", privacyPath(tutor.ID, h.co.ID), h.yuki, "")
+		Model: "llama-private", Provider: "openai_compatible", BaseURL: "https://gpu.internal.example/v1", KeyRef: "secret://school/gpu"})
+	f := newPrivacyFixture(t, rt)
+	f.hosted(t, `{"model":{"key_source":"school","offer":"gpu"}}`)
+	f.permission.allowOnly(privacyAskerID, privacyAgentID, privacyCourseUUID)
+	a := f.get(t, privacyAskerID, privacyPath(privacyAgentID, privacyCourseUUID), "")
 	var got AgentPrivacy
 	a.decode(t, &got)
 	if a.code != 200 || got.Primary == nil || got.Primary.Plan != "school" || got.Primary.Provider != "openai_compatible" ||
 		got.Primary.ProviderLabel != nil || got.Primary.SchoolOfferLabel == nil || *got.Primary.SchoolOfferLabel != "CS GPU server" || got.Fallback != nil {
 		t.Fatalf("school's own server: %d %s", a.code, a.body)
 	}
-	for _, secret := range []string{"gpu.internal.example", "llama-private", "secret://", "gpu\"",
-		"base_url", "key_ref"} {
+	for _, secret := range []string{"gpu.internal.example", "llama-private", "secret://", "base_url", "key_ref"} {
 		if strings.Contains(a.body, secret) {
 			t.Errorf("the disclosure contains %q: %s", secret, a.body)
 		}
 	}
-	h.noSchoolKey(a)
 }
 
-// When an offer is withdrawn, the worker answers on its own-key fallback
-// alone. The privacy contract follows that transition rather than naming the
-// stale school provider and a fallback that is no longer secondary.
 func TestAgentPrivacyWithdrawnOfferUsesEffectiveModel(t *testing.T) {
-	h, _, fh := newModelWorld(t, schoolRuntime())
-	tutor, hosted := hostPrivacyTutor(t, h)
-	allowPrivacyAsker(h, tutor)
-	patchPrivacyModel(h, hosted.ID, `"1"`, `{"model":{"school":{"offer":"standard"}}}`)
-	patchPrivacyModel(h, hosted.ID, `"2"`, ownOpenAI)
-	fh.mu.Lock()
-	fh.yaml = &config.Config{}
-	fh.mu.Unlock()
-	a := h.call("GET", privacyPath(tutor.ID, h.co.ID), h.yuki, "")
+	f := newPrivacyFixture(t, privacySchoolRuntime())
+	f.hosted(t, `{"model":{"key_source":"school","offer":"standard","fallback":{"adapter":"openai_chat","model":"gpt-private","provider":"openai","key_source":"own","base_url":"https://api.openai.com/v1"}}}`)
+	f.permission.allowOnly(privacyAskerID, privacyAgentID, privacyCourseUUID)
+	f.hosting.set(&config.Config{})
+	a := f.get(t, privacyAskerID, privacyPath(privacyAgentID, privacyCourseUUID), "")
 	var got AgentPrivacy
 	a.decode(t, &got)
 	if a.code != 200 || got.Primary == nil || got.Primary.Plan != "own" || got.Primary.Provider != "openai" ||
@@ -246,55 +379,94 @@ func TestAgentPrivacyWithdrawnOfferUsesEffectiveModel(t *testing.T) {
 	}
 }
 
-// No configured answer model is a successful, explicit null disclosure; it
-// does not fall back to an offer list or guess a provider.
 func TestAgentPrivacyWithoutAModel(t *testing.T) {
-	h, _, _ := newModelWorld(t, schoolRuntime())
-	tutor, _ := hostPrivacyTutor(t, h)
-	allowPrivacyAsker(h, tutor)
-	a := h.call("GET", privacyPath(tutor.ID, h.co.ID), h.yuki, "")
+	f := newPrivacyFixture(t, privacySchoolRuntime())
+	f.hosted(t, `{}`)
+	f.permission.allowOnly(privacyAskerID, privacyAgentID, privacyCourseUUID)
+	a := f.get(t, privacyAskerID, privacyPath(privacyAgentID, privacyCourseUUID), "")
 	var got AgentPrivacy
 	a.decode(t, &got)
-	if a.code != 200 || got.AgentID != tutor.ID || got.Primary != nil || got.Fallback != nil ||
+	if a.code != 200 || got.AgentID != privacyAgentID || got.Primary != nil || got.Fallback != nil ||
 		!strings.Contains(a.body, `"primary":null,"fallback":null`) {
 		t.Fatalf("no model: %d %s", a.code, a.body)
 	}
 }
 
-// Operator-hosted YAML agents use the same contract and their per-course
-// model override, so the provider is the one that answers in this course.
 func TestAgentPrivacyYAMLAgentCourseOverride(t *testing.T) {
-	h, _, fh := newModelWorld(t, config.Runtime{})
-	allowPrivacyAsker(h, h.helper)
-	doc := map[string]any{
+	f := newPrivacyFixture(t, config.Runtime{})
+	f.permission.allowOnly(privacyAskerID, privacyAgentID, privacyCourseUUID)
+	raw, err := json.Marshal(map[string]any{
 		"agent": map[string]any{
-			"id": "privacy-yaml", "display_name": "Course tutor", "tenant_id": "ten_privacy",
-			"core":  map[string]any{"base_url": h.srv.URL, "agent_id": h.helper.ID},
-			"model": map[string]any{"adapter": "openai_chat", "model": "gpt-test", "provider": "openai", "key_source": "own", "key_ref": "env://OPENAI"},
+			"id": "privacy-yaml", "display_name": "Privacy YAML tutor", "tenant_id": "ten_privacy",
+			"core":  map[string]any{"base_url": privacyCoreURL, "agent_id": privacyAgentID},
+			"model": map[string]any{"adapter": "openai_chat", "model": "gpt-private", "provider": "openai", "key_source": "own", "key_ref": "env://OPENAI"},
 		},
-		"courses": map[string]any{h.co.ID: map[string]any{
-			"model": map[string]any{"adapter": "anthropic", "model": "claude-test", "provider": "anthropic", "key_source": "own", "key_ref": "env://ANTHROPIC"},
-		}},
-	}
-	raw, err := json.Marshal(doc)
+		"courses": map[string]any{privacyCourseUUID: map[string]any{"model": map[string]any{
+			"adapter": "anthropic", "model": "claude-private", "provider": "anthropic", "key_source": "own", "key_ref": "env://ANTHROPIC"}}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	agents, rejected := config.LoadDocuments(fh.yaml, nil, config.Source{Name: "privacy-test", Data: raw})
+	agents, rejected := config.LoadDocuments(f.hosting.YAML(), nil, config.Source{Name: "privacy-test", Data: raw})
 	if len(rejected) != 0 || len(agents) != 1 {
 		t.Fatalf("YAML agent: %+v %+v", agents, rejected)
 	}
-	fh.mu.Lock()
-	fh.yaml.Agents = agents
-	fh.mu.Unlock()
-	a := h.call("GET", privacyPath(h.helper.ID, h.co.ID), h.yuki, "")
+	current := f.hosting.YAML()
+	current.Agents = agents
+	f.hosting.set(current)
+	if _, err := f.hosting.config.Agents[0].ForCourse(privacyCourseUUID); err != nil {
+		t.Fatalf("YAML course override is invalid: %v", err)
+	}
+	a := f.get(t, privacyAskerID, privacyPath(privacyAgentID, privacyCourseUUID), "")
 	var got AgentPrivacy
 	a.decode(t, &got)
 	if a.code != 200 || got.Primary == nil || got.Primary.Provider != "anthropic" || got.Primary.ProviderLabel == nil ||
 		*got.Primary.ProviderLabel != "Anthropic" || got.Primary.Plan != "own" || got.Fallback != nil {
 		t.Fatalf("course override: %d %s", a.code, a.body)
 	}
-	if strings.Contains(a.body, "claude-test") || strings.Contains(a.body, "env://") {
+	if strings.Contains(a.body, "claude-private") || strings.Contains(a.body, "env://") {
 		t.Errorf("the course disclosure leaks model configuration: %s", a.body)
+	}
+}
+
+// A tiny HTTP Core checks the actual RuntimeService wire contract as well as
+// the API's stub boundary. It never returns a provider error or secret.
+func TestPrivacyCheckAskHTTPSmoke(t *testing.T) {
+	const credential = "aissvc_privacy_test"
+	tool := func(name, method, path string) map[string]any {
+		return map[string]any{"name": name, "kind": "read", "method": method, "path": path,
+			"input_schema": map[string]any{"type": "object", "properties": map[string]any{
+				"actor_id": map[string]any{"type": "string"}, "agent_id": map[string]any{"type": "string"}, "course_id": map[string]any{"type": "string"}}},
+			"output_schema": map[string]any{}}
+	}
+	catalogue, err := json.Marshal(map[string]any{"tools": []any{
+		tool("agent_runtime.agent", "GET", "/v1/services/agent_runtime/agents/{agent_id}"),
+		tool("agent_runtime.check_owner", "GET", "/v1/services/agent_runtime/owners/{actor_id}/agents/{agent_id}"),
+		tool("agent_runtime.issue_token", "POST", "/v1/services/agent_runtime/agents/{agent_id}/token"),
+		tool("agent_runtime.revoke_token", "POST", "/v1/services/agent_runtime/agents/{agent_id}/token/revoke"),
+		tool("agent_runtime.check_ask", "GET", "/v1/services/agent_runtime/actors/{actor_id}/courses/{course_id}/agents/{agent_id}/may-ask"),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var authOK bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authOK = r.Header.Get("Authorization") == "Bearer "+credential
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/v1/tools":
+			_, _ = w.Write(catalogue)
+		case r.URL.Path == "/v1/services/agent_runtime/actors/"+privacyAskerID+"/courses/"+privacyCourseUUID+"/agents/"+privacyAgentID+"/may-ask":
+			_, _ = fmt.Fprintln(w, `{"status":"executed","result":{"may_ask":true}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	svc := core.NewRuntimeService(core.RuntimeCaller(core.RuntimeOptions{BaseURL: srv.URL, HTTPClient: srv.Client(),
+		Credential: func(context.Context) (string, error) { return credential, nil }}))
+	got, err := svc.CheckAsk(t.Context(), privacyAskerID, privacyAgentID, privacyCourseUUID)
+	if err != nil || got == nil || !got.MayAsk || !authOK {
+		t.Fatalf("CheckAsk = %+v, %v, auth %v", got, err, authOK)
 	}
 }

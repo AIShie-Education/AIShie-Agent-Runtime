@@ -1,14 +1,10 @@
 name: Live providers
 
-# The adapters against the real model APIs, nightly (Core's
-# docs/agent-runtime.md §8.2 item 4): each provider whose key is set gets a
-# cheap call, and each but Anthropic a tool call round trip; OpenAI's two
-# APIs, Anthropic and Gemini also get every tool of the pinned catalogue
-# declared at 16 output tokens, in requests of at most 128 tools (OpenAI's
-# most), so that the provider itself checks the schemas. A provider
-# without a key is skipped, and the log says so: a run with no key at all
-# passes having tried nothing. The live tests against a real Core are not
-# run here: make live-core (docs/design.md §10).
+# The TypeScript runner against the real model APIs, nightly: every provider
+# family whose existing key variables are set gets a one-token /probe through
+# the same loopback server used in production. A provider without a key is
+# skipped, and the log says so: a run with no key at all passes having tried
+# nothing. No Go LLM adapter or live-Core fixture remains.
 #
 # Keys are repository secrets; the models, and Azure's endpoint and
 # deployment, are repository variables, so that a cheaper model can be
@@ -35,6 +31,23 @@ jobs:
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: npm ci --prefix runner
+      - run: npm run build --prefix runner
+      - name: Start the loopback runner
+        run: |
+          node runner/dist/index.js >"$RUNNER_TEMP/aishie-runner.log" 2>&1 &
+          echo $! >"$RUNNER_TEMP/aishie-runner.pid"
+          for _ in $(seq 1 60); do
+            if node -e 'fetch("http://127.0.0.1:3001/healthz").then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))'; then
+              exit 0
+            fi
+            sleep 0.25
+          done
+          cat "$RUNNER_TEMP/aishie-runner.log"
+          exit 1
       - run: make live
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -56,3 +69,9 @@ jobs:
           AWS_BEARER_TOKEN_BEDROCK: ${{ secrets.AWS_BEARER_TOKEN_BEDROCK }}
           AWS_REGION: ${{ vars.AWS_REGION }}
           BEDROCK_MODEL: ${{ vars.BEDROCK_MODEL }}
+      - name: Stop the loopback runner
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/aishie-runner.pid" ]; then
+            kill -TERM "$(cat "$RUNNER_TEMP/aishie-runner.pid")" 2>/dev/null || true
+          fi

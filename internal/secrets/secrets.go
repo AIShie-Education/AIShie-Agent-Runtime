@@ -293,14 +293,30 @@ func (r Resolver) denied(path string) bool {
 }
 
 // resolvedAbs is p absolute, with its links followed where it is there.
+// A reference to a not-yet-written file needs the nearest existing ancestor
+// resolved too: on macOS, for example, /var is a link to /private/var. Without
+// that, a missing file under a denied directory could escape the path check.
 func resolvedAbs(p string) string {
-	if real, err := filepath.EvalSymlinks(p); err == nil {
-		p = real
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		abs = filepath.Clean(p)
 	}
-	if abs, err := filepath.Abs(p); err == nil {
-		return abs
+	at := abs
+	var tail []string
+	for {
+		if real, err := filepath.EvalSymlinks(at); err == nil {
+			for i := len(tail) - 1; i >= 0; i-- {
+				real = filepath.Join(real, tail[i])
+			}
+			return real
+		}
+		parent := filepath.Dir(at)
+		if parent == at {
+			return abs
+		}
+		tail = append(tail, filepath.Base(at))
+		at = parent
 	}
-	return filepath.Clean(p)
 }
 
 // filePath is a file:// reference's path: absolute as written, or relative

@@ -3,11 +3,10 @@
 ## The loop
 
 ```
-make ci        # what CI runs: lint (gofmt, go mod tidy, the workflows, go vet, golangci-lint, shellcheck),
-               # the scripts' tests, the Go tests with the store on Postgres, the end to end against Core
-make live      # the adapters against the real providers whose keys are set
-make live-core # Core's client and a seat's toolset against a throwaway Core, when the pin moves
-make docker    # the image, as CI builds it; never pushed
+make ci        # Go lint/tests, scripts, and the runner's typecheck/tests/build
+make e2e       # the real Core + AR chat + loopback runner path
+make live      # provider /probe calls whose existing key environment is set
+make docker    # the single Go + Node 22 image, as CI builds it; never pushed
 ```
 
 `make test` wants a PostgreSQL whose role can create databases:
@@ -25,36 +24,26 @@ also runs `vuln`, and all of it again every week.
 
 ## Where things go
 
-- A new **adapter**, for a model API the runtime does not speak yet, is a
-  package of its own under `internal/llm/` (design §3): its translation both
-  ways over `internal/llm/httpx`, not the provider's SDK, with golden tests in
-  its `testdata/` for every stop reason and usage field, and a `Live` test
-  that `make live` runs when the provider's key is set. It is built in
-  `internal/llm/providers`, its defaults (capabilities, schema dialect) are in
-  `llm.Defaults`, and its name is one `model.adapter` takes in
-  `internal/config`. Give the nightly `live.yml` its key as a repository
-  secret and its model as a variable. A provider that speaks an API the
-  runtime already has (most speak OpenAI's Chat Completions) is not a new
-  adapter: it is a row in `llm.DetectProvider` and `llm.Defaults`.
-- A new **tool gate**: `GET /v1/tools` does not say which permissions each
-  tool needs, so the gates are kept by hand, in `toolset.Gates` for reads
-  and `toolset.WriteGates` for writes (Core's `docs/agent-runtime.md` §4,
-  `docs/design.md` §4). A tool Core adds is offered to no model until it has
-  a gate there, with the permissions Core's own declaration of the tool
-  checks, and a test; a write goes only to a conversation its agent's owner
-  opened. `toolset.BuiltinDeny` keeps out the tools no model may call
-  whatever the configuration and the seat's perms allow, each with its
-  reason: a new write Core adds is either gated or denied there, which a
-  test holds. At start, the runtime checks every gated tool against Core's
-  catalogue, and refuses one that has gone or changed kind.
+- Model calls belong to the TypeScript runner under `runner/`, using Vercel
+  AI SDK and `@ai-sdk/mcp`; the old Go `internal/llm` engine no longer exists.
+  A new adapter belongs in `runner/src/providers.ts`, with typecheck, Vitest
+  coverage of streaming, usage, reasoning, files and errors, and a `/probe`
+  smoke in `make live` when its key is configured. Go's `internal/provider`
+  holds only the small wire-neutral names and usage types shared with config,
+  pricing and metrics.
+- Core's MCP tools are wrapped by `runner/src/tools.ts`, which applies the
+  built-in deny list, allow/deny and read-only filters, bound arguments,
+  idempotency, SeatGuard, limits and source collection. The Go side computes
+  the current seat's allowed names in `internal/chatwire/policy.go`. Core still
+  authorizes every call; neither side may widen it. Use small httptest Core and
+  Runner mocks rather than the removed fakecore/toolset/toolschema packages.
 - A **store migration** is the next `NNNN_name.up.sql` and
   `NNNN_name.down.sql` in `internal/store/pgstore/migrations`, both, each one
   transaction ([Migrations](#migrations)). A change to what the store keeps
   goes into `internal/store`'s interfaces, `memstore` and `pgstore` alike,
   with a test in `storetest`, which runs against both.
-- A new **call to Core** is a typed call in `internal/core`, the same tool in
-  the fake Core (`internal/fakecore`), and a fixture recorded from the real
-  one, which the fake is held to.
+- A new **call to Core** is a typed call in `internal/core`, with a focused
+  HTTP/MCP test against a small local stand-in and no secret in its fixture.
 - A new **setting** is read in `internal/config` (`FromEnv`, with its line in
   `EnvHelp`), and, if a server needs it, in `docs/deploying.md`.
 - **Logs hold ids, counts, codes and timings, never what anyone wrote**, and
@@ -67,9 +56,8 @@ runner, or a laptop doing other things, stretches every sleep and timer,
 and a test that passed alone then fails.
 
 - How long code decides to wait is read off what it decided: a timer or
-  clock the test holds (the OCR and Office services' `after` and `now`,
-  the worker's `Options.Now`), or the deadline it gives a call; not off
-  how long the call took.
+  clock the test holds, a generation lease, or the deadline it gives a call;
+  not off how long the call took.
 - An event is waited for (`eventually`, a channel the code closes, a
   counter in a fake), never slept for. A step that must come before
   another is made to: a scripted model that waits on a channel the fake
@@ -112,11 +100,9 @@ in zsh or bash; `go test`'s `-timeout` bounds it, interrupted or not:
 ```
 
 A test that skips passes without having run: read `-v`'s `SKIP` lines
-before giving a count of runs. The OCR engine's tests
-(`TestEnginePageTimeout` among them) and the real LibreOffice, poppler
-and OCR tests run their programs under prlimit, which macOS has not, so
-they skip there: try those under load on Linux, as CI's runners run
-them.
+before giving a count of runs. Provider tests that need real keys are the
+`LIVE=1` suite; the unit and integration suites do not skip for want of a
+provider, a model or a machine with a particular local toolchain.
 
 ## Migrations
 
@@ -146,9 +132,9 @@ GHCR as `:sha-<commit>` and `:edge`, which edge servers pull within five
 minutes ([AIShie-Deploy](https://github.com/AIShie-Education/AIShie-Deploy)).
 When pushes come faster than they are published, one that a newer push
 overtakes while it waits is not published. A release is made by a tag, from
-`main`. Run `make live-core` on the commit to be tagged first, and
-`make live` where you have the providers' keys: the release re-runs CI,
-which runs neither (docs/design.md §10).
+`main`. Run `make e2e` on the commit to be tagged first, and
+`make live` where you have the providers' keys. Release checks the tagged
+commit again; provider smoke remains the separate nightly/manual check.
 
 ```
 git switch main && git pull
@@ -244,17 +230,10 @@ Before the first push to `main` after the CD workflows land, in GitHub:
 ## Moving the Core pin
 
 `.github/core-image` names the Core the runtime is checked against, by tag
-(Core's commit, or a release) and by digest, which is what is pulled. Two
-things were taken from that Core and must match it:
-
-- `internal/core/testdata/catalogue.json`, its tool catalogue: the end to
-  end fails when the pinned Core's differs, and the tool gates, the
-  sanitiser's tests and the fake Core are built on it;
-- the fake Core's fixtures, `internal/fakecore/testdata/fixtures`: envelopes
-  recorded from it for every outcome of an answer, which the fake is held
-  to.
-
-Move the three together, in one pull request:
+(Core's commit, or a release) and by digest, which is what is pulled.
+`internal/core/testdata/catalogue.json` is the catalogue taken from that Core;
+MCP tests, the chat tool policy and the end to end are checked against it.
+Move them together, in one pull request:
 
 1. Write the new image's tag and digest as the last line of
    `.github/core-image`. Core's CI run for a push to its `main` names the
@@ -269,8 +248,7 @@ Move the three together, in one pull request:
    `scripts/ci-core.sh` refuses a `:sha-` tag whose commit is not the
    digest's.
 
-2. Start that Core on a scratch database, and take the catalogue and the
-   fixtures from it:
+2. Start that Core on a scratch database and take its catalogue:
 
    ```
    make build
@@ -279,18 +257,12 @@ Move the three together, in one pull request:
    bin/aishie-runtime catalogue --core "$E2E_CORE_URL" --write internal/core/testdata/catalogue.json
    jq -S --indent 1 . internal/core/testdata/catalogue.json > catalogue.tmp
    mv catalogue.tmp internal/core/testdata/catalogue.json
-   cp internal/core/testdata/catalogue.json internal/fakecore/testdata/catalogue.json
-   make record-fixtures
    scripts/ci-core.sh stop
    ```
 
-3. Read the diffs. A tool gone from the catalogue, or of another kind, or a
-   new tool the agents should have, is a change to the tool gates
-   ([Where things go](#where-things-go)); a changed schema shows in the
-   sanitiser's tests. A changed fixture is a change in Core's behaviour: the
-   fake Core must follow it, and `make test` fails until it does.
+3. Read the diffs. A tool gone or changed, a new course-material search tool,
+   or a changed schema must be reflected in the Runner's tool policy and its
+   tests. Do not restore the deleted fakecore or fixture-recording path.
 
-4. `make ci` and `make live-core` (the live tests against a Core of their
-   own, which CI does not run: docs/design.md §10), then push the three
-   together. From then on, every pull request's end to end, and every
-   release's, runs against the new Core.
+4. Run `make ci` and `make e2e`, then push the pin and catalogue together.
+   Every pull request and release checks against the new Core from then on.

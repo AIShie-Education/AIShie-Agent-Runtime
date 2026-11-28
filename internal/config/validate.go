@@ -12,12 +12,11 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/openrouter"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/provider"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/redact"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/secrets"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolschema"
 )
 
 // Limits of Core's the configuration must keep to (§2.3).
@@ -67,15 +66,16 @@ var (
 func HoldsCoreToken(s string) bool { return coreTokenRe.MatchString(s) }
 
 var (
-	adapters = []string{llm.AdapterOpenAIChat, llm.AdapterOpenAIResponses, llm.AdapterAnthropic, llm.AdapterGemini, llm.AdapterBedrockConverse}
-	// providers are the names llm.DetectProvider gives, which an agent may
+	adapters = []string{provider.AdapterOpenAIChat, provider.AdapterOpenAIResponses, provider.AdapterAnthropic, provider.AdapterGemini, provider.AdapterBedrockConverse}
+	// providers are the names provider.DetectProvider gives, which an agent may
 	// set outright.
 	providers = []string{
-		llm.ProviderOpenAI, llm.ProviderAzure, llm.ProviderAnthropic, llm.ProviderGemini, llm.ProviderBedrock,
-		llm.ProviderDeepSeek, llm.ProviderQwen, llm.ProviderMoonshot, llm.ProviderGLM, llm.ProviderOpenRouter,
-		llm.ProviderOllama, llm.ProviderLMStudio, llm.ProviderVLLM, llm.ProviderOpenAICompat,
+		provider.ProviderOpenAI, provider.ProviderAzure, provider.ProviderAnthropic, provider.ProviderGemini, provider.ProviderBedrock,
+		provider.ProviderDeepSeek, provider.ProviderQwen, provider.ProviderMoonshot, provider.ProviderGLM, provider.ProviderOpenRouter,
+		provider.ProviderOllama, provider.ProviderLMStudio, provider.ProviderVLLM, provider.ProviderOpenAICompat,
 	}
-	efforts = []string{"", "minimal", "low", "medium", "high"}
+	efforts        = []string{"", "minimal", "low", "medium", "high"}
+	schemaDialects = []string{"openai", "openai_strict", "anthropic", "gemini_json_schema", "gemini_openapi", "bedrock", "full_common", "kimi"}
 	// Headers that carry credentials, which come from key_ref only.
 	credentialHeaders = []string{"authorization", "proxy-authorization", "x-api-key", "api-key", "x-goog-api-key", "cookie"}
 )
@@ -287,7 +287,7 @@ func checkModel(is *issues, path string, m *Model) {
 	if !slices.Contains(efforts, m.Reasoning.Effort) {
 		is.add(path+".reasoning.effort", "%q is not minimal, low, medium or high", redact.String(m.Reasoning.Effort))
 	}
-	if d := m.Capabilities.SchemaDialect; d != "" && !toolschema.Dialect(d).Valid() {
+	if d := m.Capabilities.SchemaDialect; d != "" && !slices.Contains(schemaDialects, d) {
 		is.add(path+".capabilities.schema_dialect", "%q is not a schema dialect", redact.String(d))
 	}
 	checkRouting(is, path, m)
@@ -328,11 +328,11 @@ func checkEndpoint(s string) string {
 // keyless reports whether a model needs no key: Bedrock, signed with the
 // AWS credential chain, and servers on the operator's own machines.
 func keyless(m *Model) bool {
-	if m.Adapter == llm.AdapterBedrockConverse {
+	if m.Adapter == provider.AdapterBedrockConverse {
 		return true
 	}
 	switch m.EffectiveProvider() {
-	case llm.ProviderOllama, llm.ProviderLMStudio, llm.ProviderVLLM:
+	case provider.ProviderOllama, provider.ProviderLMStudio, provider.ProviderVLLM:
 		return true
 	}
 	u, err := url.Parse(m.BaseURL)

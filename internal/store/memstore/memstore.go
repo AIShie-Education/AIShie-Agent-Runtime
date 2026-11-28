@@ -49,8 +49,6 @@ type Store struct {
 	rev      int64
 	audit    []store.AuditEvent
 	auditID  int64
-	ocr      map[string]store.OCRText
-	search   map[store.SearchFileKey]store.SearchFile
 	settings map[string]store.SiteSetting
 	offers   map[string]store.SchoolOffer
 	prices   map[string]store.SitePrice
@@ -59,8 +57,15 @@ type Store struct {
 	tenants  map[string]store.TenantQuota
 	// tokens are the operator's agents' tokens, by agent.
 	tokens map[string]store.AgentToken
-	// tx is the transcriber's.
-	tx transcription
+
+	chatConversations   map[string]store.ChatConversation
+	chatMessages        map[string][]store.ChatMessage
+	chatDrafts          map[string]store.ChatDraft
+	chatAttachments     map[string]store.ChatAttachment
+	chatIdempotency     map[chatIdemKey]chatIdemRow
+	chatGenerations     map[string]store.ChatGeneration
+	chatApprovals       map[string]store.ChatApproval
+	chatApprovalActions map[chatActionKey]chatActionRow
 }
 
 type lease struct {
@@ -98,27 +103,32 @@ var _ store.Store = (*Store)(nil)
 // New is an empty store on the process's clock.
 func New() *Store {
 	return &Store{
-		now:      time.Now,
-		leases:   map[string]lease{},
-		attempts: map[agentKey]*attemptRow{},
-		cursors:  map[cursorKey]string{},
-		notes:    map[conversationKey][]noteRow{},
-		seats:    map[seatKey]store.SeatRef{},
-		calls:    map[agentKey]store.LLMCall{},
-		answers:  map[agentKey]answerRow{},
-		states:   map[string]store.AgentState{},
-		secrets:  map[string]store.Secret{},
-		people:   map[string]store.Person{},
-		hosted:   map[string]store.HostedAgent{},
-		courses:  map[seatKey]store.HostedCourse{},
-		ocr:      map[string]store.OCRText{},
-		search:   map[store.SearchFileKey]store.SearchFile{},
-		settings: map[string]store.SiteSetting{},
-		offers:   map[string]store.SchoolOffer{},
-		prices:   map[string]store.SitePrice{},
-		tenants:  map[string]store.TenantQuota{},
-		tokens:   map[string]store.AgentToken{},
-		tx:       transcription{jobs: map[string]store.TranscriptionJob{}},
+		now:                 time.Now,
+		leases:              map[string]lease{},
+		attempts:            map[agentKey]*attemptRow{},
+		cursors:             map[cursorKey]string{},
+		notes:               map[conversationKey][]noteRow{},
+		seats:               map[seatKey]store.SeatRef{},
+		calls:               map[agentKey]store.LLMCall{},
+		answers:             map[agentKey]answerRow{},
+		states:              map[string]store.AgentState{},
+		secrets:             map[string]store.Secret{},
+		people:              map[string]store.Person{},
+		hosted:              map[string]store.HostedAgent{},
+		courses:             map[seatKey]store.HostedCourse{},
+		settings:            map[string]store.SiteSetting{},
+		offers:              map[string]store.SchoolOffer{},
+		prices:              map[string]store.SitePrice{},
+		tenants:             map[string]store.TenantQuota{},
+		tokens:              map[string]store.AgentToken{},
+		chatConversations:   map[string]store.ChatConversation{},
+		chatMessages:        map[string][]store.ChatMessage{},
+		chatDrafts:          map[string]store.ChatDraft{},
+		chatAttachments:     map[string]store.ChatAttachment{},
+		chatIdempotency:     map[chatIdemKey]chatIdemRow{},
+		chatGenerations:     map[string]store.ChatGeneration{},
+		chatApprovals:       map[string]store.ChatApproval{},
+		chatApprovalActions: map[chatActionKey]chatActionRow{},
 	}
 }
 
@@ -791,9 +801,6 @@ func (s *Store) secretInUse(id string) error {
 		if o.KeySecretID == id {
 			return fmt.Errorf("secret %s: %w", id, store.ErrInUse)
 		}
-	}
-	if c := s.tx.cred; c != nil && c.SecretID == id {
-		return fmt.Errorf("secret %s: %w", id, store.ErrInUse)
 	}
 	for _, t := range s.tokens {
 		if t.SecretID == id {

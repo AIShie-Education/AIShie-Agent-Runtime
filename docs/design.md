@@ -6,6 +6,17 @@ document says how this repository meets it: what each package does, the
 algorithms that matter, and the defaults. Where this code departs from the
 handout, it says so and why.
 
+> **v0.3.0 architecture note.** AR now owns browser conversations, messages,
+> attachments, drafts, proposals and SSE in its own PostgreSQL store. A Go
+> control plane supervises the Node 22 TypeScript Loopback MCP Runner, which
+> uses Vercel AI SDK and calls Core `/mcp`; Core no longer supplies an inbox or
+> answer endpoint for this path. Core's native `course_materials_search` uses a
+> zero-extension PostgreSQL GIN index. The old Go LLM engine, fakecore, OCR,
+> Office conversion, transcription, rendition and sandbox subsystems are gone.
+> The README describes the current contract. Sections below that describe Core
+> conversation polling, those Media modules, or the old Go model adapters are
+> retained as historical design context, not as the v0.3.0 runtime behavior.
+
 ## 1. The shape
 
 One binary, `aishie-runtime`:

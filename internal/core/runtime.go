@@ -34,11 +34,12 @@ import (
 // The agent runtime's tools, as the catalogue names them over MCP (Core
 // serves none of them over MCP: they are REST's alone).
 const (
-	ToolRuntimeAgent       = "agent_runtime_agent"
-	ToolRuntimeCheckOwner  = "agent_runtime_check_owner"
-	ToolRuntimeCheckAsk    = "agent_runtime_check_ask"
-	ToolRuntimeIssueToken  = "agent_runtime_issue_token"
-	ToolRuntimeRevokeToken = "agent_runtime_revoke_token" // #nosec G101 -- a tool's name, not a credential.
+	ToolRuntimeAgent             = "agent_runtime_agent"
+	ToolRuntimeCheckOwner        = "agent_runtime_check_owner"
+	ToolRuntimeCheckAsk          = "agent_runtime_check_ask"
+	ToolRuntimeCheckChatDecision = "agent_runtime_check_chat_decision"
+	ToolRuntimeIssueToken        = "agent_runtime_issue_token"
+	ToolRuntimeRevokeToken       = "agent_runtime_revoke_token" // #nosec G101 -- a tool's name, not a credential.
 )
 
 // How an agent is hosted, for good (RuntimeAgent.Hosting, Actor.Hosting).
@@ -68,8 +69,48 @@ const (
 // under: what an agent's owner sees listed among its credentials.
 const RuntimeTokenLabel = "AIshie agent runtime" // #nosec G101 -- a label, not a credential.
 
-// ServiceTokenPrefix (service.go) begins the agent runtime's credential as
-// it begins the transcription service's: aissvc_.
+// ServiceTokenPrefix begins every Core site-service credential.
+const ServiceTokenPrefix = "aissvc_"
+
+// Reasons a service credential and an ordinary actor credential are refused
+// on each other's routes.
+const (
+	ReasonServiceOnly    = "service_only"
+	ReasonNotForServices = "not_for_services"
+)
+
+// ServiceError is a service call Core refused. A 401 remains
+// ErrUnauthenticated rather than this type.
+type ServiceError struct {
+	Tool    string
+	Status  Status
+	Code    string
+	Reason  string
+	Message string
+}
+
+func (e *ServiceError) Error() string {
+	s := fmt.Sprintf("core: %s: %s", e.Tool, e.Status)
+	if e.Code != "" {
+		s += " " + e.Code
+	}
+	if e.Reason != "" {
+		s += " (" + e.Reason + ")"
+	}
+	return s
+}
+
+// IsReason reports whether err is Core's refusal for reason.
+func IsReason(err error, reason string) bool {
+	var se *ServiceError
+	return errors.As(err, &se) && se.Reason == reason
+}
+
+// IsNotFound reports whether err is Core's not_found service refusal.
+func IsNotFound(err error) bool {
+	var se *ServiceError
+	return errors.As(err, &se) && se.Code == CodeNotFound
+}
 
 // RuntimeToken is the live token the runtime holds for an agent, as Core
 // shows it: never the secret.
@@ -165,20 +206,62 @@ func (s *RuntimeService) CheckOwner(ctx context.Context, actorID, agentID string
 	return true, r.Agent, nil
 }
 
-// CheckAsk says whether the person actorID (an assertion's sub) may ask the
-// agent agentID in course courseID now, under the same authorization as a
-// real conversation ask. False covers an agent, course or seat that is not
-// there as well as one the person may not ask; Core gives no reason or other
-// actor's information. The call creates no conversation or message.
-func (s *RuntimeService) CheckAsk(ctx context.Context, actorID, agentID, courseID string) (bool, error) {
-	var r struct {
-		MayAsk bool `json:"may_ask"`
+// RuntimeAskGrant is the optional, additive seat grant Core may return when
+// check_ask allows an AR browser question. It contains ids and permission
+// levels only: never a Core token, model key, or provider detail.
+type RuntimeAskGrant struct {
+	OpenerMemberID              string `json:"opener_member_id"`
+	RespondentMemberID          string `json:"respondent_member_id"`
+	RespondentPrincipalMemberID string `json:"respondent_principal_member_id,omitempty"`
+	ConversationAskLevel        string `json:"conversation_ask_level"`
+	ActionDecideLevel           string `json:"action_decide_level"`
+	ConversationAnswerLevel     string `json:"conversation_answer_level"`
+	AnswersCourse               *bool  `json:"answers_course,omitempty"`
+}
+
+// RuntimeCheckAskResult is agent_runtime.check_ask's authorization-only
+// answer. Grant is present only when may_ask is true; display metadata comes
+// from AR's candidates, not this service call.
+type RuntimeCheckAskResult struct {
+	MayAsk bool             `json:"may_ask"`
+	Grant  *RuntimeAskGrant `json:"grant,omitempty"`
+}
+
+// CheckAsk asks Core whether actorID may ask agentID in courseID now. It is
+// a read-only authorization query: it opens no Core conversation and writes
+// no Core message.
+func (s *RuntimeService) CheckAsk(ctx context.Context, actorID, agentID, courseID string) (*RuntimeCheckAskResult, error) {
+	var r RuntimeCheckAskResult
+	err := serviceCall(ctx, s.c, ToolRuntimeCheckAsk, map[string]any{"actor_id": actorID, "agent_id": agentID, "course_id": courseID}, &r)
+	if err != nil {
+		return nil, err
 	}
-	args := map[string]any{"actor_id": actorID, "agent_id": agentID, "course_id": courseID}
-	if err := serviceCall(ctx, s.c, ToolRuntimeCheckAsk, args, &r); err != nil {
-		return false, err
+	if !r.MayAsk {
+		return &RuntimeCheckAskResult{MayAsk: false}, nil
 	}
-	return r.MayAsk, nil
+	return &r, nil
+}
+
+// RuntimeChatDecision is the authorization and effective reviewer level. False
+// results are scrubbed to allowed:false and reveal no level.
+type RuntimeChatDecision struct {
+	Allowed           bool   `json:"allowed"`
+	ActionDecideLevel string `json:"action_decide_level,omitempty"`
+}
+
+// CheckChatDecision checks a reviewer's current course/scope authorization for
+// an AR proposal. AR supplies all ids and subject/operation from its own store.
+func (s *RuntimeService) CheckChatDecision(ctx context.Context, actorID, agentID, courseID, openerActorID, subject, operation string) (*RuntimeChatDecision, error) {
+	var out RuntimeChatDecision
+	err := serviceCall(ctx, s.c, ToolRuntimeCheckChatDecision, map[string]any{"actor_id": actorID, "agent_id": agentID,
+		"course_id": courseID, "opener_actor_id": openerActorID, "subject": subject, "operation": operation}, &out)
+	if err != nil {
+		return nil, err
+	}
+	if !out.Allowed {
+		return &RuntimeChatDecision{Allowed: false}, nil
+	}
+	return &out, nil
 }
 
 // issueAttempts bounds IssueToken's calls when Core answers one with the

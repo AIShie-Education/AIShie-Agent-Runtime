@@ -68,8 +68,8 @@ import (
 	"time"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/provider"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/secrets"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
@@ -143,11 +143,6 @@ func ReadSite(ctx context.Context, r SiteReader) (config.Site, error) {
 	}
 	for _, st := range settings {
 		switch st.Name {
-		case store.SettingOCR:
-			var o config.SiteOCR
-			if DecodeSetting(st.Value, &o) {
-				site.OCR = o
-			}
 		case store.SettingSchoolQuotas:
 			var q config.SiteQuotas
 			if DecodeSetting(st.Value, &q) {
@@ -157,11 +152,6 @@ func ReadSite(ctx context.Context, r SiteReader) (config.Site, error) {
 			var b config.SiteBudgets
 			if DecodeSetting(st.Value, &b) {
 				site.Budgets = &b
-			}
-		case store.SettingTranscription:
-			var t config.SiteTranscription
-			if DecodeSetting(st.Value, &t) {
-				site.Transcription = t
 			}
 		}
 	}
@@ -762,7 +752,7 @@ func checkModels(a *config.Agent, key string, school config.School) error {
 
 // selfHosted are the providers DetectProvider names for servers of the
 // operator's or anyone's own, rather than a provider's official endpoint.
-var selfHosted = []string{llm.ProviderOpenAICompat, llm.ProviderOllama, llm.ProviderLMStudio, llm.ProviderVLLM}
+var selfHosted = []string{provider.ProviderOpenAICompat, provider.ProviderOllama, provider.ProviderLMStudio, provider.ProviderVLLM}
 
 // checkModel says what is wrong with one model a hosted agent calls, or "".
 func checkModel(m config.Model) string {
@@ -795,19 +785,19 @@ func checkModel(m config.Model) string {
 func official(adapter string, u *url.URL) bool {
 	host := strings.ToLower(u.Hostname())
 	switch adapter {
-	case llm.AdapterOpenAIChat:
-		p := llm.DetectProvider(adapter, u.String())
-		if p == llm.ProviderQwen {
+	case provider.AdapterOpenAIChat:
+		p := provider.DetectProvider(adapter, u.String())
+		if p == provider.ProviderQwen {
 			return dashScope(host)
 		}
 		return !slices.Contains(selfHosted, p)
-	case llm.AdapterOpenAIResponses:
-		return isHost(host, "api.openai.com") || llm.DetectProvider(llm.AdapterOpenAIChat, u.String()) == llm.ProviderAzure
-	case llm.AdapterAnthropic:
+	case provider.AdapterOpenAIResponses:
+		return isHost(host, "api.openai.com") || provider.DetectProvider(provider.AdapterOpenAIChat, u.String()) == provider.ProviderAzure
+	case provider.AdapterAnthropic:
 		return isHost(host, "api.anthropic.com")
-	case llm.AdapterGemini:
+	case provider.AdapterGemini:
 		return isHost(host, "generativelanguage.googleapis.com")
-	case llm.AdapterBedrockConverse:
+	case provider.AdapterBedrockConverse:
 		return bedrockRuntimeRe.MatchString(host)
 	}
 	return false

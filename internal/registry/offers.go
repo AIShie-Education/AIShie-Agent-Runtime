@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/provider"
 )
 
 // The providers an owner may put their own key to (the product owner's D9,
@@ -80,37 +80,37 @@ const azureURL = "https://%s.openai.azure.com/openai/v1/"
 
 // offers is the table; Offers gives copies.
 var offers = []Offer{
-	{Provider: llm.ProviderOpenAI, Label: "OpenAI", Adapters: []string{llm.AdapterOpenAIChat, llm.AdapterOpenAIResponses},
+	{Provider: provider.ProviderOpenAI, Label: "OpenAI", Adapters: []string{provider.AdapterOpenAIChat, provider.AdapterOpenAIResponses},
 		Endpoint: Endpoint{Kind: EndpointFixed, BaseURL: "https://api.openai.com/v1"}, KeyPrefix: "sk-"},
-	{Provider: llm.ProviderAzure, Label: "Azure OpenAI", Adapters: []string{llm.AdapterOpenAIResponses, llm.AdapterOpenAIChat},
+	{Provider: provider.ProviderAzure, Label: "Azure OpenAI", Adapters: []string{provider.AdapterOpenAIResponses, provider.AdapterOpenAIChat},
 		Endpoint: Endpoint{Kind: EndpointAzureResource, Pattern: ResourceRe.String(), Example: "my-resource"}},
-	{Provider: llm.ProviderAnthropic, Label: "Anthropic", Adapters: []string{llm.AdapterAnthropic},
+	{Provider: provider.ProviderAnthropic, Label: "Anthropic", Adapters: []string{provider.AdapterAnthropic},
 		Endpoint: Endpoint{Kind: EndpointFixed, BaseURL: "https://api.anthropic.com"}, KeyPrefix: "sk-ant-"},
-	{Provider: llm.ProviderGemini, Label: "Google Gemini", Adapters: []string{llm.AdapterGemini},
+	{Provider: provider.ProviderGemini, Label: "Google Gemini", Adapters: []string{provider.AdapterGemini},
 		Endpoint: Endpoint{Kind: EndpointFixed, BaseURL: "https://generativelanguage.googleapis.com"}, KeyPrefix: "AIza"},
-	{Provider: llm.ProviderBedrock, Label: "Amazon Bedrock", Adapters: []string{llm.AdapterBedrockConverse},
+	{Provider: provider.ProviderBedrock, Label: "Amazon Bedrock", Adapters: []string{provider.AdapterBedrockConverse},
 		Endpoint: Endpoint{Kind: EndpointBedrockRegion, Pattern: RegionRe.String(), Suggested: []string{"us-east-1", "us-east-2", "us-west-2",
 			"eu-central-1", "eu-west-1", "eu-west-3", "ap-northeast-1", "ap-southeast-1", "ap-southeast-2", "ap-south-1"}}, KeyPrefix: "ABSK"},
-	{Provider: llm.ProviderDeepSeek, Label: "DeepSeek", Adapters: []string{llm.AdapterOpenAIChat},
+	{Provider: provider.ProviderDeepSeek, Label: "DeepSeek", Adapters: []string{provider.AdapterOpenAIChat},
 		Endpoint: Endpoint{Kind: EndpointFixed, BaseURL: "https://api.deepseek.com", Stored: "https://api.deepseek.com"}, KeyPrefix: "sk-"},
-	{Provider: llm.ProviderQwen, Label: "Qwen (Alibaba Cloud Model Studio)", Adapters: []string{llm.AdapterOpenAIChat},
+	{Provider: provider.ProviderQwen, Label: "Qwen (Alibaba Cloud Model Studio)", Adapters: []string{provider.AdapterOpenAIChat},
 		Endpoint: Endpoint{Kind: EndpointChoice, Choices: []Choice{
 			{ID: "dashscope-us", Label: "United States (Virginia)", BaseURL: "https://dashscope-us.aliyuncs.com/compatible-mode/v1"},
 			{ID: "dashscope", Label: "China (Beijing)", BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1"},
 			{ID: "dashscope-intl", Label: "International (Singapore)", BaseURL: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"},
 		}}, KeyPrefix: "sk-"},
-	{Provider: llm.ProviderMoonshot, Label: "Moonshot (Kimi)", Adapters: []string{llm.AdapterOpenAIChat},
+	{Provider: provider.ProviderMoonshot, Label: "Moonshot (Kimi)", Adapters: []string{provider.AdapterOpenAIChat},
 		Endpoint: Endpoint{Kind: EndpointChoice, Choices: []Choice{
 			{ID: "global", Label: "Global", BaseURL: "https://api.moonshot.ai/v1"},
 			{ID: "china", Label: "China", BaseURL: "https://api.moonshot.cn/v1"},
 		}}, KeyPrefix: "sk-"},
 	// GLM's mainland endpoint is offered once a live keys/test has passed
 	// against it (the API contract's §11, question 7).
-	{Provider: llm.ProviderGLM, Label: "Zhipu GLM", Adapters: []string{llm.AdapterOpenAIChat},
+	{Provider: provider.ProviderGLM, Label: "Zhipu GLM", Adapters: []string{provider.AdapterOpenAIChat},
 		Endpoint: Endpoint{Kind: EndpointChoice, Choices: []Choice{
 			{ID: "global", Label: "Global", BaseURL: "https://api.z.ai/api/paas/v4"},
 		}}},
-	{Provider: llm.ProviderOpenRouter, Label: "OpenRouter", Adapters: []string{llm.AdapterOpenAIChat},
+	{Provider: provider.ProviderOpenRouter, Label: "OpenRouter", Adapters: []string{provider.AdapterOpenAIChat},
 		Endpoint: Endpoint{Kind: EndpointFixed, BaseURL: "https://openrouter.ai/api/v1", Stored: "https://openrouter.ai/api/v1"}, KeyPrefix: "sk-or-"},
 }
 

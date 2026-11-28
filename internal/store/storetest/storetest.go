@@ -130,13 +130,11 @@ func Run(t *testing.T, open func(t *testing.T) store.Store) {
 		{"Registry", testRegistry},
 		{"Reports", testReports},
 		{"Audit", testAudit},
-		{"OCRTexts", testOCRTexts},
-		{"SearchIndex", testSearchIndex},
 		{"Site", testSite},
 		{"SitePrices", testSitePrices},
 		{"CostReport", testCostReport},
-		{"Transcription", testTranscription},
 		{"AgentTokens", testAgentTokens},
+		{"Chat", testChat},
 	} {
 		t.Run(g.name, func(t *testing.T) { g.run(t, open) })
 	}

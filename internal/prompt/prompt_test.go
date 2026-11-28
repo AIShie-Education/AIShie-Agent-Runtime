@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
@@ -342,10 +341,10 @@ func TestHistoryRolesRetractionsAndJoins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []llm.Message{
-		{Role: llm.RoleUser, Parts: []llm.Part{llm.Text("Q1\n\n" + Retracted)}},
-		{Role: llm.RoleAssistant, Parts: []llm.Part{llm.Text("A1")}},
-		{Role: llm.RoleUser, Parts: []llm.Part{llm.Text("Q2\n\nQ2, more")}},
+	want := []Message{
+		{Role: RoleUser, Parts: []Part{Text("Q1\n\n" + Retracted)}},
+		{Role: RoleAssistant, Parts: []Part{Text("A1")}},
+		{Role: RoleUser, Parts: []Part{Text("Q2\n\nQ2, more")}},
 	}
 	if !equal(got, want) {
 		t.Fatalf("History = %+v\nwant %+v", got, want)
@@ -359,10 +358,10 @@ func TestHistoryStopsAtTheQuestionAndMarksWhatIsNotShown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []llm.Message{
-		{Role: llm.RoleUser, Parts: []llm.Part{llm.Text(Omitted)}},
-		{Role: llm.RoleAssistant, Parts: []llm.Part{llm.Text("A0")}},
-		{Role: llm.RoleUser, Parts: []llm.Part{llm.Text("Q1")}},
+	want := []Message{
+		{Role: RoleUser, Parts: []Part{Text(Omitted)}},
+		{Role: RoleAssistant, Parts: []Part{Text("A0")}},
+		{Role: RoleUser, Parts: []Part{Text("Q1")}},
 	}
 	if !equal(got, want) {
 		t.Fatalf("History = %+v\nwant %+v", got, want)
@@ -404,19 +403,19 @@ func TestHistoryWithFiles(t *testing.T) {
 		gone,
 		withFiles(msg("m5", opener, "Please check."), 5),
 	}
-	block, file := llm.Text("[The file \"essay.pdf\" …]\n{}"), llm.Part{Type: llm.PartFile, File: &llm.File{Name: "essay.pdf", MIME: "application/pdf"}}
-	got, err := HistoryWithFiles(msgs, self, "m5", false, Files{Given: map[string][]llm.Part{"m3": {block, file}}, Tool: "attachment_get"})
+	block, file := Text("[The file \"essay.pdf\" …]\n{}"), Image("image/png", "aW1hZ2U=")
+	got, err := HistoryWithFiles(msgs, self, "m5", false, Files{Given: map[string][]Part{"m3": {block, file}}, Tool: "attachment_get"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []llm.Message{
-		{Role: llm.RoleUser, Parts: []llm.Part{llm.Text(`[Message 1 carries 1 file, attached by its author: "notes.txt" (text/plain, 900 bytes, ` +
+	want := []Message{
+		{Role: RoleUser, Parts: []Part{Text(`[Message 1 carries 1 file, attached by its author: "notes.txt" (text/plain, 900 bytes, ` +
 			"attachment_id f1). Read one with attachment_get if it matters.]\nHere are my notes.")}},
-		{Role: llm.RoleAssistant, Parts: []llm.Part{llm.Text("Thanks.")}},
-		{Role: llm.RoleUser, Parts: []llm.Part{
-			llm.Text(`[Message 3 carries 2 files, attached by its author: "essay.pdf" (application/pdf, 1.2 MB, attachment_id f2), ` +
+		{Role: RoleAssistant, Parts: []Part{Text("Thanks.")}},
+		{Role: RoleUser, Parts: []Part{
+			Text(`[Message 3 carries 2 files, attached by its author: "essay.pdf" (application/pdf, 1.2 MB, attachment_id f2), ` +
 				`"graph.png" (image/png, 240 KB, attachment_id f3). What the runtime gives of each follows the message.]` + "\nIs my essay right?"),
-			block, file, llm.Text(Retracted + "\n\nPlease check."),
+			block, file, Text(Retracted + "\n\nPlease check."),
 		}},
 	}
 	if !equal(got, want) {
@@ -428,7 +427,7 @@ func TestHistoryWithFiles(t *testing.T) {
 	}
 }
 
-func equal(a, b []llm.Message) bool {
+func equal(a, b []Message) bool {
 	if len(a) != len(b) {
 		return false
 	}

@@ -13,8 +13,8 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/provider"
 )
 
 // update rewrites the golden files: go test ./internal/config -update.
@@ -50,19 +50,19 @@ func TestExamples(t *testing.T) {
 		t.Fatalf("prices: %v", err)
 	}
 	// The example's offer at OpenRouter, with its upstream routing.
-	if o, ok := cfg.Runtime.School.OfferOf("llama"); !ok || o.AsModel().EffectiveProvider() != llm.ProviderOpenRouter ||
+	if o, ok := cfg.Runtime.School.OfferOf("llama"); !ok || o.AsModel().EffectiveProvider() != provider.ProviderOpenRouter ||
 		string(o.OpenRouter.JSON()) != `{"order":["groq"],"allow_fallbacks":true,"require_parameters":true,"data_collection":"deny",`+
 			`"only":["groq","deepinfra","together"],"quantizations":["fp8","fp16","bf16","unknown"],"max_price":{"prompt":"1.04","completion":"1.04"}}` {
 		t.Fatalf("the offer at OpenRouter: %+v", o)
 	}
 
 	tutor, own := cfg.Agents[0], cfg.Agents[1]
-	if tutor.Model.KeySource != KeySchool || tutor.Model.EffectiveProvider() != llm.ProviderAnthropic ||
+	if tutor.Model.KeySource != KeySchool || tutor.Model.EffectiveProvider() != provider.ProviderAnthropic ||
 		*tutor.Budgets.PerAskerDay.Answers != 30 || *tutor.Budgets.PerAskerDay.USD != 0.40 {
 		t.Fatalf("tutor: %+v", tutor)
 	}
 	// The fallback is paid for as the model is, and has its output cap.
-	if fb := tutor.Model.Fallback; fb == nil || fb.KeySource != KeySchool || fb.Params.MaxOutputTokens != 1500 || fb.EffectiveProvider() != llm.ProviderDeepSeek {
+	if fb := tutor.Model.Fallback; fb == nil || fb.KeySource != KeySchool || fb.Params.MaxOutputTokens != 1500 || fb.EffectiveProvider() != provider.ProviderDeepSeek {
 		t.Fatalf("fallback: %+v", tutor.Model.Fallback)
 	}
 	// runtime.defaults sit between the built-in defaults and the agent.
@@ -71,7 +71,7 @@ func TestExamples(t *testing.T) {
 	if !strings.HasSuffix(own.Prompt.OnQuotaText, "ask your instructor in class.") || own.Prompt.OnRefusalText != "" || own.Prompt.OnBudgetText != "" {
 		t.Fatalf("prompt: %+v", own.Prompt)
 	}
-	if own.Model.KeySource != KeyOwn || own.Model.EffectiveProvider() != llm.ProviderDeepSeek || own.Answer.HistoryMessages != 30 ||
+	if own.Model.KeySource != KeyOwn || own.Model.EffectiveProvider() != provider.ProviderDeepSeek || own.Answer.HistoryMessages != 30 ||
 		own.Dir != "../../examples/agents" || own.File != "../../examples/agents/delegate.yaml" {
 		t.Fatalf("own agent: %+v", own)
 	}

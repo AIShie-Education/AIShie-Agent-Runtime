@@ -53,6 +53,18 @@ jobs:
       - run: make lint
       - run: make script-test
 
+  runner:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: npm ci --prefix runner
+      - run: npm run typecheck --prefix runner
+      - run: npm test --prefix runner
+      - run: npm run build --prefix runner
+
   test:
     name: test (pg ${{ matrix.postgres }})
     runs-on: ubuntu-24.04
@@ -111,6 +123,11 @@ jobs:
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: npm ci --prefix runner
+      - run: npm run build --prefix runner
       # Core's image is public, pulled with no login: scripts/ci-core.sh says
       # what to do if the pull is refused.
       - run: make e2e
@@ -131,10 +148,14 @@ jobs:
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: npm ci --prefix runner
       - run: make build
       - run: ./bin/aishie-runtime version
-      # Proves the Dockerfile still builds, and that the image runs as
-      # deployed with its OCR's programs. Nothing is pushed from CI.
+      # Proves the Dockerfile still builds and the Go + Node image runs as
+      # deployed, without the old OCR/Office programs. Nothing is pushed.
       - run: make docker-test
 
   vuln:
@@ -150,7 +171,7 @@ jobs:
   # the weekly run publish nothing. vuln does not hold it back; a new advisory
   # is for a person to weigh, and it still shows red here.
   publish:
-    needs: [lint, test, e2e, build]
+    needs: [lint, runner, test, e2e, build]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read

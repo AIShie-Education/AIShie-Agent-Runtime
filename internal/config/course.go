@@ -9,7 +9,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/provider"
 )
 
 // ForCourse is the agent's configuration for one course: its settings with
@@ -119,13 +119,13 @@ func (a *Agent) Path(ref string) string {
 }
 
 // EffectiveProvider is who serves the model: Provider when set, else what
-// llm.DetectProvider finds from the adapter and the base URL. Prices, the
-// school's model lists and an adapter's defaults are keyed on it.
+// provider.DetectProvider finds from the adapter and the base URL. Prices and
+// the school's model lists are keyed on it.
 func (m Model) EffectiveProvider() string {
 	if m.Provider != "" {
 		return m.Provider
 	}
-	return llm.DetectProvider(m.Adapter, m.BaseURL)
+	return provider.DetectProvider(m.Adapter, m.BaseURL)
 }
 
 // PricesPath is the price table runtime.prices_ref names, relative to the

@@ -36,7 +36,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/provider"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/schoolday"
 )
 
@@ -62,7 +62,7 @@ type Price struct {
 // reasoning tokens (§3.5), so u.Reasoning is not charged again. Negative
 // counts are taken as zero, and a cost too large for an int64 is capped at
 // math.MaxInt64.
-func (p Price) Cost(u llm.Usage) int64 {
+func (p Price) Cost(u provider.Usage) int64 {
 	cacheRead, cacheWrite := nonNeg(u.CacheRead), nonNeg(u.CacheWrite)
 	uncached := nonNeg(u.Input) - cacheRead - cacheWrite
 	if uncached < 0 {
