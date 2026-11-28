@@ -602,7 +602,7 @@ func (w *chatWorld) stream(t *testing.T, ar *arProcess, id string) *chatEvents {
 		t.Fatal(err)
 	}
 	req.Header.Set("Authorization", "Bearer "+w.assertion(t, w.studentToken))
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req) //nolint:bodyclose // events.Close and its reader goroutine own the streaming body
 	if err != nil {
 		cancel()
 		t.Fatal(err)
