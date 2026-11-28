@@ -192,9 +192,18 @@ func (s *Service) authorize(ctx context.Context, actor, course, agent string) (*
 	return auth, nil
 }
 
-// CheckAccess is used by the SSE handler on connect, events and heartbeat.
+// CheckAccess is used by an already ownership-checked history stream. A
+// negative check_ask answer means "may not ask a new question", not "may not
+// read this actor's own AR history". Core transport failures remain fatal.
 func (s *Service) CheckAccess(ctx context.Context, actor, course, agent string) (*Authorization, error) {
-	return s.authorize(ctx, normalizeActor(actor), course, agent)
+	auth, err := s.access.Check(ctx, normalizeActor(actor), course, agent)
+	if errors.Is(err, ErrAccessDenied) {
+		return &Authorization{Agent: Agent{AgentID: agent}}, nil
+	}
+	if err != nil {
+		return nil, ErrCore
+	}
+	return auth, nil
 }
 
 func (s *Service) Agents(ctx context.Context, actor, course string) ([]Agent, error) {

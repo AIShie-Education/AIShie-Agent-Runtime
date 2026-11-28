@@ -2,6 +2,7 @@ package storetest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -366,6 +367,34 @@ func testChat(t *testing.T, open Opener) {
 		}
 		if _, _, err := st.ReviewChatApproval(ctx, store.ChatDecisionParams{ActorID: "limited-staff", ApprovalID: "reviewer-followup", IdempotencyKey: "reviewer-review", Fingerprint: "review", Operation: "review", ReviewerLevel: "pending_review"}); err != nil {
 			t.Fatal(err)
+		}
+	})
+
+	t.Run("HistorySurvivesHostingRemoval", func(t *testing.T) {
+		st := open(t)
+		ctx := context.Background()
+		if _, err := st.CreateHostedAgent(ctx, store.HostedAgent{ID: "agt_history", CoreActorID: "agent-core", TenantID: "ten_history", DisplayName: "History", Settings: json.RawMessage(`{}`)}); err != nil {
+			t.Fatal(err)
+		}
+		p := chatCreate("hosting-history", "alice", "create-hosting-history")
+		if _, _, err := st.CreateChatConversation(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.DeleteHostedAgent(ctx, "agt_history", store.DeleteIf{}); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.PurgeAgent(ctx, "agt_history"); err != nil {
+			t.Fatal(err)
+		}
+		snap, err := st.ChatSnapshot(ctx, "course-1", "conv-hosting-history", "alice", 50, 0)
+		if err != nil || len(snap.Messages) != 1 {
+			t.Fatalf("history after hosting removal=%+v %v", snap, err)
+		}
+		if _, err := st.ChatConversation(ctx, "course-1", "conv-hosting-history", "alice"); err != nil {
+			t.Fatalf("conversation after hosting removal=%v", err)
+		}
+		if _, err := st.ChatSnapshot(ctx, "course-1", "conv-hosting-history", "bob", 50, 0); !errors.Is(err, store.ErrNotFound) {
+			t.Fatalf("cross-owner history after removal=%v", err)
 		}
 	})
 
