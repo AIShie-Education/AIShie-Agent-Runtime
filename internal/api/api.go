@@ -151,7 +151,6 @@ type Server struct {
 	// modelHTTP carries keys/test's calls: Options.ModelHTTP, or the
 	// guarded client made from CoreHTTP.
 	modelHTTP *http.Client
-	cats      catalogueCache
 	// openRouter reads, and keeps, OpenRouter's lists of a model's
 	// upstream providers.
 	openRouter *openrouter.Catalogue

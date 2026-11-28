@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -19,8 +21,25 @@ const DefaultURL = "http://127.0.0.1:3001"
 
 // Client calls one TypeScript runner. It is safe for concurrent use.
 type Client struct {
-	baseURL string
-	http    *http.Client
+	baseURL   string
+	http      *http.Client
+	targetErr error
+}
+
+// validateRunnerTarget keeps credentials off arbitrary hosts. RUNNER_URL may
+// select another runner process, but it must still be a loopback HTTP(S) base
+// URL with no userinfo, query, fragment or path.
+func validateRunnerTarget(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil || !u.IsAbs() || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil ||
+		u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Path != "" && u.Path != "/" {
+		return errors.New("runner: URL must be a loopback http(s) base URL without credentials, path, query or fragment")
+	}
+	ip := net.ParseIP(u.Hostname())
+	if ip == nil || !ip.IsLoopback() {
+		return errors.New("runner: URL host must be a loopback IP address")
+	}
+	return nil
 }
 
 // NewClient makes a runner client. A blank baseURL uses DefaultURL. Redirects
@@ -32,19 +51,23 @@ func NewClient(baseURL string, hc *http.Client) *Client {
 	if hc == nil {
 		hc = &http.Client{}
 	}
+	baseURL = strings.TrimRight(baseURL, "/")
 	cp := *hc
 	cp.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
-	return &Client{baseURL: strings.TrimRight(baseURL, "/"), http: &cp}
+	return &Client{baseURL: baseURL, http: &cp, targetErr: validateRunnerTarget(baseURL)}
 }
 
 // Healthy checks GET /healthz and its {"status":"ok"} answer.
 func (c *Client) Healthy(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/healthz", nil)
+	if c.targetErr != nil {
+		return c.targetErr
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/healthz", nil) // #nosec G704 -- target is a validated loopback IP; redirects are disabled.
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Accept", "application/json")
-	resp, err := c.http.Do(req)
+	resp, err := c.http.Do(req) // #nosec G704 -- NewClient validates an IP-loopback URL and forbids redirects.
 	if err != nil {
 		return fmt.Errorf("runner: health: %w", err)
 	}
@@ -68,17 +91,20 @@ func (c *Client) Healthy(ctx context.Context) error {
 // becomes *Error. Cancellation closes the HTTP request, which asks the runner
 // to abort its model call and MCP connection.
 func (c *Client) Run(ctx context.Context, run RunRequest, onEvent func(Event) error) (*Done, error) {
+	if c.targetErr != nil {
+		return nil, c.targetErr
+	}
 	body, err := json.Marshal(run)
 	if err != nil {
 		return nil, fmt.Errorf("runner: encode run: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/run", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/run", bytes.NewReader(body)) // #nosec G704 -- target is a validated loopback IP; redirects are disabled.
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/x-ndjson")
-	resp, err := c.http.Do(req)
+	resp, err := c.http.Do(req) // #nosec G704 -- NewClient validates an IP-loopback URL and forbids redirects.
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -145,6 +171,9 @@ func (c *Client) Run(ctx context.Context, run RunRequest, onEvent func(Event) er
 // failure is ResultUnreachable, not a Go error; a malformed response is a Go
 // error. No provider error text is accepted or returned.
 func (c *Client) Probe(ctx context.Context, model Model) (ProbeResult, error) {
+	if c.targetErr != nil {
+		return ProbeResult{}, c.targetErr
+	}
 	started := time.Now()
 	unreachable := func() ProbeResult {
 		return ProbeResult{Result: ResultUnreachable, LatencyMS: time.Since(started).Milliseconds()}
@@ -155,13 +184,13 @@ func (c *Client) Probe(ctx context.Context, model Model) (ProbeResult, error) {
 	if err != nil {
 		return ProbeResult{}, fmt.Errorf("runner: encode probe: %w", err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/probe", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/probe", bytes.NewReader(body)) // #nosec G704 -- target is a validated loopback IP; redirects are disabled.
 	if err != nil {
 		return ProbeResult{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	resp, err := c.http.Do(req)
+	resp, err := c.http.Do(req) // #nosec G704 -- NewClient validates an IP-loopback URL and forbids redirects.
 	if err != nil {
 		return unreachable(), nil
 	}

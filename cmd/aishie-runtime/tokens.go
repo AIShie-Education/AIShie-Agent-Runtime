@@ -256,7 +256,7 @@ func (m *tokenManager) ensureAgent(ctx context.Context, a *config.Agent) error {
 
 var (
 	errTokenNeedsIssue = errors.New("agent token needs to be issued")
-	errTokenActor      = errors.New("Core token actor does not match the configured agent")
+	errTokenActor      = errors.New("core token actor does not match the configured agent")
 )
 
 func (m *tokenManager) failed(id string, err error) error {
@@ -357,10 +357,10 @@ func (m *tokenManager) issueAgent(ctx context.Context, a *config.Agent) error {
 		return err
 	}
 	if view.Hosting != core.HostingRuntime || !view.Hostable {
-		return fmt.Errorf("Core says the agent is not hostable: %s", view.Reason)
+		return fmt.Errorf("core says the agent is not hostable: %s", view.Reason)
 	}
 	if view.Status != core.StatusActive || view.OwnerStatus != "" && view.OwnerStatus != core.StatusActive {
-		return errors.New("Core says the agent or its owner is suspended")
+		return errors.New("core says the agent or its owner is suspended")
 	}
 	if a.Hosted != nil && !strings.EqualFold(view.OwnerActorID, a.Hosted.OwnerActorID) {
 		m.revoke(ctx, a)
@@ -371,7 +371,7 @@ func (m *tokenManager) issueAgent(ctx context.Context, a *config.Agent) error {
 		return err
 	}
 	if it == nil || it.Token == "" {
-		return errors.New("Core issued no token")
+		return errors.New("core issued no token")
 	}
 	if err := m.validateToken(ctx, a, it.Token); err != nil {
 		m.revoke(ctx, a)

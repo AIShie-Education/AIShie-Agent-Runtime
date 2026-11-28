@@ -124,6 +124,7 @@ func TestChatSSESnapshotDraftMessageRetractedStatePingAndClose(t *testing.T) {
 	svc.reconcile, svc.heartbeat = 20*time.Millisecond, 40*time.Millisecond
 	f, token := newChatFixture(t, svc)
 	response, reader, _ := openChatSSE(t, f, token)
+	defer func() { _ = response.Body.Close() }()
 	requireChatSSESnapshot(t, response, reader)
 
 	frame, err := readChatSSEFrame(reader)
@@ -217,6 +218,7 @@ func TestChatSSEReconnectAlwaysSendsSnapshot(t *testing.T) {
 	svc.snap.Draft = &chat.Draft{Version: 4, Text: "persisted elsewhere", Steps: []chat.Step{}, UpdatedAt: at}
 	svc.mu.Unlock()
 	response2, reader2, _ := openChatSSE(t, f, token)
+	defer func() { _ = response2.Body.Close() }()
 	snap := requireChatSSESnapshot(t, response2, reader2)
 	if snap.Conversation.Revision != 9 || snap.Draft == nil || snap.Draft.Version != 4 {
 		t.Errorf("reconnect depended on an event log instead of current state: %+v", snap)
@@ -229,6 +231,7 @@ func TestChatSSEAssertionExpiryAndAccessRevocationEndStream(t *testing.T) {
 		svc.reconcile = 15 * time.Millisecond
 		f, token := newChatFixture(t, svc)
 		response, reader, _ := openChatSSE(t, f, token)
+		defer func() { _ = response.Body.Close() }()
 		requireChatSSESnapshot(t, response, reader)
 		f.add(5 * time.Minute)
 		if _, err := readChatSSEFrame(reader); !errors.Is(err, io.EOF) {
@@ -240,6 +243,7 @@ func TestChatSSEAssertionExpiryAndAccessRevocationEndStream(t *testing.T) {
 		svc.reconcile = 15 * time.Millisecond
 		f, token := newChatFixture(t, svc)
 		response, reader, _ := openChatSSE(t, f, token)
+		defer func() { _ = response.Body.Close() }()
 		requireChatSSESnapshot(t, response, reader)
 		svc.setCheckErr(chat.ErrDenied)
 		if _, err := readChatSSEFrame(reader); !errors.Is(err, io.EOF) {
@@ -251,6 +255,7 @@ func TestChatSSEAssertionExpiryAndAccessRevocationEndStream(t *testing.T) {
 		svc.reconcile = 15 * time.Millisecond
 		f, token := newChatFixture(t, svc)
 		response, reader, _ := openChatSSE(t, f, token)
+		defer func() { _ = response.Body.Close() }()
 		requireChatSSESnapshot(t, response, reader)
 		svc.setCheckErr(errors.New("Core/provider: bearer secret and upstream private text"))
 		frame, err := readChatSSEEvent(reader)
@@ -272,6 +277,7 @@ func TestChatSSESubscribesBeforeFirstSnapshotRead(t *testing.T) {
 	}
 	f, token := newChatFixture(t, svc)
 	response, reader, _ := openChatSSE(t, f, token)
+	defer func() { _ = response.Body.Close() }()
 	requireChatSSESnapshot(t, response, reader)
 	deadline := time.Now().Add(250 * time.Millisecond)
 	for {

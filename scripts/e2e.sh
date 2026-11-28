@@ -22,6 +22,15 @@ if [ -z "${E2E_CORE_URL:-}" ]; then
   . "$CORE_DIR/env"
 fi
 
+# A dedicated run must never silently test nothing. ci-core.sh supplies all
+# three when it starts Core; externally supplied environments must be complete.
+for name in E2E_CORE_URL E2E_ROOT_TOKEN E2E_RUNTIME_AUDIENCE; do
+  if [ -z "${!name:-}" ]; then
+    echo "e2e: $name is required (use scripts/ci-core.sh or provide the complete Core environment)" >&2
+    exit 1
+  fi
+done
+
 export E2E_AR_BIN=${E2E_AR_BIN:-$PWD/bin/aishie-runtime}
 export E2E_RUNNER_ENTRY=${E2E_RUNNER_ENTRY:-$PWD/runner/dist/index.js}
 export TEST_DATABASE_URL=${TEST_DATABASE_URL:-postgres:///postgres}

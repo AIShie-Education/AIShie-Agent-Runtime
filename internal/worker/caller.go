@@ -1,8 +1,6 @@
 package worker
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,12 +12,6 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ratelimit"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/version"
 )
-
-// SnapshotCatalogueHash is the hash of the Core catalogue this runtime was
-// built and tested against (internal/core/testdata/catalogue.json). An
-// agent whose Core serves another is still run, if the tools it relies on
-// are there (toolset.CheckCatalogue), and a warning says so.
-const SnapshotCatalogueHash = "074ac2be5aeb0186ee612cce597ab0e2daeaf7e5d4f59520d1a9ae4cab853067"
 
 // DefaultCaller is the connection to Core the worker makes for an agent
 // when Options.NewCaller is nil: MCP at the pinned revision, or REST, as
@@ -53,30 +45,4 @@ func DefaultCaller(a *config.Agent, token string, cat *core.Catalogue, client *h
 		retry.OnRateLimited = func(_ time.Duration) { onRateLimited() }
 	}
 	return core.NewRetrying(core.Limited(counted, bucket), retry), nil
-}
-
-// authChecked reads Core's other way of saying 401 as one: over MCP, a
-// call made with the token of an actor that no longer exists comes back as
-// an envelope of status error and code unauthenticated, where REST answers
-// HTTP 401. Either stops the agent.
-type authChecked struct {
-	next core.Caller
-}
-
-func (c authChecked) Call(ctx context.Context, tool string, args json.RawMessage) (*core.Envelope, error) {
-	env, err := c.next.Call(ctx, tool, args)
-	if err == nil && env != nil && env.Status == core.StatusError && env.Code() == core.CodeUnauthenticated {
-		return nil, core.ErrUnauthenticated
-	}
-	return env, err
-}
-
-// isUnauthenticated reports whether err is Core refusing the agent's
-// token, however it came.
-func isUnauthenticated(err error) bool {
-	if errors.Is(err, core.ErrUnauthenticated) {
-		return true
-	}
-	var ee *core.EnvelopeError
-	return errors.As(err, &ee) && ee.Envelope.Code() == core.CodeUnauthenticated
 }

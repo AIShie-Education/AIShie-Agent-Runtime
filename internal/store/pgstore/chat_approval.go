@@ -154,7 +154,8 @@ func (s *Store) DecideChatApproval(ctx context.Context, p store.ChatDecisionPara
 			return store.ErrChatApproval
 		}
 		newState, conversationState, messageState := "", "", ""
-		if a.Subject == store.ChatSubjectQuestion {
+		switch a.Subject {
+		case store.ChatSubjectQuestion:
 			if m.Role != store.ChatRoleUser || m.Status != store.ChatPending || g.State != store.ChatGenerationQueued {
 				return store.ErrChatApproval
 			}
@@ -173,7 +174,7 @@ func (s *Store) DecideChatApproval(ctx context.Context, p store.ChatDecisionPara
 				messageState = store.ChatMsgFailed
 				g.State = store.ChatGenerationCancelled
 			}
-		} else if a.Subject == store.ChatSubjectAnswer {
+		case store.ChatSubjectAnswer:
 			if m.Role != store.ChatRoleAssistant || m.Status != store.ChatPending || g.State != store.ChatGenerationProposed {
 				return store.ErrChatApproval
 			}
@@ -201,7 +202,7 @@ func (s *Store) DecideChatApproval(ctx context.Context, p store.ChatDecisionPara
 					return err
 				}
 			}
-		} else {
+		default:
 			return store.ErrChatApproval
 		}
 		if messageState == store.ChatMsgFailed {

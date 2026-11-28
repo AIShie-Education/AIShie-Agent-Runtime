@@ -162,7 +162,7 @@ func (s *Service) Review(ctx context.Context, actor, id string, in ReviewInput) 
 	if !validKey(in.IdempotencyKey) {
 		return DecisionResponse{}, serviceError("invalid_argument", "invalid_field", "idempotency_key is required")
 	}
-	a, c, reviewerLevel, err := s.authorizeApproval(ctx, actor, id, "review")
+	_, c, reviewerLevel, err := s.authorizeApproval(ctx, actor, id, "review")
 	if err != nil {
 		return DecisionResponse{}, err
 	}

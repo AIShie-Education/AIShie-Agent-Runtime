@@ -134,7 +134,8 @@ func (s *Store) DecideChatApproval(_ context.Context, p store.ChatDecisionParams
 	if p.Decision != "approve" && p.Decision != "reject" && p.Decision != "changes_requested" {
 		return store.ChatApproval{}, store.ChatSnapshot{}, false, store.ErrChatApproval
 	}
-	if a.Subject == store.ChatSubjectQuestion {
+	switch a.Subject {
+	case store.ChatSubjectQuestion:
 		if m.Role != store.ChatRoleUser || m.Status != store.ChatPending || g.State != store.ChatGenerationQueued {
 			return store.ChatApproval{}, store.ChatSnapshot{}, false, store.ErrChatApproval
 		}
@@ -154,7 +155,7 @@ func (s *Store) DecideChatApproval(_ context.Context, p store.ChatDecisionParams
 				a.State = store.ChatApprovalRejected
 			}
 		}
-	} else if a.Subject == store.ChatSubjectAnswer {
+	case store.ChatSubjectAnswer:
 		if m.Role != store.ChatRoleAssistant || m.Status != store.ChatPending || g.State != store.ChatGenerationProposed {
 			return store.ChatApproval{}, store.ChatSnapshot{}, false, store.ErrChatApproval
 		}
@@ -184,7 +185,7 @@ func (s *Store) DecideChatApproval(_ context.Context, p store.ChatDecisionParams
 			a.State = chatDecisionState(p.Decision)
 			schedule = true
 		}
-	} else {
+	default:
 		return store.ChatApproval{}, store.ChatSnapshot{}, false, store.ErrChatApproval
 	}
 	a.Reason, a.DecidedAt = p.Reason, &now

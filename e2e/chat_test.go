@@ -610,6 +610,7 @@ func (w *chatWorld) stream(t *testing.T, ar *arProcess, id string) *chatEvents {
 		_ = resp.Body.Close()
 		t.Fatalf("SSE: HTTP %d", resp.StatusCode)
 	}
+	defer func() { _ = resp.Body.Close() }()
 	events := &chatEvents{cancel: cancel, resp: resp, done: make(chan struct{})}
 	go func() {
 		defer close(events.done)

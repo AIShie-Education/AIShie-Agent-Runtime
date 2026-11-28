@@ -453,10 +453,10 @@ func TestPrivacyCheckAskHTTPSmoke(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authOK = r.Header.Get("Authorization") == "Bearer "+credential
 		w.Header().Set("Content-Type", "application/json")
-		switch {
-		case r.URL.Path == "/v1/tools":
+		switch r.URL.Path {
+		case "/v1/tools":
 			_, _ = w.Write(catalogue)
-		case r.URL.Path == "/v1/services/agent_runtime/actors/"+privacyAskerID+"/courses/"+privacyCourseUUID+"/agents/"+privacyAgentID+"/may-ask":
+		case "/v1/services/agent_runtime/actors/" + privacyAskerID + "/courses/" + privacyCourseUUID + "/agents/" + privacyAgentID + "/may-ask":
 			_, _ = fmt.Fprintln(w, `{"status":"executed","result":{"may_ask":true}}`)
 		default:
 			http.NotFound(w, r)

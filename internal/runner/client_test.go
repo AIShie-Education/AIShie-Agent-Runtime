@@ -177,6 +177,15 @@ func TestClientHealthy(t *testing.T) {
 	}
 }
 
+func TestClientRejectsNonLoopbackTarget(t *testing.T) {
+	t.Parallel()
+	for _, target := range []string{"http://example.com", "https://127.0.0.1:3001/run?x=1", "http://127.0.0.1:3001@example.com"} {
+		if err := NewClient(target, nil).Healthy(t.Context()); err == nil || !strings.Contains(err.Error(), "runner: URL") {
+			t.Errorf("Healthy(%q) = %v", target, err)
+		}
+	}
+}
+
 func TestModelOf(t *testing.T) {
 	t.Parallel()
 	temp := 0.3

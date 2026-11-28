@@ -158,7 +158,7 @@ func TestAnswerProposalHidesBodyUntilApproval(t *testing.T) {
 	if target.Body != "secret answer" || target.Usage == nil || target.Usage.Output != 3 {
 		t.Fatalf("reviewer detail=%+v", target)
 	}
-	if _, err := s.GetApproval(t.Context(), "actor", a.ID); err != ErrNotFound {
+	if _, err := s.GetApproval(t.Context(), "actor", a.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("opener detail=%v", err)
 	}
 	ordinary, _ := s.Messages(t.Context(), "actor", "course", created.Conversation.ID, 50, 0)
@@ -256,18 +256,18 @@ func TestApprovalAttachmentRequiresReviewerAndExactBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ApprovalAttachment(t.Context(), "reviewer", other.Submission.ApprovalID, file.ID); err != ErrNotFound {
+	if _, err := s.ApprovalAttachment(t.Context(), "reviewer", other.Submission.ApprovalID, file.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("cross-approval attachment=%v", err)
 	}
 	access.allowed.Store(false)
-	if _, err := s.ApprovalAttachment(t.Context(), "reviewer", created.Submission.ApprovalID, file.ID); err != ErrNotFound {
+	if _, err := s.ApprovalAttachment(t.Context(), "reviewer", created.Submission.ApprovalID, file.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("denied reviewer attachment=%v", err)
 	}
 	owner, err := s.Attachment(t.Context(), "actor", "course", file.ID)
 	if err != nil || owner.ID != file.ID {
 		t.Fatalf("ordinary owner route changed=%+v %v", owner, err)
 	}
-	if _, err := s.Attachment(t.Context(), "other-user", "course", file.ID); err != ErrNotFound {
+	if _, err := s.Attachment(t.Context(), "other-user", "course", file.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("ordinary non-owner route changed=%v", err)
 	}
 }
@@ -284,10 +284,10 @@ func TestApprovalRequiresFreshCoreDecision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Decide(t.Context(), "reviewer", created.Submission.ApprovalID, DecideInput{Decision: "approve", IdempotencyKey: "approve"}); err != ErrNotFound {
+	if _, err := s.Decide(t.Context(), "reviewer", created.Submission.ApprovalID, DecideInput{Decision: "approve", IdempotencyKey: "approve"}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("denied reviewer=%v", err)
 	}
-	if _, err := s.GetApproval(t.Context(), "reviewer", created.Submission.ApprovalID); err != ErrNotFound {
+	if _, err := s.GetApproval(t.Context(), "reviewer", created.Submission.ApprovalID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("denied get=%v", err)
 	}
 }

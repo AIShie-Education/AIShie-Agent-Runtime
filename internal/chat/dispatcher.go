@@ -102,7 +102,7 @@ func (d *Dispatcher) recover(ctx context.Context) {
 	}
 }
 
-func (d *Dispatcher) heartbeat(gen store.ChatGeneration, lease string, active *activeGeneration, done <-chan struct{}) {
+func (d *Dispatcher) heartbeat(ctx context.Context, gen store.ChatGeneration, lease string, active *activeGeneration, done <-chan struct{}) {
 	ticker := time.NewTicker(chatLeaseTTL / 3)
 	defer ticker.Stop()
 	for {
@@ -110,10 +110,10 @@ func (d *Dispatcher) heartbeat(gen store.ChatGeneration, lease string, active *a
 		case <-done:
 			return
 		case <-ticker.C:
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			ok, err := d.s.store.HeartbeatChatGeneration(ctx, gen.ID, gen.Holder, gen.Fence, chatLeaseTTL)
+			callCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			ok, err := d.s.store.HeartbeatChatGeneration(callCtx, gen.ID, gen.Holder, gen.Fence, chatLeaseTTL)
 			if err == nil && ok {
-				ok, err = d.s.store.AcquireLease(ctx, lease, d.s.workerID, chatLeaseTTL)
+				ok, err = d.s.store.AcquireLease(callCtx, lease, d.s.workerID, chatLeaseTTL)
 			}
 			cancel()
 			if err != nil || !ok {
@@ -163,7 +163,7 @@ func (d *Dispatcher) run(ctx context.Context, generationID string, active *activ
 		return
 	}
 	heartbeatDone := make(chan struct{})
-	go d.heartbeat(gen, lease, active, heartbeatDone)
+	go d.heartbeat(ctx, gen, lease, active, heartbeatDone)
 	defer close(heartbeatDone)
 	d.s.hub.Publish(conv.ID)
 

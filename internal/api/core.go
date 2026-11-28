@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,34 +27,7 @@ const (
 	askTimeout = 20 * time.Second
 	// revokeTimeout bounds revoking an agent's token in Core.
 	revokeTimeout = 15 * time.Second
-	// catalogueTTL is how long Core's catalogue is kept.
-	catalogueTTL = 10 * time.Minute
 )
-
-// catalogueCache is Core's catalogue, fetched once every catalogueTTL:
-// what the transcription service's client calls Core by.
-type catalogueCache struct {
-	mu  sync.Mutex
-	cat *core.Catalogue
-	at  time.Time
-}
-
-// catalogue is Core's catalogue, fetched when it is not kept or is older
-// than catalogueTTL, one fetch at a time.
-func (s *Server) catalogue(ctx context.Context) (*core.Catalogue, error) {
-	s.cats.mu.Lock()
-	defer s.cats.mu.Unlock()
-	now := s.o.Now()
-	if s.cats.cat != nil && now.Sub(s.cats.at) < catalogueTTL {
-		return s.cats.cat, nil
-	}
-	cat, err := core.FetchCatalogue(ctx, s.coreHTTP, s.o.CoreBaseURL)
-	if err != nil {
-		return nil, err
-	}
-	s.cats.cat, s.cats.at = cat, now
-	return cat, nil
-}
 
 // Refusals of a request about an agent in Core.
 var (

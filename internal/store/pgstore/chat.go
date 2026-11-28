@@ -743,10 +743,6 @@ func lockChatGeneration(ctx context.Context, tx pgx.Tx, id string) (store.ChatGe
 	return g, c, err
 }
 
-func latestChatMessage(ctx context.Context, q chatQuerier, conv string) (store.ChatMessage, error) {
-	return scanChatMessage(q.QueryRow(ctx, `SELECT `+chatMessageColumns+` FROM chat_message WHERE conversation_id=$1 ORDER BY seq DESC LIMIT 1`, conv))
-}
-
 func latestChatUserPG(ctx context.Context, q chatQuerier, conv string) (store.ChatMessage, error) {
 	return scanChatMessage(q.QueryRow(ctx, `SELECT `+chatMessageColumns+` FROM chat_message WHERE conversation_id=$1 AND role='user' ORDER BY seq DESC LIMIT 1`, conv))
 }
