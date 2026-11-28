@@ -584,11 +584,13 @@ func (p *arProcess) call(t *testing.T, person, audience, method, path string, bo
 }
 
 type chatEvents struct {
-	cancel context.CancelFunc
-	resp   *http.Response
-	done   chan struct{}
-	mu     sync.Mutex
-	frames []string
+	cancel  context.CancelFunc
+	resp    *http.Response
+	done    chan struct{}
+	logs    func() string
+	mu      sync.Mutex
+	frames  []string
+	scanErr error
 }
 
 func (w *chatWorld) stream(t *testing.T, ar *arProcess, id string) *chatEvents {
@@ -610,8 +612,7 @@ func (w *chatWorld) stream(t *testing.T, ar *arProcess, id string) *chatEvents {
 		_ = resp.Body.Close()
 		t.Fatalf("SSE: HTTP %d", resp.StatusCode)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	events := &chatEvents{cancel: cancel, resp: resp, done: make(chan struct{})}
+	events := &chatEvents{cancel: cancel, resp: resp, done: make(chan struct{}), logs: ar.logs}
 	go func() {
 		defer close(events.done)
 		defer func() { _ = resp.Body.Close() }()
@@ -628,6 +629,9 @@ func (w *chatWorld) stream(t *testing.T, ar *arProcess, id string) *chatEvents {
 			events.mu.Unlock()
 			frame = ""
 		}
+		events.mu.Lock()
+		events.scanErr = sc.Err()
+		events.mu.Unlock()
 	}()
 	return events
 }
@@ -655,7 +659,7 @@ func (e *chatEvents) Require(t *testing.T, kinds ...string) {
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	t.Fatalf("SSE lacks %v: %s", kinds, strings.Join(e.frames, "\n"))
+	t.Fatalf("SSE lacks %v (scanner: %v): %s\nAR log: %s", kinds, e.scanErr, strings.Join(e.frames, "\n"), redact.String(e.logs()))
 }
 
 func (e *chatEvents) Close() {
