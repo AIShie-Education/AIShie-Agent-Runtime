@@ -37,9 +37,7 @@ type Features struct {
 	// the plan in force, runtime.yaml's and the site's, offers at least
 	// one model.
 	SchoolKey bool `json:"school_key"`
-	// Transcription is the transcriber running, or standing by, as the
-	// site's settings turn it on: what a front end shows the text
-	// versions' queue for.
+	// Transcription is always false: the Media transcriber has been removed.
 	Transcription bool `json:"transcription"`
 }
 
@@ -52,7 +50,7 @@ func (s *Server) features(ctx context.Context) Features {
 		s.o.Log.Warn("GET /info: the site's settings cannot be read; the school's plan is runtime.yaml's", "err", err)
 		sc = s.yaml().Runtime.School
 	}
-	return Features{HostByID: hosts, OwnKey: hosts, SchoolKey: hosts && sc.Offered(), Transcription: s.transcriptionRunning(ctx)}
+	return Features{HostByID: hosts, OwnKey: hosts, SchoolKey: hosts && sc.Offered(), Transcription: false}
 }
 
 func (s *Server) info(w http.ResponseWriter, r *http.Request) {

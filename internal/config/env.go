@@ -15,9 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/office"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/rendition"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/secrets"
 )
 
@@ -87,33 +84,14 @@ type Env struct {
 	// the proxies in front of the API, whose X-Forwarded-For is believed
 	// for the address the audit records.
 	APITrustedProxies []string
-	// OCR is how the text of scanned PDFs and images is recognized for
-	// the models that cannot take the files (package ocr); its zero
-	// fields are its defaults.
-	OCR ocr.Config
-	// Office is how presentations and documents are converted to PDF by
-	// LibreOffice (package office); its zero fields are its defaults.
-	Office office.Config
-	// PDFPartPages is how many pages of a PDF one file part holds, when it
-	// has more; 0 is office.DefaultPartPages.
-	PDFPartPages int
-	// Transcribe is whether the transcriber (package transcribe) may run
-	// here: TranscribeAuto, where the site's administrators turn it on;
-	// TranscribeOn, the same, and run and check fail when it cannot run;
-	// TranscribeOff, never, whatever the site says.
-	Transcribe string
-	// Renditions is the renditions worker's settings (RENDITIONS*,
-	// package rendition): on by default wherever LibreOffice converts and
-	// Core is named; its zero fields are its defaults.
-	Renditions rendition.Config
+	// RunnerURL selects an external TypeScript runner. Empty manages a local
+	// child at 127.0.0.1:RunnerPort.
+	RunnerURL string
+	// RunnerPort is the managed runner's loopback port.
+	RunnerPort int
+	// RunnerBin and RunnerEntry are the managed child's executable and script.
+	RunnerBin, RunnerEntry string
 }
-
-// The values of TRANSCRIBE.
-const (
-	TranscribeAuto = "auto"
-	TranscribeOn   = "on"
-	TranscribeOff  = "off"
-)
 
 // Defaults of the environment's settings.
 const (
@@ -121,6 +99,9 @@ const (
 	DefaultLogLevel      = "info"
 	DefaultLogFormat     = "json"
 	DefaultShutdownGrace = 15 * time.Second
+	DefaultRunnerPort    = 3001
+	DefaultRunnerBin     = "node"
+	DefaultRunnerEntry   = "runner/dist/index.js"
 	// DefaultCoreServiceCredential is CORE_SERVICE_CREDENTIAL's default:
 	// the file core/agent_runtime under SECRETS_DIR (the environment
 	// variable AISHIE_SECRET_CORE_AGENT_RUNTIME without it), where Deploy
@@ -150,26 +131,10 @@ var envVars = []struct{ name, help string }{
 	{"CORE_ASSERTION_KEY", "Core's assertion key, pinned (an Ed25519 public key as a JWK's x); unset, it is fetched from CORE_BASE_URL/v1/auth/keys"},
 	{"ADMIN_ACTOR_IDS", "comma-separated Core actor ids: the runtime's administrators are those of Core's (platform_role root or admin) named here; unset, all of Core's"},
 	{"API_TRUSTED_PROXIES", "comma-separated addresses or CIDRs of the proxies in front of the API, whose X-Forwarded-For the audit believes"},
-	{"OCR", "auto, on or off: recognize the text of scanned PDFs and of images for models that cannot take the files (default auto: on when tesseract, pdftoppm and prlimit are installed, as in the image; on refuses to start without them)"},
-	{"OCR_LANGUAGES", "tesseract's languages, joined by + (default " + ocr.DefaultLanguages + ")"},
-	{"OCR_MAX_PAGES", fmt.Sprintf("the pages of a PDF recognized, the rest said to be left out (default %d)", ocr.DefaultMaxPages)},
-	{"OCR_DPI", fmt.Sprintf("the resolution a PDF's pages are rendered at, 72 to 600 (default %d)", ocr.DefaultDPI)},
-	{"OCR_PAGE_TIMEOUT", "how long rendering or recognizing one page may take, such as 2m (default 90s)"},
-	{"OCR_TIMEOUT", "how long one file may take in all, such as 30m (default 15m)"},
-	{"OCR_MEMORY_MB", fmt.Sprintf("the address space each OCR program may take, in MB (default %d)", ocr.DefaultMemoryMB)},
-	{"OCR_CONCURRENCY", fmt.Sprintf("the files this process recognizes at once, 1 to 8 (default %d)", ocr.DefaultConcurrency)},
-	{"OCR_QUEUE", fmt.Sprintf("the files that may wait for their turn; past them a file is not started, and the model is told to ask later (default %d)", ocr.DefaultQueue)},
-	{"OCR_WAIT", "how long a question about a file being recognized waits for its text before the model is told to ask again, never past half the answer's time left; 0 waits not at all (default " + ocr.DefaultWait.String() + ")"},
-	{"OFFICE_PDF", "auto, on or off: convert presentations and documents (.pptx, .ppt, .odp, .docx, .doc, .odt, .rtf) to PDF with LibreOffice, and older workbooks to .xlsx (default auto: on when soffice and prlimit are installed, as in the image; on refuses to start without them)"},
-	{"OFFICE_PDF_TIMEOUT", "how long converting one file may take, such as 3m (default " + office.DefaultTimeout.String() + ")"},
-	{"OFFICE_PDF_MAX_PAGES", fmt.Sprintf("the most pages a PDF given to a model has, LibreOffice's or Core's, the rest of a document left out and said so (default %d)", office.DefaultMaxPages)},
-	{"OFFICE_PDF_MEMORY_MB", fmt.Sprintf("the address space LibreOffice may take, in MB (default %d)", office.DefaultMemoryMB)},
-	{"TRANSCRIBE", "auto, on or off: whether this runtime may transcribe the course's files into text versions in Core, which the site's administrators turn on (default auto: when they do; on: the same, and run and check fail when it cannot run here, a Core without the transcription service or the store, key or Core it needs missing; off: never)"},
-	{"RENDITIONS", "auto, on or off: convert every Office and OpenDocument file Core keeps to the PDF the site previews it as, once, with LibreOffice and the runtime's own credential in Core (default auto: whenever LibreOffice converts here, as OFFICE_PDF says, and CORE_BASE_URL is set; on: the same, and run fails to start where it cannot; off: never)"},
-	{"RENDITIONS_CONCURRENCY", fmt.Sprintf("the files this process converts to PDF renditions at once, 1 to %d (default %d)", rendition.MaxConcurrency, rendition.DefaultConcurrency)},
-	{"RENDITIONS_TIMEOUT", "how long converting one file to its PDF rendition may take, 5s to 1h, such as 10m (default " + rendition.DefaultTimeout.String() + ")"},
-	{"RENDITIONS_LEASE", "how long Core holds a file for this process while it converts it, 1m to 1h, renewed every half of it (default " + rendition.DefaultLease.String() + ")"},
-	{"PDF_PART_PAGES", fmt.Sprintf("the pages of a PDF given to a model as one file part, when it has more: a longer one is given in parts of its pages, where poppler's pdftocairo is installed, and never more than the provider takes (default %d)", office.DefaultPartPages)},
+	{"RUNNER_URL", "an external TypeScript runner's base URL; unset manages a loopback child"},
+	{"RUNNER_PORT", fmt.Sprintf("the managed runner's loopback port (default %d)", DefaultRunnerPort)},
+	{"RUNNER_BIN", "the managed runner's executable (default " + DefaultRunnerBin + ")"},
+	{"RUNNER_ENTRY", "the managed runner's script (default " + DefaultRunnerEntry + ")"},
 }
 
 // EnvHelp lists the environment variables FromEnv reads, for the help
@@ -207,6 +172,10 @@ func FromEnv(getenv func(string) string) (Env, error) {
 		CoreAssertionKey:  get("CORE_ASSERTION_KEY"),
 		AdminActorIDs:     splitList(get("ADMIN_ACTOR_IDS")),
 		APITrustedProxies: splitList(get("API_TRUSTED_PROXIES")),
+		RunnerURL:         strings.TrimRight(get("RUNNER_URL"), "/"),
+		RunnerPort:        DefaultRunnerPort,
+		RunnerBin:         or(get("RUNNER_BIN"), DefaultRunnerBin),
+		RunnerEntry:       or(get("RUNNER_ENTRY"), DefaultRunnerEntry),
 	}
 	var errs []error
 	bad := func(format string, args ...any) { errs = append(errs, fmt.Errorf(format, args...)) }
@@ -231,6 +200,27 @@ func FromEnv(getenv func(string) string) (Env, error) {
 		if err != nil || u.Host == "" || !slices.Contains([]string{"http", "https", "socks5", "socks5h"}, u.Scheme) {
 			bad("EGRESS_PROXY: not a proxy URL such as http://proxy.internal:3128 (http, https, socks5 or socks5h)")
 		}
+	}
+	if e.RunnerURL != "" {
+		u, err := url.Parse(e.RunnerURL)
+		if err != nil || !u.IsAbs() || u.Host == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" ||
+			(u.Scheme != "http" && u.Scheme != "https") {
+			bad("RUNNER_URL: not an http or https base URL without credentials, query or fragment")
+		}
+	}
+	if v := get("RUNNER_PORT"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 65535 {
+			bad("RUNNER_PORT: %q is not a port from 1 to 65535", v)
+		} else {
+			e.RunnerPort = n
+		}
+	}
+	if e.RunnerBin == "" || strings.ContainsAny(e.RunnerBin, "\x00\r\n") {
+		bad("RUNNER_BIN: not a usable executable")
+	}
+	if e.RunnerEntry == "" || strings.ContainsAny(e.RunnerEntry, "\x00\r\n") {
+		bad("RUNNER_ENTRY: not a usable script path")
 	}
 	e.LogRedactExtra = splitPatterns(getenv("LOG_REDACT_EXTRA"))
 	for i, p := range e.LogRedactExtra {
@@ -275,147 +265,10 @@ func FromEnv(getenv func(string) string) (Env, error) {
 			e.ShutdownGrace = d
 		}
 	}
-	e.OCR = ocrFromEnv(get, bad)
-	e.Office = officeFromEnv(get, bad)
-	e.Renditions = renditionsFromEnv(get, bad)
-	if v := get("PDF_PART_PAGES"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > 1000 {
-			bad("PDF_PART_PAGES: %q is not a whole number from 1 to 1000", v)
-		} else {
-			e.PDFPartPages = n
-		}
-	}
-	switch e.Transcribe = strings.ToLower(get("TRANSCRIBE")); e.Transcribe {
-	case "":
-		e.Transcribe = TranscribeAuto
-	case TranscribeAuto, TranscribeOn, TranscribeOff:
-	default:
-		bad("TRANSCRIBE: %q is not auto, on or off", e.Transcribe)
-	}
 	if err := errors.Join(errs...); err != nil {
 		return Env{}, err
 	}
 	return e, nil
-}
-
-// ocrFromEnv reads OCR's settings (OCR_*); an unset one is its default.
-func ocrFromEnv(get func(string) string, bad func(string, ...any)) ocr.Config {
-	c := ocr.Config{Mode: strings.ToLower(get("OCR")), Languages: get("OCR_LANGUAGES")}
-	whole := func(name string, into *int, least int) {
-		v := get(name)
-		if v == "" {
-			return
-		}
-		n, err := strconv.Atoi(v)
-		if err != nil || n < least {
-			bad("%s: %q is not a whole number of at least %d", name, v, least)
-			return
-		}
-		*into = n
-	}
-	duration := func(name string, into *time.Duration, zero time.Duration) {
-		v := get(name)
-		if v == "" {
-			return
-		}
-		d, err := time.ParseDuration(v)
-		switch {
-		case err != nil || d < 0:
-			bad("%s: %q is not a duration such as 30s", name, v)
-		case d == 0 && zero == 0:
-			bad("%s: it must be more than 0", name)
-		case d == 0:
-			*into = zero
-		default:
-			*into = d
-		}
-	}
-	whole("OCR_MAX_PAGES", &c.MaxPages, 1)
-	whole("OCR_DPI", &c.DPI, 1)
-	whole("OCR_MEMORY_MB", &c.MemoryMB, 1)
-	whole("OCR_CONCURRENCY", &c.Concurrency, 1)
-	whole("OCR_QUEUE", &c.Queue, 1)
-	duration("OCR_PAGE_TIMEOUT", &c.PageTimeout, 0)
-	duration("OCR_TIMEOUT", &c.Timeout, 0)
-	// OCR_WAIT=0 is no wait, which ocr.Config says as less than 0.
-	duration("OCR_WAIT", &c.Wait, -1)
-	if err := c.Check(); err != nil {
-		for _, e := range strings.Split(err.Error(), "\n") {
-			bad("%s", strings.Replace(e, "ocr: ", "OCR: ", 1))
-		}
-	}
-	return c
-}
-
-// officeFromEnv reads the conversion's settings (OFFICE_PDF*); an unset one
-// is its default.
-func officeFromEnv(get func(string) string, bad func(string, ...any)) office.Config {
-	c := office.Config{Mode: strings.ToLower(get("OFFICE_PDF"))}
-	for _, w := range []struct {
-		name string
-		into *int
-	}{{"OFFICE_PDF_MAX_PAGES", &c.MaxPages}, {"OFFICE_PDF_MEMORY_MB", &c.MemoryMB}} {
-		v := get(w.name)
-		if v == "" {
-			continue
-		}
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 {
-			bad("%s: %q is not a whole number of at least 1", w.name, v)
-			continue
-		}
-		*w.into = n
-	}
-	if v := get("OFFICE_PDF_TIMEOUT"); v != "" {
-		d, err := time.ParseDuration(v)
-		if err != nil || d <= 0 {
-			bad("OFFICE_PDF_TIMEOUT: %q is not a duration such as 3m", v)
-		} else {
-			c.Timeout = d
-		}
-	}
-	if err := c.Check(); err != nil {
-		for _, e := range strings.Split(err.Error(), "\n") {
-			bad("%s", strings.Replace(e, "office: ", "OFFICE_PDF: ", 1))
-		}
-	}
-	return c
-}
-
-// renditionsFromEnv reads the renditions worker's settings (RENDITIONS*);
-// an unset one is its default.
-func renditionsFromEnv(get func(string) string, bad func(string, ...any)) rendition.Config {
-	c := rendition.Config{Mode: strings.ToLower(get("RENDITIONS"))}
-	if v := get("RENDITIONS_CONCURRENCY"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 {
-			bad("RENDITIONS_CONCURRENCY: %q is not a whole number of at least 1", v)
-		} else {
-			c.Concurrency = n
-		}
-	}
-	for _, d := range []struct {
-		name string
-		into *time.Duration
-	}{{"RENDITIONS_TIMEOUT", &c.Timeout}, {"RENDITIONS_LEASE", &c.Lease}} {
-		v := get(d.name)
-		if v == "" {
-			continue
-		}
-		t, err := time.ParseDuration(v)
-		if err != nil || t <= 0 {
-			bad("%s: %q is not a duration such as 10m", d.name, v)
-			continue
-		}
-		*d.into = t
-	}
-	if err := c.Check(); err != nil {
-		for _, e := range strings.Split(err.Error(), "\n") {
-			bad("%s", strings.Replace(e, "renditions: ", "RENDITIONS: ", 1))
-		}
-	}
-	return c
 }
 
 // checkAPI checks the API's settings (docs/deploying.md): with API_ADDR,
@@ -465,6 +318,14 @@ func checkAPI(e *Env, bad func(string, ...any)) {
 			bad("API_TRUSTED_PROXIES: entry %d is neither a CIDR nor an address", i+1)
 		}
 	}
+}
+
+// RunnerAddress is the external runner URL or the managed child's loopback URL.
+func (e Env) RunnerAddress() string {
+	if e.RunnerURL != "" {
+		return e.RunnerURL
+	}
+	return fmt.Sprintf("http://127.0.0.1:%d", e.RunnerPort)
 }
 
 // Level is LogLevel as a slog.Level.

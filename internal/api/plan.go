@@ -11,11 +11,11 @@ import (
 	"unicode/utf8"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/openrouter"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/probe"
+	modelProvider "github.com/AIShie-Education/AIShie-Agent-Runtime/internal/provider"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
+	runtimeRunner "github.com/AIShie-Education/AIShie-Agent-Runtime/internal/runner"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
 )
@@ -336,7 +336,7 @@ func readRouting(raw json.RawMessage, provider string) (*openrouter.Routing, *Er
 	switch {
 	case raw == nil || isNull(raw) || object && len(members) == 0:
 		return nil, nil
-	case provider != llm.ProviderOpenRouter:
+	case provider != modelProvider.ProviderOpenRouter:
 		return nil, fieldError(CodeInvalidArgument, ReasonInvalidField, "/openrouter", "only an offer of OpenRouter's takes upstream routing")
 	case !object:
 		return nil, fieldError(CodeInvalidArgument, ReasonInvalidField, "/openrouter", openrouter.MsgObject)
@@ -410,23 +410,27 @@ func (s *Server) tryOfferKey(ctx context.Context, w http.ResponseWriter, c *Call
 		writeRateLimited(w, wait)
 		return false
 	}
-	ctx, cancel := context.WithTimeout(ctx, probe.TrialTimeout+5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, runtimeRunner.ProbeTimeout+5*time.Second)
 	defer cancel()
-	tr, err := probe.TryModel(ctx, sec.config(), key, s.modelHTTP, s.o.NewAdapter)
+	tr := runtimeRunner.ProbeResult{Result: runtimeRunner.ResultUnreachable}
+	var err error
+	if s.o.Runner != nil {
+		tr, err = s.o.Runner.Probe(ctx, runtimeRunner.ModelOf(sec.config(), key, true))
+	}
 	if err != nil {
-		s.o.Log.Warn("an offer's key: the model's adapter could not be built", "provider", sec.Provider, "adapter", sec.Adapter)
-		tr = probe.Trial{Result: probe.ResultUnreachable}
+		s.o.Log.Warn("an offer's key: the runner's probe response is invalid", "provider", sec.Provider, "adapter", sec.Adapter)
+		tr = runtimeRunner.ProbeResult{Result: runtimeRunner.ResultUnreachable}
 	}
 	au.detail["key_test"] = tr.Result
-	if tr.Result == probe.ResultOK || tr.Result == probe.ResultKeyAccepted {
+	if tr.Result == runtimeRunner.ResultOK || tr.Result == runtimeRunner.ResultKeyAccepted {
 		return true
 	}
 	details := map[string]any{"field": "/key", "result": tr.Result, "http_status": nil, "provider_code": nil}
-	if tr.HTTPStatus != 0 {
-		details["http_status"] = tr.HTTPStatus
+	if tr.HTTPStatus != nil {
+		details["http_status"] = *tr.HTTPStatus
 	}
-	if tr.ProviderCode != "" {
-		details["provider_code"] = tr.ProviderCode
+	if tr.ProviderCode != nil {
+		details["provider_code"] = *tr.ProviderCode
 	}
 	WriteError(w, Error{Code: CodeFailedPrecondition, Reason: ReasonKeyTestFailed,
 		Message: "the key did not pass a trial of the model (" + tr.Result + "): give another, or skip_key_test", Details: details})
@@ -669,7 +673,7 @@ func (s *Server) updateOffer(w http.ResponseWriter, r *http.Request, c *Caller, 
 	switch {
 	case e != nil:
 	case req.OpenRouter == nil:
-		if sec.Provider == llm.ProviderOpenRouter {
+		if sec.Provider == modelProvider.ProviderOpenRouter {
 			routing = cur.OpenRouter.Canonical()
 		}
 	default:

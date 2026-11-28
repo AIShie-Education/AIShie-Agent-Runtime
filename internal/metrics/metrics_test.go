@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -11,7 +12,7 @@ import (
 	"github.com/prometheus/common/expfmt"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/provider"
 )
 
 type stubCaller struct {
@@ -54,8 +55,8 @@ func TestCoreCallerCountsAndMarksPresence(t *testing.T) {
 
 func TestObserveLLM(t *testing.T) {
 	m := New(prometheus.NewRegistry())
-	m.ObserveLLM("openai_chat", "m", &llm.Response{Stop: llm.StopEnd, Usage: llm.Usage{Input: 10, Output: 3}}, nil, 0.25, "school")
-	m.ObserveLLM("openai_chat", "m", nil, &llm.Error{Kind: llm.ErrServer}, 0, "school")
+	m.ObserveLLM("openai_chat", "m", "end", provider.Usage{Input: 10, Output: 3}, nil, 0.25, "school")
+	m.ObserveLLM("openai_chat", "m", "", provider.Usage{}, errors.New("server"), 0, "school")
 	if got := testutil.ToFloat64(m.LLMCalls.WithLabelValues("openai_chat", "m", "end")); got != 1 {
 		t.Errorf("llm_calls_total end = %v", got)
 	}

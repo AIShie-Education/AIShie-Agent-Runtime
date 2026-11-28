@@ -1,7 +1,6 @@
 package main
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -15,18 +14,12 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/netguard"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/office"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/probe"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/redact"
+	runtimeRunner "github.com/AIShie-Education/AIShie-Agent-Runtime/internal/runner"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/secrets"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/pgstore"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolschema"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/toolset"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/worker"
 )
@@ -98,58 +91,7 @@ func cmdCheck(ctx context.Context, args []string, getenv func(string) string, st
 		}
 		p("sealed secrets: new ones are sealed by %s", kek.ID())
 	}
-	if o := env.OCR.WithDefaults(); o.Mode == ocr.ModeOff {
-		p("ocr: off (OCR=off)")
-	} else if e, err := ocr.NewEngine(ctx, o); err != nil {
-		if o.Mode == ocr.ModeOn {
-			return failure(stderr, "OCR=on, and OCR cannot run here: %v", err)
-		}
-		p("ocr: off: %v", err)
-	} else {
-		p("ocr: %s, %d at once, %d pages a file at most", e.Describe(), o.Concurrency, o.MaxPages)
-		if so := cfg.Runtime.Site.OCR; so.Enabled != nil && !*so.Enabled {
-			p("ocr: turned off in the site's settings")
-		} else if len(so.Languages) > 0 {
-			p("ocr: in %s, as the site's settings say", strings.Join(so.Languages, "+"))
-		}
-	}
-	var conv *office.Converter
-	convWhy := "LibreOffice does not convert here: OFFICE_PDF=off"
-	if o := env.Office.WithDefaults(); o.Mode == office.ModeOff {
-		p("office: off (OFFICE_PDF=off)")
-	} else if c, err := office.NewConverter(ctx, o); err != nil {
-		if o.Mode == office.ModeOn {
-			return failure(stderr, "OFFICE_PDF=on, and LibreOffice cannot run here: %v", err)
-		}
-		p("office: off: %v", err)
-		convWhy = "LibreOffice does not convert here: " + err.Error()
-	} else {
-		conv = c
-		p("office: %s, %d at once, %d pages a file at most, %s a file", c.Describe(), o.Concurrency, o.MaxPages, o.Timeout)
-	}
-	if _, err := office.NewPager(env.Office); err != nil {
-		p("pdf parts: off, PDFs are given whole: %v", err)
-	} else {
-		p("pdf parts: %d pages a file part, at most", cmp.Or(env.PDFPartPages, office.DefaultPartPages))
-	}
-	var kept store.Store
-	if pg != nil {
-		kept = pg
-	}
-	egress, err := egressClient(env)
-	if err != nil {
-		return failure(stderr, "the egress client: %v", err)
-	}
-	tr, err := checkTranscriber(ctx, env, cfg, kept, egress)
-	if err != nil {
-		return failure(stderr, "TRANSCRIBE=on, and the transcriber cannot run here: %v", err)
-	}
-	p("transcriber: %s", tr)
-	rd, err := checkRenditions(ctx, env, conv, convWhy, egress)
-	if err != nil {
-		return failure(stderr, "RENDITIONS=on, and PDF renditions cannot be made here: %v", err)
-	}
-	p("renditions: %s", rd)
+	p("runner: %s", env.RunnerAddress())
 	site := cfg.Runtime.Site
 	switch {
 	case l.pricesPath != "":
@@ -334,38 +276,20 @@ func quotaLine(q config.Quota) string {
 	return strings.Join(parts, " and ") + " a day"
 }
 
-// liveClients are what check --live calls out with: the egress client,
-// and the hosted-model client made from it (netguard.Client), which calls
-// a hosted agent's model at public addresses alone and follows no
-// redirect, as run calls it: an owner chose the model, and its key is
-// theirs.
+// liveClients are what check --live calls out with: the egress client for
+// Core and the loopback client whose runner probes every model key.
 type liveClients struct {
-	egress, hosted *http.Client
+	egress *http.Client
+	runner *runtimeRunner.Client
 }
 
-// newLiveClients makes check --live's clients from the environment, as
-// run makes them.
+// newLiveClients makes check --live's clients from the environment.
 func newLiveClients(env config.Env) (liveClients, error) {
 	egress, err := egressClient(env)
 	if err != nil {
 		return liveClients{}, err
 	}
-	hosted, err := netguard.Client(egress)
-	if err != nil {
-		return liveClients{}, fmt.Errorf("the hosted agents' model client: %w", err)
-	}
-	return liveClients{egress: egress, hosted: hosted}, nil
-}
-
-// model is the client model m of agent a is called over, as run calls
-// it: a hosted agent's over the hosted-model client, but for an offer of
-// runtime.yaml's plan, whose endpoint is the operator's
-// (config.Agent.OverHostedClient).
-func (c liveClients) model(a *config.Agent, m config.Model) *http.Client {
-	if a.OverHostedClient(m) {
-		return c.hosted
-	}
-	return c.egress
+	return liveClients{egress: egress, runner: runtimeRunner.NewClient(env.RunnerAddress(), nil)}, nil
 }
 
 // checkLive reads one agent as Core hosts it, with the runtime's own
@@ -394,9 +318,6 @@ func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, res
 	if cat == nil {
 		var err error
 		if cat, err = core.FetchCatalogue(ctx, &coreHTTP, a.Core.BaseURL); err != nil {
-			return fail("Core's catalogue", err)
-		}
-		if err := toolset.CheckCatalogue(cat); err != nil {
 			return fail("Core's catalogue", err)
 		}
 		cats[a.Core.BaseURL] = cat
@@ -482,42 +403,20 @@ func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, res
 			line += "; does not answer now: " + why
 		}
 		p("%s", line)
-		// The tools as the worker offers them: the seat's, with the
-		// runtime's own search, and its attachment_get where a
-		// conversation's messages carry files.
-		set, err := toolset.ForSeat(cat, m.Perms, e.Tools, toolset.ReadOnly, dialectOf(e.Model), nil)
-		var withFiles *toolset.Set
-		if err == nil {
-			withFiles, err = set.WithAttachments(e.Tools, dialectOf(e.Model), nil)
-		}
-		if err != nil {
-			p("    tools: %v", err)
-			ok = false
-			continue
-		}
-		attach := ""
-		if withFiles.Has(toolset.AttachmentTool) && !set.Has(toolset.AttachmentTool) {
-			attach = toolset.AttachmentTool + ", where a conversation's messages carry files"
-		}
-		switch names := set.Names(); {
-		case len(names) > 0 && attach != "":
-			p("    tools: %s; and %s", strings.Join(names, ", "), attach)
-		case len(names) > 0:
-			p("    tools: %s", strings.Join(names, ", "))
-		case attach != "":
-			p("    tools: none but %s", attach)
-		default:
+		readPolicy := worker.ForSeat(cat, e, m, false)
+		if len(readPolicy.AllowedTools) > 0 {
+			p("    tools: %s", strings.Join(readPolicy.AllowedTools, ", "))
+		} else {
 			p("    tools: none; it answers from the conversation alone")
 		}
-		// The writes a conversation its owner opens is offered besides
-		// (design §4): none with tools.writes off.
-		owner, err := toolset.ForSeat(cat, m.Perms, e.Tools, toolset.ReadWrite, dialectOf(e.Model), nil)
-		if err != nil {
-			p("    writes: %v", err)
-			ok = false
-			continue
+		writePolicy := worker.ForSeat(cat, e, m, true)
+		var writes []string
+		for _, name := range writePolicy.AllowedTools {
+			if !slices.Contains(readPolicy.AllowedTools, name) {
+				writes = append(writes, name)
+			}
 		}
-		switch writes := owner.Writes(); {
+		switch {
 		case len(writes) > 0:
 			p("    writes, in its owner's conversations: %s", strings.Join(writes, ", "))
 		case e.Tools.Writes:
@@ -527,11 +426,11 @@ func checkLive(ctx context.Context, p func(string, ...any), a *config.Agent, res
 	return tryModels(ctx, p, a, res, clients) && ok
 }
 
-// tryModels tries the agent's model's key, and its fallback's, over the
-// clients run would call them with.
+// tryModels tries the agent's model key, and its fallback's, through the
+// same runner probe as the management API.
 func tryModels(ctx context.Context, p func(string, ...any), a *config.Agent, res secrets.Resolver, clients liveClients) bool {
-	ok := tryModel(ctx, p, a, a.Model, res, clients.model(a, a.Model))
-	if fb := a.Model.Fallback; fb != nil && !tryModel(ctx, p, a, *fb, res, clients.model(a, *fb)) {
+	ok := tryModel(ctx, p, a, a.Model, res, clients.runner)
+	if fb := a.Model.Fallback; fb != nil && !tryModel(ctx, p, a, *fb, res, clients.runner) {
 		ok = false
 	}
 	return ok
@@ -625,20 +524,9 @@ func notAnswering(m core.Membership, e *config.Effective) string {
 	return ""
 }
 
-// dialectOf is the schema dialect a model's tools are declared in: the
-// configuration's, else its adapter's default for its provider.
-func dialectOf(m config.Model) toolschema.Dialect {
-	if d := toolschema.Dialect(m.Capabilities.SchemaDialect); d != "" {
-		return d
-	}
-	_, d := llm.Defaults(m.Adapter, m.EffectiveProvider())
-	return d
-}
-
-// tryModel tries a model's key with one call of one output token
-// (probe.TryModel, as the API's keys/test does): the key works if the
-// provider answers anything but a refusal of it.
-func tryModel(ctx context.Context, p func(string, ...any), a *config.Agent, m config.Model, res secrets.Resolver, client *http.Client) bool {
+// tryModel tries a model's key through the runner's one-token probe. Its
+// response contains a safe classification only, never provider error text.
+func tryModel(ctx context.Context, p func(string, ...any), a *config.Agent, m config.Model, res secrets.Resolver, client *runtimeRunner.Client) bool {
 	name := fmt.Sprintf("%s %s (%s)", m.Adapter, m.Model, m.EffectiveProvider())
 	var key string
 	if m.KeyRef != "" {
@@ -648,21 +536,22 @@ func tryModel(ctx context.Context, p func(string, ...any), a *config.Agent, m co
 			return false
 		}
 	}
-	tr, err := probe.TryModel(ctx, m, key, client, nil)
+	tr, err := client.Probe(ctx, runtimeRunner.ModelOf(m, key, a.OverHostedClient(m)))
 	switch {
 	case err != nil:
 		p("  model %s: FAILED: %s", name, redact.String(err.Error()))
 		return false
-	case tr.Result == probe.ResultOK:
+	case tr.Result == runtimeRunner.ResultOK:
 		p("  model %s: the key works", name)
-	case tr.Err != nil:
-		p("  model %s: FAILED: %s", name, redact.String(tr.Err.Error()))
-		return false
-	case tr.Result == probe.ResultKeyRefused, tr.Result == probe.ResultUnreachable:
-		p("  model %s: FAILED: %s", name, tr.Kind)
+	case tr.Result == runtimeRunner.ResultKeyRefused, tr.Result == runtimeRunner.ResultUnreachable:
+		p("  model %s: FAILED: %s", name, tr.Result)
 		return false
 	default:
-		p("  model %s: the key was taken, though the call came back %s (HTTP %d)", name, tr.Kind, tr.HTTPStatus)
+		status := 0
+		if tr.HTTPStatus != nil {
+			status = *tr.HTTPStatus
+		}
+		p("  model %s: the key was taken, though the call came back %s (HTTP %d)", name, tr.Result, status)
 	}
 	return true
 }

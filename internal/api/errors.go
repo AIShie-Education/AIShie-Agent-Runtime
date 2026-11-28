@@ -87,9 +87,7 @@ const (
 	ReasonSettingsRejected       = "settings_rejected"
 	// An administrators' route asked by someone else.
 	ReasonNotAdmin = "not_admin"
-	// The site's settings and the school's plan, as administrators change
-	// them.
-	ReasonOCRUnavailable = "ocr_unavailable"
+	// The school's plan, as administrators change it.
 	ReasonOfferNotFound  = "offer_not_found"
 	ReasonOfferExists    = "offer_exists"
 	ReasonOfferReadOnly  = "offer_read_only"
@@ -102,11 +100,6 @@ const (
 	ReasonPriceNotFound  = "price_not_found"
 	ReasonPriceExists    = "price_exists"
 	ReasonPriceReadOnly  = "price_read_only"
-	// The transcriber's: turned on where it cannot run, given an offer
-	// whose model takes no files, or a credential Core refuses.
-	ReasonTranscriptionUnavailable = "transcription_unavailable"
-	ReasonOfferNoFileInput         = "offer_no_file_input"
-	ReasonCredentialRejected       = "credential_rejected" // #nosec G101 -- a reason's code, not a credential.
 	// OpenRouter's list of a model's upstream providers: a model it does
 	// not have, or OpenRouter not reached with no list kept.
 	ReasonOpenRouterModelNotFound = "openrouter_model_not_found"

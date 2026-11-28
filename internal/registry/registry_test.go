@@ -767,7 +767,6 @@ func TestBuildWithTheSitesPlan(t *testing.T) {
 	siteOffer(t, st, "standard", true, "https://api.deepseek.com")
 	siteOffer(t, st, "odd", true, "https://llm.school.example/v1")
 	putSetting(t, st, store.SettingSchoolQuotas, `{"per_owner_day": 7, "per_asker_day": 3, "per_day": 40}`)
-	putSetting(t, st, store.SettingOCR, `{"enabled": false, "languages": ["eng"]}`)
 
 	cfg, _, err := Build(t.Context(), yaml, st, Options{CoreBaseURL: core})
 	if err != nil {
@@ -786,9 +785,6 @@ func TestBuildWithTheSitesPlan(t *testing.T) {
 	sc := cfg.Runtime.School
 	if *sc.OwnerQuota().Answers != 7 || *sc.AskerQuota().Answers != 3 || sc.PerDay.Answers == nil || *sc.PerDay.Answers != 40 {
 		t.Errorf("the plan's quotas: %+v", sc)
-	}
-	if o := cfg.Runtime.Site.OCR; o.Enabled == nil || *o.Enabled || !slices.Equal(o.Languages, []string{"eng"}) {
-		t.Errorf("the site's OCR: %+v", o)
 	}
 	if len(yaml.Runtime.School.Offers) != 1 || yaml.Runtime.School.PerOwnerDay.Answers != nil {
 		t.Errorf("runtime.yaml's settings were changed: %+v", yaml.Runtime.School)
@@ -852,13 +848,13 @@ func TestBuildWithTheSitesPlan(t *testing.T) {
 func TestReadSiteIgnoresASettingItCannotRead(t *testing.T) {
 	st := memstore.New()
 	putSetting(t, st, store.SettingSchoolQuotas, `{"per_owner_day": 7, "per_asker_day": 3, "burst": 1}`)
-	putSetting(t, st, store.SettingOCR, `{"enabled": "yes"}`)
+	putSetting(t, st, store.SettingAgentBudgets, `{"per_agent_day": "yes"}`)
 	putSetting(t, st, "other", `{"x": 1}`)
 	site, err := ReadSite(t.Context(), st)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if site.Quotas != nil || site.OCR.Enabled != nil || len(site.Offers) != 0 {
+	if site.Quotas != nil || site.Budgets != nil || len(site.Offers) != 0 {
 		t.Errorf("ReadSite = %+v", site)
 	}
 }

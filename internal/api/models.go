@@ -11,8 +11,8 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/probe"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
+	runtimeRunner "github.com/AIShie-Education/AIShie-Agent-Runtime/internal/runner"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
 )
@@ -324,22 +324,24 @@ func (s *Server) testKey(w http.ResponseWriter, r *http.Request, c *Caller, au *
 		return
 	}
 	au.detail["adapter"], au.detail["model"] = sec.Adapter, sec.Model
-	ctx, cancel := context.WithTimeout(r.Context(), probe.TrialTimeout+5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), runtimeRunner.ProbeTimeout+5*time.Second)
 	defer cancel()
-	tr, err := probe.TryModel(ctx, sec.config(), req.Key, s.modelHTTP, s.o.NewAdapter)
+	tr := runtimeRunner.ProbeResult{Result: runtimeRunner.ResultUnreachable}
+	var err error
+	if s.o.Runner != nil {
+		tr, err = s.o.Runner.Probe(ctx, runtimeRunner.ModelOf(sec.config(), req.Key, true))
+	}
 	if err != nil {
-		s.o.Log.Warn("keys/test: the model's adapter could not be built", "provider", sec.Provider, "adapter", sec.Adapter)
-		tr = probe.Trial{Result: probe.ResultUnreachable}
+		s.o.Log.Warn("keys/test: the runner's probe response is invalid", "provider", sec.Provider, "adapter", sec.Adapter)
+		tr = runtimeRunner.ProbeResult{Result: runtimeRunner.ResultUnreachable}
 	}
-	out := KeyTest{Result: tr.Result, LatencyMS: tr.Latency.Milliseconds()}
-	if tr.HTTPStatus != 0 {
-		st := tr.HTTPStatus
-		out.HTTPStatus = &st
-		au.detail["http_status"] = st
+	out := KeyTest{Result: tr.Result, LatencyMS: tr.LatencyMS}
+	if tr.HTTPStatus != nil {
+		out.HTTPStatus = tr.HTTPStatus
+		au.detail["http_status"] = *tr.HTTPStatus
 	}
-	if tr.ProviderCode != "" {
-		pc := tr.ProviderCode
-		out.ProviderCode = &pc
+	if tr.ProviderCode != nil {
+		out.ProviderCode = tr.ProviderCode
 	}
 	au.detail["result"] = tr.Result
 	writeJSON(w, http.StatusOK, out)

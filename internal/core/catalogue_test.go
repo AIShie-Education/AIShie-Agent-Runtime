@@ -24,8 +24,8 @@ func readCatalogue(t *testing.T) []byte {
 	return b
 }
 
-// TestCatalogueSnapshot holds the pinned catalogue to what it is: 186
-// tools, 69 reads, 112 writes and five ephemeral writes (conversation.draft,
+// TestCatalogueSnapshot holds the pinned catalogue to what it is: 192
+// tools, 72 reads, 115 writes and five ephemeral writes (conversation.draft,
 // the transcription service's document_text.queue and .renew, and the agent
 // runtime's agent_runtime.rendition_claim and .rendition_renew), every name
 // within [a-z_]+ and at most 64 characters, which every provider takes; the
@@ -37,8 +37,8 @@ func TestCatalogueSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	tools := c.Tools()
-	if len(tools) != 186 || c.Len() != 186 {
-		t.Fatalf("%d tools, want 186", len(tools))
+	if len(tools) != 192 || c.Len() != 192 {
+		t.Fatalf("%d tools, want 192", len(tools))
 	}
 	name := regexp.MustCompile(`^[a-z_]+$`)
 	reads, writes, ephemeral, longest := 0, 0, 0, 0
@@ -74,8 +74,8 @@ func TestCatalogueSnapshot(t *testing.T) {
 		}
 		longest = max(longest, len(tl.MCPName))
 	}
-	if reads != 69 || writes != 112 || ephemeral != 5 || longest != 34 {
-		t.Fatalf("%d reads, %d writes, %d ephemeral, the longest name %d; want 69, 112, 5, 34", reads, writes, ephemeral, longest)
+	if reads != 72 || writes != 115 || ephemeral != 5 || longest != 34 {
+		t.Fatalf("%d reads, %d writes, %d ephemeral, the longest name %d; want 72, 115, 5, 34", reads, writes, ephemeral, longest)
 	}
 	if !sort.SliceIsSorted(tools, func(i, j int) bool { return tools[i].MCPName < tools[j].MCPName }) {
 		t.Error("Tools is not sorted by MCP name")
@@ -252,7 +252,7 @@ func TestFetchCatalogue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Hash() != want.Hash() || c.Len() != 186 {
+	if c.Hash() != want.Hash() || c.Len() != 192 {
 		t.Fatalf("fetched %d tools, hash %s", c.Len(), c.Hash())
 	}
 
@@ -276,15 +276,17 @@ func TestFetchCatalogue(t *testing.T) {
 	}
 }
 
+const testToolTextRenew = "document_text_renew"
+
 // TestCatalogueTakes: an argument a tool takes is one its input schema
 // names, as the snapshot's document_text_renew names file_id; not one a
 // Core from before names, nor any of a tool it does not offer.
 func TestCatalogueTakes(t *testing.T) {
 	snap := testCatalogue(t)
-	if !snap.Takes(ToolTextRenew, "file_id") || !snap.Takes(ToolTextRenew, "lease_id") || snap.Takes(ToolTextRenew, "on") {
+	if !snap.Takes(testToolTextRenew, "file_id") || !snap.Takes(testToolTextRenew, "lease_id") || snap.Takes(testToolTextRenew, "on") {
 		t.Error("the snapshot's document_text_renew")
 	}
-	if snap.Takes("no_such_tool", "file_id") || (*Catalogue)(nil).Takes(ToolTextRenew, "file_id") {
+	if snap.Takes("no_such_tool", "file_id") || (*Catalogue)(nil).Takes(testToolTextRenew, "file_id") {
 		t.Error("a tool not offered takes nothing")
 	}
 	before, err := ParseCatalogue([]byte(`{"tools":[{"name":"document_text.renew","kind":"ephemeral","method":"POST",` +
@@ -293,7 +295,7 @@ func TestCatalogueTakes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if before.Takes(ToolTextRenew, "file_id") || !before.Takes(ToolTextRenew, "lease_id") {
+	if before.Takes(testToolTextRenew, "file_id") || !before.Takes(testToolTextRenew, "lease_id") {
 		t.Error("a Core's from before files: file_id")
 	}
 }

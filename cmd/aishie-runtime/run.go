@@ -14,16 +14,19 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/api"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/chat"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/chatwire"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/httpserver"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/metrics"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/netguard"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ratelimit"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/redact"
+	runtimeRunner "github.com/AIShie-Education/AIShie-Agent-Runtime/internal/runner"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/secrets"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store/pgstore"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/transcribe"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/version"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/webauth"
@@ -36,18 +39,17 @@ const stopMargin = 5 * time.Second
 
 // cmdRun is `aishie-runtime run`: the worker, and its HTTP endpoints,
 // until SIGINT or SIGTERM, after which answers in progress are given
-// SHUTDOWN_GRACE (and a second SIGINT or SIGTERM stops it at once). It runs
-// the YAML agents and, with the store in PostgreSQL, the registry's hosted
-// agents, put in force again whenever the registry changes (LISTEN
-// aishie_registry, and a poll), the transcriber, as the site's settings
-// and TRANSCRIBE say (package transcribe), and the renditions worker, as
-// RENDITIONS says (package rendition). SIGHUP reads the YAML
-// again; a configuration that does not load is logged, and the one running
-// stays.
+// SHUTDOWN_GRACE (and a second SIGINT or SIGTERM stops it at once). It loads
+// YAML and, with the store in PostgreSQL, registry-hosted agents whenever the
+// registry changes (LISTEN aishie_registry and a poll), supervises the loopback
+// TypeScript runner, and serves AR-owned chat. SIGHUP reads the YAML again; a
+// configuration that does not load is logged, and the one running stays.
 func cmdRun(ctx context.Context, args []string, getenv func(string) string, stderr io.Writer, sigs <-chan os.Signal) int {
 	if len(args) > 0 {
 		return usageError(stderr, "run takes no arguments; it is configured by its environment")
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	env, err := config.FromEnv(getenv)
 	if err != nil {
 		return failure(stderr, "the environment:\n%s", problemsText(err))
@@ -105,68 +107,67 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 		log.Error("the hosted agents' model client", "err", err)
 		return exitFailure
 	}
-	m := metrics.New(reg)
-	// OCR's jobs end as the worker stops: what they had recognized is not
-	// kept, and the file is recognized again when next asked.
-	ocrCtx, stopOCR := context.WithCancel(ctx)
-	recognizer, err := newOCR(ocrCtx, env, st, m, log)
+	_ = metrics.New(reg) // retained for the management collectors and chat composition root.
+	managedRunner, err := runtimeRunner.Start(ctx, runtimeRunner.ProcessOptions{URL: env.RunnerURL, Port: env.RunnerPort,
+		Bin: env.RunnerBin, Entry: env.RunnerEntry, Log: log})
 	if err != nil {
-		stopOCR()
-		log.Error("OCR=on, and OCR cannot run here", "err", err)
+		log.Error("the TypeScript runner", "err", err)
 		return exitFailure
 	}
-	defer func() { stopOCR(); recognizer.Wait() }()
-	h.setOCR(recognizer)
-	// So do the conversions: what they had made is not kept.
-	officeCtx, stopOffice := context.WithCancel(ctx)
-	converter, conv, err := newOffice(officeCtx, env, m, log)
-	if err != nil {
-		stopOffice()
-		log.Error("OFFICE_PDF=on, and LibreOffice cannot run here", "err", err)
-		return exitFailure
-	}
-	defer func() { stopOffice(); converter.Wait() }()
+	defer func() {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), env.ShutdownGrace+stopMargin)
+		defer closeCancel()
+		if err := managedRunner.Close(closeCtx); err != nil {
+			log.Error("the TypeScript runner did not stop", "err", err)
+		}
+	}()
 	credential := serviceCredential(env, res)
 	if len(cfg.Agents) > 0 || (h.pg != nil && env.CoreBaseURL != "") {
 		if _, err := credential(ctx); err != nil {
-			log.Error("the runtime's own credential in Core cannot be read (CORE_SERVICE_CREDENTIAL): no agent runs until it can, "+
+			log.Error("the runtime's own credential in Core cannot be read (CORE_SERVICE_CREDENTIAL): agents cannot be prepared until it can, "+
 				"and it is read again at each try", "ref", env.CoreServiceCredential, "err", err)
 		}
 	}
 	bucket := serviceBucket()
-	renditions, err := newRenditions(ctx, env, conv, converter, client, credential, bucket, m, log)
-	if err != nil {
-		log.Error("RENDITIONS=on, and PDF renditions cannot be made here", "err", err)
-		return exitFailure
-	}
-	var sealer worker.Sealer
-	if v != nil {
-		sealer = v
-	}
-	sup, err := worker.NewSupervisor(worker.Options{
-		Config: cfg, Env: env, Store: st, Metrics: m, Log: log,
-		Secrets: res, Prices: prices, HTTPClient: client, HostedHTTPClient: hostedClient, WorkerID: env.WorkerID,
-		OCR: recognizer, Office: converter,
-		RuntimeCredential: credential, RuntimeBucket: bucket, Sealer: sealer,
-	})
+	sup, err := worker.NewSupervisor(worker.Options{Config: cfg, Env: env, Store: st, Log: log, Prices: prices, WorkerID: env.WorkerID})
 	if err != nil {
 		log.Error("the worker", "err", err)
 		return exitFailure
 	}
-	transcriber, err := newTranscriber(ctx, env, transcribe.Options{Store: st, Keeps: h.pg != nil && v != nil, CoreHTTP: client,
-		Secrets: res, ModelHTTP: client, HostedHTTP: hostedClient, Office: converter, Metrics: m, Log: log, Holder: sup.WorkerID(), Location: sup.Location})
-	if err != nil {
-		log.Error("TRANSCRIBE=on, and the transcriber cannot run here", "err", err)
-		return exitFailure
+	tokens := newTokenManager(st, res, v, credential, client, bucket, log, sup.WorkerID())
+	h.tokens = tokens
+	if err := tokens.Sync(ctx, cfg); err != nil {
+		log.Warn("initial agent token reconciliation was incomplete; it will retry", "err", redact.String(err.Error()))
 	}
-	h.setTranscriber(transcriber)
+	go tokens.Run(ctx)
+	defer tokens.Close()
 	srv := httpserver.New(env.HTTPAddr, sup, reg, st, log)
 	if err := srv.Listen(); err != nil {
 		log.Error("HTTP_ADDR cannot be listened on", "addr", env.HTTPAddr, "err", err)
 		return exitFailure
 	}
-	apiSrv, err := newAPI(env, apiDeps{client: client, models: hostedClient, st: st, vault: v, actors: sup, hosting: h, ocr: recognizer, location: sup.Location,
-		transcriber: transcriber, runtime: runtimeService(env, client, credential, bucket)}, reg, log)
+	coreRuntime := runtimeService(env, client, credential, bucket)
+	var chatService *chat.Service
+	if coreRuntime != nil {
+		wiring, wireErr := chatwire.New(chatwire.Options{Config: sup.Config, Store: st, Secrets: res,
+			OperatorToken: tokens.OperatorToken, HTTPClient: client, PriceTable: h.currentPrices, Location: sup.Location(), Log: log})
+		if wireErr != nil {
+			log.Error("the chat wiring", "err", wireErr)
+			return exitFailure
+		}
+		chatService, err = chat.NewService(chat.Options{Store: st,
+			Access: chat.CoreAccess{Core: coreRuntime, Candidates: wiring}, Decisions: coreRuntime,
+			Generator:  &chat.RunnerGenerator{Preparer: wiring, Runner: managedRunner.Client(), Usage: wiring},
+			PriceTable: h.currentPrices, Location: sup.Location, Log: log, WorkerID: sup.WorkerID()})
+		if err != nil {
+			log.Error("the chat service", "err", err)
+			return exitFailure
+		}
+		chatService.Run(ctx)
+		defer chatService.Close()
+	}
+	apiSrv, err := newAPI(env, apiDeps{client: client, models: hostedClient, st: st, vault: v, actors: sup, hosting: h, location: sup.Location,
+		runtime: coreRuntime, chat: chatService}, reg, log)
 	if err != nil {
 		log.Error("the API", "err", err)
 		return exitFailure
@@ -181,12 +182,9 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 	}
 	log.Info("aishie-runtime started", "version", version.Version, "commit", version.Commit, "worker", sup.WorkerID(),
 		"addr", srv.Addr(), "api", apiAddr, "agents", len(cfg.Agents), "hosted", len(h.hosted), "registry", h.pg != nil,
-		"store", kind, "prices", l.pricesPath, "kek", kekID(v), "ocr", recognizer.String(), "office", converter.String(),
-		"transcriber", transcriberState(transcriber.Status()), "renditions", renditions.String())
+		"store", kind, "prices", l.pricesPath, "kek", kekID(v), "runner", managedRunner.URL())
 	warnNoAgents(log, cfg)
 
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	supDone := make(chan struct{})
 	go func() {
 		defer close(supDone)
@@ -194,14 +192,6 @@ func cmdRun(ctx context.Context, args []string, getenv func(string) string, stde
 			log.Error("the worker stopped", "err", err)
 		}
 	}()
-	// The transcriber's jobs end as the worker stops: their claims lapse
-	// in Core, and the versions are claimed again.
-	trDone := make(chan struct{})
-	go func() { defer close(trDone); transcriber.Run(ctx) }()
-	// So do the renditions': their claims lapse, and Core gives the files
-	// out again.
-	rendDone := make(chan struct{})
-	go func() { defer close(rendDone); renditions.Run(ctx) }()
 	srvDone := make(chan error, 1)
 	go func() { srvDone <- srv.Serve(ctx) }()
 	apiDone := make(chan error, 1)
@@ -242,20 +232,14 @@ wait:
 		}
 	}
 	cancel()
-	stopOCR()
-	stopOffice()
 	deadline := time.NewTimer(env.ShutdownGrace + stopMargin)
 	defer deadline.Stop()
-	for supDone != nil || watchDone != nil || trDone != nil || rendDone != nil {
+	for supDone != nil || watchDone != nil {
 		select {
 		case <-supDone:
 			supDone = nil
 		case <-watchDone:
 			watchDone = nil
-		case <-trDone:
-			trDone = nil
-		case <-rendDone:
-			rendDone = nil
 		case sig := <-sigs:
 			if sig == syscall.SIGHUP {
 				continue
@@ -283,21 +267,18 @@ wait:
 	return code
 }
 
-// apiDeps are what the API shares with the worker: the egress client (for
-// Core), the hosted-model client (for keys/test), the store, the vault,
-// the supervisor, the configuration in force, the worker's OCR and
-// transcriber, and the runtime's client of Core's agent_runtime service.
+// apiDeps are what the management API shares: the egress and OpenRouter
+// clients, store, vault, actor/configuration views and Core runtime service.
 type apiDeps struct {
-	client      *http.Client
-	models      *http.Client
-	st          store.Store
-	vault       *vault.Vault
-	actors      api.Actors
-	hosting     api.Hosting
-	ocr         api.OCR
-	transcriber api.Transcriber
-	runtime     *core.RuntimeService
-	location    func() *time.Location
+	client   *http.Client
+	models   *http.Client
+	st       store.Store
+	vault    *vault.Vault
+	actors   api.Actors
+	hosting  api.Hosting
+	runtime  *core.RuntimeService
+	chat     api.ChatService
+	location func() *time.Location
 }
 
 // Core's agent_runtime service allows its one actor, the runtime, 600 calls
@@ -367,16 +348,16 @@ func newAPI(env config.Env, d apiDeps, reg prometheus.Registerer, log *slog.Logg
 		Addr:           env.APIAddr,
 		Verifier:       &webauth.Verifier{Keys: keys, Issuer: env.CoreBaseURL, Audience: env.APIAudience},
 		Store:          d.st,
+		Chat:           d.chat,
 		CoreBaseURL:    env.CoreBaseURL,
 		CoreHTTP:       d.client,
 		Vault:          d.vault,
 		Runtime:        d.runtime,
 		Actors:         d.actors,
 		Hosting:        d.hosting,
-		OCR:            d.ocr,
-		Transcriber:    d.transcriber,
 		Allowlist:      env.CoreBaseURLAllowlist,
 		ModelHTTP:      d.models,
+		Runner:         runtimeRunner.NewClient(env.RunnerAddress(), nil),
 		AdminActorIDs:  env.AdminActorIDs,
 		TrustedProxies: proxies,
 		Registerer:     reg,

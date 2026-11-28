@@ -8,4 +8,4 @@
 # digest from the package's page or Core's CI run, write them below, refresh
 # the catalogue and the recorded fixtures from a Core of that version, and
 # push them together.
-ghcr.io/aishie-education/aishie-core:sha-e7f5333@sha256:35dc7e8e861a886069be89e2e6e27d6243674e4e56fcf0a1fd358db876ae0042
+ghcr.io/aishie-education/aishie-core:0.3.0@sha256:0514de69686aec7978e907e458d49e6109f1c5392aacb303831fedc4fe462e5f

@@ -1,18 +1,13 @@
 #!/usr/bin/env bash
-# The runtime against a real AIshie Core: the one pinned in
-# .github/core-image (or CORE_BIN, a binary of Core), on a scratch database.
-# The Go tests in e2e/ seat agents through Core's REST API as root, run the
-# runtime with a scripted model, and watch the answers arrive in Core.
-#
-#   make e2e                                  (builds first)
-#   CORE_BIN=../AIShie-Core/bin/aishie-core DATABASE_URL=postgres:///aishie_e2e scripts/e2e.sh
-#
-# When E2E_CORE_URL and E2E_ROOT_TOKEN are already set, that Core is used
-# and nothing is started: it must be a throwaway. E2E_ROOT_TOKEN is root's
-# signed-in session, as scripts/ci-core.sh start writes it, not an API
-# token: people hold none. The tests' people sign in with passwords too.
+# Real AR chat E2E: Core is used for identity/grants and MCP course tools;
+# conversations, messages, attachments and generations stay in AR PostgreSQL.
+# The test starts aishie-runtime and the Node 22 runner, with a local mock AI.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+make build
+npm ci --prefix runner --prefer-offline --no-audit --no-fund
+npm run build --prefix runner
 
 started=""
 if [ -z "${E2E_CORE_URL:-}" ]; then
@@ -27,8 +22,19 @@ if [ -z "${E2E_CORE_URL:-}" ]; then
   . "$CORE_DIR/env"
 fi
 
-echo "Core's catalogue is the snapshot the runtime was built against:"
-bin/aishie-runtime catalogue --core "$E2E_CORE_URL" --check internal/core/testdata/catalogue.json
+# A dedicated run must never silently test nothing. ci-core.sh supplies all
+# three when it starts Core; externally supplied environments must be complete.
+for name in E2E_CORE_URL E2E_ROOT_TOKEN E2E_RUNTIME_AUDIENCE; do
+  if [ -z "${!name:-}" ]; then
+    echo "e2e: $name is required (use scripts/ci-core.sh or provide the complete Core environment)" >&2
+    exit 1
+  fi
+done
 
-E2E_CORE_URL=$E2E_CORE_URL E2E_ROOT_TOKEN=$E2E_ROOT_TOKEN go test -count=1 -race -v ./e2e/ 2>&1 | tee "${CORE_DIR:-/tmp}/e2e.log"
+export E2E_AR_BIN=${E2E_AR_BIN:-$PWD/bin/aishie-runtime}
+export E2E_RUNNER_ENTRY=${E2E_RUNNER_ENTRY:-$PWD/runner/dist/index.js}
+export TEST_DATABASE_URL=${TEST_DATABASE_URL:-postgres:///postgres}
+E2E_CORE_URL=$E2E_CORE_URL E2E_ROOT_TOKEN=$E2E_ROOT_TOKEN \
+  E2E_RUNTIME_AUDIENCE=$E2E_RUNTIME_AUDIENCE E2E_AR_BIN=$E2E_AR_BIN E2E_RUNNER_ENTRY=$E2E_RUNNER_ENTRY \
+  TEST_DATABASE_URL=$TEST_DATABASE_URL go test -count=1 -race -v ./e2e/ 2>&1 | tee "${CORE_DIR:-/tmp}/e2e.log"
 [ -z "$started" ] || echo "Core's log is $CORE_DIR/core.log"

@@ -6,8 +6,8 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/openrouter"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/provider"
 )
 
 // OpenRouter's upstream routing in a model section (model.openrouter, and
@@ -123,9 +123,9 @@ func (w *walker) routingMaxPrice(n *yaml.Node, path string) any {
 func checkRouting(is *issues, path string, m *Model) {
 	if m.OpenRouter.Canonical() != nil {
 		switch p := m.EffectiveProvider(); {
-		case p != llm.ProviderOpenRouter:
+		case p != provider.ProviderOpenRouter:
 			is.add(path+".openrouter", "upstream routing is OpenRouter's; this model's provider is %s", p)
-		case m.Adapter != llm.AdapterOpenAIChat && m.Adapter != llm.AdapterAnthropic:
+		case m.Adapter != provider.AdapterOpenAIChat && m.Adapter != provider.AdapterAnthropic:
 			is.add(path+".openrouter", "upstream routing is sent by the openai_chat and anthropic adapters alone")
 		}
 	}

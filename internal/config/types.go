@@ -340,8 +340,7 @@ type Runtime struct {
 // Site is what the site's administrators set through the API
 // (docs/design.md §11.5), within the ceiling the environment and
 // runtime.yaml set: offers of the school's plan beside runtime.yaml's, the
-// plan's quotas in place of runtime.yaml's, whether OCR runs, in which of
-// the languages installed; and the money: the site's price table beside
+// plan's quotas in place of runtime.yaml's; and the money: the site's price table beside
 // the file's, the tenants' daily quotas and the hosted agents' daily
 // budgets by default, each in place of runtime.yaml's.
 type Site struct {
@@ -350,7 +349,6 @@ type Site struct {
 	Offers []SchoolOffer
 	// Quotas, when set, are the plan's quotas.
 	Quotas *SiteQuotas
-	OCR    SiteOCR
 	// Prices are the site's price table's rows, and PricesChanged when
 	// they last changed, which names their version (PriceTable).
 	Prices        []pricing.Row
@@ -361,48 +359,6 @@ type Site struct {
 	// Budgets, when set, are the hosted agents' daily budgets by default,
 	// in place of runtime.defaults'.
 	Budgets *SiteBudgets
-	// Transcription is the transcriber's setting (package transcribe):
-	// off, unless the site turns it on.
-	Transcription SiteTranscription
-}
-
-// SiteTranscription is the transcriber's setting, as the site sets it:
-// whether it runs, the plan's offer it transcribes with (its id, "" for
-// none), the most pages a document may have (0: the default), the pages it
-// transcribes a UTC day across the site (nil: no limit), and how many
-// documents at once (0: the default). The environment is its ceiling
-// (TRANSCRIBE).
-type SiteTranscription struct {
-	Enabled     bool   `json:"enabled"`
-	Offer       string `json:"offer,omitempty"`
-	MaxPages    int    `json:"max_pages,omitempty"`
-	PerDayPages *int   `json:"per_day_pages,omitempty"`
-	Concurrency int    `json:"concurrency,omitempty"`
-}
-
-// The transcriber's defaults and bounds, where the site sets none.
-const (
-	DefaultTranscribeMaxPages    = 300
-	MaxTranscribeMaxPages        = 5000
-	DefaultTranscribeConcurrency = 2
-	MaxTranscribeConcurrency     = 8
-	MaxTranscribePerDayPages     = 1000000
-)
-
-// Pages is the most pages a document may have to be transcribed.
-func (s SiteTranscription) Pages() int {
-	if s.MaxPages <= 0 {
-		return DefaultTranscribeMaxPages
-	}
-	return min(s.MaxPages, MaxTranscribeMaxPages)
-}
-
-// Slots is how many documents are transcribed at once.
-func (s SiteTranscription) Slots() int {
-	if s.Concurrency <= 0 {
-		return DefaultTranscribeConcurrency
-	}
-	return min(s.Concurrency, MaxTranscribeConcurrency)
 }
 
 // SiteQuotas are the school plan's quotas a UTC day, as the site sets
@@ -439,15 +395,6 @@ type SiteBudgets struct {
 // version.
 func (s Site) PriceTable(file *pricing.Table) *pricing.Table {
 	return file.WithSite(pricing.SiteVersion(s.PricesChanged), s.Prices)
-}
-
-// SiteOCR is whether OCR runs, and in which languages, as the site sets
-// it: nil and empty are the environment's (on, in OCR_LANGUAGES). The
-// environment is its ceiling too: with OCR=off, or its programs missing,
-// OCR does not run whatever the site says.
-type SiteOCR struct {
-	Enabled   *bool    `json:"enabled,omitempty"`
-	Languages []string `json:"languages,omitempty"`
 }
 
 // Tenant is one tenant's quotas.

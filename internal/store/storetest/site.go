@@ -12,6 +12,8 @@ import (
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
+const testSetting = "test_setting"
+
 // offer is an offer of the school's plan as the API would create it, its
 // key sealed as the secret key.
 func offer(id, key string) store.SchoolOffer {
@@ -77,25 +79,25 @@ func testSite(t *testing.T, open Opener) {
 		}
 		put(store.SiteSetting{Name: store.SettingSchoolQuotas, Value: json.RawMessage(`{"per_owner_day": 50, "per_asker_day": 10, "per_day": null}`),
 			UpdatedBy: "admin-1", UpdatedAt: at(time.Minute)})
-		put(store.SiteSetting{Name: store.SettingOCR, Value: json.RawMessage(`{"enabled": true}`), UpdatedBy: "admin-1", UpdatedAt: at(time.Minute)})
+		put(store.SiteSetting{Name: testSetting, Value: json.RawMessage(`{"enabled": true}`), UpdatedBy: "admin-1", UpdatedAt: at(time.Minute)})
 		before := time.Now()
-		put(store.SiteSetting{Name: store.SettingOCR, Value: json.RawMessage(`{"enabled": false, "languages": ["eng"]}`), UpdatedBy: "admin-2"})
+		put(store.SiteSetting{Name: testSetting, Value: json.RawMessage(`{"enabled": false, "languages": ["eng"]}`), UpdatedBy: "admin-2"})
 		got, err := s.SiteSettings(ctx)
-		if err != nil || len(got) != 2 || got[0].Name != store.SettingOCR || got[1].Name != store.SettingSchoolQuotas {
+		if err != nil || len(got) != 2 || got[0].Name != store.SettingSchoolQuotas || got[1].Name != testSetting {
 			t.Fatalf("SiteSettings = %+v, %v", got, err)
 		}
-		sameJSON(t, "ocr", got[0].Value, json.RawMessage(`{"enabled": false, "languages": ["eng"]}`))
-		recent(t, "ocr updated_at", got[0].UpdatedAt, before, time.Now())
-		if got[0].UpdatedBy != "admin-2" {
-			t.Errorf("ocr updated_by %q", got[0].UpdatedBy)
+		sameJSON(t, "test setting", got[1].Value, json.RawMessage(`{"enabled": false, "languages": ["eng"]}`))
+		recent(t, "test setting updated_at", got[1].UpdatedAt, before, time.Now())
+		if got[1].UpdatedBy != "admin-2" {
+			t.Errorf("test setting updated_by %q", got[1].UpdatedBy)
 		}
-		sameJSON(t, "school_quotas", got[1].Value, json.RawMessage(`{"per_owner_day": 50, "per_asker_day": 10, "per_day": null}`))
-		sameTime(t, "school_quotas updated_at", got[1].UpdatedAt, at(time.Minute))
+		sameJSON(t, "school_quotas", got[0].Value, json.RawMessage(`{"per_owner_day": 50, "per_asker_day": 10, "per_day": null}`))
+		sameTime(t, "school_quotas updated_at", got[0].UpdatedAt, at(time.Minute))
 
-		if err := s.DeleteSiteSetting(ctx, store.SettingOCR); err != nil {
+		if err := s.DeleteSiteSetting(ctx, testSetting); err != nil {
 			t.Fatal(err)
 		}
-		if err := s.DeleteSiteSetting(ctx, store.SettingOCR); err != nil {
+		if err := s.DeleteSiteSetting(ctx, testSetting); err != nil {
 			t.Errorf("unsetting it again: %v", err)
 		}
 		if got, err := s.SiteSettings(ctx); err != nil || len(got) != 1 || got[0].Name != store.SettingSchoolQuotas {
@@ -103,12 +105,12 @@ func testSite(t *testing.T, open Opener) {
 		}
 		for _, bad := range []store.SiteSetting{
 			{Name: "", Value: json.RawMessage(`{}`)},
-			{Name: "OCR", Value: json.RawMessage(`{}`)},
+			{Name: "INVALID", Value: json.RawMessage(`{}`)},
 			{Name: "ocr settings", Value: json.RawMessage(`{}`)},
-			{Name: store.SettingOCR},
-			{Name: store.SettingOCR, Value: json.RawMessage(`[true]`)},
-			{Name: store.SettingOCR, Value: json.RawMessage(`null`)},
-			{Name: store.SettingOCR, Value: json.RawMessage(`{"enabled":`)},
+			{Name: testSetting},
+			{Name: testSetting, Value: json.RawMessage(`[true]`)},
+			{Name: testSetting, Value: json.RawMessage(`null`)},
+			{Name: testSetting, Value: json.RawMessage(`{"enabled":`)},
 		} {
 			if err := s.PutSiteSetting(ctx, bad); err == nil {
 				t.Errorf("PutSiteSetting(%q, %s) was taken", bad.Name, bad.Value)
@@ -390,15 +392,15 @@ func testSite(t *testing.T, open Opener) {
 				last = r
 			}
 		}
-		if err := s.PutSiteSetting(ctx, store.SiteSetting{Name: store.SettingOCR, Value: json.RawMessage(`{"enabled": false}`)}); err != nil {
+		if err := s.PutSiteSetting(ctx, store.SiteSetting{Name: testSetting, Value: json.RawMessage(`{"enabled": false}`)}); err != nil {
 			t.Fatal(err)
 		}
 		moved("a setting set")
-		if err := s.DeleteSiteSetting(ctx, store.SettingOCR); err != nil {
+		if err := s.DeleteSiteSetting(ctx, testSetting); err != nil {
 			t.Fatal(err)
 		}
 		moved("a setting unset")
-		if err := s.DeleteSiteSetting(ctx, store.SettingOCR); err != nil {
+		if err := s.DeleteSiteSetting(ctx, testSetting); err != nil {
 			t.Fatal(err)
 		}
 		still("a setting unset that was not set")

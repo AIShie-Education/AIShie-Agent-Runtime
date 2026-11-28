@@ -27,7 +27,6 @@ import (
 	"time"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
@@ -402,7 +401,7 @@ const Omitted = "[Earlier messages in this conversation are not shown.]"
 // earlier part, begins with Omitted. It is plain text: reasoning and tool
 // calls from earlier answers are never carried over (§3.1 rule 4). A
 // message that carries files announces them (HistoryWithFiles).
-func History(msgs []core.Message, selfMemberID, upTo string, more bool) ([]llm.Message, error) {
+func History(msgs []core.Message, selfMemberID, upTo string, more bool) ([]Message, error) {
 	return HistoryWithFiles(msgs, selfMemberID, upTo, more, Files{})
 }
 
@@ -414,7 +413,7 @@ type Files struct {
 	// text (its record, and its text) and its file part, if any. A message
 	// with an entry is one of the question's, whose files are said to
 	// follow it.
-	Given map[string][]llm.Part
+	Given map[string][]Part
 	// Tool is the tool the model reads a file with; "" where it has none.
 	Tool string
 }
@@ -425,7 +424,7 @@ type Files struct {
 // reads them; the question's messages are followed by what files.Given
 // holds of theirs. A retracted message carries none: Core withholds its
 // files with its text.
-func HistoryWithFiles(msgs []core.Message, selfMemberID, upTo string, more bool, files Files) ([]llm.Message, error) {
+func HistoryWithFiles(msgs []core.Message, selfMemberID, upTo string, more bool, files Files) ([]Message, error) {
 	end := -1
 	for i, m := range msgs {
 		if m.ID == upTo {
@@ -436,18 +435,18 @@ func HistoryWithFiles(msgs []core.Message, selfMemberID, upTo string, more bool,
 	if end < 0 {
 		return nil, fmt.Errorf("prompt: the question %s is not among the messages read", upTo)
 	}
-	var out []llm.Message
+	var out []Message
 	if more {
-		out = append(out, llm.UserText(Omitted))
+		out = append(out, UserText(Omitted))
 	}
 	// joinable is that the last turn ends with text of its own (a
 	// message's, or Omitted), which the next message of that side joins;
 	// not with a file given.
 	joinable := more
 	for _, m := range msgs[:end+1] {
-		role := llm.RoleUser
+		role := RoleUser
 		if m.AuthorMemberID == selfMemberID {
-			role = llm.RoleAssistant
+			role = RoleAssistant
 		}
 		text := Retracted
 		if m.Retracted == nil && m.Body != nil {
@@ -467,16 +466,16 @@ func HistoryWithFiles(msgs []core.Message, selfMemberID, upTo string, more bool,
 				lp := &last.Parts[len(last.Parts)-1]
 				lp.Text += "\n\n" + text
 			} else {
-				last.Parts = append(last.Parts, llm.Text(text))
+				last.Parts = append(last.Parts, Text(text))
 			}
 			last.Parts = append(last.Parts, given...)
 			joinable = len(given) == 0
 			continue
 		}
-		if len(out) == 0 && role == llm.RoleAssistant {
-			out = append(out, llm.UserText(Omitted))
+		if len(out) == 0 && role == RoleAssistant {
+			out = append(out, UserText(Omitted))
 		}
-		out = append(out, llm.Message{Role: role, Parts: append([]llm.Part{llm.Text(text)}, given...)})
+		out = append(out, Message{Role: role, Parts: append([]Part{Text(text)}, given...)})
 		joinable = len(given) == 0
 	}
 	return out, nil

@@ -30,7 +30,7 @@ func TestRuntimeServiceCheckAsk(t *testing.T) {
 	svc := NewRuntimeService(RuntimeCaller(RuntimeOptions{BaseURL: srv.URL, HTTPClient: srv.Client(), Catalogue: cat, Once: true,
 		Credential: func(context.Context) (string, error) { credentialCalls++; return token, nil }}))
 	mayAsk, err := svc.CheckAsk(t.Context(), actor, agent, course)
-	if err != nil || !mayAsk {
+	if err != nil || mayAsk == nil || !mayAsk.MayAsk {
 		t.Fatalf("CheckAsk = %v, %v", mayAsk, err)
 	}
 	requests := seen()
@@ -39,7 +39,7 @@ func TestRuntimeServiceCheckAsk(t *testing.T) {
 		t.Errorf("the request: %+v", requests)
 	}
 	answer = false
-	if mayAsk, err = svc.CheckAsk(t.Context(), actor, agent, course); err != nil || mayAsk {
+	if mayAsk, err = svc.CheckAsk(t.Context(), actor, agent, course); err != nil || mayAsk == nil || mayAsk.MayAsk {
 		t.Errorf("a refused ask = %v, %v", mayAsk, err)
 	}
 	if credentialCalls != 2 {
@@ -63,7 +63,7 @@ func TestRuntimeServiceCheckAskCoreTooOld(t *testing.T) {
 	svc := NewRuntimeService(RuntimeCaller(RuntimeOptions{BaseURL: "http://127.0.0.1:1", Catalogue: cat, Once: true,
 		Credential: func(context.Context) (string, error) { credentialCalls++; return "aissvc_unused", nil }}))
 	mayAsk, err := svc.CheckAsk(t.Context(), "actor", "agent", "course")
-	if mayAsk || !IsReason(err, ReasonCoreTooOld) || credentialCalls != 0 {
+	if mayAsk != nil && mayAsk.MayAsk || !IsReason(err, ReasonCoreTooOld) || credentialCalls != 0 {
 		t.Fatalf("CheckAsk on an old Core = %v, %v; credential calls %d", mayAsk, err, credentialCalls)
 	}
 	var se *ServiceError

@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/provider"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
 )
 
@@ -40,7 +40,7 @@ func (m *modelSection) provider() string {
 	if m.Provider != "" {
 		return m.Provider
 	}
-	return llm.DetectProvider(m.Adapter, m.BaseURL)
+	return provider.DetectProvider(m.Adapter, m.BaseURL)
 }
 
 // modelSlots are the models a hosted agent's settings hold, by key (D8,

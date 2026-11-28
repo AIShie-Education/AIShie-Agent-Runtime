@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/openrouter"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/provider"
 )
 
 // GET /admin/openrouter/endpoints?model=author/slug: the upstream
@@ -147,7 +147,7 @@ func (s *Server) openRouterEndpoints(w http.ResponseWriter, r *http.Request, c *
 	}
 	out := OpenRouterEndpoints{Model: listing.Model, Name: listing.Name, FetchedAt: listing.FetchedAt.UTC(), Stale: listing.Stale,
 		Endpoints: make([]OpenRouterEndpoint, 0, len(listing.Endpoints))}
-	if p, ok := s.lookup(s.pricesOf(eff), llm.ProviderOpenRouter, model, s.o.Now()); ok {
+	if p, ok := s.lookup(s.pricesOf(eff), provider.ProviderOpenRouter, model, s.o.Now()); ok {
 		out.Price = &OpenRouterPrice{Version: p.Version, USDPerMTok: ratesOf(p)}
 	}
 	for _, e := range listing.Endpoints {

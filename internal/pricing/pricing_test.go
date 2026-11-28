@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/provider"
 )
 
 func day(s string) time.Time {
@@ -165,20 +165,20 @@ func TestCost(t *testing.T) {
 	p := Price{In: 3_000_000, CacheRead: 300_000, CacheWrite: 3_750_000, Out: 15_000_000}
 	for _, tc := range []struct {
 		name string
-		u    llm.Usage
+		u    provider.Usage
 		want int64
 	}{
-		{"nothing", llm.Usage{}, 0},
-		{"uncached", llm.Usage{Input: 1000, Output: 100}, 1000*3_000_000 + 100*15_000_000},
+		{"nothing", provider.Usage{}, 0},
+		{"uncached", provider.Usage{Input: 1000, Output: 100}, 1000*3_000_000 + 100*15_000_000},
 		{
 			"cache read and write out of the input",
-			llm.Usage{Input: 10_000, CacheRead: 6_000, CacheWrite: 2_000, Output: 500},
+			provider.Usage{Input: 10_000, CacheRead: 6_000, CacheWrite: 2_000, Output: 500},
 			2_000*3_000_000 + 6_000*300_000 + 2_000*3_750_000 + 500*15_000_000,
 		},
-		{"reasoning is inside output, not added", llm.Usage{Input: 10, Output: 100, Reasoning: 80}, 10*3_000_000 + 100*15_000_000},
-		{"cache larger than input", llm.Usage{Input: 100, CacheRead: 150}, 150 * 300_000},
-		{"negative counts are zero", llm.Usage{Input: -5, Output: -1}, 0},
-		{"capped", llm.Usage{Input: math.MaxInt64, Output: math.MaxInt64}, math.MaxInt64},
+		{"reasoning is inside output, not added", provider.Usage{Input: 10, Output: 100, Reasoning: 80}, 10*3_000_000 + 100*15_000_000},
+		{"cache larger than input", provider.Usage{Input: 100, CacheRead: 150}, 150 * 300_000},
+		{"negative counts are zero", provider.Usage{Input: -5, Output: -1}, 0},
+		{"capped", provider.Usage{Input: math.MaxInt64, Output: math.MaxInt64}, math.MaxInt64},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := p.Cost(tc.u); got != tc.want {
@@ -187,7 +187,7 @@ func TestCost(t *testing.T) {
 		})
 	}
 	// A million output tokens at $15 per million are exactly $15.
-	if got := USD(p.Cost(llm.Usage{Output: 1_000_000})); got != 15 {
+	if got := USD(p.Cost(provider.Usage{Output: 1_000_000})); got != 15 {
 		t.Fatalf("USD = %v", got)
 	}
 }

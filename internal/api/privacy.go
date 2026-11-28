@@ -10,7 +10,7 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/provider"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
@@ -86,8 +86,8 @@ func privacyProviders(eff *config.Effective, school config.School) (*PrimaryMode
 // adapter's own default. The provider id itself remains EffectiveProvider,
 // the same model fact the owner view and worker use.
 func privacyProviderLabel(m config.Model) *string {
-	provider := m.EffectiveProvider()
-	if provider == "" || llm.DetectProvider(m.Adapter, m.BaseURL) != provider {
+	providerID := m.EffectiveProvider()
+	if providerID == "" || provider.DetectProvider(m.Adapter, m.BaseURL) != providerID {
 		return nil
 	}
 	if m.BaseURL != "" {
@@ -96,7 +96,7 @@ func privacyProviderLabel(m config.Model) *string {
 			return nil
 		}
 	}
-	return catalogueProviderLabel(provider)
+	return catalogueProviderLabel(providerID)
 }
 
 // catalogueProviderLabel is the label GET /models already gives for a
@@ -147,7 +147,8 @@ func (s *Server) privacy(w http.ResponseWriter, r *http.Request, c *Caller) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), askTimeout+2*storeTimeout)
 	defer cancel()
-	mayAsk, err := permission.CheckAsk(core.WithPriority(ctx, core.PriorityAnswer), c.ActorID, agentID, courseID)
+	decision, err := permission.CheckAsk(core.WithPriority(ctx, core.PriorityAnswer), c.ActorID, agentID, courseID)
+	mayAsk := decision != nil && decision.MayAsk
 	switch {
 	case err != nil:
 		e := s.serviceRefusal("agent_runtime.check_ask", err)

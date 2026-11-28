@@ -1,10 +1,5 @@
-// Package metrics is what the runtime counts (Core's docs/agent-runtime.md
-// §8.1): polls, answers and their latency, model calls, tokens and cost,
-// Core calls, the models' writes, the drafts of answers being written,
-// budgets spent, lease takeovers, each agent's presence gap, the OCR of
-// documents, their conversion to PDF, the transcriber's work, the PDF
-// renditions and the searches of courses' materials. Labels hold ids, names and codes, never text: a write's
-// arguments are never a label, nor a draft's text.
+// Package metrics contains the control plane's Prometheus collectors. Labels
+// hold ids, names and codes, never message text, keys or tool arguments.
 package metrics
 
 import (
@@ -17,12 +12,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/provider"
 )
 
-// Metrics are the runtime's collectors, registered on one registry.
+// Metrics are the runtime's non-Media collectors, registered on one registry.
 type Metrics struct {
-	InboxPolls      *prometheus.CounterVec
 	AnswerLatency   *prometheus.HistogramVec
 	Answers         *prometheus.CounterVec
 	LLMCalls        *prometheus.CounterVec
@@ -33,244 +27,64 @@ type Metrics struct {
 	BudgetExhausted *prometheus.CounterVec
 	LeaseTakeovers  prometheus.Counter
 	AgentStates     *prometheus.GaugeVec
-	// TokensIssued counts the agents' tokens Core issued this worker by
-	// their ids (agent_runtime.issue_token): one each time it hosts an
-	// agent that holds none, never one per call.
-	TokensIssued prometheus.Counter
-	// LongPolls are each agent's calls waiting for news now (wait_s), and
-	// LongPollFallbacks the times a seat went back to its schedule for a
-	// while, by why: early (Core answered empty before half the wait, so
-	// did not wait), cut (the call did not come back: a proxy that gives
-	// a request less than its wait), refused (Core refused wait_s).
-	LongPolls         *prometheus.GaugeVec
-	LongPollFallbacks *prometheus.CounterVec
-	// DraftWrites are the drafts of answers being written sent to Core
-	// (conversation_draft), by agent and what came of each: sent (Core
-	// took it), dropped (Core said too soon, or that the conversation no
-	// longer waits for the answer: no longer worth sending), failed (not
-	// made, after its one retry, or refused).
-	DraftWrites *prometheus.CounterVec
-	// OCR: what the runtime recognized of documents that have no text of
-	// their own (docs/design.md §4, Files).
-	OCRRequests    *prometheus.CounterVec
-	OCRJobs        *prometheus.CounterVec
-	OCRPages       *prometheus.CounterVec
-	OCRJobSeconds  *prometheus.HistogramVec
-	OCRPageSeconds *prometheus.HistogramVec
-	OCRRunning     prometheus.Gauge
-	OCRWaiting     prometheus.Gauge
-	// Office: the conversions of Office files, by LibreOffice, and the
-	// ranges of pages cut from PDFs (docs/design.md §4, Files).
-	OfficeRequests   *prometheus.CounterVec
-	OfficeJobs       *prometheus.CounterVec
-	OfficeJobSeconds *prometheus.HistogramVec
-	OfficeCuts       *prometheus.CounterVec
-	OfficeCutSeconds *prometheus.HistogramVec
-	OfficeRunning    prometheus.Gauge
-	OfficeWaiting    prometheus.Gauge
-	// Transcribe: the transcriber's work (package transcribe): the
-	// versions it claimed, by what came of each (done, failed, skipped,
-	// dropped); the pages it sent to the model; the versions it works on
-	// now; and its calls to Core's queue that failed, by why
-	// (unauthenticated, rate_limited, unreachable, refused).
-	TranscribeJobs        *prometheus.CounterVec
-	TranscribePages       prometheus.Counter
-	TranscribeInflight    prometheus.Gauge
-	TranscribeClaimErrors *prometheus.CounterVec
-	// Renditions: the PDFs of Office files the runtime makes for Core
-	// (package rendition): the files it claimed, by what came of each
-	// (done, failed, skipped, dropped) and why; how long each took; the
-	// files it works on now; and its calls to Core's queue that failed, by
-	// why (no_credential, credential_rejected, rate_limited, unreachable,
-	// refused).
-	RenditionJobs        *prometheus.CounterVec
-	RenditionSeconds     prometheus.Histogram
-	RenditionInflight    prometheus.Gauge
-	RenditionClaimErrors *prometheus.CounterVec
-	// Search: the searches of courses' materials models made
-	// (docs/design.md §4, Search), by what each found (hits, none,
-	// refused, unavailable); and the files read for the search's index,
-	// by what came of each (text, empty: no text to search, failed: not
-	// read now, not_yet: the search's time ran out first).
-	SearchRequests *prometheus.CounterVec
-	SearchFiles    *prometheus.CounterVec
-
-	presence *presence
+	TokensIssued    prometheus.Counter
+	presence        *presence
 }
 
-// New makes the collectors and registers them on reg.
+// New makes and registers the collectors.
 func New(reg prometheus.Registerer) *Metrics {
 	m := &Metrics{
-		InboxPolls: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "inbox_polls_total", Help: "conversation_inbox calls, by agent and by whether they found work.",
-		}, []string{"agent", "result"}),
 		AnswerLatency: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name: "answer_latency_seconds",
-			Help: "Answer latency by stage: notice (question written to claimed), answer (claimed to conversation_answer returned).",
-			// Targets are 3 s and 13 s to notice, 10 s and 30 s to answer.
+			Name: "answer_latency_seconds", Help: "Answer latency by stage: notice and answer.",
 			Buckets: []float64{0.5, 1, 2, 3, 5, 8, 10, 13, 20, 30, 45, 60, 90, 120, 300},
 		}, []string{"stage"}),
 		Answers: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "answers_total", Help: "Claimed questions, by how each ended.",
+			Name: "answers_total", Help: "Claimed questions, by outcome.",
 		}, []string{"outcome"}),
 		LLMCalls: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "llm_calls_total", Help: "Model calls, by adapter, model and internal stop reason (error for a call that did not complete).",
+			Name: "llm_calls_total", Help: "Model runs, by adapter, model and stop reason.",
 		}, []string{"adapter", "model", "stop"}),
 		LLMTokens: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "llm_tokens_total", Help: "Tokens, by adapter, model and kind (input, cache_read, cache_write, output, reasoning).",
+			Name: "llm_tokens_total", Help: "Tokens, by adapter, model and kind.",
 		}, []string{"adapter", "model", "kind"}),
 		LLMCost: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "llm_cost_usd_total", Help: "Cost of model calls in US dollars, by whose key paid.",
+			Name: "llm_cost_usd_total", Help: "Cost of model calls in US dollars, by key source.",
 		}, []string{"key_source"}),
 		CoreCalls: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "core_calls_total", Help: "Calls to Core, by tool, envelope status (or transport failure) and error code.",
+			Name: "core_calls_total", Help: "Calls to Core, by tool, status and error code.",
 		}, []string{"tool", "status", "error_code"}),
 		ToolWrites: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "tool_writes_total",
-			Help: "Writes the models made through their seats' perms, by tool and outcome: executed, proposed, denied, failed, " +
-				"error (Core refused the call), unreachable (Core did not answer), refused (the answer's writes were spent).",
+			Name: "tool_writes_total", Help: "Model writes through Core, by tool and outcome.",
 		}, []string{"tool", "outcome"}),
 		BudgetExhausted: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "budget_exhausted_total",
-			Help: "Budgets and quotas reached, by which; truncated counts the answers posted cut short at their length, with prompt.on_truncated_text after them.",
+			Name: "budget_exhausted_total", Help: "Budgets and quotas reached, by which.",
 		}, []string{"budget"}),
 		LeaseTakeovers: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "lease_takeovers_total", Help: "Agents this worker took over from another worker whose lease had lapsed.",
+			Name: "lease_takeovers_total", Help: "Agents taken over from a worker whose lease lapsed.",
 		}),
 		TokensIssued: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "agent_tokens_issued_total", Help: "Agents' tokens Core issued this worker by their ids, as it hosted them.",
+			Name: "agent_tokens_issued_total", Help: "Agent tokens Core issued this worker.",
 		}),
 		AgentStates: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "agents", Help: "Agents this worker runs, by state.",
 		}, []string{"state"}),
-		LongPolls: prometheus.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "long_polls", Help: "Calls to Core waiting for news now (wait_s), by agent.",
-		}, []string{"agent"}),
-		LongPollFallbacks: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "long_poll_fallbacks_total",
-			Help: "Seats sent back to their polling schedule for a while, by agent and why: early (Core did not wait), " +
-				"cut (the call did not come back), refused (Core refused wait_s).",
-		}, []string{"agent", "why"}),
-		DraftWrites: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "draft_writes_total",
-			Help: "Drafts of answers being written sent to Core, by agent and outcome: sent, dropped (too soon, or the " +
-				"conversation no longer waits for the answer), failed (not made after one retry, or refused).",
-		}, []string{"agent", "outcome"}),
-		OCRRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "ocr_requests_total",
-			Help: "Asks for the OCR of a file, by what they found: done (kept text), failed (a kept failure), started, " +
-				"in_progress, busy (the queue full), off (no OCR here).",
-		}, []string{"result"}),
-		OCRJobs: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "ocr_jobs_total",
-			Help: "Files recognized, by kind (pdf, image) and outcome: done, empty (no text found), failed, timeout, too_large, cancelled.",
-		}, []string{"kind", "outcome"}),
-		OCRPages: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "ocr_pages_total", Help: "Pages recognized, by kind and outcome: text, empty (no text found), failed (not rendered, not read, or past its time).",
-		}, []string{"kind", "outcome"}),
-		OCRJobSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name: "ocr_job_seconds", Help: "How long recognizing a file took, from its start to its end, by kind.",
-			Buckets: []float64{1, 2, 5, 10, 20, 30, 60, 120, 300, 600, 1200},
-		}, []string{"kind"}),
-		OCRPageSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name: "ocr_page_seconds", Help: "How long a page took, by step: render (pdftoppm), recognize (tesseract).",
-			Buckets: []float64{0.25, 0.5, 1, 2, 4, 8, 15, 30, 60, 120},
-		}, []string{"step"}),
-		OCRRunning: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "ocr_jobs_running", Help: "Files being recognized now.",
-		}),
-		OCRWaiting: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "ocr_jobs_waiting", Help: "Files waiting for a turn to be recognized.",
-		}),
-		OfficeRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "office_requests_total",
-			Help: "Asks for an Office file's conversion, by what they found: cached (a kept conversion), failed (a kept failure), " +
-				"started, in_progress, busy (the queue full), off (no conversion here); and for Core's PDF of one: rendition (fetched " +
-				"from Core), rendition_failed (not taken, or not taken a few minutes before, and converted here instead).",
-		}, []string{"result"}),
-		OfficeJobs: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "office_conversions_total",
-			Help: "Office files converted, by target (pdf, pptx, xlsx) and outcome: done, failed, timeout, too_large, cancelled.",
-		}, []string{"to", "outcome"}),
-		OfficeJobSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name: "office_conversion_seconds", Help: "How long converting a file took, from its start to its end, by target.",
-			Buckets: []float64{0.5, 1, 2, 4, 8, 15, 30, 60, 120, 300},
-		}, []string{"to"}),
-		OfficeCuts: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "pdf_cuts_total",
-			Help: "Pages cut from PDFs, by op (range: the pages a file part is given in; pick: the pages OCR reads; " +
-				"images: pages drawn as pictures for the transcriber) and outcome: done, cached, failed.",
-		}, []string{"op", "outcome"}),
-		OfficeCutSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name: "pdf_cut_seconds", Help: "How long cutting pages from a PDF took, by op.",
-			Buckets: []float64{0.1, 0.25, 0.5, 1, 2, 4, 8, 15, 30, 60},
-		}, []string{"op"}),
-		OfficeRunning: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "office_conversions_running", Help: "Office files being converted now.",
-		}),
-		OfficeWaiting: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "office_conversions_waiting", Help: "Office files waiting for a turn to be converted.",
-		}),
-		TranscribeJobs: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "transcribe_jobs_total",
-			Help: "Versions of documents the transcriber claimed, by outcome: done, failed, skipped, dropped (lease lost, edited by staff, gone).",
-		}, []string{"outcome"}),
-		TranscribePages: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "transcribe_pages_total", Help: "Pages of documents the transcriber sent to its model.",
-		}),
-		TranscribeInflight: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "transcribe_inflight", Help: "Versions of documents the transcriber works on now.",
-		}),
-		TranscribeClaimErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "transcribe_claim_errors_total",
-			Help: "Calls to Core's transcription queue that failed, by reason: unauthenticated, rate_limited, unreachable, refused.",
-		}, []string{"reason"}),
-		RenditionJobs: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "rendition_jobs_total",
-			Help: "Office files the runtime claimed from Core to convert to PDF, by outcome (done, failed, skipped, dropped) and reason " +
-				"(password_protected, unsupported, too_large, conversion_failed, timeout; lease_lost, gone, interrupted, fetch_failed, " +
-				"upload_failed, credential_refused, core_refused for dropped).",
-		}, []string{"outcome", "reason"}),
-		RenditionSeconds: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Name: "rendition_seconds", Help: "How long an Office file claimed took to be converted to PDF and handed to Core, or not.",
-			Buckets: []float64{1, 2, 4, 8, 15, 30, 60, 120, 300, 600, 1200},
-		}),
-		RenditionInflight: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "rendition_inflight", Help: "Office files the runtime converts to PDF for Core now.",
-		}),
-		RenditionClaimErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "rendition_claim_errors_total",
-			Help: "Calls to Core's queue of renditions that failed, by reason: no_credential, credential_rejected, rate_limited, unreachable, refused.",
-		}, []string{"reason"}),
-		SearchRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "search_requests_total",
-			Help: "Searches of a course's materials, by what they found: hits, none, refused (Core refused the list), unavailable.",
-		}, []string{"result"}),
-		SearchFiles: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "search_files_total",
-			Help: "Files read for the search's index, by outcome: text, empty (no text to search), failed (not read now), not_yet (no time left).",
-		}, []string{"outcome"}),
 		presence: &presence{last: map[string]time.Time{}},
 	}
-	reg.MustRegister(m.InboxPolls, m.AnswerLatency, m.Answers, m.LLMCalls, m.LLMTokens, m.LLMCost,
-		m.CoreCalls, m.ToolWrites, m.BudgetExhausted, m.LeaseTakeovers, m.TokensIssued, m.AgentStates, m.presence, m.LongPolls, m.LongPollFallbacks,
-		m.DraftWrites, m.OCRRequests, m.OCRJobs, m.OCRPages, m.OCRJobSeconds, m.OCRPageSeconds, m.OCRRunning, m.OCRWaiting,
-		m.OfficeRequests, m.OfficeJobs, m.OfficeJobSeconds, m.OfficeCuts, m.OfficeCutSeconds, m.OfficeRunning, m.OfficeWaiting,
-		m.TranscribeJobs, m.TranscribePages, m.TranscribeInflight, m.TranscribeClaimErrors,
-		m.RenditionJobs, m.RenditionSeconds, m.RenditionInflight, m.RenditionClaimErrors, m.SearchRequests, m.SearchFiles)
+	reg.MustRegister(m.AnswerLatency, m.Answers, m.LLMCalls, m.LLMTokens, m.LLMCost, m.CoreCalls,
+		m.ToolWrites, m.BudgetExhausted, m.LeaseTakeovers, m.TokensIssued, m.AgentStates, m.presence)
 	return m
 }
 
-// ObserveLLM counts one model call.
-func (m *Metrics) ObserveLLM(adapter, model string, resp *llm.Response, err error, costUSD float64, keySource string) {
-	if err != nil || resp == nil {
+// ObserveLLM counts one completed runner request's aggregate usage.
+func (m *Metrics) ObserveLLM(adapter, model, stop string, usage provider.Usage, err error, costUSD float64, keySource string) {
+	if err != nil {
 		m.LLMCalls.WithLabelValues(adapter, model, "error").Inc()
 		return
 	}
-	m.LLMCalls.WithLabelValues(adapter, model, string(resp.Stop)).Inc()
+	m.LLMCalls.WithLabelValues(adapter, model, stop).Inc()
 	for kind, n := range map[string]int64{
-		"input": resp.Usage.Input, "cache_read": resp.Usage.CacheRead, "cache_write": resp.Usage.CacheWrite,
-		"output": resp.Usage.Output, "reasoning": resp.Usage.Reasoning,
+		"input": usage.Input, "cache_read": usage.CacheRead, "cache_write": usage.CacheWrite,
+		"output": usage.Output, "reasoning": usage.Reasoning,
 	} {
 		if n > 0 {
 			m.LLMTokens.WithLabelValues(adapter, model, kind).Add(float64(n))
@@ -281,15 +95,13 @@ func (m *Metrics) ObserveLLM(adapter, model string, resp *llm.Response, err erro
 	}
 }
 
-// Seen records that agentID called Core now, for presence_gap_seconds.
+// Seen records that agentID called Core now.
 func (m *Metrics) Seen(agentID string) { m.presence.seen(agentID, time.Now()) }
 
-// Forget stops reporting agentID's presence gap: it was stopped or paused
-// on purpose, which is not a gap.
+// Forget stops reporting agentID's presence gap.
 func (m *Metrics) Forget(agentID string) { m.presence.forget(agentID) }
 
-// CoreCaller wraps next so that each call is counted and marks agentID as
-// present.
+// CoreCaller wraps next so each call is counted and marks agentID present.
 func (m *Metrics) CoreCaller(agentID string, next core.Caller) core.Caller {
 	return &countingCaller{m: m, agent: agentID, next: next}
 }
@@ -325,10 +137,7 @@ func (c *countingCaller) Call(ctx context.Context, tool string, args json.RawMes
 	return env, err
 }
 
-// presence reports, per agent, the seconds since it last reached Core.
-// Core's presence shows an agent online if seen in the last two minutes,
-// and records a token's use at most once a minute; above 60 s is worth an
-// alert (§2.5, §8.1).
+// presence reports seconds since each agent last reached Core.
 type presence struct {
 	mu   sync.Mutex
 	last map[string]time.Time

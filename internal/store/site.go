@@ -21,8 +21,7 @@ import (
 // as it does a hosted agent's change, without a restart.
 
 // SiteSetting is one of the site's settings: its value is a JSON object,
-// which the API writes and the registry reads (config.SiteOCR,
-// config.SiteQuotas).
+// which the API writes and the registry reads (config.SiteQuotas).
 type SiteSetting struct {
 	Name  string          `json:"name"`
 	Value json.RawMessage `json:"value"`
@@ -33,17 +32,12 @@ type SiteSetting struct {
 
 // The site's settings.
 const (
-	// SettingOCR is whether OCR runs, and in which languages.
-	SettingOCR = "ocr"
 	// SettingSchoolQuotas are the school plan's quotas, in place of
 	// runtime.yaml's.
 	SettingSchoolQuotas = "school_quotas"
 	// SettingAgentBudgets are the hosted agents' daily budgets by
 	// default, in place of runtime.defaults'.
 	SettingAgentBudgets = "agent_budgets"
-	// SettingTranscription is the transcriber's (package transcribe): on
-	// or off, the plan's offer it transcribes with, and its limits.
-	SettingTranscription = "transcription"
 )
 
 // SchoolTenantID is the tenant of the school's keys the site's

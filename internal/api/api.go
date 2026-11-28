@@ -29,12 +29,11 @@ import (
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/core"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/netguard"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/ocr"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/openrouter"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/pricing"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/registry"
+	runtimeRunner "github.com/AIShie-Education/AIShie-Agent-Runtime/internal/runner"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/vault"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/version"
@@ -56,6 +55,9 @@ type Options struct {
 	Verifier *webauth.Verifier
 	// Store is the runtime's store: the registry, the people, the audit.
 	Store store.Store
+	// Chat owns AR conversations, messages, attachments and drafts. Nil
+	// disables only the browser chat routes; the management API still runs.
+	Chat ChatService
 	// CoreBaseURL is the Core hosted agents run at (CORE_BASE_URL): the
 	// one Core the API asks about an agent.
 	CoreBaseURL string
@@ -82,22 +84,15 @@ type Options struct {
 	// Hosting is the configuration the runtime runs: the operator's YAML
 	// and the price file's table. Nil is none of either.
 	Hosting Hosting
-	// OCR is the worker's OCR, which the site's settings turn off and on
-	// and give its languages (admin/settings); nil is none here.
-	OCR OCR
-	// Transcriber is the worker's transcriber, which the site's settings
-	// turn on and off (admin/settings) and whose credential and jobs the
-	// administrators manage (admin/transcription); nil is none here.
-	Transcriber Transcriber
 	// Allowlist is CORE_BASE_URL_ALLOWLIST, which a change's dry run holds
 	// CORE_BASE_URL to, as the registry does.
 	Allowlist []string
-	// ModelHTTP carries keys/test's call to a provider: the hosted-model
-	// client (package netguard), which connects to public addresses alone
-	// and follows no redirect. netguard.Client(CoreHTTP) when nil.
+	// ModelHTTP carries OpenRouter catalogue calls over the guarded client.
+	// netguard.Client(CoreHTTP) when nil.
 	ModelHTTP *http.Client
-	// NewAdapter builds keys/test's adapter; providers.New when nil.
-	NewAdapter func(llm.Config) (llm.Adapter, error)
+	// Runner probes model keys for keys/test and school offers. Nil reports
+	// unreachable without sending a key anywhere.
+	Runner ProbeRunner
 	// OpenRouterBaseURL is OpenRouter's API, which the list of a model's
 	// upstream providers is read from over ModelHTTP;
 	// openrouter.DefaultBaseURL when empty. For tests.
@@ -122,7 +117,12 @@ type Options struct {
 // AskPermission is Core's authorization decision for a question, used by the
 // provider disclosure. *core.RuntimeService implements it.
 type AskPermission interface {
-	CheckAsk(ctx context.Context, actorID, agentID, courseID string) (bool, error)
+	CheckAsk(ctx context.Context, actorID, agentID, courseID string) (*core.RuntimeCheckAskResult, error)
+}
+
+// ProbeRunner is the management API's narrow face of the TypeScript runner.
+type ProbeRunner interface {
+	Probe(context.Context, runtimeRunner.Model) (runtimeRunner.ProbeResult, error)
 }
 
 // Actors says which agent of the worker's runs as a Core actor at a Core:
@@ -141,11 +141,6 @@ type Hosting interface {
 	Prices() *pricing.Table
 }
 
-// OCR is what the API reads of the worker's OCR: *ocr.Service.
-type OCR interface {
-	Capability() ocr.Capability
-}
-
 // Server is the API.
 type Server struct {
 	o        Options
@@ -156,7 +151,6 @@ type Server struct {
 	// modelHTTP carries keys/test's calls: Options.ModelHTTP, or the
 	// guarded client made from CoreHTTP.
 	modelHTTP *http.Client
-	cats      catalogueCache
 	// openRouter reads, and keeps, OpenRouter's lists of a model's
 	// upstream providers.
 	openRouter *openrouter.Catalogue
@@ -209,6 +203,22 @@ func New(o Options) *Server {
 	}
 	s.mux.Handle("GET "+Prefix+"info", s.public(s.info))
 	s.mux.Handle("GET "+Prefix+"me", s.authed(s.me))
+	s.mux.Handle("GET "+Prefix+"chat/approvals", s.authedBody(s.chatListApprovals))
+	s.mux.Handle("GET "+Prefix+"chat/approvals/{approval_id}", s.authed(s.chatGetApproval))
+	s.mux.Handle("GET "+Prefix+"chat/approvals/{approval_id}/attachments/{attachment_id}", s.authed(s.chatApprovalAttachment))
+	s.mux.Handle("POST "+Prefix+"chat/approvals/{approval_id}/decision", s.authedBody(s.chatDecideApproval))
+	s.mux.Handle("POST "+Prefix+"chat/approvals/{approval_id}/review", s.authedBody(s.chatReviewApproval))
+	s.mux.Handle("GET "+Prefix+"courses/{course_id}/chat/agents", s.authed(s.chatAgents))
+	s.mux.Handle("GET "+Prefix+"courses/{course_id}/conversations", s.authedBody(s.chatListConversations))
+	s.mux.Handle("POST "+Prefix+"courses/{course_id}/conversations", s.authedBody(s.chatCreateConversation))
+	s.mux.Handle("GET "+Prefix+"courses/{course_id}/conversations/{conversation_id}", s.authed(s.chatGetConversation))
+	s.mux.Handle("GET "+Prefix+"courses/{course_id}/conversations/{conversation_id}/messages", s.authedBody(s.chatMessages))
+	s.mux.Handle("POST "+Prefix+"courses/{course_id}/conversations/{conversation_id}/messages", s.authedBody(s.chatAppendMessage))
+	s.mux.Handle("POST "+Prefix+"courses/{course_id}/conversations/{conversation_id}/withdraw", s.authedBody(s.chatWithdrawMessage))
+	s.mux.Handle("POST "+Prefix+"courses/{course_id}/conversations/{conversation_id}/close", s.authed(s.chatCloseConversation))
+	s.mux.Handle("POST "+Prefix+"courses/{course_id}/attachments", s.authedBody(s.chatStageAttachment))
+	s.mux.Handle("GET "+Prefix+"courses/{course_id}/attachments/{attachment_id}", s.authed(s.chatGetAttachment))
+	s.mux.Handle("GET "+Prefix+"courses/{course_id}/conversations/{conversation_id}/stream", s.authed(s.chatConversationStream))
 	s.mux.Handle("POST "+Prefix+"agents/inspect", s.authedBody(s.limited(s.token, s.audited("agent.inspect", s.inspect))))
 	s.mux.Handle("POST "+Prefix+"agents", s.authedBody(s.limited(s.token, s.audited("agent.host", s.host))))
 	s.mux.Handle("GET "+Prefix+"agents", s.authed(s.list))
@@ -222,8 +232,6 @@ func New(o Options) *Server {
 	s.mux.Handle("GET "+Prefix+"models", s.authed(s.models))
 	s.mux.Handle("POST "+Prefix+"keys/test", s.authedBody(s.limitedKeyTest(s.audited("key.test", s.testKey))))
 	s.mux.Handle("GET "+Prefix+"admin/school-plan/usage", s.authed(s.schoolPlanUsage))
-	s.mux.Handle("GET "+Prefix+"admin/settings", s.authed(s.getSettings))
-	s.mux.Handle("PATCH "+Prefix+"admin/settings", s.authedBody(s.audited("settings.update", s.patchSettings)))
 	s.mux.Handle("GET "+Prefix+"admin/school-plan", s.authed(s.getSchoolPlan))
 	s.mux.Handle("POST "+Prefix+"admin/school-plan/offers", s.authedBody(s.audited("school_offer.create", s.createOffer)))
 	s.mux.Handle("GET "+Prefix+"admin/school-plan/offers/{id}", s.authed(s.getOffer))
@@ -245,9 +253,6 @@ func New(o Options) *Server {
 	s.mux.Handle("PUT "+Prefix+"admin/agent-budgets", s.authedBody(s.audited("agent_budgets.update", s.putAgentBudgets)))
 	s.mux.Handle("DELETE "+Prefix+"admin/agent-budgets", s.authed(s.audited("agent_budgets.reset", s.resetAgentBudgets)))
 	s.mux.Handle("GET "+Prefix+"admin/costs", s.authedBody(s.costs))
-	s.mux.Handle("PUT "+Prefix+"admin/transcription/credential", s.authedBody(s.audited("transcription_credential.set", s.putCredential)))
-	s.mux.Handle("DELETE "+Prefix+"admin/transcription/credential", s.authed(s.audited("transcription_credential.delete", s.deleteCredential)))
-	s.mux.Handle("GET "+Prefix+"admin/transcription/jobs", s.authedBody(s.jobs))
 
 	guard := http.NewCrossOriginProtection()
 	guard.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

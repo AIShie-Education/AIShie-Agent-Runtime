@@ -67,6 +67,98 @@ audit.target_type text not null
 audit.target_id text not null
 audit.outcome text not null
 audit.detail jsonb not null
+chat_approval.id text not null
+chat_approval.course_id text not null
+chat_approval.conversation_id text not null
+chat_approval.subject text not null
+chat_approval.message_id text not null
+chat_approval.generation_id text not null
+chat_approval.mode text not null
+chat_approval.state text not null
+chat_approval.reason text not null default ''::text
+chat_approval.created_at timestamp with time zone not null
+chat_approval.decided_at timestamp with time zone
+chat_approval_action.course_id text not null
+chat_approval_action.actor_id text not null
+chat_approval_action.key text not null
+chat_approval_action.approval_id text not null
+chat_approval_action.operation text not null
+chat_approval_action.fingerprint text not null
+chat_approval_action.created_at timestamp with time zone not null
+chat_attachment.id text not null
+chat_attachment.course_id text not null
+chat_attachment.owner_actor_id text not null
+chat_attachment.message_id text
+chat_attachment.position integer not null default '-1'::integer
+chat_attachment.filename text not null
+chat_attachment.media_type text not null
+chat_attachment.size bigint not null
+chat_attachment.bytes bytea not null
+chat_attachment.idempotency_key text
+chat_attachment.request_fingerprint text not null default ''::text
+chat_attachment.created_at timestamp with time zone not null
+chat_conversation.id text not null
+chat_conversation.course_id text not null
+chat_conversation.agent_id text not null
+chat_conversation.runtime_agent_id text not null default ''::text
+chat_conversation.opener_actor_id text not null
+chat_conversation.title text not null
+chat_conversation.state text not null
+chat_conversation.revision bigint not null
+chat_conversation.created_at timestamp with time zone not null
+chat_conversation.updated_at timestamp with time zone not null
+chat_conversation.last_activity_at timestamp with time zone not null
+chat_conversation.closed_at timestamp with time zone
+chat_conversation.close_reason text not null default ''::text
+chat_draft.conversation_id text not null
+chat_draft.version bigint not null
+chat_draft.text text not null
+chat_draft.steps jsonb not null
+chat_draft.updated_at timestamp with time zone not null
+chat_generation.id text not null
+chat_generation.conversation_id text not null
+chat_generation.user_message_id text not null
+chat_generation.assistant_message_id text not null
+chat_generation.state text not null
+chat_generation.attempt integer not null default 0
+chat_generation.holder text not null default ''::text
+chat_generation.fence bigint not null default 0
+chat_generation.answer_level text not null default 'autonomous'::text
+chat_generation.revision_reason text not null default ''::text
+chat_generation.revision_body text not null default ''::text
+chat_generation.revision_of_generation_id text not null default ''::text
+chat_generation.lease_expires_at timestamp with time zone not null default '1970-01-01 00:00:00+00'::timestamp with time zone
+chat_generation.result jsonb
+chat_generation.error_kind text not null default ''::text
+chat_generation.error_retryable boolean
+chat_generation.created_at timestamp with time zone not null
+chat_generation.updated_at timestamp with time zone not null
+chat_idempotency.course_id text not null
+chat_idempotency.actor_id text not null
+chat_idempotency.key text not null
+chat_idempotency.operation text not null
+chat_idempotency.fingerprint text not null
+chat_idempotency.conversation_id text not null
+chat_idempotency.message_id text not null
+chat_idempotency.submission_status text
+chat_idempotency.review_state text
+chat_idempotency.approval_id text
+chat_idempotency.created_at timestamp with time zone not null
+chat_message.id text not null
+chat_message.conversation_id text not null
+chat_message.seq bigint not null
+chat_message.role text not null
+chat_message.status text not null
+chat_message.body text not null
+chat_message.sources jsonb
+chat_message.sources_stated boolean
+chat_message.usage jsonb
+chat_message.finish_reason text not null default ''::text
+chat_message.error_kind text not null default ''::text
+chat_message.error_retryable boolean
+chat_message.created_at timestamp with time zone not null
+chat_message.retracted_at timestamp with time zone
+chat_message.retracted_reason text not null default ''::text
 cursor.agent_id text not null
 cursor.member_id text not null
 cursor.kind text not null
@@ -284,6 +376,49 @@ attempt attempt_pkey PRIMARY KEY (agent_id, key)
 attempt attempt_state_known CHECK ((state = ANY (ARRAY['sending'::text, 'executed'::text, 'proposed'::text, 'failed'::text, 'denied'::text, 'error'::text, 'rejected'::text, 'cancelled'::text, 'changes_requested'::text]))) NOT VALID
 audit audit_detail_object CHECK ((jsonb_typeof(detail) = 'object'::text))
 audit audit_pkey PRIMARY KEY (id)
+chat_approval chat_approval_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES chat_conversation(id) ON DELETE CASCADE
+chat_approval chat_approval_generation_id_fkey FOREIGN KEY (generation_id) REFERENCES chat_generation(id) ON DELETE CASCADE
+chat_approval chat_approval_message_id_fkey FOREIGN KEY (message_id) REFERENCES chat_message(id) ON DELETE CASCADE
+chat_approval chat_approval_mode_check CHECK ((mode = ANY (ARRAY['decision'::text, 'review'::text])))
+chat_approval chat_approval_pkey PRIMARY KEY (id)
+chat_approval chat_approval_state_check CHECK ((state = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text, 'changes_requested'::text, 'reviewed'::text, 'cancelled'::text])))
+chat_approval chat_approval_subject_check CHECK ((subject = ANY (ARRAY['question'::text, 'answer'::text])))
+chat_approval_action chat_approval_action_approval_id_fkey FOREIGN KEY (approval_id) REFERENCES chat_approval(id) ON DELETE CASCADE
+chat_approval_action chat_approval_action_operation_check CHECK ((operation = ANY (ARRAY['decide'::text, 'review'::text])))
+chat_approval_action chat_approval_action_pkey PRIMARY KEY (course_id, actor_id, key)
+chat_attachment chat_attachment_check CHECK (((NOT (media_type ~~ 'image/%'::text)) OR (size <= 5242880)))
+chat_attachment chat_attachment_check1 CHECK (((NOT (media_type ~~ 'text/%'::text)) OR (size <= 32768)))
+chat_attachment chat_attachment_media_type_check CHECK (((media_type ~~ 'image/%'::text) OR (media_type ~~ 'text/%'::text)))
+chat_attachment chat_attachment_message_id_fkey FOREIGN KEY (message_id) REFERENCES chat_message(id) ON DELETE CASCADE
+chat_attachment chat_attachment_pkey PRIMARY KEY (id)
+chat_attachment chat_attachment_size_check CHECK ((size >= 0))
+chat_conversation chat_conversation_pkey PRIMARY KEY (id)
+chat_conversation chat_conversation_revision_check CHECK ((revision > 0))
+chat_conversation chat_conversation_state_check CHECK ((state = ANY (ARRAY['queued'::text, 'answering'::text, 'answered'::text, 'reply_pending_approval'::text, 'failed'::text, 'closed'::text])))
+chat_draft chat_draft_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES chat_conversation(id) ON DELETE CASCADE
+chat_draft chat_draft_pkey PRIMARY KEY (conversation_id)
+chat_draft chat_draft_steps_check CHECK ((jsonb_typeof(steps) = 'array'::text))
+chat_draft chat_draft_version_check CHECK ((version > 0))
+chat_generation chat_generation_answer_level_check CHECK ((answer_level = ANY (ARRAY['autonomous'::text, 'pending_review'::text, 'confirm_required'::text])))
+chat_generation chat_generation_assistant_message_id_key UNIQUE (assistant_message_id)
+chat_generation chat_generation_attempt_check CHECK ((attempt >= 0))
+chat_generation chat_generation_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES chat_conversation(id) ON DELETE CASCADE
+chat_generation chat_generation_fence_check CHECK ((fence >= 0))
+chat_generation chat_generation_pkey PRIMARY KEY (id)
+chat_generation chat_generation_result_check CHECK (((result IS NULL) OR (jsonb_typeof(result) = 'object'::text)))
+chat_generation chat_generation_state_check CHECK ((state = ANY (ARRAY['queued'::text, 'running'::text, 'proposed'::text, 'done'::text, 'failed'::text, 'cancelled'::text])))
+chat_generation chat_generation_user_message_id_fkey FOREIGN KEY (user_message_id) REFERENCES chat_message(id) ON DELETE CASCADE
+chat_idempotency chat_idempotency_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES chat_conversation(id) ON DELETE CASCADE
+chat_idempotency chat_idempotency_pkey PRIMARY KEY (course_id, actor_id, key)
+chat_message chat_message_check CHECK (((status <> 'retracted'::text) OR (body = ''::text)))
+chat_message chat_message_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES chat_conversation(id) ON DELETE CASCADE
+chat_message chat_message_conversation_id_seq_key UNIQUE (conversation_id, seq)
+chat_message chat_message_pkey PRIMARY KEY (id)
+chat_message chat_message_role_check CHECK ((role = ANY (ARRAY['user'::text, 'assistant'::text])))
+chat_message chat_message_seq_check CHECK ((seq > 0))
+chat_message chat_message_sources_check CHECK (((sources IS NULL) OR (jsonb_typeof(sources) = 'array'::text)))
+chat_message chat_message_status_check CHECK ((status = ANY (ARRAY['posted'::text, 'pending'::text, 'retracted'::text, 'failed'::text])))
+chat_message chat_message_usage_check CHECK (((usage IS NULL) OR (jsonb_typeof(usage) = 'object'::text)))
 cursor cursor_pkey PRIMARY KEY (agent_id, member_id, kind)
 hosted_agent hosted_agent_core_actor_id_key UNIQUE (core_actor_id)
 hosted_agent hosted_agent_id_shape CHECK ((id ~ '^agt_[A-Za-z0-9_-]{1,60}$'::text))
@@ -373,6 +508,25 @@ CREATE INDEX audit_actor_idx ON public.audit USING btree (actor_id, at)
 CREATE INDEX audit_at_idx ON public.audit USING btree (at)
 CREATE UNIQUE INDEX audit_pkey ON public.audit USING btree (id)
 CREATE INDEX audit_target_idx ON public.audit USING btree (target_type, target_id, at)
+CREATE INDEX chat_approval_conversation ON public.chat_approval USING btree (conversation_id, created_at)
+CREATE INDEX chat_approval_course ON public.chat_approval USING btree (course_id, state, created_at, id)
+CREATE UNIQUE INDEX chat_approval_pkey ON public.chat_approval USING btree (id)
+CREATE UNIQUE INDEX chat_approval_action_pkey ON public.chat_approval_action USING btree (course_id, actor_id, key)
+CREATE UNIQUE INDEX chat_attachment_idempotency ON public.chat_attachment USING btree (course_id, owner_actor_id, idempotency_key) WHERE (idempotency_key IS NOT NULL)
+CREATE INDEX chat_attachment_message ON public.chat_attachment USING btree (message_id, "position")
+CREATE INDEX chat_attachment_owner ON public.chat_attachment USING btree (course_id, owner_actor_id, id)
+CREATE UNIQUE INDEX chat_attachment_pkey ON public.chat_attachment USING btree (id)
+CREATE INDEX chat_conversation_owner ON public.chat_conversation USING btree (course_id, opener_actor_id, last_activity_at DESC, id DESC)
+CREATE UNIQUE INDEX chat_conversation_pkey ON public.chat_conversation USING btree (id)
+CREATE UNIQUE INDEX chat_draft_pkey ON public.chat_draft USING btree (conversation_id)
+CREATE UNIQUE INDEX chat_generation_assistant_message_id_key ON public.chat_generation USING btree (assistant_message_id)
+CREATE INDEX chat_generation_conversation ON public.chat_generation USING btree (conversation_id, created_at)
+CREATE UNIQUE INDEX chat_generation_pkey ON public.chat_generation USING btree (id)
+CREATE INDEX chat_generation_recovery ON public.chat_generation USING btree (state, created_at, id)
+CREATE UNIQUE INDEX chat_idempotency_pkey ON public.chat_idempotency USING btree (course_id, actor_id, key)
+CREATE UNIQUE INDEX chat_message_conversation_id_seq_key ON public.chat_message USING btree (conversation_id, seq)
+CREATE INDEX chat_message_page ON public.chat_message USING btree (conversation_id, seq DESC)
+CREATE UNIQUE INDEX chat_message_pkey ON public.chat_message USING btree (id)
 CREATE UNIQUE INDEX cursor_pkey ON public.cursor USING btree (agent_id, member_id, kind)
 CREATE UNIQUE INDEX hosted_agent_core_actor_id_key ON public.hosted_agent USING btree (core_actor_id)
 CREATE UNIQUE INDEX hosted_agent_key_secret_id_key ON public.hosted_agent USING btree (key_secret_id)

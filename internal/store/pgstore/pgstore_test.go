@@ -409,6 +409,15 @@ func TestSchemaGolden(t *testing.T) {
 func describeSchema(t *testing.T, s *Store) []byte {
 	t.Helper()
 	ctx := t.Context()
+	conn, err := s.pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Release()
+	// Keep timestamptz defaults identical between a developer's machine and CI.
+	if _, err := conn.Exec(ctx, `SET TIME ZONE UTC`); err != nil {
+		t.Fatal(err)
+	}
 	var b bytes.Buffer
 	for _, q := range []struct{ title, sql string }{
 		{"columns", `
@@ -439,7 +448,7 @@ func describeSchema(t *testing.T, s *Store) []byte {
 			 ORDER BY t.tgrelid::regclass::text COLLATE "C", t.tgname COLLATE "C"`},
 	} {
 		fmt.Fprintf(&b, "-- %s\n", q.title)
-		rows, err := s.pool.Query(ctx, q.sql)
+		rows, err := conn.Query(ctx, q.sql)
 		if err != nil {
 			t.Fatal(err)
 		}

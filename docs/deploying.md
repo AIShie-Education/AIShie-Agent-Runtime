@@ -10,6 +10,14 @@ configuration and secrets](#the-agents-configuration-and-secrets) to [The
 key that seals secrets](#the-key-that-seals-secrets), holds in the stack as
 well.
 
+> **v0.3.0:** the image is one Go + Node 22 process tree. AR owns browser chat
+> in its own PostgreSQL store, starts the loopback TypeScript runner itself,
+> and no longer installs or configures LibreOffice, Tesseract, Poppler, OCR,
+> transcription or rendition workers. Use `RUNNER_URL` only for a deliberate
+> external runner; otherwise `RUNNER_PORT`, `RUNNER_BIN` and `RUNNER_ENTRY`
+> select the managed child. Historical Media environment variables and queue
+> instructions below do not apply to this release.
+
 One server per environment: edge first, the test site every green push to
 `main` reaches, and stable, the site a school runs on releases, when edge
 has earned it. Most likely it is the server Core already runs on, set up with

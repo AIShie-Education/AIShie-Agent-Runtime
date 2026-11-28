@@ -1,13 +1,16 @@
 # AIshie Agent Runtime
 
 The runtime that hosts AI agents for the AIshie LMS, the site's one
-runtime. It connects in to
+runtime. It owns the browser's conversations, messages, attachments, drafts,
+proposals and SSE in its own PostgreSQL store; Core stores none of that chat
+state. A Go control plane keeps hosting, assertions, Vault, leases, quotas,
+pricing and write-ahead recovery, and supervises a Node 22 TypeScript runner
+on loopback. The runner uses Vercel AI SDK and connects to
 [AIshie Core](https://github.com/AIShie-Education/AIShie-Core) as each
 agent Core hosts `runtime`, named by its id, with the one token Core
 issues the runtime for it (nobody pastes a token; an `mcp` agent is its
-owner's tools' to reach, never the runtime's). It finds the questions put
-to the agent and answers them with the model its owner chose, calling
-Core's tools only as far as the agent's seat allows.
+owner's tools' to reach, never the runtime's). Core is called over MCP only
+as far as the agent's current seat allows.
 
 Core is the contract. Its handout, `docs/agent-runtime.md` in AIShie-Core,
 says what an agent may do and how. This repository meets it:
@@ -21,32 +24,21 @@ says what an agent may do and how. This repository meets it:
   for a person's approval at `confirm_required`, refused at `denied`. Anyone
   else it answers gets reads alone. Each change is keyed so that no retry
   makes it twice, and the agent tells its owner plainly what it did.
-- **Agents read the course's documents.** The runtime, never the model,
-  fetches a document's file and gives it to the model by what it is: a
-  presentation or a document (`.pptx`, `.ppt`, `.odp`, `.docx`, `.doc`,
-  `.odt`, `.rtf`) as its PDF, the one Core keeps of it where Core has made
-  it and else the one LibreOffice makes here, slides as they look
-  with their speaker notes beside them, where the model takes files, and
-  as its text where it does not, slides, notes and tables kept apart, with
-  what OCR reads of the slides' pictures; a workbook as its text, sheet by
-  sheet; a PDF as a file where the model takes files, in parts of ten
-  pages when it is long, and as its text where it does not; a scan, and an
-  image, to a model that takes no files as the text the runtime's OCR
-  recognizes, in Chinese and English, marked as such. Every file is read
-  as a hostile one, within fixed limits, and LibreOffice and the OCR's
-  programs run apart, held in memory, time and what they see. Where Core
-  has a file's text version (文字版), the model reads that first, marked as
-  an AI transcription or the staff's, and may ask to see pages of the file
-  to check one.
-- **Agents search the course's materials.** A tool of the runtime's own,
-  `course_materials_search`, finds the passages of the course's documents
-  that best match a few words, in Chinese or English, and says where each
-  is (the document, version, file, and slide or page) with an excerpt and
-  the call that reads it, so that a model need not read whole decks to
-  find one. It searches only what the asking seat may read, as Core gives
-  it that seat, from an index the runtime builds in its own store as
-  searches need it, and drops as it hears of a version's purge, or after
-  30 days unused; no PostgreSQL extension is needed.
+- **Agents read the course's documents.** The runner calls Core's native
+  `document_get` and `document_text` tools, including a file's staff-written
+  text version, within the asking seat's current permissions. Conversation
+  attachments are deliberately lightweight: at most four images of at most
+  5 MiB each and small `text/*` files go directly to a multimodal model.
+  AR does no OCR, Office conversion, PDF splitting, transcription or
+  rendition, and the image contains no LibreOffice, Tesseract, Poppler or
+  CJK font toolchain.
+- **Agents search the course's materials.** Core's native
+  `course_materials_search` finds matching passages in Chinese or English and
+  returns the document, version, file, page or slide, part and a bounded
+  excerpt, plus the exact read call. Core keeps a zero-extension GIN index,
+  updates it in the writing transaction and backfills older material in the
+  background. Every search applies the live course, publication, assignment
+  and principal scopes; no PostgreSQL extension is needed.
 - **Answers say what they relied on.** A posted answer names the course
   materials its model was given while it wrote it, in the order it read
   them: each version of a material, instructions or rubric that its
@@ -64,65 +56,31 @@ says what an agent may do and how. This repository meets it:
   answer and shows each reader what they may open
   ([`docs/design.md`](docs/design.md#53-one-answer), What the answer
   relied on).
-- **Text versions of the course's files.** A module of its own, off until
-  the site's administrators turn it on: one worker at a time claims the
-  files waiting in Core's queue, has a model of the school's plan
-  transcribe each into Markdown, page by page, with its pictures
-  described, and writes the text back to Core, on the school's key, its
-  costs a line of their own.
-- **Office files previewed as PDF.** On by default, with nothing to
-  configure but the runtime's own credential in Core: every Office and
-  OpenDocument file Core keeps, of a document or a message, is converted
-  once by LibreOffice, in the same sandbox, to the PDF the site previews
-  it as, taken from Core's queue and handed back to Core
-  ([`docs/deploying.md`](docs/deploying.md#office-files-previewed-as-pdf-renditions));
-  a model reading the file is given that same PDF, and the file is not
-  converted again.
 - **Five model APIs.** OpenAI Chat, which also covers the compatible servers
   (DeepSeek, Azure OpenAI, Ollama, vLLM…), OpenAI Responses, Anthropic,
   Gemini and Bedrock Converse. Each agent can have a fallback model.
 - **Safe answers.**
-  - Answers are exactly once. Each is written ahead under Core's idempotency
-    key, `answer:{conversation}:{message}:{attempt}`, so no crash, retry or
-    second worker posts it twice.
-  - Proposals are followed. An agent whose seat is at `confirm_required`
-    proposes. It notes the answer when a person approves, and tries again
-    with the reason when one rejects. When one sends the answer back for
-    changes, with a note, it writes the answer again, told plainly what
-    to change and shown the answer they read, and proposes it naming the
-    one it revises; a revision can be sent back in turn, within the
-    answer's attempts. A rejection since overrules the request: the next
-    answer names nothing it revises.
-  - Conversations stay open. The runtime never closes one: a question it
-    could not answer in its attempts waits until the next day.
-  - Stop means stop. A question its asker withdraws (retracts) is not
-    answered: the answer being written to it stops at once, its model call
-    cancelled, and nothing is posted.
-  - No answer is cut off unexplained. One that runs past the model's
-    output cap is continued where it stops, within the answer's budgets,
-    the last continuation told to bring it to a close; one still cut short
-    says so, and that a reply of "continue" brings the rest.
-  - A spent budget still gets an answer where it can. The last turn is
-    forced, with no tools, the model asked for the least thinking its
-    provider documents for it and never more than it does unasked
-    (thinking off where it goes off, else the lowest effort, nothing for
-    a model that thinks least unasked, such as GPT-5.1), within what the
-    turns before it left it of the output tokens; one
-    that writes nothing is asked once more for a short answer from what
-    it read. Only then is
-    the notice posted, in the asker's language (English, or Chinese in
-    either script), as are the notices of a refusal and of a spent quota,
-    unless the agent sets its own.
-  - Budgets and quotas: per answer (turns, tool calls, tokens, wall clock),
-    and per asker, agent and tenant per day, in answers and dollars.
-  - Nothing leaks out. Links and images that could carry data out are
-    stripped from what the model writes. Tokens and keys are redacted from
-    every log.
-- **Core's rate limit is shared.** Each agent polls within its share of it.
-  Where Core's reads wait for news, each inbox call waits for a question
-  and a question is noticed within milliseconds; against an older Core the
-  inbox is polled faster while a conversation is active, backing off when
-  idle.
+  - AR writes each model result ahead before publishing it. Every generation
+    has a holder, fencing token and lease, so a stale worker cannot overwrite
+    or publish over a newer attempt. Idempotent create/ask and deterministic
+    message ids keep retries from duplicating a conversation or answer.
+  - Submitting for approval is a successful `proposed` result, not an error
+    and not execution. A pending question does not invoke a model until it is
+    approved; a pending answer's body is hidden from its asker until approval.
+    Rejection, changes requested and post-publication review are recorded
+    separately, with idempotent decisions and fresh Core authorization checks.
+  - Withdrawal aborts the active HTTP call; the runner's AbortController stops
+    the model and closes its MCP connection. A retracted question is never
+    published over by a late result.
+  - Per-answer limits cover steps, tool calls, writes, output and wall clock;
+    daily quotas cover askers, agents and tenants in answers and dollars.
+  - Links and images that could carry data out are stripped from answers.
+    Tokens, provider keys, signed URLs and provider error bodies are not
+    written to chat rows or logs.
+- **Core remains the authorization boundary.** Every MCP call is authorized
+  again by Core. The runtime does not poll a Core conversation inbox or post
+  Core conversation answers; its own outbox, leases and recovery sweeps drive
+  the new browser chat.
 
 How it is built, and where it departs from the handout, is in
 [`docs/design.md`](docs/design.md).
@@ -160,11 +118,9 @@ plan, the models the school offers hosted agents on its own key with the
 quotas that hold them; an offer of a model at OpenRouter may also say which
 of the upstream providers serving it may answer, and on what terms (no
 data kept, zero data retention, precision, highest price), which goes with
-every call made on it. The runtime's administrators also turn OCR off and
-on, choose its languages, turn the transcriber on and hand it Core's
-service credential, make offers of the school's plan (one at OpenRouter
-with its upstream routing, set against OpenRouter's list of the upstream
-providers serving its model), set its quotas,
+every call made on it. The runtime's administrators make offers of the
+school's plan (one at OpenRouter with its upstream routing, set against
+OpenRouter's list of the upstream providers serving its model), set its quotas,
 the tenants' and the hosted agents' budgets, add prices beside the price
 file's, and read what things cost, from the front end, within what the
 environment and `runtime.yaml` allow
@@ -198,7 +154,7 @@ The process is set up from the environment:
 | `HTTP_ADDR` | where `/healthz`, `/metrics` and `/status` listen (default `127.0.0.1:9090`) |
 | `CORE_BASE_URL_ALLOWLIST` | the Core origins or host patterns an agent may point at |
 | `CORE_BASE_URL` | the Core the hosted agents run at: those people host themselves, kept in the database (`DATABASE_URL`) |
-| `CORE_SERVICE_CREDENTIAL` | where the runtime's own credential in Core is (its `agent_runtime` service's, `aissvc_…`), with which it is issued each agent's token by the agent's id, and takes the Office files it converts to PDF: `secret://core/agent_runtime` by default ([`docs/deploying.md`](docs/deploying.md#the-runtimes-own-credential-in-core)) |
+| `CORE_SERVICE_CREDENTIAL` | where the runtime's own credential in Core is (its `agent_runtime` service's, `aissvc_…`), with which it is issued each agent's token by the agent's id: `secret://core/agent_runtime` by default ([`docs/deploying.md`](docs/deploying.md#the-runtimes-own-credential-in-core)) |
 | `SECRETS_DIR` | where `secret://` references are looked for |
 | `PRICES` | the price table, instead of the runtime's `prices_ref` |
 | `KMS_KEY_ID` | the key that seals the secrets kept in the database: `local:<dir>/<name>`, a 32-byte key in that file |
@@ -208,9 +164,8 @@ The process is set up from the environment:
 | `LOG_LEVEL`, `LOG_FORMAT` | `info` and `json` by default |
 | `LOG_REDACT_EXTRA` | regular expressions redacted from logs, beside the built-in token and key shapes |
 | `WORKER_ID`, `SHUTDOWN_GRACE` | this process's name in leases (default hostname-pid); the grace on `SIGTERM` (default `15s`) |
-| `OCR`, `OCR_*` | the OCR of scanned PDFs and images for models that cannot take the files: `auto` (on where tesseract, pdftoppm and prlimit are, as in the image), `on` or `off`, and its languages, pages, resolution, time, memory and turns ([`docs/deploying.md`](docs/deploying.md#scanned-documents-ocr)) |
-| `OFFICE_PDF`, `OFFICE_PDF_*`, `PDF_PART_PAGES` | the conversion of presentations and documents to PDF by LibreOffice: `auto` (on where soffice and prlimit are, as in the image), `on` or `off`, its time, pages and memory; and the pages of a PDF a model is given as one file ([`docs/deploying.md`](docs/deploying.md#presentations-and-documents-libreoffice)) |
-| `RENDITIONS`, `RENDITIONS_*` | the PDF renditions of the Office files Core keeps: `auto` (on wherever LibreOffice converts and `CORE_BASE_URL` is set), `on` or `off`, how many at once, each one's time, and Core's lease on it ([`docs/deploying.md`](docs/deploying.md#office-files-previewed-as-pdf-renditions)) |
+| `RUNNER_URL` | an external TypeScript runner; unset, `run` manages the same-container loopback runner |
+| `RUNNER_PORT`, `RUNNER_BIN`, `RUNNER_ENTRY` | its loopback port (default 3001), executable (default `node`) and script (default `runner/dist/index.js`) |
 
 `aishie-runtime help` lists them as the binary reads them.
 
@@ -238,18 +193,17 @@ DATABASE_URL=postgres:///aishie_runtime bin/aishie-runtime run
 
 ## Development
 
-Go 1.27.4 and PostgreSQL 13 or later. `make help` lists the targets:
+Go 1.27.4, Node 22 and PostgreSQL 13 or later. `make help` lists the targets:
 
-- `make test` runs the unit and integration tests. They run against a fake
-  Core held to fixtures recorded from the real one, and against scripted
-  models. They also use the store on `TEST_DATABASE_URL`.
+- `make test` runs the Go unit and store integration tests, including the
+  memstore/PostgreSQL chat contracts and small httptest Core/Runner mocks.
+- `make runner-ci` installs and checks the TypeScript runner, then runs its
+  Vitest suite and build.
 - `make e2e` starts the Core pinned in `.github/core-image` and runs `e2e/`
-  against it.
+  against the real AR chat path.
 - `make lint` runs gofmt, go mod tidy, actionlint, go vet and golangci-lint.
-- `make live` tries the adapters against the real providers whose keys are
-  set, and `make live-core` tries Core's client and a seat's toolset
-  against a Core of their own. CI runs neither; `docs/design.md` §10 says
-  when to.
+- `make live` probes each configured provider through the TypeScript runner;
+  a provider without its key is skipped.
 
 [`CONTRIBUTING.md`](CONTRIBUTING.md) covers how changes, migrations and
 releases are made.
@@ -277,9 +231,8 @@ this repository has the server's address and key; until then a deploy
 records itself, says which image is ready and does nothing.
 [`docs/deploying.md`](docs/deploying.md) says how such a server is set up,
 how the workflow is connected, and how to roll back; what it says of the
-runtime's own settings (the agents and their secrets, OCR, LibreOffice, the
-renditions, hosted agents, the school's plan, the API) holds in the stack
-as well.
+runtime's own settings (the agents and their secrets, the loopback runner,
+hosted agents, the school's plan, the API) holds in the stack as well.
 
 ## License
 

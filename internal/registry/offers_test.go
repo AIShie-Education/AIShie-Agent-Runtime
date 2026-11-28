@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/config"
-	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/llm"
+	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/provider"
 	"github.com/AIShie-Education/AIShie-Agent-Runtime/internal/store"
 )
 
@@ -67,14 +67,14 @@ func TestOffersAreOfficial(t *testing.T) {
 				if !Official(ad, u) {
 					t.Errorf("%s: %s is not official for %s", o.Provider, raw, ad)
 				}
-				if p := llm.DetectProvider(ad, raw); o.Endpoint.Stored != "" && p != o.Provider {
+				if p := provider.DetectProvider(ad, raw); o.Endpoint.Stored != "" && p != o.Provider {
 					t.Errorf("%s: %s is detected as %s", o.Provider, raw, p)
 				}
 			}
 		}
 	}
-	for _, p := range []string{llm.ProviderOpenAI, llm.ProviderAzure, llm.ProviderAnthropic, llm.ProviderGemini, llm.ProviderBedrock,
-		llm.ProviderDeepSeek, llm.ProviderQwen, llm.ProviderMoonshot, llm.ProviderGLM, llm.ProviderOpenRouter} {
+	for _, p := range []string{provider.ProviderOpenAI, provider.ProviderAzure, provider.ProviderAnthropic, provider.ProviderGemini, provider.ProviderBedrock,
+		provider.ProviderDeepSeek, provider.ProviderQwen, provider.ProviderMoonshot, provider.ProviderGLM, provider.ProviderOpenRouter} {
 		if !seen[p] {
 			t.Errorf("%s is not offered", p)
 		}
