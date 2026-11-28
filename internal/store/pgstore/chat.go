@@ -114,6 +114,9 @@ func chatSnapshotQ(ctx context.Context, q chatQuerier, course, conv, actor strin
 	if limit <= 0 {
 		limit = 50
 	}
+	if limit > 200 {
+		limit = 200
+	}
 	c, err := scanChatConversation(q.QueryRow(ctx, `SELECT `+chatConversationColumns+` FROM chat_conversation
 		WHERE id = $1 AND course_id = $2 AND opener_actor_id = $3`, conv, course, actor))
 	if errors.Is(err, pgx.ErrNoRows) {

@@ -57,7 +57,8 @@ func (w *chatSSEWriter) writeFrame(rw http.ResponseWriter, event string, payload
 		if err != nil {
 			return errors.New("chat stream: cannot encode safe event")
 		}
-		frame = make([]byte, 0, len(event)+len(data)+16)
+		// Append without precomputing a caller-influenced capacity: an
+		// overflowing size expression must never become an allocation size.
 		frame = append(frame, "event: "...)
 		frame = append(frame, event...)
 		frame = append(frame, "\ndata: "...)
